@@ -2,7 +2,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction } from '../../src/actions/emailActions';
-import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Send } from 'lucide-react';
+import { getAccountsAction } from '../../src/actions/accountActions';
+import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Send, User } from 'lucide-react';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
 
 interface InlineReplyProps {
@@ -18,6 +19,8 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
     const [body, setBody] = useState('');
     const [isSending, setIsSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [accounts, setAccounts] = useState<any[]>([]);
+    const [selectedAccountId, setSelectedAccountId] = useState(accountId);
     const editorRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [showFormatting, setShowFormatting] = useState(false);
@@ -31,6 +34,18 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
     const selectionRef = useRef<Range | null>(null);
 
     useEffect(() => {
+        const fetchAccounts = async () => {
+            try {
+                const data = await getAccountsAction('1ca1464d-1009-426e-96d5-8c5e8c84faac');
+                setAccounts(data);
+                // If initial accountId is not in the list (rare), we still keep it or pick first
+                if (!data.find((a: any) => a.id === accountId) && data.length > 0) {
+                    // We keep current accountId if passed, but make sure it's selectable
+                }
+            } catch (err) { console.error('Failed to fetch accounts:', err); }
+        };
+        fetchAccounts();
+
         if (editorRef.current) {
             editorRef.current.focus();
         }
@@ -138,7 +153,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
         setError(null);
         try {
             const replySubject = subject?.startsWith('Re:') ? subject : `Re: ${subject}`;
-            const result = await sendEmailAction({ to, subject: replySubject, body, accountId, threadId }) as { success: boolean, error?: string, messageId?: string };
+            const result = await sendEmailAction({ to, subject: replySubject, body, accountId: selectedAccountId, threadId }) as { success: boolean, error?: string, messageId?: string };
             if (result.success) {
                 onSuccess();
             } else {
@@ -188,7 +203,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
         }}>
             {/* Header */}
             <div className="inline-reply-header" style={{
-                padding: '12px 16px',
+                padding: '8px 16px',
                 borderBottom: '1px solid #3c4043',
                 display: 'flex',
                 alignItems: 'center',
@@ -197,11 +212,42 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                 borderTopLeftRadius: '11px',
                 borderTopRightRadius: '11px',
             }}>
-                <div className="avatar-sm" style={{ background: '#1a73e8' }}>Me</div>
-                <span style={{ fontSize: '13px', color: '#9aa0a6' }}>
-                    Replying to <span style={{ color: '#e8eaed', fontWeight: 600 }}>{to}</span>
-                </span>
-                <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#5f6368' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                    <div className="avatar-sm" style={{ background: '#1a73e8', width: '24px', height: '24px', fontSize: '11px' }}>
+                        <User size={14} />
+                    </div>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <select
+                            value={selectedAccountId}
+                            onChange={(e) => setSelectedAccountId(e.target.value)}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#e8eaed',
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                outline: 'none',
+                                cursor: 'pointer',
+                                paddingRight: '20px',
+                                appearance: 'none'
+                            }}
+                        >
+                            {accounts.map(acc => (
+                                <option key={acc.id} value={acc.id} style={{ background: '#202124', color: '#e8eaed' }}>
+                                    {acc.email}
+                                </option>
+                            ))}
+                            {!accounts.find(a => a.id === selectedAccountId) && (
+                                <option value={selectedAccountId}>Current Account</option>
+                            )}
+                        </select>
+                        <ChevronDown size={12} style={{ position: 'absolute', right: 0, pointerEvents: 'none', color: '#9aa0a6' }} />
+                    </div>
+                    <span style={{ fontSize: '13px', color: '#9aa0a6', marginLeft: '4px' }}>
+                        Replying to <span style={{ color: '#e8eaed', fontWeight: 600 }}>{to}</span>
+                    </span>
+                </div>
+                <span style={{ fontSize: '12px', color: '#5f6368', whiteSpace: 'nowrap' }}>
                     Ctrl+Enter to send
                 </span>
             </div>

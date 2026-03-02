@@ -34,3 +34,5 @@ prisma_*.txt
 typescript-errors.txt
 gen_output.txt
 lint/
+
+.vercel

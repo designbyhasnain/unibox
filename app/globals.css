@@ -2087,9 +2087,14 @@ select.form-input option {
     position: relative;
     display: flex;
     align-items: center;
-    min-height: 34px;
-    border-bottom: 1px solid #3c4043;
+    min-height: 48px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     padding: 0 16px;
+    transition: background 0.15s;
+}
+
+.compose-row:hover {
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .compose-inline-label {
@@ -2109,12 +2114,23 @@ select.form-input option {
     outline: none;
     font-family: inherit;
     width: 100%;
-    padding: 8px 0;
+    padding: 12px 0;
 }
 
 .compose-input::placeholder {
     color: #9aa0a6;
-    opacity: 1;
+    opacity: 0.8;
+}
+
+select.compose-input {
+    cursor: pointer;
+    background: transparent;
+}
+
+select.compose-input option {
+    background: #202124;
+    color: #e8eaed;
+    padding: 12px;
 }
 
 .compose-cc-bcc-actions {

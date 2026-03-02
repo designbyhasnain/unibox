@@ -214,6 +214,25 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                 <>
                     <div className="compose-body-container">
                         <div className="compose-row">
+                            <span className="compose-inline-label">From</span>
+                            <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                <select
+                                    className="compose-input"
+                                    value={fromAccount}
+                                    onChange={(e) => setFromAccount(e.target.value)}
+                                    style={{ appearance: 'none', cursor: 'pointer', paddingRight: '24px' }}
+                                >
+                                    {accounts.map(acc => (
+                                        <option key={acc.id} value={acc.id} style={{ background: '#202124', color: '#e8eaed' }}>
+                                            {acc.email} {acc.manager_name ? `(${acc.manager_name})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown size={14} style={{ position: 'absolute', right: 0, pointerEvents: 'none', color: '#9aa0a6' }} />
+                            </div>
+                        </div>
+
+                        <div className="compose-row">
                             <input
                                 className="compose-input"
                                 type="email"
