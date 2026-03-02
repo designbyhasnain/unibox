@@ -1,0 +1,13 @@
+
+> unibox@1.0.0 lint
+> next lint
+
+ΓÜá Port 3000 is in use by process 14400, using available port 3001 instead.
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://10.5.0.2:3001
+
+Γ£ô Starting...
+Error: > Couldn't find any `pages` or `app` directory. Please create one under the project root
+    at ignore-listed frames
+[?25h

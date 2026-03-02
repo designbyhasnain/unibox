@@ -1,0 +1,495 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// --- Enums ---
+
+enum Role {
+  ACCOUNT_MANAGER
+  VIDEO_EDITOR
+  CLIENT
+  @@map("user_role")
+}
+
+enum UserStatus {
+  ACTIVE
+  REVOKED
+  @@map("user_status_crm")
+}
+
+enum GmailAccountStatus {
+  ACTIVE
+  ERROR
+  DISCONNECTED
+  SYNCING
+  @@map("gmail_account_status")
+}
+
+enum ConnectionMethod {
+  OAUTH
+  MANUAL
+  @@map("connection_method")
+}
+
+enum PipelineStage {
+  LEAD
+  COLD_LEAD
+  OFFER_ACCEPTED
+  CLOSED
+  @@map("pipeline_stage")
+}
+
+enum EmailDirection {
+  SENT
+  RECEIVED
+  @@map("email_direction")
+}
+
+enum PaidStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  @@map("paid_status")
+}
+
+enum FinalReviewStatus {
+  PENDING
+  APPROVED
+  REVISIONS_NEEDED
+  @@map("final_review_status")
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+  @@map("priority_level")
+}
+
+enum CampaignStatus {
+  Draft
+  Running
+  Paused
+  Completed
+  Archived
+  @@map("campaign_status")
+}
+
+enum EmailAccountStatus {
+  Active
+  Warmup
+  Paused
+  Disconnected
+  @@map("email_account_status")
+}
+
+enum EmailProvider {
+  Gmail
+  Outlook
+  SMTP
+  @@map("email_provider")
+}
+
+enum EmailLogStatus {
+  Queued
+  Sent
+  Delivered
+  Opened
+  Clicked
+  Replied
+  Bounced
+  Failed
+  @@map("email_log_status")
+}
+
+enum LeadStatus {
+  Not_Contacted @map("Not Contacted")
+  Contacted
+  Replied
+  Interested
+  Not_Interested @map("Not Interested")
+  Bounced
+  Unsubscribed
+  Meeting_Booked @map("Meeting Booked")
+  Meeting_Completed @map("Meeting Completed")
+  Won
+  @@map("lead_status")
+}
+
+// --- Models ---
+
+model User {
+  id        String     @id @default(uuid())
+  name      String
+  email     String     @unique
+  role      Role       @default(ACCOUNT_MANAGER)
+  invitedBy String?    @map("invited_by")
+  status    UserStatus @default(ACTIVE)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  // Relationships
+  gmailAccounts    GmailAccount[]
+  emailAccounts    EmailAccount[]
+  handledContacts  Contact[]      @relation("AccountManager")
+  projects         Project[]
+  campaigns        Campaign[]
+  emailLogs        EmailLog[]
+  replies          Reply[]
+
+  @@map("users")
+}
+
+model Contact {
+  id               String         @id @default(uuid())
+  name             String?
+  email            String         @unique
+  source           String?
+  notes            String?
+  
+  isLead           Boolean        @default(false) @map("is_lead")
+  pipelineStage    PipelineStage? @map("pipeline_stage")
+  
+  isClient         Boolean        @default(false) @map("is_client")
+
+  accountManagerId String?        @map("account_manager_id")
+  accountManager   User?          @relation("AccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
+  
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  // Relationships
+  emails           EmailMessage[]
+  projects         Project[]
+  activityLogs     ActivityLog[]
+
+  @@index([accountManagerId])
+  @@index([isLead])
+  @@index([isClient])
+  @@map("contacts")
+}
+
+model GmailAccount {
+  id               String             @id @default(uuid())
+  userId           String             @map("user_id")
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email            String             @unique
+  connectionMethod ConnectionMethod   @default(OAUTH) @map("connection_method")
+  accessToken      String?            @map("access_token")
+  refreshToken     String?            @db.Text @map("refresh_token")
+  appPassword      String?            @db.Text @map("app_password")
+  status           GmailAccountStatus @default(ACTIVE)
+  lastSyncedAt     DateTime?          @map("last_synced_at")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  historyId        String?            @map("history_id")
+  
+  emails           EmailMessage[]
+
+  @@index([userId])
+  @@map("gmail_accounts")
+}
+
+model EmailThread {
+  id           String         @id @unique // The Gmail thread ID
+  subject      String?
+  
+  messages     EmailMessage[]
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  @@map("email_threads")
+}
+
+model EmailMessage {
+  id             String         @id @unique // The Gmail message ID
+  gmailAccountId String         @map("gmail_account_id")
+  gmailAccount   GmailAccount   @relation(fields: [gmailAccountId], references: [id], onDelete: Cascade)
+  
+  threadId       String         @map("thread_id")
+  thread         EmailThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  contactId      String?        @map("contact_id")
+  contact        Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  fromEmail      String         @map("from_email")
+  toEmail        String         @map("to_email")
+  subject        String
+  body           String         @db.Text
+  snippet        String?        @db.Text
+  direction      EmailDirection
+  isUnread       Boolean        @default(true) @map("is_unread")
+  sentAt         DateTime       @map("sent_at")
+  pipelineStage  String?        @map("pipeline_stage")
+
+  // Relationships for linking outreach replies/logs
+  replies        Reply[]
+  emailLogs      EmailLog[]
+  linkedProjects Project[]
+
+  // Performance indexes - critical for inbox query speed
+  @@index([gmailAccountId, direction, sentAt(sort: Desc)])
+  @@index([threadId])
+  @@index([contactId])
+  @@index([isUnread])
+  @@index([pipelineStage])
+  @@map("email_messages")
+}
+
+model Project {
+  id                String            @id @default(uuid())
+  clientId          String            @map("client_id")
+  client            Contact           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  
+  projectName       String            @map("project_name")
+  projectDate       DateTime          @map("project_date")
+  dueDate           DateTime          @map("due_date")
+  
+  accountManagerId  String            @map("account_manager_id")
+  accountManager    User              @relation(fields: [accountManagerId], references: [id], onDelete: Restrict)
+  
+  paidStatus        PaidStatus        @default(UNPAID) @map("paid_status")
+  quote             Float?
+  projectValue      Float?            @map("project_value")
+  projectLink       String?           @map("project_link")
+  brief             String?           @db.Text
+  reference         String?
+  deductionOnDelay  Float?            @map("deduction_on_delay")
+  finalReview       FinalReviewStatus @default(PENDING) @map("final_review")
+  priority          Priority          @default(MEDIUM)
+  
+  sourceEmailId     String?           @map("source_email_id")
+  sourceEmail       EmailMessage?     @relation(fields: [sourceEmailId], references: [id], onDelete: SetNull)
+  
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  
+  activityLogs      ActivityLog[]
+
+  @@map("projects")
+}
+
+model ActivityLog {
+  id               String            @id @default(uuid())
+  action           String            
+  performedBy      String?           @map("performed_by")
+  note             String?           @db.Text
+  
+  contactId        String?           @map("contact_id")
+  contact          Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  
+  projectId        String?           @map("project_id")
+  project          Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  createdAt        DateTime          @default(now()) @map("created_at")
+
+  @@map("activity_logs")
+}
+
+// --- Outreach Tables ---
+
+model Campaign {
+  id            String         @id @default(uuid())
+  userId        String         @map("user_id")
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  status        CampaignStatus @default(Draft)
+  totalLeads    Int            @default(0) @map("total_leads")
+  dailyLimit    Int?           @default(100) @map("daily_limit")
+  startDate     DateTime?      @map("start_date") @db.Date
+  endDate       DateTime?      @map("end_date") @db.Date
+  timezone      String?        @default("UTC")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @default(now()) @map("updated_at")
+
+  leads         OutreachLead[]
+  sequences     Sequence[]
+  emailLogs     EmailLog[]
+  replies       Reply[]
+  accounts      CampaignEmailAccount[]
+
+  @@map("campaigns")
+}
+
+model OutreachLead {
+  id              String         @id @default(uuid())
+  campaignId      String         @map("campaign_id")
+  campaign        Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  email           String
+  firstName       String?        @map("first_name")
+  lastName        String?        @map("last_name")
+  company         String?
+  title           String?
+  phone           String?
+  linkedinUrl     String?        @map("linkedin_url")
+  website         String?
+  customVariables Json?          @default("{}") @map("custom_variables")
+  status          LeadStatus     @default(Not_Contacted)
+  currentStep     Int            @default(0) @map("current_step")
+  lastContactedAt DateTime?      @map("last_contacted_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @default(now()) @map("updated_at")
+
+  emailLogs       EmailLog[]
+  replies         Reply[]
+
+  @@map("leads")
+}
+
+model Sequence {
+  id          String    @id @default(uuid())
+  campaignId  String    @map("campaign_id")
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  stepNumber  Int       @map("step_number")
+  subject     String
+  emailBody   String    @map("email_body") @db.Text
+  delayDays   Int       @default(1) @map("delay_days")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @map("updated_at")
+  
+  emailLogs   EmailLog[]
+
+  @@map("sequences")
+}
+
+model EmailAccount {
+  id               String             @id @default(uuid())
+  userId           String             @map("user_id")
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailAddress     String             @map("email_address")
+  displayName      String?            @map("display_name")
+  provider         EmailProvider      @default(SMTP)
+  refreshToken     String?            @map("refresh_token")
+  smtpHost         String?            @map("smtp_host")
+  smtpPort         Int?               @map("smtp_port")
+  smtpUsername     String?            @map("smtp_username")
+  smtpPassword     String?            @map("smtp_password")
+  smtpEncryption   String?            @default("STARTTLS") @map("smtp_encryption")
+  imapHost         String?            @map("imap_host")
+  imapPort         Int?               @map("imap_port")
+  imapUsername     String?            @map("imap_username")
+  imapPassword     String?            @map("imap_password")
+  status           EmailAccountStatus @default(Active)
+  dailyLimit       Int                @default(50) @map("daily_limit")
+  sentCountToday   Int                @default(0) @map("sent_count_today")
+  warmupEnabled    Boolean            @default(false) @map("warmup_enabled")
+  lastSyncedAt     DateTime?          @map("last_synced_at")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @default(now()) @map("updated_at")
+  access_token     String?
+  expires_at       DateTime?
+
+  campaigns        CampaignEmailAccount[]
+  emailLogs        EmailLog[]
+  replies          Reply[]
+  warmupStats      WarmupStat[]
+
+  @@map("email_accounts")
+}
+
+model CampaignEmailAccount {
+  id              String       @id @default(uuid())
+  campaignId      String       @map("campaign_id")
+  campaign        Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  emailAccountId  String       @map("email_account_id")
+  emailAccount    EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  @@map("campaign_email_accounts")
+}
+
+model EmailLog {
+  id               String         @id @default(uuid())
+  userId           String         @map("user_id")
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId           String?        @map("lead_id")
+  lead             OutreachLead?  @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  campaignId       String?        @map("campaign_id")
+  campaign         Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  sequenceStepId   String?        @map("sequence_step_id")
+  sequence         Sequence?      @relation(fields: [sequenceStepId], references: [id], onDelete: SetNull)
+  emailAccountId   String?        @map("email_account_id")
+  emailAccount     EmailAccount?  @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
+  
+  status           EmailLogStatus @default(Queued)
+  messageId        String?        @map("message_id") // Links to EmailMessage.id
+  emailMessage     EmailMessage?  @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  
+  subject          String?
+  openedAt         DateTime?      @map("opened_at")
+  clickedAt        DateTime?      @map("clicked_at")
+  repliedAt        DateTime?      @map("replied_at")
+  bouncedAt        DateTime?      @map("bounced_at")
+  errorMessage     String?        @map("error_message")
+  sentAt           DateTime?      @map("sent_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  threadId         String?        @map("thread_id")
+  labels           String[]
+  bodyText         String?        @map("body_text")
+  toEmail          String?        @map("to_email")
+  bodyHtml         String?        @map("body_html")
+
+  @@index([userId, status])
+  @@index([campaignId])
+  @@index([leadId])
+  @@map("email_logs")
+}
+
+model Reply {
+  id               String        @id @default(uuid())
+  userId           String        @map("user_id")
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId           String?       @map("lead_id")
+  lead             OutreachLead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  campaignId       String?       @map("campaign_id")
+  campaign         Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  emailAccountId   String?       @map("email_account_id")
+  emailAccount     EmailAccount? @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
+  
+  threadId         String?       @map("thread_id")
+  messageId        String?       @map("message_id") // Links to EmailMessage.id
+  emailMessage     EmailMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  
+  inReplyTo        String?       @map("in_reply_to")
+  subject          String?
+  bodyText         String?       @map("body_text")
+  bodyHtml         String?       @map("body_html")
+  snippet          String?
+  fromEmail        String        @map("from_email")
+  fromName         String?       @map("from_name")
+  toEmail          String        @map("to_email")
+  receivedAt       DateTime      @default(now()) @map("received_at")
+  isRead           Boolean       @default(false) @map("is_read")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  labels           String[]
+  type             String?       @default("received")
+  tags             Json?         @default("{}")
+
+  @@index([userId, isRead])
+  @@index([campaignId])
+  @@index([threadId])
+  @@map("replies")
+}
+
+model WarmupStat {
+  id               String       @id @default(uuid())
+  emailAccountId   String       @map("email_account_id")
+  emailAccount     EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  date             DateTime     @db.Date
+  emailsSent       Int          @default(0) @map("emails_sent")
+  emailsReceived   Int          @default(0) @map("emails_received")
+  emailsReplied    Int          @default(0) @map("emails_replied")
+  landedInbox      Int          @default(0) @map("landed_inbox")
+  landedSpam       Int          @default(0) @map("landed_spam")
+  reputationScore  Decimal?     @map("reputation_score") @db.Decimal
+  createdAt        DateTime     @default(now()) @map("created_at")
+
+  @@map("warmup_stats")
+}

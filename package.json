@@ -1,0 +1,39 @@
+{
+  "name": "unibox",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "postinstall": "prisma generate"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^25.3.0",
+    "@types/nodemailer": "^7.0.11",
+    "dotenv": "^17.3.1",
+    "prisma": "^6.19.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.2",
+    "@supabase/supabase-js": "^2.97.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "googleapis": "^171.4.0",
+    "imapflow": "^1.2.10",
+    "lucide-react": "^0.575.0",
+    "mailparser": "^3.9.3",
+    "next": "^16.1.6",
+    "nodemailer": "^8.0.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  }
+}
