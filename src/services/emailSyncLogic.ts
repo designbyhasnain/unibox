@@ -11,7 +11,8 @@ export async function handleEmailSent(data: {
     subject: string;
     body: string;
     sentAt: Date;
-    isUnread?: boolean; // From Gmail UNREAD label per API docs
+    isUnread?: boolean;
+    isSpam?: boolean;
 }) {
     const { toEmail, messageId, threadId } = data;
 
@@ -63,6 +64,7 @@ export async function handleEmailSent(data: {
             direction: 'SENT',
             is_unread: data.isUnread ?? false,
             pipeline_stage: currentThreadStage,
+            is_spam: data.isSpam ?? false,
             sent_at: data.sentAt.toISOString(),
         }, { onConflict: 'id' })
         .select()
@@ -82,6 +84,7 @@ export async function handleEmailReceived(data: {
     body: string;
     receivedAt: Date;
     isUnread?: boolean;
+    isSpam?: boolean;
 }, sentThreadIds?: Set<string>) {
     const { fromEmail, messageId, threadId } = data;
 
@@ -164,6 +167,7 @@ export async function handleEmailReceived(data: {
             direction: 'RECEIVED',
             is_unread: finalIsUnread,
             pipeline_stage: newEmailStage,
+            is_spam: data.isSpam ?? false,
             sent_at: data.receivedAt.toISOString(),
         }, { onConflict: 'id' })
         .select()

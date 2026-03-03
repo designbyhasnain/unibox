@@ -15,11 +15,17 @@ export async function getGoogleAuthUrlAction(): Promise<string> {
 export async function connectManualAccountAction(
     email: string,
     appPassword: string,
-    userId: string
+    userId: string,
+    config?: {
+        imapHost?: string;
+        imapPort?: number;
+        smtpHost?: string;
+        smtpPort?: number;
+    }
 ): Promise<{ success: boolean; error?: string; account?: any }> {
     try {
         // Test the credentials first
-        const testResult = await testManualConnection(email, appPassword);
+        const testResult = await testManualConnection(email, appPassword, config);
         if (!testResult.success) {
             return { success: false, error: testResult.error || 'Connection test failed' };
         }
@@ -34,6 +40,10 @@ export async function connectManualAccountAction(
                 connection_method: 'MANUAL',
                 app_password: encryptedPassword,
                 status: 'ACTIVE',
+                smtp_host: config?.smtpHost,
+                smtp_port: config?.smtpPort,
+                imap_host: config?.imapHost,
+                imap_port: config?.imapPort,
             }, { onConflict: 'email' })
             .select('*')
             .single();
@@ -46,8 +56,36 @@ export async function connectManualAccountAction(
     }
 }
 
+export async function updateWarmupSettingsAction(
+    accountId: string,
+    warmupEnabled: boolean,
+    dailyLimit: number
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const { error } = await supabase
+            .from('gmail_accounts')
+            .update({
+                warmup_enabled: warmupEnabled,
+                daily_limit: dailyLimit,
+                status: warmupEnabled ? 'WARMUP' : 'ACTIVE'
+            })
+            .eq('id', accountId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (err: any) {
+        console.error('updateWarmupSettingsAction error:', err);
+        return { success: false, error: err.message || 'Failed to update settings' };
+    }
+}
+
+
 export async function getAccountsAction(userId: string) {
-    const { data, error } = await supabase
+    // Lazy reset for daily sent count
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+
+    const { data: rawData, error } = await supabase
         .from('gmail_accounts')
         .select(`
             *,
@@ -62,12 +100,42 @@ export async function getAccountsAction(userId: string) {
         return [];
     }
 
-    return (data ?? []).map((acc: any) => ({
-        ...acc,
-        manager_name: acc.users?.name,
-        emails_count: acc.email_messages?.[0]?.count ?? 0
-    }));
+    const accounts = (rawData ?? []).map((acc: any) => {
+        // Check if we need to reset the count (if last update was before today)
+        const lastUpdate = new Date(acc.updated_at);
+        const lastUpdateDate = new Date(lastUpdate.getFullYear(), lastUpdate.getMonth(), lastUpdate.getDate()).toISOString();
+
+        const needsReset = lastUpdateDate < today;
+
+        return {
+            ...acc,
+            sent_count_today: needsReset ? 0 : (acc.sent_count_today || 0),
+            manager_name: acc.users?.name,
+            emails_count: acc.email_messages?.[0]?.count ?? 0
+        };
+    });
+
+    // If any needed reset, update them in background
+    const accountsToReset = accounts.filter((a, i) => {
+        const raw = rawData[i];
+        const lu = new Date(raw.updated_at);
+        const lud = new Date(lu.getFullYear(), lu.getMonth(), lu.getDate()).toISOString();
+        return lud < today && raw.sent_count_today > 0;
+    });
+
+    if (accountsToReset.length > 0) {
+        supabase
+            .from('gmail_accounts')
+            .update({ sent_count_today: 0 })
+            .in('id', accountsToReset.map(a => a.id))
+            .then(({ error }) => {
+                if (error) console.error('Failed to reset daily counts:', error);
+            });
+    }
+
+    return accounts;
 }
+
 
 export async function reSyncAccountAction(accountId: string, connectionMethod: 'OAUTH' | 'MANUAL'): Promise<{ success: boolean; error?: string }> {
     try {

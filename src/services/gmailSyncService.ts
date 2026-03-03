@@ -250,6 +250,7 @@ async function processSingleMessage(
                 body,
                 isUnread,
                 receivedAt: parsedDate,
+                isSpam: labelIds.includes('SPAM'),
             }, sentThreadIds);
         }
     } catch (e: any) {
@@ -528,3 +529,26 @@ export async function syncGmailEmails(accountId: string) {
         throw error;
     }
 }
+
+/**
+ * Removes SPAM/TRASH labels and adds INBOX label for a Gmail message
+ */
+export async function unspamGmailMessage(account: any, messageId: string) {
+    const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
+
+    try {
+        await gmail.users.messages.modify({
+            userId: 'me',
+            id: messageId,
+            requestBody: {
+                removeLabelIds: ['SPAM', 'TRASH'],
+                addLabelIds: ['INBOX'],
+            },
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error(`[Gmail] Failed to unspam ${messageId}:`, error.message);
+        throw error;
+    }
+}
+

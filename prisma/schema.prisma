@@ -30,6 +30,7 @@ enum GmailAccountStatus {
   ERROR
   DISCONNECTED
   SYNCING
+  WARMUP
   @@map("gmail_account_status")
 }
 
@@ -186,6 +187,14 @@ model GmailAccount {
   accessToken      String?            @map("access_token")
   refreshToken     String?            @db.Text @map("refresh_token")
   appPassword      String?            @db.Text @map("app_password")
+  
+  // Custom Domain Details
+  smtpHost         String?            @map("smtp_host")
+  smtpPort         Int?               @map("smtp_port")
+  smtpEncryption   String?            @default("STARTTLS") @map("smtp_encryption")
+  imapHost         String?            @map("imap_host")
+  imapPort         Int?               @map("imap_port")
+  
   status           GmailAccountStatus @default(ACTIVE)
   lastSyncedAt     DateTime?          @map("last_synced_at")
   createdAt        DateTime           @default(now()) @map("created_at")
@@ -197,6 +206,7 @@ model GmailAccount {
   @@index([userId])
   @@map("gmail_accounts")
 }
+
 
 model EmailThread {
   id           String         @id @unique // The Gmail thread ID
@@ -228,6 +238,7 @@ model EmailMessage {
   isUnread       Boolean        @default(true) @map("is_unread")
   sentAt         DateTime       @map("sent_at")
   pipelineStage  String?        @map("pipeline_stage")
+  isSpam         Boolean        @default(false) @map("is_spam")
 
   // Relationships for linking outreach replies/logs
   replies        Reply[]

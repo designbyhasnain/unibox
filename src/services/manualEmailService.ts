@@ -10,13 +10,24 @@ import { decrypt } from '../utils/encryption';
  */
 export async function testManualConnection(
     email: string,
-    appPassword: string
+    appPassword: string,
+    config?: {
+        imapHost?: string;
+        imapPort?: number;
+        smtpHost?: string;
+        smtpPort?: number;
+    }
 ): Promise<{ success: boolean; error?: string }> {
+    const imapHost = config?.imapHost || 'imap.gmail.com';
+    const imapPort = config?.imapPort || 993;
+    const smtpHost = config?.smtpHost || 'smtp.gmail.com';
+    const smtpPort = config?.smtpPort || 465;
+
     // 1. Test IMAP
     const imap = new ImapFlow({
-        host: 'imap.gmail.com',
-        port: 993,
-        secure: true,
+        host: imapHost,
+        port: imapPort,
+        secure: imapPort === 993,
         auth: { user: email, pass: appPassword },
         logger: false,
     });
@@ -25,21 +36,21 @@ export async function testManualConnection(
         await imap.connect();
         await imap.logout();
     } catch (error: any) {
-        return { success: false, error: `IMAP connection failed: ${error.message}` };
+        return { success: false, error: `IMAP connection failed (${imapHost}): ${error.message}` };
     }
 
     // 2. Test SMTP
     const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false,
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
         auth: { user: email, pass: appPassword },
     });
 
     try {
         await transporter.verify();
     } catch (error: any) {
-        return { success: false, error: `SMTP connection failed: ${error.message}` };
+        return { success: false, error: `SMTP connection failed (${smtpHost}): ${error.message}` };
     }
 
     return { success: true };
@@ -69,11 +80,13 @@ export async function sendManualEmail(params: {
     }
 
     const password = decrypt(account.app_password);
+    const smtpHost = account.smtp_host || 'smtp.gmail.com';
+    const smtpPort = account.smtp_port || 465;
 
     const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false,
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
         auth: { user: account.email, pass: password },
     });
 
@@ -100,6 +113,7 @@ export async function sendManualEmail(params: {
     return { success: true, messageId: info.messageId };
 }
 
+
 /**
  * Sync emails for a manual account using IMAP (last 6 months)
  */
@@ -116,11 +130,13 @@ export async function syncManualEmails(accountId: string) {
     }
 
     const password = decrypt(account.app_password);
+    const imapHost = account.imap_host || 'imap.gmail.com';
+    const imapPort = account.imap_port || 993;
 
     const imap = new ImapFlow({
-        host: 'imap.gmail.com',
-        port: 993,
-        secure: true,
+        host: imapHost,
+        port: imapPort,
+        secure: imapPort === 993,
         auth: { user: account.email, pass: password },
         logger: false,
     });
@@ -128,42 +144,134 @@ export async function syncManualEmails(accountId: string) {
     await imap.connect();
 
     try {
-        const lock = await imap.getMailboxLock('INBOX');
-        try {
-            const sixMonthsAgo = new Date();
-            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+        // List all mailboxes to find the correct Spam/Junk folder names
+        const mailboxes = await imap.list();
+        const mailboxNames = mailboxes.map(m => m.path);
 
-            const messages = imap.fetch({ since: sixMonthsAgo }, {
-                envelope: true,
-                source: true,
-                bodyStructure: true,
-            });
+        // Find folders that are either INBOX or are flagged/named as Spam/Junk
+        const targetFolders = mailboxNames.filter(name => {
+            const lower = name.toLowerCase();
+            const mb = mailboxes.find(m => m.path === name);
+            const specialUse = (mb as any).specialUse || [];
 
-            for await (const message of messages) {
-                if (!message.source || !message.envelope) continue;
+            return (
+                name === 'INBOX' ||
+                specialUse.includes('\\Spam') ||
+                specialUse.includes('\\Junk') ||
+                lower.includes('spam') ||
+                lower.includes('junk') ||
+                lower.includes('bulk')
+            );
+        });
 
-                const parsed = await simpleParser(message.source);
+        console.log(`[Sync] Targeting folders for ${account.email}:`, targetFolders);
 
-                await handleEmailReceived({
-                    gmailAccountId: account.id,
-                    threadId: (message as any).threadId || message.envelope.messageId || String(message.uid),
-                    messageId: message.envelope.messageId || String(message.uid),
-                    fromEmail: message.envelope.from?.[0]?.address || '',
-                    toEmail: account.email,
-                    subject: message.envelope.subject || '(No Subject)',
-                    body: parsed.text || parsed.html || '',
-                    receivedAt: message.envelope.date || new Date(),
-                });
+        for (const folder of targetFolders) {
+            try {
+                const lock = await imap.getMailboxLock(folder);
+                try {
+                    const sixMonthsAgo = new Date();
+                    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+                    const messages = imap.fetch({ since: sixMonthsAgo }, {
+                        envelope: true,
+                        source: true,
+                        bodyStructure: true,
+                    });
+
+                    for await (const message of messages) {
+                        if (!message.source || !message.envelope) continue;
+
+                        const parsed = await simpleParser(message.source);
+
+                        await handleEmailReceived({
+                            gmailAccountId: account.id,
+                            threadId: (message as any).threadId || message.envelope.messageId || String(message.uid),
+                            messageId: message.envelope.messageId || String(message.uid),
+                            fromEmail: message.envelope.from?.[0]?.address || '',
+                            toEmail: account.email,
+                            subject: message.envelope.subject || '(No Subject)',
+                            body: parsed.text || parsed.html || '',
+                            receivedAt: message.envelope.date || new Date(),
+                            isSpam: folder !== 'INBOX',
+                        });
+                    }
+                } finally {
+                    lock.release();
+                }
+            } catch (err: any) {
+                console.error(`[Sync] Skipping folder ${folder} for ${account.email}:`, err.message);
+                continue;
             }
-        } finally {
-            lock.release();
         }
     } finally {
         await imap.logout();
     }
+
+
 
     await supabase
         .from('gmail_accounts')
         .update({ last_synced_at: new Date().toISOString(), status: 'ACTIVE' })
         .eq('id', accountId);
 }
+
+/**
+ * Searches for a message across all folders (except INBOX) and moves it to INBOX
+ */
+export async function unspamManualMessage(account: any, messageId: string) {
+    const password = decrypt(account.app_password);
+    const imap = new ImapFlow({
+        host: account.imap_host || 'imap.gmail.com',
+        port: account.imap_port || 993,
+        secure: account.imap_port === 993,
+        auth: { user: account.email, pass: password },
+        logger: false,
+    });
+
+    await imap.connect();
+
+    try {
+        const mailboxes = await imap.list();
+        const mailboxNames = mailboxes.map(mb => mb.path);
+
+        // Exclude INBOX, prioritize potential Spam/Junk/Trash folders
+        const otherFolders = mailboxNames.filter(n => n !== 'INBOX');
+        const sortedFolders = otherFolders.sort((a, b) => {
+            const lowA = a.toLowerCase();
+            const lowB = b.toLowerCase();
+            const isSpamA = lowA.includes('spam') || lowA.includes('junk') || lowA.includes('trash');
+            const isSpamB = lowB.includes('spam') || lowB.includes('junk') || lowB.includes('trash');
+            if (isSpamA && !isSpamB) return -1;
+            if (!isSpamA && isSpamB) return 1;
+            return 0;
+        });
+
+        for (const folder of sortedFolders) {
+            try {
+                const lock = await imap.getMailboxLock(folder);
+                try {
+                    // Search by message-id header
+                    const searchResult = await imap.search({ header: { 'message-id': messageId } });
+
+                    if (searchResult && Array.isArray(searchResult) && searchResult.length > 0) {
+                        console.log(`[Manual Unspam] Found message ${messageId} in ${folder}. Moving to INBOX...`);
+                        await imap.messageMove(searchResult, 'INBOX', { uid: true });
+                        return { success: true };
+                    }
+                } finally {
+                    lock.release();
+                }
+            } catch (err) {
+                // Skip inaccessible folders
+                continue;
+            }
+        }
+
+        return { success: false, error: 'Message not found in any other folder' };
+    } finally {
+        await imap.logout();
+    }
+}
+
+

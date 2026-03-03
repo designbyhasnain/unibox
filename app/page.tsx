@@ -17,6 +17,7 @@ import {
     bulkMarkAsUnreadAction,
     getTabCountsAction,
     markAsNotInterestedAction,
+    markAsNotSpamAction,
 } from '../src/actions/emailActions';
 import { getAccountsAction } from '../src/actions/accountActions';
 import { useRealtimeInbox } from '../src/hooks/useRealtimeInbox';
@@ -31,6 +32,7 @@ const TABS = [
     { id: 'LEAD', label: 'Leads' },
     { id: 'OFFER_ACCEPTED', label: 'Offer Accepted' },
     { id: 'CLOSED', label: 'Closed' },
+    { id: 'SPAM', label: 'Spam' },
 ];
 
 interface ToastItem { id: string; subject: string; from: string; }
@@ -354,6 +356,20 @@ export default function InboxPage() {
         loadEmails(currentPage); // Refresh list
     };
 
+    const handleNotSpam = async (messageId: string) => {
+        try {
+            const res = await markAsNotSpamAction(messageId);
+            if (res.success) {
+                alert('Moved to Inbox');
+            } else {
+                alert(`Error: ${res.error}`);
+            }
+        } catch (err) {
+            console.error('handleNotSpam error:', err);
+            alert('An unexpected error occurred.');
+        }
+    };
+
     const dismissToast = (toastId: string) => {
         setToasts((prev) => prev.filter((t) => t.id !== toastId));
         const timer = toastTimerRef.current.get(toastId);
@@ -607,6 +623,7 @@ export default function InboxPage() {
                                 setIsComposeOpen(true);
                             }}
                             onNotInterested={handleNotInterested}
+                            onNotSpam={handleNotSpam}
                             replySlot={
                                 <InlineReply
                                     threadId={selectedEmail.thread_id}

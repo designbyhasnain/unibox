@@ -8,10 +8,11 @@ import {
     connectManualAccountAction,
     getAccountsAction,
     removeAccountAction,
-    reSyncAccountAction
+    reSyncAccountAction,
+    updateWarmupSettingsAction
 } from '../../src/actions/accountActions';
 
-type AccountStatus = 'ACTIVE' | 'ERROR' | 'DISCONNECTED' | 'SYNCING';
+type AccountStatus = 'ACTIVE' | 'ERROR' | 'DISCONNECTED' | 'SYNCING' | 'WARMUP';
 type ConnectionMethod = 'OAUTH' | 'MANUAL';
 
 interface GmailAccount {
@@ -21,6 +22,9 @@ interface GmailAccount {
     connection_method: ConnectionMethod;
     last_synced_at: string | Date | null;
     emails_count?: number;
+    warmup_enabled?: boolean;
+    daily_limit?: number;
+    sent_count_today?: number;
 }
 
 let globalAccountsCache: GmailAccount[] | null = null;
@@ -31,6 +35,7 @@ function StatusBadge({ status }: { status: AccountStatus }) {
         ERROR: { label: 'Error', cls: 'badge-red' },
         DISCONNECTED: { label: 'Disconnected', cls: 'badge-gray' },
         SYNCING: { label: 'Syncing...', cls: 'badge-blue' },
+        WARMUP: { label: 'Warmup 🔥', cls: 'badge-orange' },
     };
     const { label, cls } = map[status] || { label: status, cls: 'badge-gray' };
     return <span className={`badge ${cls}`}>{label}</span>;
@@ -47,9 +52,20 @@ export default function AccountsPage() {
     const [removeConfirmText, setRemoveConfirmText] = useState('');
     const [manualEmail, setManualEmail] = useState('');
     const [appPassword, setAppPassword] = useState('');
+    const [imapHost, setImapHost] = useState('imap.gmail.com');
+    const [imapPort, setImapPort] = useState(993);
+    const [smtpHost, setSmtpHost] = useState('smtp.gmail.com');
+    const [smtpPort, setSmtpPort] = useState(465);
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+
+    // Warmup States
+    const [showWarmupModal, setShowWarmupModal] = useState(false);
+    const [selectedAccountForWarmup, setSelectedAccountForWarmup] = useState<GmailAccount | null>(null);
+    const [warmupLimit, setWarmupLimit] = useState(50);
+    const [isWarmupEnabled, setIsWarmupEnabled] = useState(false);
+    const [isUpdatingWarmup, setIsUpdatingWarmup] = useState(false);
 
     const fetchAccounts = async () => {
         if (!globalAccountsCache) setIsLoading(true);
@@ -83,7 +99,13 @@ export default function AccountsPage() {
         setError(null);
         try {
             const userId = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
-            const result = await connectManualAccountAction(manualEmail, appPassword, userId);
+            const config = {
+                imapHost,
+                imapPort,
+                smtpHost,
+                smtpPort
+            };
+            const result = await connectManualAccountAction(manualEmail, appPassword, userId, config);
             if (result.success && result.account) {
                 setAccounts(prev => [result.account as unknown as GmailAccount, ...prev]);
                 setShowManualForm(false);
@@ -98,6 +120,7 @@ export default function AccountsPage() {
             setIsConnecting(false);
         }
     };
+
 
     const handleRemove = async (accountId: string) => {
         try {
@@ -161,6 +184,33 @@ export default function AccountsPage() {
         if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
         if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
         return d.toLocaleDateString();
+    };
+
+    const handleUpdateWarmup = async () => {
+        if (!selectedAccountForWarmup) return;
+        setIsUpdatingWarmup(true);
+        try {
+            const res = await updateWarmupSettingsAction(
+                selectedAccountForWarmup.id,
+                isWarmupEnabled,
+                warmupLimit
+            );
+            if (res.success) {
+                setShowWarmupModal(false);
+                fetchAccounts();
+            } else {
+                alert(res.error || 'Failed to update warmup settings');
+            }
+        } finally {
+            setIsUpdatingWarmup(false);
+        }
+    };
+
+    const openWarmupModal = (acc: GmailAccount) => {
+        setSelectedAccountForWarmup(acc);
+        setIsWarmupEnabled(acc.warmup_enabled || false);
+        setWarmupLimit(acc.daily_limit || 50);
+        setShowWarmupModal(true);
     };
 
     const filteredAccounts = accounts.filter(acc =>
@@ -346,24 +396,49 @@ export default function AccountsPage() {
                                                 </div>
                                             )}
 
-                                            {/* Actions */}
-                                            <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                                                {acc.status === 'ERROR' ? (
-                                                    <button className="btn btn-sm btn-primary" onClick={() => handleOAuthFlow()}>
-                                                        Re-connect
-                                                    </button>
-                                                ) : acc.status !== 'SYNCING' && (
-                                                    <button className="btn btn-sm btn-secondary" onClick={() => handleReSync(acc)}>
-                                                        Re-sync
-                                                    </button>
-                                                )}
+                                            <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                 <button
-                                                    className="btn btn-sm btn-danger"
-                                                    onClick={() => setAccountToRemove(acc)}
+                                                    className="btn btn-sm btn-secondary"
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(249, 115, 22, 0.1)', color: 'rgb(249, 115, 22)', borderColor: 'rgba(249, 115, 22, 0.2)' }}
+                                                    onClick={() => openWarmupModal(acc)}
                                                 >
-                                                    Remove
+                                                    🔥 Warmup
                                                 </button>
+                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                    {acc.status === 'ERROR' ? (
+                                                        <button className="btn btn-sm btn-primary" onClick={() => handleOAuthFlow()}>
+                                                            Re-connect
+                                                        </button>
+                                                    ) : acc.status !== 'SYNCING' && (
+                                                        <button className="btn btn-sm btn-secondary" onClick={() => handleReSync(acc)}>
+                                                            Re-sync
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        className="btn btn-sm btn-danger"
+                                                        onClick={() => setAccountToRemove(acc)}
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </div>
                                             </div>
+
+                                            {acc.warmup_enabled && (
+                                                <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(249, 115, 22, 0.05)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(249, 115, 22, 0.1)' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'rgb(249, 115, 22)', fontWeight: 600, marginBottom: '0.35rem' }}>
+                                                        <span>DAILY LIMIT PROGRESS</span>
+                                                        <span>{acc.sent_count_today || 0} / {acc.daily_limit || 50}</span>
+                                                    </div>
+                                                    <div style={{ width: '100%', height: '4px', background: 'rgba(249, 115, 22, 0.1)', borderRadius: '10px', overflow: 'hidden' }}>
+                                                        <div style={{
+                                                            height: '100%',
+                                                            background: 'rgb(249, 115, 22)',
+                                                            width: `${Math.min(((acc.sent_count_today || 0) / (acc.daily_limit || 50)) * 100, 100)}%`,
+                                                            transition: 'width 0.5s ease-out'
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -444,9 +519,9 @@ export default function AccountsPage() {
             {/* Manual form modal */}
             {showManualForm && (
                 <div className="modal-overlay" onClick={() => setShowManualForm(false)}>
-                    <div className="modal-box animate-slide-in" onClick={e => e.stopPropagation()}>
-                        <div className="modal-title">Manual Setup</div>
-                        <div className="modal-sub">Enter your Gmail address and 16-character App Password.</div>
+                    <div className="modal-box animate-slide-in" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-title">Custom Domain / IMAP Setup</div>
+                        <div className="modal-sub">Enter your email details. For Gmail, use an App Password.</div>
 
                         {error && (
                             <div style={{
@@ -459,35 +534,105 @@ export default function AccountsPage() {
                         )}
 
                         <form onSubmit={handleManualConnect} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                                    Gmail Address
-                                </label>
-                                <input
-                                    className="form-input"
-                                    type="email"
-                                    placeholder="sales@gmail.com"
-                                    required
-                                    value={manualEmail}
-                                    onChange={e => setManualEmail(e.target.value)}
-                                />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div style={{ gridColumn: 'span 2' }}>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                        Email Address
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        type="email"
+                                        placeholder="you@yourdomain.com"
+                                        required
+                                        value={manualEmail}
+                                        onChange={e => {
+                                            const val = e.target.value;
+                                            setManualEmail(val);
+                                            // Auto-guess host for common setups
+                                            if (val.includes('@')) {
+                                                const domain = val.split('@')[1];
+                                                if (domain && !domain.includes('gmail.com')) {
+                                                    setImapHost(`mail.${domain}`);
+                                                    setSmtpHost(`mail.${domain}`);
+                                                } else if (domain === 'gmail.com') {
+                                                    setImapHost('imap.gmail.com');
+                                                    setSmtpHost('smtp.gmail.com');
+                                                    setImapPort(993);
+                                                    setSmtpPort(587);
+                                                }
+                                            }
+                                        }}
+                                    />
+                                </div>
+                                <div style={{ gridColumn: 'span 2' }}>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                        Password / App Password
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        type="password"
+                                        placeholder="Your email password"
+                                        required
+                                        value={appPassword}
+                                        onChange={e => setAppPassword(e.target.value)}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                        IMAP Host
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        type="text"
+                                        placeholder="imap.gmail.com"
+                                        value={imapHost}
+                                        onChange={e => setImapHost(e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                        IMAP Port
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        type="number"
+                                        placeholder="993"
+                                        value={imapPort}
+                                        onChange={e => setImapPort(Number(e.target.value))}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                        SMTP Host
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        type="text"
+                                        placeholder="smtp.gmail.com"
+                                        value={smtpHost}
+                                        onChange={e => setSmtpHost(e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                        SMTP Port
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        type="number"
+                                        placeholder="465"
+                                        value={smtpPort}
+                                        onChange={e => setSmtpPort(Number(e.target.value))}
+                                    />
+                                </div>
                             </div>
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                                    App Password (16 characters)
-                                </label>
-                                <input
-                                    className="form-input"
-                                    type="password"
-                                    placeholder="abcd efgh ijkl mnop"
-                                    required
-                                    value={appPassword}
-                                    onChange={e => setAppPassword(e.target.value)}
-                                />
-                                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                                    Generate at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Google Account Security</a>
-                                </p>
-                            </div>
+
+                            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                                💡 Tip: For custom domains, Host is usually <code>mail.yourdomain.com</code>. For Gmail, use an <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>App Password</a>.
+                            </p>
+
                             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
                                 <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowManualForm(false)}>Cancel</button>
                                 <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={isConnecting}>
@@ -498,6 +643,7 @@ export default function AccountsPage() {
                     </div>
                 </div>
             )}
+
 
             {/* Remove confirmation modal */}
             {accountToRemove && (
@@ -533,6 +679,88 @@ export default function AccountsPage() {
             )}
 
             {isComposeOpen && <ComposeModal onClose={() => setIsComposeOpen(false)} />}
+
+            {/* Warmup Settings Modal */}
+            {showWarmupModal && selectedAccountForWarmup && (
+                <div className="modal-overlay" onClick={() => setShowWarmupModal(false)}>
+                    <div className="modal-box animate-slide-in" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-title" style={{ color: 'rgb(249, 115, 22)' }}>Email Warmup 🔥</div>
+                        <div className="modal-sub">Settings for {selectedAccountForWarmup.email}</div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem', marginTop: '1.5rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                                <div style={{
+                                    padding: '1rem',
+                                    background: 'var(--bg-elevated)',
+                                    borderRadius: 'var(--radius-lg)',
+                                    border: '1px solid var(--border)'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                        <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Enable Warmup</span>
+                                        <input
+                                            type="checkbox"
+                                            checked={isWarmupEnabled}
+                                            onChange={e => setIsWarmupEnabled(e.target.checked)}
+                                            style={{ width: '1.25rem', height: '1.25rem', accentColor: 'rgb(249, 115, 22)' }}
+                                        />
+                                    </div>
+
+                                    <div style={{ marginBottom: '0.5rem' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                                            <span>Daily Sending Limit</span>
+                                            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{warmupLimit}</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="10"
+                                            max="500"
+                                            step="5"
+                                            value={warmupLimit}
+                                            onChange={e => setWarmupLimit(Number(e.target.value))}
+                                            style={{ width: '100%', height: '6px', background: 'var(--bg-tertiary)', borderRadius: '10px', appearance: 'none', cursor: 'pointer', accentColor: 'rgb(249, 115, 22)' }}
+                                        />
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                            <span>10</span>
+                                            <span>500</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button
+                                    className="btn btn-primary btn-lg"
+                                    style={{ background: 'rgb(249, 115, 22)', border: 'none' }}
+                                    onClick={handleUpdateWarmup}
+                                    disabled={isUpdatingWarmup}
+                                >
+                                    {isUpdatingWarmup ? 'Applying...' : 'Save Warmup Settings'}
+                                </button>
+
+                                <button className="btn btn-secondary" onClick={() => setShowWarmupModal(false)}>Close</button>
+                            </div>
+
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    💡 How to Warmup
+                                </div>
+                                <ul style={{ padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    <li>
+                                        <strong style={{ color: 'var(--text-primary)' }}>1. Start Small:</strong> Pehle din 10 se shuru karein. Agar mails chali jati hain, toh har 2 din baad 5-10 badhate jayein.
+                                    </li>
+                                    <li>
+                                        <strong style={{ color: 'var(--text-primary)' }}>2. Safe Zone:</strong> 50 emails daily aik safe aur professional limit mani jati hai.
+                                    </li>
+                                    <li>
+                                        <strong style={{ color: 'var(--text-primary)' }}>3. Tracking:</strong> Hum aapki har mail ko track karte hain aur set limit poori hote hi sending stop kar dete hain taake aapka account block na ho.
+                                    </li>
+                                </ul>
+                                <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.1)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem' }}>
+                                    <span style={{ color: 'var(--accent)', fontWeight: 700 }}>Note:</span> Warmup mode on karne se aapka status "Warmup 🔥" dikhayega.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

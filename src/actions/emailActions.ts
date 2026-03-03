@@ -2,7 +2,8 @@
 
 import { supabase } from '../lib/supabase';
 import { sendGmailEmail } from '../services/gmailSenderService';
-import { sendManualEmail } from '../services/manualEmailService';
+import { sendManualEmail, unspamManualMessage } from '../services/manualEmailService';
+import { unspamGmailMessage } from '../services/gmailSyncService';
 
 const PAGE_SIZE = 25;
 
@@ -28,12 +29,17 @@ export async function sendEmailAction(params: {
     try {
         const { data: account, error: accError } = await supabase
             .from('gmail_accounts')
-            .select('connection_method')
+            .select('connection_method, sent_count_today, daily_limit')
             .eq('id', params.accountId)
             .single();
 
         if (accError || !account) {
             throw new Error('Sender account not found.');
+        }
+
+        // Check Daily Limit
+        if (account.sent_count_today >= (account.daily_limit || 50)) {
+            throw new Error('DAILY_LIMIT_REACHED');
         }
 
         let result;
@@ -43,6 +49,14 @@ export async function sendEmailAction(params: {
             result = await sendGmailEmail(params);
         }
 
+        // Increment sent count on success
+        if (result && result.success) {
+            await supabase
+                .from('gmail_accounts')
+                .update({ sent_count_today: (account.sent_count_today || 0) + 1 })
+                .eq('id', params.accountId);
+        }
+
         return result;
     } catch (error: any) {
         console.error('sendEmailAction error:', error);
@@ -50,10 +64,13 @@ export async function sendEmailAction(params: {
             success: false,
             error: error.message === 'AUTH_REQUIRED'
                 ? 'AUTH_REQUIRED'
-                : (error.message || 'Failed to send email'),
+                : error.message === 'DAILY_LIMIT_REACHED'
+                    ? 'DAILY_LIMIT_REACHED'
+                    : (error.message || 'Failed to send email'),
         };
     }
 }
+
 
 // ─── Get Account IDs for a user ───────────────────────────────────────────────
 
@@ -82,9 +99,10 @@ export async function getInboxEmailsAction(
 
     const { data, error } = await supabase.rpc('get_inbox_threads', {
         p_account_ids: accountIds,
-        p_pipeline_stage: stage === 'ALL' ? null : stage,
+        p_pipeline_stage: stage === 'ALL' || stage === 'SPAM' ? null : stage,
         p_page: page,
         p_page_size: pageSize,
+        p_is_spam: stage === 'SPAM',
     });
 
     if (error) {
@@ -546,26 +564,79 @@ export async function getTabCountsAction(userId: string) {
     // We want the count of THREADS for each stage
     const { data, error } = await supabase
         .from('email_messages')
-        .select('thread_id, pipeline_stage')
-        .in('gmail_account_id', accountIds);
+        .select('thread_id, pipeline_stage, is_spam, sent_at')
+        .in('gmail_account_id', accountIds)
+        .order('sent_at', { ascending: false });
 
     if (error) return {};
 
-    // Group by thread_id to count conversations, then by stage
-    const threadStages = new Map<string, string | null>();
-    data.forEach(m => {
-        // Pick the most recent or any stage for the thread
-        if (!threadStages.has(m.thread_id)) {
-            threadStages.set(m.thread_id, m.pipeline_stage);
+    // Group by thread_id to count conversations, then by stage/spam
+    const threads = new Map<string, { stage: string | null; isSpam: boolean }>();
+    data.forEach((m) => {
+        if (!threads.has(m.thread_id)) {
+            // Because we sorted by sent_at desc, this is the most recent message's status
+            threads.set(m.thread_id, { stage: m.pipeline_stage, isSpam: !!m.is_spam });
+        } else if (m.is_spam) {
+            // Also consider spam if any message in the thread is spam
+            const current = threads.get(m.thread_id)!;
+            current.isSpam = true;
         }
     });
 
-    const counts: Record<string, number> = { ALL: threadStages.size };
-    threadStages.forEach(stage => {
-        const effectiveStage = stage || 'COLD_LEAD';
-        counts[effectiveStage] = (counts[effectiveStage] || 0) + 1;
+    const counts: Record<string, number> = {
+        ALL: 0,
+        COLD_LEAD: 0,
+        LEAD: 0,
+        OFFER_ACCEPTED: 0,
+        CLOSED: 0,
+        SPAM: 0,
+    };
+
+    threads.forEach((info) => {
+        if (info.isSpam) {
+            counts['SPAM'] = (counts['SPAM'] || 0) + 1;
+        } else {
+            const effectiveStage = info.stage || 'COLD_LEAD';
+            counts[effectiveStage] = (counts[effectiveStage] || 0) + 1;
+            counts['ALL'] = (counts['ALL'] || 0) + 1;
+        }
     });
 
     return counts;
 }
+
+export async function markAsNotSpamAction(messageId: string) {
+    try {
+        // 1. Fetch message and account details
+        const { data: message, error: msgError } = await supabase
+            .from('email_messages')
+            .select('id, gmail_account_id, gmail_accounts(*)')
+            .eq('id', messageId)
+            .single();
+
+        if (msgError || !message) throw new Error('Message not found');
+
+        const account = message.gmail_accounts as any;
+        if (!account) throw new Error('Account not found');
+
+        // 2. Call the appropriate service to move it back to Inbox on the server
+        if (account.connection_method === 'MANUAL') {
+            await unspamManualMessage(account, messageId);
+        } else {
+            await unspamGmailMessage(account, messageId);
+        }
+
+        // 3. Mark as not spam in DB
+        await supabase
+            .from('email_messages')
+            .update({ is_spam: false })
+            .eq('id', messageId);
+
+        return { success: true };
+    } catch (error: any) {
+        console.error('[markAsNotSpamAction] error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 

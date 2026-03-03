@@ -95,6 +95,7 @@ interface EmailDetailProps {
     onReply: () => void;
     onForward: () => void;
     onNotInterested?: (email: string) => void;
+    onNotSpam?: (messageId: string) => void;
     replySlot?: React.ReactNode;
 }
 
@@ -319,6 +320,7 @@ export function EmailDetail({
     onReply,
     onForward,
     onNotInterested,
+    onNotSpam,
     replySlot,
 }: EmailDetailProps) {
     const [collapsedThreads, setCollapsedThreads] = React.useState<Set<string>>(new Set());
@@ -383,6 +385,19 @@ export function EmailDetail({
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
                     </button>
 
+
+                    {onNotSpam && (
+                        <button
+                            className="gmail-toolbar-btn"
+                            style={{ marginLeft: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '12px', borderRadius: 0 }}
+                            onClick={() => onNotSpam(email.id)}
+                            title="Not Spam / Move to Inbox"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                <path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" />
+                            </svg>
+                        </button>
+                    )}
 
                     {onNotInterested && (
                         <button
