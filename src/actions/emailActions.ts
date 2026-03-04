@@ -648,3 +648,18 @@ export async function markAsNotSpamAction(messageId: string) {
 }
 
 
+
+export async function getMessageTrackingHistoryAction(messageId: string) {
+    const { data, error } = await supabase
+        .from('tracking_events')
+        .select('*')
+        .eq('message_id', messageId)
+        .order('timestamp', { ascending: false });
+
+    if (error) {
+        console.error('getMessageTrackingHistoryAction error:', error);
+        return [];
+    }
+    return data || [];
+}
+

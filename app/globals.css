@@ -606,11 +606,11 @@ a {
     white-space: nowrap;
 }
 
-/* Custom Checkbox */
+/* Custom Checkboxes */
 .check-container {
     display: block;
     position: relative;
-    width: 18px;
+    padding-left: 24px;
     height: 18px;
     cursor: pointer;
     user-select: none;

@@ -331,6 +331,45 @@ function MessageDetailsPopover({ msg }: { msg: any }) {
     );
 }
 
+const TrackingHistory = ({ messageId }: { messageId: string }) => {
+    const [events, setEvents] = React.useState<any[]>([]);
+    const [loading, setLoading] = React.useState(true);
+
+    React.useEffect(() => {
+        const load = async () => {
+            try {
+                const { getMessageTrackingHistoryAction } = await import('../../src/actions/emailActions');
+                const data = await getMessageTrackingHistoryAction(messageId);
+                setEvents(data || []);
+            } catch (err) { console.error(err); }
+            finally { setLoading(false); }
+        };
+        load();
+    }, [messageId]);
+
+    if (loading) return <div style={{ padding: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>Loading history...</div>;
+    if (events.length === 0) return <div style={{ padding: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>No opens or clicks tracked yet.</div>;
+
+    return (
+        <div style={{ marginTop: '10px', background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '12px', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Message History</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {events.map((ev, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '4px 0', borderBottom: i < events.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                        <div>
+                            <span style={{ color: ev.type === 'OPEN' ? 'var(--accent)' : '#00ba7c', fontWeight: 600 }}>{ev.type}</span>
+                            <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>{ev.location || 'Unknown'}</span>
+                        </div>
+                        <div style={{ color: 'var(--text-muted)' }}>
+                            {new Date(ev.timestamp).toLocaleString()}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 export function EmailDetail({
     email,
     threadMessages,
@@ -349,8 +388,8 @@ export function EmailDetail({
     const [isAddProjectOpen, setIsAddProjectOpen] = React.useState(false);
     const [targetClient, setTargetClient] = React.useState<any>(null);
     const [isCreatingProject, setIsCreatingProject] = React.useState(false);
-
     const [openMoreId, setOpenMoreId] = React.useState<string | null>(null);
+    const [showHistoryId, setShowHistoryId] = React.useState<string | null>(null);
 
     React.useEffect(() => {
         const handleClickOutside = () => {
@@ -656,32 +695,54 @@ export function EmailDetail({
                                         <div className="gmail-msg-body">
                                             {/* --- TRACKING STATS --- */}
                                             {msg.tracking_id && (
-                                                <div className="tracking-stats-bar" style={{
-                                                    marginBottom: 16,
-                                                    padding: '10px 14px',
-                                                    background: 'rgba(29, 155, 240, 0.05)',
-                                                    border: '1px solid rgba(29, 155, 240, 0.15)',
-                                                    borderRadius: 10,
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 20,
-                                                    fontSize: '0.8125rem',
-                                                    color: 'var(--text-primary)'
-                                                }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        <Eye size={16} color="#1d9bf0" />
-                                                        <span><strong>{msg.open_count || 0}</strong> Open{msg.open_count !== 1 ? 's' : ''}</span>
-                                                    </div>
-                                                    {msg.clicked_at && (
+                                                <div className="tracking-stats-parent" style={{ marginBottom: 16 }}>
+                                                    <div className="tracking-stats-bar" style={{
+                                                        padding: '10px 14px',
+                                                        background: 'rgba(29, 155, 240, 0.05)',
+                                                        border: '1px solid rgba(29, 155, 240, 0.15)',
+                                                        borderRadius: 10,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 20,
+                                                        fontSize: '0.8125rem',
+                                                        color: 'var(--text-primary)'
+                                                    }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                            <MousePointerClick size={16} color="#00ba7c" />
-                                                            <span>Clicked</span>
+                                                            <Eye size={16} color="#1d9bf0" />
+                                                            <span><strong>{msg.open_count || 0}</strong> Open{msg.open_count !== 1 ? 's' : ''}</span>
                                                         </div>
-                                                    )}
-                                                    {msg.opened_at && (
-                                                        <div style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                                                            Last opened: {formatFullDate(msg.opened_at)}
-                                                        </div>
+                                                        {msg.clicked_at && (
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                <MousePointerClick size={16} color="#00ba7c" />
+                                                                <span>Clicked</span>
+                                                            </div>
+                                                        )}
+                                                        {msg.opened_at && (
+                                                            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+                                                                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                                                                    Last opened: {formatFullDate(msg.opened_at)}
+                                                                </span>
+                                                                <button
+                                                                    onClick={() => setShowHistoryId(showHistoryId === msg.id ? null : msg.id)}
+                                                                    style={{
+                                                                        background: 'rgba(29, 155, 240, 0.1)',
+                                                                        border: 'none',
+                                                                        color: '#1d9bf0',
+                                                                        padding: '4px 8px',
+                                                                        borderRadius: 6,
+                                                                        fontSize: '0.7rem',
+                                                                        fontWeight: 600,
+                                                                        cursor: 'pointer',
+                                                                        transition: 'all 0.2s'
+                                                                    }}
+                                                                >
+                                                                    {showHistoryId === msg.id ? 'Hide History' : 'Detailed History'}
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {showHistoryId === msg.id && (
+                                                        <TrackingHistory messageId={msg.id} />
                                                     )}
                                                 </div>
                                             )}

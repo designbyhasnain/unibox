@@ -10,7 +10,9 @@ import { getManagersAction } from '../../src/actions/projectActions';
 import { EmailRow, EmailDetail } from '../components/InboxComponents';
 import InlineReply from '../components/InlineReply';
 import AddLeadModal from '../components/AddLeadModal';
+
 import { avatarColor, initials, formatDate, cleanPreview } from '../utils/helpers';
+import { Mail, Trash2 } from 'lucide-react';
 
 const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
 
@@ -39,6 +41,7 @@ export default function ClientsPage() {
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     const [viewMode, setViewMode] = useState<'list' | 'grid' | 'board'>('list');
     const [filterType, setFilterType] = useState<'ALL' | 'LEADS' | 'CLIENTS'>('ALL');
+
 
     const loadClients = useCallback(async () => {
         if (!globalClientsCache) setIsLoading(true);
@@ -138,6 +141,8 @@ export default function ClientsPage() {
         if (selectedEmail && selectedEmailIds.has(selectedEmail.id)) setSelectedEmail(null);
         await bulkDeleteEmailsAction(ids);
     };
+
+
 
     const handleSelectClient = async (client: any) => {
         setSelectedClient(client);
@@ -266,7 +271,7 @@ export default function ClientsPage() {
                     </div>
 
                     <div className="list-toolbar" style={{ borderTop: '1px solid var(--border-subtle)', padding: '0.6rem 1.5rem' }}>
-                        <div className="list-toolbar-left">
+                        <div className="list-toolbar-left" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                             <span className="count-label" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontWeight: 500 }}>
                                 Showing {filteredClients.length} results
                             </span>
@@ -767,12 +772,14 @@ export default function ClientsPage() {
             {isAddClientOpen && (
                 <AddLeadModal
                     onClose={() => setIsAddClientOpen(false)}
-                    onAddLead={(lead) => {
+                    onAddLead={() => {
                         setIsAddClientOpen(false);
                         loadClients();
                     }}
                 />
             )}
+
+
 
             {isAddProjectOpen && selectedClient && (
                 <AddProjectModal

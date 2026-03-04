@@ -36,3 +36,4 @@ gen_output.txt
 lint/
 
 .vercel
+.env*.local
