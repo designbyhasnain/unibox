@@ -30,7 +30,6 @@ enum GmailAccountStatus {
   ERROR
   DISCONNECTED
   SYNCING
-  WARMUP
   @@map("gmail_account_status")
 }
 
@@ -76,56 +75,6 @@ enum Priority {
   @@map("priority_level")
 }
 
-enum CampaignStatus {
-  Draft
-  Running
-  Paused
-  Completed
-  Archived
-  @@map("campaign_status")
-}
-
-enum EmailAccountStatus {
-  Active
-  Warmup
-  Paused
-  Disconnected
-  @@map("email_account_status")
-}
-
-enum EmailProvider {
-  Gmail
-  Outlook
-  SMTP
-  @@map("email_provider")
-}
-
-enum EmailLogStatus {
-  Queued
-  Sent
-  Delivered
-  Opened
-  Clicked
-  Replied
-  Bounced
-  Failed
-  @@map("email_log_status")
-}
-
-enum LeadStatus {
-  Not_Contacted @map("Not Contacted")
-  Contacted
-  Replied
-  Interested
-  Not_Interested @map("Not Interested")
-  Bounced
-  Unsubscribed
-  Meeting_Booked @map("Meeting Booked")
-  Meeting_Completed @map("Meeting Completed")
-  Won
-  @@map("lead_status")
-}
-
 // --- Models ---
 
 model User {
@@ -139,12 +88,8 @@ model User {
 
   // Relationships
   gmailAccounts    GmailAccount[]
-  emailAccounts    EmailAccount[]
   handledContacts  Contact[]      @relation("AccountManager")
   projects         Project[]
-  campaigns        Campaign[]
-  emailLogs        EmailLog[]
-  replies          Reply[]
 
   @@map("users")
 }
@@ -240,16 +185,7 @@ model EmailMessage {
   pipelineStage  String?        @map("pipeline_stage")
   isSpam         Boolean        @default(false) @map("is_spam")
 
-  // Tracking Fields
-  trackingId     String?        @unique @map("tracking_id")
-  openedAt       DateTime?      @map("opened_at")
-  openCount      Int            @default(0) @map("open_count")
-  clickedAt      DateTime?      @map("clicked_at")
-  
-  // Relationships for linking outreach replies/logs
-  trackingEvents TrackingEvent[]
-  replies        Reply[]
-  emailLogs      EmailLog[]
+  // Relationships
   linkedProjects Project[]
 
   // Performance indexes - critical for inbox query speed
@@ -309,220 +245,4 @@ model ActivityLog {
   createdAt        DateTime          @default(now()) @map("created_at")
 
   @@map("activity_logs")
-}
-
-model TrackingEvent {
-  id           String       @id @default(uuid())
-  messageId    String       @map("message_id")
-  message      EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  type         String       // OPEN, CLICK
-  timestamp    DateTime     @default(now())
-  ipAddress    String?      @map("ip_address")
-  userAgent    String?      @map("user_agent")
-  location     String?      
-  metadata     Json?        @default("{}")
-
-  @@index([messageId])
-  @@map("tracking_events")
-}
-
-// --- Outreach Tables ---
-
-model Campaign {
-  id            String         @id @default(uuid())
-  userId        String         @map("user_id")
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String
-  status        CampaignStatus @default(Draft)
-  totalLeads    Int            @default(0) @map("total_leads")
-  dailyLimit    Int?           @default(100) @map("daily_limit")
-  startDate     DateTime?      @map("start_date") @db.Date
-  endDate       DateTime?      @map("end_date") @db.Date
-  timezone      String?        @default("UTC")
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @default(now()) @map("updated_at")
-
-  leads         OutreachLead[]
-  sequences     Sequence[]
-  emailLogs     EmailLog[]
-  replies       Reply[]
-  accounts      CampaignEmailAccount[]
-
-  @@map("campaigns")
-}
-
-model OutreachLead {
-  id              String         @id @default(uuid())
-  campaignId      String         @map("campaign_id")
-  campaign        Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  email           String
-  firstName       String?        @map("first_name")
-  lastName        String?        @map("last_name")
-  company         String?
-  title           String?
-  phone           String?
-  linkedinUrl     String?        @map("linkedin_url")
-  website         String?
-  customVariables Json?          @default("{}") @map("custom_variables")
-  status          LeadStatus     @default(Not_Contacted)
-  currentStep     Int            @default(0) @map("current_step")
-  lastContactedAt DateTime?      @map("last_contacted_at")
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @default(now()) @map("updated_at")
-
-  emailLogs       EmailLog[]
-  replies         Reply[]
-
-  @@map("leads")
-}
-
-model Sequence {
-  id          String    @id @default(uuid())
-  campaignId  String    @map("campaign_id")
-  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  stepNumber  Int       @map("step_number")
-  subject     String
-  emailBody   String    @map("email_body") @db.Text
-  delayDays   Int       @default(1) @map("delay_days")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @default(now()) @map("updated_at")
-  
-  emailLogs   EmailLog[]
-
-  @@map("sequences")
-}
-
-model EmailAccount {
-  id               String             @id @default(uuid())
-  userId           String             @map("user_id")
-  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  emailAddress     String             @map("email_address")
-  displayName      String?            @map("display_name")
-  provider         EmailProvider      @default(SMTP)
-  refreshToken     String?            @map("refresh_token")
-  smtpHost         String?            @map("smtp_host")
-  smtpPort         Int?               @map("smtp_port")
-  smtpUsername     String?            @map("smtp_username")
-  smtpPassword     String?            @map("smtp_password")
-  smtpEncryption   String?            @default("STARTTLS") @map("smtp_encryption")
-  imapHost         String?            @map("imap_host")
-  imapPort         Int?               @map("imap_port")
-  imapUsername     String?            @map("imap_username")
-  imapPassword     String?            @map("imap_password")
-  status           EmailAccountStatus @default(Active)
-  dailyLimit       Int                @default(50) @map("daily_limit")
-  sentCountToday   Int                @default(0) @map("sent_count_today")
-  warmupEnabled    Boolean            @default(false) @map("warmup_enabled")
-  lastSyncedAt     DateTime?          @map("last_synced_at")
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @default(now()) @map("updated_at")
-  access_token     String?
-  expires_at       DateTime?
-
-  campaigns        CampaignEmailAccount[]
-  emailLogs        EmailLog[]
-  replies          Reply[]
-  warmupStats      WarmupStat[]
-
-  @@map("email_accounts")
-}
-
-model CampaignEmailAccount {
-  id              String       @id @default(uuid())
-  campaignId      String       @map("campaign_id")
-  campaign        Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  emailAccountId  String       @map("email_account_id")
-  emailAccount    EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
-  createdAt       DateTime     @default(now()) @map("created_at")
-
-  @@map("campaign_email_accounts")
-}
-
-model EmailLog {
-  id               String         @id @default(uuid())
-  userId           String         @map("user_id")
-  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  leadId           String?        @map("lead_id")
-  lead             OutreachLead?  @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  campaignId       String?        @map("campaign_id")
-  campaign         Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  sequenceStepId   String?        @map("sequence_step_id")
-  sequence         Sequence?      @relation(fields: [sequenceStepId], references: [id], onDelete: SetNull)
-  emailAccountId   String?        @map("email_account_id")
-  emailAccount     EmailAccount?  @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
-  
-  status           EmailLogStatus @default(Queued)
-  messageId        String?        @map("message_id") // Links to EmailMessage.id
-  emailMessage     EmailMessage?  @relation(fields: [messageId], references: [id], onDelete: SetNull)
-  
-  subject          String?
-  openedAt         DateTime?      @map("opened_at")
-  clickedAt        DateTime?      @map("clicked_at")
-  repliedAt        DateTime?      @map("replied_at")
-  bouncedAt        DateTime?      @map("bounced_at")
-  errorMessage     String?        @map("error_message")
-  sentAt           DateTime?      @map("sent_at")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  threadId         String?        @map("thread_id")
-  labels           String[]
-  bodyText         String?        @map("body_text")
-  toEmail          String?        @map("to_email")
-  bodyHtml         String?        @map("body_html")
-
-  @@index([userId, status])
-  @@index([campaignId])
-  @@index([leadId])
-  @@map("email_logs")
-}
-
-model Reply {
-  id               String        @id @default(uuid())
-  userId           String        @map("user_id")
-  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  leadId           String?       @map("lead_id")
-  lead             OutreachLead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  campaignId       String?       @map("campaign_id")
-  campaign         Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  emailAccountId   String?       @map("email_account_id")
-  emailAccount     EmailAccount? @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
-  
-  threadId         String?       @map("thread_id")
-  messageId        String?       @map("message_id") // Links to EmailMessage.id
-  emailMessage     EmailMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
-  
-  inReplyTo        String?       @map("in_reply_to")
-  subject          String?
-  bodyText         String?       @map("body_text")
-  bodyHtml         String?       @map("body_html")
-  snippet          String?
-  fromEmail        String        @map("from_email")
-  fromName         String?       @map("from_name")
-  toEmail          String        @map("to_email")
-  receivedAt       DateTime      @default(now()) @map("received_at")
-  isRead           Boolean       @default(false) @map("is_read")
-  createdAt        DateTime      @default(now()) @map("created_at")
-  labels           String[]
-  type             String?       @default("received")
-  tags             Json?         @default("{}")
-
-  @@index([userId, isRead])
-  @@index([campaignId])
-  @@index([threadId])
-  @@map("replies")
-}
-
-model WarmupStat {
-  id               String       @id @default(uuid())
-  emailAccountId   String       @map("email_account_id")
-  emailAccount     EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
-  date             DateTime     @db.Date
-  emailsSent       Int          @default(0) @map("emails_sent")
-  emailsReceived   Int          @default(0) @map("emails_received")
-  emailsReplied    Int          @default(0) @map("emails_replied")
-  landedInbox      Int          @default(0) @map("landed_inbox")
-  landedSpam       Int          @default(0) @map("landed_spam")
-  reputationScore  Decimal?     @map("reputation_score") @db.Decimal
-  createdAt        DateTime     @default(now()) @map("created_at")
-
-  @@map("warmup_stats")
 }

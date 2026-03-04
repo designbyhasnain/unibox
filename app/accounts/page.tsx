@@ -8,11 +8,10 @@ import {
     connectManualAccountAction,
     getAccountsAction,
     removeAccountAction,
-    reSyncAccountAction,
-    updateWarmupSettingsAction
+    reSyncAccountAction
 } from '../../src/actions/accountActions';
 
-type AccountStatus = 'ACTIVE' | 'ERROR' | 'DISCONNECTED' | 'SYNCING' | 'WARMUP';
+type AccountStatus = 'ACTIVE' | 'ERROR' | 'DISCONNECTED' | 'SYNCING';
 type ConnectionMethod = 'OAUTH' | 'MANUAL';
 
 interface GmailAccount {
@@ -22,9 +21,6 @@ interface GmailAccount {
     connection_method: ConnectionMethod;
     last_synced_at: string | Date | null;
     emails_count?: number;
-    warmup_enabled?: boolean;
-    daily_limit?: number;
-    sent_count_today?: number;
 }
 
 let globalAccountsCache: GmailAccount[] | null = null;
@@ -35,7 +31,6 @@ function StatusBadge({ status }: { status: AccountStatus }) {
         ERROR: { label: 'Error', cls: 'badge-red' },
         DISCONNECTED: { label: 'Disconnected', cls: 'badge-gray' },
         SYNCING: { label: 'Syncing...', cls: 'badge-blue' },
-        WARMUP: { label: 'Warmup 🔥', cls: 'badge-orange' },
     };
     const { label, cls } = map[status] || { label: status, cls: 'badge-gray' };
     return <span className={`badge ${cls}`}>{label}</span>;
@@ -60,12 +55,6 @@ export default function AccountsPage() {
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
-    // Warmup States
-    const [showWarmupModal, setShowWarmupModal] = useState(false);
-    const [selectedAccountForWarmup, setSelectedAccountForWarmup] = useState<GmailAccount | null>(null);
-    const [warmupLimit, setWarmupLimit] = useState(50);
-    const [isWarmupEnabled, setIsWarmupEnabled] = useState(false);
-    const [isUpdatingWarmup, setIsUpdatingWarmup] = useState(false);
 
     const fetchAccounts = async () => {
         if (!globalAccountsCache) setIsLoading(true);
@@ -186,32 +175,6 @@ export default function AccountsPage() {
         return d.toLocaleDateString();
     };
 
-    const handleUpdateWarmup = async () => {
-        if (!selectedAccountForWarmup) return;
-        setIsUpdatingWarmup(true);
-        try {
-            const res = await updateWarmupSettingsAction(
-                selectedAccountForWarmup.id,
-                isWarmupEnabled,
-                warmupLimit
-            );
-            if (res.success) {
-                setShowWarmupModal(false);
-                fetchAccounts();
-            } else {
-                alert(res.error || 'Failed to update warmup settings');
-            }
-        } finally {
-            setIsUpdatingWarmup(false);
-        }
-    };
-
-    const openWarmupModal = (acc: GmailAccount) => {
-        setSelectedAccountForWarmup(acc);
-        setIsWarmupEnabled(acc.warmup_enabled || false);
-        setWarmupLimit(acc.daily_limit || 50);
-        setShowWarmupModal(true);
-    };
 
     const filteredAccounts = accounts.filter(acc =>
         acc.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -397,13 +360,6 @@ export default function AccountsPage() {
                                             )}
 
                                             <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <button
-                                                    className="btn btn-sm btn-secondary"
-                                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(249, 115, 22, 0.1)', color: 'rgb(249, 115, 22)', borderColor: 'rgba(249, 115, 22, 0.2)' }}
-                                                    onClick={() => openWarmupModal(acc)}
-                                                >
-                                                    🔥 Warmup
-                                                </button>
                                                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                                                     {acc.status === 'ERROR' ? (
                                                         <button className="btn btn-sm btn-primary" onClick={() => handleOAuthFlow()}>
@@ -423,22 +379,6 @@ export default function AccountsPage() {
                                                 </div>
                                             </div>
 
-                                            {acc.warmup_enabled && (
-                                                <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(249, 115, 22, 0.05)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(249, 115, 22, 0.1)' }}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'rgb(249, 115, 22)', fontWeight: 600, marginBottom: '0.35rem' }}>
-                                                        <span>DAILY LIMIT PROGRESS</span>
-                                                        <span>{acc.sent_count_today || 0} / {acc.daily_limit || 50}</span>
-                                                    </div>
-                                                    <div style={{ width: '100%', height: '4px', background: 'rgba(249, 115, 22, 0.1)', borderRadius: '10px', overflow: 'hidden' }}>
-                                                        <div style={{
-                                                            height: '100%',
-                                                            background: 'rgb(249, 115, 22)',
-                                                            width: `${Math.min(((acc.sent_count_today || 0) / (acc.daily_limit || 50)) * 100, 100)}%`,
-                                                            transition: 'width 0.5s ease-out'
-                                                        }} />
-                                                    </div>
-                                                </div>
-                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -680,87 +620,6 @@ export default function AccountsPage() {
 
             {isComposeOpen && <ComposeModal onClose={() => setIsComposeOpen(false)} />}
 
-            {/* Warmup Settings Modal */}
-            {showWarmupModal && selectedAccountForWarmup && (
-                <div className="modal-overlay" onClick={() => setShowWarmupModal(false)}>
-                    <div className="modal-box animate-slide-in" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
-                        <div className="modal-title" style={{ color: 'rgb(249, 115, 22)' }}>Email Warmup 🔥</div>
-                        <div className="modal-sub">Settings for {selectedAccountForWarmup.email}</div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem', marginTop: '1.5rem' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                                <div style={{
-                                    padding: '1rem',
-                                    background: 'var(--bg-elevated)',
-                                    borderRadius: 'var(--radius-lg)',
-                                    border: '1px solid var(--border)'
-                                }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                                        <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Enable Warmup</span>
-                                        <input
-                                            type="checkbox"
-                                            checked={isWarmupEnabled}
-                                            onChange={e => setIsWarmupEnabled(e.target.checked)}
-                                            style={{ width: '1.25rem', height: '1.25rem', accentColor: 'rgb(249, 115, 22)' }}
-                                        />
-                                    </div>
-
-                                    <div style={{ marginBottom: '0.5rem' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                                            <span>Daily Sending Limit</span>
-                                            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{warmupLimit}</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="10"
-                                            max="500"
-                                            step="5"
-                                            value={warmupLimit}
-                                            onChange={e => setWarmupLimit(Number(e.target.value))}
-                                            style={{ width: '100%', height: '6px', background: 'var(--bg-tertiary)', borderRadius: '10px', appearance: 'none', cursor: 'pointer', accentColor: 'rgb(249, 115, 22)' }}
-                                        />
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                                            <span>10</span>
-                                            <span>500</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <button
-                                    className="btn btn-primary btn-lg"
-                                    style={{ background: 'rgb(249, 115, 22)', border: 'none' }}
-                                    onClick={handleUpdateWarmup}
-                                    disabled={isUpdatingWarmup}
-                                >
-                                    {isUpdatingWarmup ? 'Applying...' : 'Save Warmup Settings'}
-                                </button>
-
-                                <button className="btn btn-secondary" onClick={() => setShowWarmupModal(false)}>Close</button>
-                            </div>
-
-                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                                <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    💡 How to Warmup
-                                </div>
-                                <ul style={{ padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                    <li>
-                                        <strong style={{ color: 'var(--text-primary)' }}>1. Start Small:</strong> Pehle din 10 se shuru karein. Agar mails chali jati hain, toh har 2 din baad 5-10 badhate jayein.
-                                    </li>
-                                    <li>
-                                        <strong style={{ color: 'var(--text-primary)' }}>2. Safe Zone:</strong> 50 emails daily aik safe aur professional limit mani jati hai.
-                                    </li>
-                                    <li>
-                                        <strong style={{ color: 'var(--text-primary)' }}>3. Tracking:</strong> Hum aapki har mail ko track karte hain aur set limit poori hote hi sending stop kar dete hain taake aapka account block na ho.
-                                    </li>
-                                </ul>
-                                <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.1)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem' }}>
-                                    <span style={{ color: 'var(--accent)', fontWeight: 700 }}>Note:</span> Warmup mode on karne se aapka status "Warmup 🔥" dikhayega.
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </>
     );
 }

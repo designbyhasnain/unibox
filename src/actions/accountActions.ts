@@ -56,28 +56,7 @@ export async function connectManualAccountAction(
     }
 }
 
-export async function updateWarmupSettingsAction(
-    accountId: string,
-    warmupEnabled: boolean,
-    dailyLimit: number
-): Promise<{ success: boolean; error?: string }> {
-    try {
-        const { error } = await supabase
-            .from('gmail_accounts')
-            .update({
-                warmup_enabled: warmupEnabled,
-                daily_limit: dailyLimit,
-                status: warmupEnabled ? 'WARMUP' : 'ACTIVE'
-            })
-            .eq('id', accountId);
 
-        if (error) throw error;
-        return { success: true };
-    } catch (err: any) {
-        console.error('updateWarmupSettingsAction error:', err);
-        return { success: false, error: err.message || 'Failed to update settings' };
-    }
-}
 
 
 export async function getAccountsAction(userId: string) {
@@ -205,11 +184,7 @@ export async function removeAccountAction(accountId: string): Promise<{ success:
     }
 
     // Explicitly cascade delete all associated data
-    await Promise.all([
-        supabase.from('email_messages').delete().eq('gmail_account_id', accountId),
-        supabase.from('replies').delete().eq('email_account_id', accountId),
-        supabase.from('email_logs').delete().eq('email_account_id', accountId),
-    ]);
+    await supabase.from('email_messages').delete().eq('gmail_account_id', accountId);
 
     // Cleanup orphaned threads (those with no messages left)
     // We use a raw RPC call if available, or just proceed since threads are lightweight.

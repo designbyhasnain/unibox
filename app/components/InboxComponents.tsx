@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { CheckCheck, Check, Eye, MousePointerClick } from 'lucide-react';
+import { CheckCheck, Check } from 'lucide-react';
 import { avatarColor, formatDate, cleanPreview } from '../utils/helpers';
 import AddProjectModal from './AddProjectModal';
 import { ensureContactAction } from '../../src/actions/clientActions';
@@ -53,18 +53,7 @@ export function EmailRow({ email, isSelected, isRowChecked, showBadge, onClick, 
             </div>
 
             <div className="grid-col col-main">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div className="sender-name">{senderName}</div>
-                    {email.tracking_id && (
-                        <div className="tracking-status-compact" title={email.open_count > 0 ? `Opened ${email.open_count} times` : 'Not opened yet'}>
-                            {email.open_count > 0 ? (
-                                <CheckCheck size={14} color={email.clicked_at ? '#1d9bf0' : '#4d9eff'} />
-                            ) : (
-                                <Check size={14} color="var(--text-muted)" />
-                            )}
-                        </div>
-                    )}
-                </div>
+                <div className="sender-name">{senderName}</div>
             </div>
 
             <div className="grid-col col-main" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -87,19 +76,8 @@ export function EmailRow({ email, isSelected, isRowChecked, showBadge, onClick, 
             </div>
 
             <div className="grid-col right muted" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
-                {email.tracking_id && (
-                    <div className="tracking-status" title={email.open_count > 0 ? `Opened ${email.open_count} times` : 'Not opened yet'}>
-                        {email.open_count > 0 ? (
-                            <CheckCheck size={16} color={email.clicked_at ? '#1d9bf0' : '#4d9eff'} />
-                        ) : (
-                            <Check size={16} color="var(--text-muted)" />
-                        )}
-                    </div>
-                )}
                 {formatDate(email.sent_at)}
             </div>
-
-
         </div>
     );
 }
@@ -331,44 +309,6 @@ function MessageDetailsPopover({ msg }: { msg: any }) {
     );
 }
 
-const TrackingHistory = ({ messageId }: { messageId: string }) => {
-    const [events, setEvents] = React.useState<any[]>([]);
-    const [loading, setLoading] = React.useState(true);
-
-    React.useEffect(() => {
-        const load = async () => {
-            try {
-                const { getMessageTrackingHistoryAction } = await import('../../src/actions/emailActions');
-                const data = await getMessageTrackingHistoryAction(messageId);
-                setEvents(data || []);
-            } catch (err) { console.error(err); }
-            finally { setLoading(false); }
-        };
-        load();
-    }, [messageId]);
-
-    if (loading) return <div style={{ padding: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>Loading history...</div>;
-    if (events.length === 0) return <div style={{ padding: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>No opens or clicks tracked yet.</div>;
-
-    return (
-        <div style={{ marginTop: '10px', background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '12px', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Message History</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {events.map((ev, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '4px 0', borderBottom: i < events.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                        <div>
-                            <span style={{ color: ev.type === 'OPEN' ? 'var(--accent)' : '#00ba7c', fontWeight: 600 }}>{ev.type}</span>
-                            <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>{ev.location || 'Unknown'}</span>
-                        </div>
-                        <div style={{ color: 'var(--text-muted)' }}>
-                            {new Date(ev.timestamp).toLocaleString()}
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
 
 export function EmailDetail({
     email,
@@ -389,7 +329,6 @@ export function EmailDetail({
     const [targetClient, setTargetClient] = React.useState<any>(null);
     const [isCreatingProject, setIsCreatingProject] = React.useState(false);
     const [openMoreId, setOpenMoreId] = React.useState<string | null>(null);
-    const [showHistoryId, setShowHistoryId] = React.useState<string | null>(null);
 
     React.useEffect(() => {
         const handleClickOutside = () => {
@@ -557,15 +496,6 @@ export function EmailDetail({
                                         <div className="gmail-msg-info">
                                             <div className="gmail-msg-top-row">
                                                 <span className="gmail-sender-name">{senderName}</span>
-                                                {msg.direction === 'SENT' && msg.tracking_id && (
-                                                    <div className="tracking-status-thread" style={{ display: 'inline-flex', marginLeft: '8px' }}>
-                                                        {msg.open_count > 0 ? (
-                                                            <CheckCheck size={14} color={msg.clicked_at ? '#1d9bf0' : '#4d9eff'} />
-                                                        ) : (
-                                                            <Check size={14} color="var(--text-muted)" />
-                                                        )}
-                                                    </div>
-                                                )}
                                                 {isCollapsed && (
                                                     <span className="gmail-snippet">
                                                         — {cleanPreview(msg.snippet || msg.body || '')}
@@ -661,91 +591,10 @@ export function EmailDetail({
                                         )}
                                     </div>
 
-                                    {/* ─── Tracking Summary ─── */}
-                                    {!isCollapsed && msg.direction === 'SENT' && msg.tracking_id && (
-                                        <div className="tracking-summary-bar" style={{
-                                            margin: '0 24px 12px 24px',
-                                            padding: '8px 12px',
-                                            background: 'var(--surface-hover)',
-                                            borderRadius: '6px',
-                                            fontSize: '0.75rem',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '16px',
-                                            color: 'var(--text-secondary)',
-                                            borderLeft: '3px solid #1d9bf0'
-                                        }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <Eye size={14} color="#1d9bf0" />
-                                                <strong>{msg.open_count || 0} Opens</strong>
-                                                {msg.opened_at && <span>(First: {formatDate(msg.opened_at)})</span>}
-                                            </div>
-                                            {msg.clicked_at && (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    <MousePointerClick size={14} color="#1d9bf0" />
-                                                    <strong>Link Clicked</strong>
-                                                    <span>({formatDate(msg.clicked_at)})</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
 
                                     {/* ─── Message Body ─── */}
                                     {!isCollapsed && (
                                         <div className="gmail-msg-body">
-                                            {/* --- TRACKING STATS --- */}
-                                            {msg.tracking_id && (
-                                                <div className="tracking-stats-parent" style={{ marginBottom: 16 }}>
-                                                    <div className="tracking-stats-bar" style={{
-                                                        padding: '10px 14px',
-                                                        background: 'rgba(29, 155, 240, 0.05)',
-                                                        border: '1px solid rgba(29, 155, 240, 0.15)',
-                                                        borderRadius: 10,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 20,
-                                                        fontSize: '0.8125rem',
-                                                        color: 'var(--text-primary)'
-                                                    }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                            <Eye size={16} color="#1d9bf0" />
-                                                            <span><strong>{msg.open_count || 0}</strong> Open{msg.open_count !== 1 ? 's' : ''}</span>
-                                                        </div>
-                                                        {msg.clicked_at && (
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                                <MousePointerClick size={16} color="#00ba7c" />
-                                                                <span>Clicked</span>
-                                                            </div>
-                                                        )}
-                                                        {msg.opened_at && (
-                                                            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-                                                                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                                                                    Last opened: {formatFullDate(msg.opened_at)}
-                                                                </span>
-                                                                <button
-                                                                    onClick={() => setShowHistoryId(showHistoryId === msg.id ? null : msg.id)}
-                                                                    style={{
-                                                                        background: 'rgba(29, 155, 240, 0.1)',
-                                                                        border: 'none',
-                                                                        color: '#1d9bf0',
-                                                                        padding: '4px 8px',
-                                                                        borderRadius: 6,
-                                                                        fontSize: '0.7rem',
-                                                                        fontWeight: 600,
-                                                                        cursor: 'pointer',
-                                                                        transition: 'all 0.2s'
-                                                                    }}
-                                                                >
-                                                                    {showHistoryId === msg.id ? 'Hide History' : 'Detailed History'}
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    {showHistoryId === msg.id && (
-                                                        <TrackingHistory messageId={msg.id} />
-                                                    )}
-                                                </div>
-                                            )}
 
                                             {isHtml ? (
                                                 <EmailBodyFrame

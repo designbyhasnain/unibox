@@ -29,7 +29,7 @@ export async function sendEmailAction(params: {
     try {
         const { data: account, error: accError } = await supabase
             .from('gmail_accounts')
-            .select('connection_method, sent_count_today, daily_limit')
+            .select('connection_method, sent_count_today')
             .eq('id', params.accountId)
             .single();
 
@@ -37,10 +37,7 @@ export async function sendEmailAction(params: {
             throw new Error('Sender account not found.');
         }
 
-        // Check Daily Limit
-        if (account.sent_count_today >= (account.daily_limit || 50)) {
-            throw new Error('DAILY_LIMIT_REACHED');
-        }
+        /* Daily Limit check removed with Phase 2 */
 
         let result;
         if (account.connection_method === 'MANUAL') {
@@ -64,9 +61,7 @@ export async function sendEmailAction(params: {
             success: false,
             error: error.message === 'AUTH_REQUIRED'
                 ? 'AUTH_REQUIRED'
-                : error.message === 'DAILY_LIMIT_REACHED'
-                    ? 'DAILY_LIMIT_REACHED'
-                    : (error.message || 'Failed to send email'),
+                : (error.message || 'Failed to send email'),
         };
     }
 }
@@ -143,10 +138,6 @@ export async function getInboxEmailsAction(
             pipeline_stage: r.pipeline_stage,
             gmail_account_id: r.gmail_account_id,
             contact_id: r.contact_id,
-            tracking_id: r.tracking_id,
-            open_count: r.open_count,
-            opened_at: r.opened_at,
-            clicked_at: r.clicked_at,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
@@ -211,10 +202,6 @@ export async function getSentEmailsAction(
             pipeline_stage: r.pipeline_stage,
             gmail_account_id: r.gmail_account_id,
             contact_id: r.contact_id,
-            tracking_id: r.tracking_id,
-            open_count: r.open_count,
-            opened_at: r.opened_at,
-            clicked_at: r.clicked_at,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
@@ -421,7 +408,7 @@ export async function getThreadMessagesAction(threadId: string) {
         .select(`
             id, thread_id, from_email, to_email, subject,
             body, direction, sent_at, is_unread, pipeline_stage,
-            gmail_account_id, tracking_id, open_count, opened_at, clicked_at,
+            gmail_account_id,
             gmail_accounts ( email, users ( name ) )
         `)
         .eq('thread_id', threadId)
@@ -649,17 +636,4 @@ export async function markAsNotSpamAction(messageId: string) {
 
 
 
-export async function getMessageTrackingHistoryAction(messageId: string) {
-    const { data, error } = await supabase
-        .from('tracking_events')
-        .select('*')
-        .eq('message_id', messageId)
-        .order('timestamp', { ascending: false });
-
-    if (error) {
-        console.error('getMessageTrackingHistoryAction error:', error);
-        return [];
-    }
-    return data || [];
-}
 

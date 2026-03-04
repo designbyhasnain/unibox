@@ -13,7 +13,6 @@ export async function handleEmailSent(data: {
     sentAt: Date;
     isUnread?: boolean;
     isSpam?: boolean;
-    trackingId?: string | null | undefined;
 }) {
     const { toEmail, messageId, threadId } = data;
 
@@ -66,10 +65,6 @@ export async function handleEmailSent(data: {
         is_spam: data.isSpam ?? false,
         sent_at: data.sentAt.toISOString(),
     };
-
-    if (data.trackingId) {
-        upsertData.tracking_id = data.trackingId;
-    }
 
     // 5. Insert message
     const { data: emailMsg, error } = await supabase
@@ -144,18 +139,6 @@ export async function handleEmailReceived(data: {
             contact_id: contact.id,
         });
     }
-
-    // 5. Implicit Open Tracking: If we receive a reply, the recipient MUST have opened our previous SENT message(s).
-    // We update the open_count and opened_at for any SENT message in this thread that shows 0 opens.
-    await supabase
-        .from('email_messages')
-        .update({
-            open_count: 1,
-            opened_at: new Date().toISOString()
-        })
-        .eq('thread_id', threadId)
-        .eq('direction', 'SENT')
-        .eq('open_count', 0);
 
     // 6. Force Unread Flag for replies (Notification)
     const finalIsUnread = data.isUnread ?? true;
