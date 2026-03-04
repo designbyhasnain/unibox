@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
 import { decrypt } from '../utils/encryption';
+import { extractTrackingId } from './trackingService';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -227,6 +228,7 @@ async function processSingleMessage(
 
         if (isSent) {
             console.log(`[Sync] Processing SENT email: "${subject}" to ${to}`);
+            const tId = extractTrackingId(body);
             await handleEmailSent({
                 gmailAccountId: account.id,
                 threadId: detail.threadId || '',
@@ -237,6 +239,7 @@ async function processSingleMessage(
                 body,
                 isUnread,
                 sentAt: parsedDate,
+                trackingId: tId || undefined,
             });
         } else {
             console.log(`[Sync] Processing RECEIVED email: "${subject}" from ${from}`);

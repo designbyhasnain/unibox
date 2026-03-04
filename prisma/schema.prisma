@@ -240,7 +240,14 @@ model EmailMessage {
   pipelineStage  String?        @map("pipeline_stage")
   isSpam         Boolean        @default(false) @map("is_spam")
 
+  // Tracking Fields
+  trackingId     String?        @unique @map("tracking_id")
+  openedAt       DateTime?      @map("opened_at")
+  openCount      Int            @default(0) @map("open_count")
+  clickedAt      DateTime?      @map("clicked_at")
+  
   // Relationships for linking outreach replies/logs
+  trackingEvents TrackingEvent[]
   replies        Reply[]
   emailLogs      EmailLog[]
   linkedProjects Project[]
@@ -302,6 +309,21 @@ model ActivityLog {
   createdAt        DateTime          @default(now()) @map("created_at")
 
   @@map("activity_logs")
+}
+
+model TrackingEvent {
+  id           String       @id @default(uuid())
+  messageId    String       @map("message_id")
+  message      EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  type         String       // OPEN, CLICK
+  timestamp    DateTime     @default(now())
+  ipAddress    String?      @map("ip_address")
+  userAgent    String?      @map("user_agent")
+  location     String?      
+  metadata     Json?        @default("{}")
+
+  @@index([messageId])
+  @@map("tracking_events")
 }
 
 // --- Outreach Tables ---

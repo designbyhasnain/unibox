@@ -30,7 +30,9 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
     const [activeEmojiCategory, setActiveEmojiCategory] = useState('Faces');
     const [fontSize, setFontSize] = useState('Normal');
     const [fontFamily, setFontFamily] = useState('Arial');
+    const [showMoreOptions, setShowMoreOptions] = useState(false);
     const emojiPickerRef = useRef<HTMLDivElement>(null);
+    const moreOptionsRef = useRef<HTMLDivElement>(null);
     const selectionRef = useRef<Range | null>(null);
 
     useEffect(() => {
@@ -53,6 +55,9 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
         const handleClickOutside = (event: MouseEvent) => {
             if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
                 setShowEmojiPicker(false);
+            }
+            if (moreOptionsRef.current && !moreOptionsRef.current.contains(event.target as Node)) {
+                setShowMoreOptions(false);
             }
         };
 
@@ -503,9 +508,30 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                 </div>
 
                 <div className="compose-footer-right" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <button className="compose-icon-btn" title="More options">
-                        <MoreVertical size={20} />
-                    </button>
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            className={`compose-icon-btn ${showMoreOptions ? 'active' : ''}`}
+                            onClick={() => setShowMoreOptions(!showMoreOptions)}
+                            title="More options"
+                        >
+                            <MoreVertical size={20} />
+                        </button>
+
+                        {showMoreOptions && (
+                            <div className="gmail-msg-popover more-options" ref={moreOptionsRef} style={{ bottom: 'calc(100% + 10px)', top: 'auto', right: 0, left: 'auto', width: '180px', padding: '6px 0' }}>
+                                <div className="popover-action-item" onClick={() => { window.print(); setShowMoreOptions(false); }}>
+                                    Print
+                                </div>
+                                <div className="popover-action-item" onClick={() => { alert('Check spelling coming soon...'); setShowMoreOptions(false); }}>
+                                    Check spelling
+                                </div>
+                                <div className="popover-separator" />
+                                <div className="popover-action-item" onClick={() => { setShowMoreOptions(false); }}>
+                                    Plain text mode
+                                </div>
+                            </div>
+                        )}
+                    </div>
                     <button className="compose-icon-btn" onClick={onCancel} title="Discard draft">
                         <Trash2 size={20} />
                     </button>

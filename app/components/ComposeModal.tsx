@@ -34,8 +34,10 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const [attachments, setAttachments] = useState<File[]>([]);
     const [fontFamily, setFontFamily] = useState('Sans Serif');
     const [fontSize, setFontSize] = useState('Normal');
+    const [showMoreOptions, setShowMoreOptions] = useState(false);
 
     const editorRef = useRef<HTMLDivElement>(null);
+    const moreOptionsRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const emojiPickerRef = useRef<HTMLDivElement>(null);
     const savedSelection = useRef<Range | null>(null);
@@ -86,14 +88,18 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
                 setShowEmojiPicker(false);
             }
+            if (moreOptionsRef.current && !moreOptionsRef.current.contains(event.target as Node)) {
+                setShowMoreOptions(false);
+            }
         };
-        if (showEmojiPicker) {
+
+        if (showEmojiPicker || showMoreOptions) {
             document.addEventListener('mousedown', handleClickOutside);
         }
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [showEmojiPicker]);
+    }, [showEmojiPicker, showMoreOptions]);
 
     const handleSend = async () => {
         if (!to.trim() || !fromAccount || isSending) return;
@@ -556,9 +562,29 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     {sendResult.message}
                                 </span>
                             )}
-                            <button className="compose-icon-btn compose-more-options" title="More options">
-                                <MoreVertical size={20} />
-                            </button>
+                            <div style={{ position: 'relative' }}>
+                                <button
+                                    className={`compose-icon-btn compose-more-options ${showMoreOptions ? 'active' : ''}`}
+                                    title="More options"
+                                    onClick={() => setShowMoreOptions(!showMoreOptions)}
+                                >
+                                    <MoreVertical size={20} />
+                                </button>
+                                {showMoreOptions && (
+                                    <div className="gmail-msg-popover more-options" ref={moreOptionsRef} style={{ bottom: 'calc(100% + 10px)', top: 'auto', right: 0, left: 'auto', width: '180px', padding: '6px 0', background: 'var(--bg-elevated)', border: '1px solid var(--border-strong)' }}>
+                                        <div className="popover-action-item" onClick={() => { window.print(); setShowMoreOptions(false); }}>
+                                            Print
+                                        </div>
+                                        <div className="popover-action-item" onClick={() => { alert('Check spelling coming soon...'); setShowMoreOptions(false); }}>
+                                            Check spelling
+                                        </div>
+                                        <div className="popover-separator" />
+                                        <div className="popover-action-item" onClick={() => { setShowMoreOptions(false); }}>
+                                            Plain text mode
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                             <button className="compose-icon-btn delete-btn" onClick={onClose} title="Discard draft">
                                 <Trash2 size={20} />
                             </button>

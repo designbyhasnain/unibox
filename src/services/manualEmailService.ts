@@ -4,6 +4,7 @@ import { simpleParser } from 'mailparser';
 import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
 import { decrypt } from '../utils/encryption';
+import { injectTracking } from './trackingService';
 
 /**
  * Test IMAP and SMTP connection with provided credentials
@@ -90,11 +91,13 @@ export async function sendManualEmail(params: {
         auth: { user: account.email, pass: password },
     });
 
+    const { trackedBody, trackingId } = injectTracking(body);
+
     const info = await transporter.sendMail({
         from: account.email,
         to,
         subject,
-        html: body,
+        html: trackedBody,
     });
 
     const finalThreadId = threadId || info.messageId.replace(/[<>]/g, '');
@@ -108,6 +111,7 @@ export async function sendManualEmail(params: {
         subject,
         body,
         sentAt: new Date(),
+        trackingId,
     });
 
     return { success: true, messageId: info.messageId };

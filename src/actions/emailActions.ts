@@ -143,6 +143,10 @@ export async function getInboxEmailsAction(
             pipeline_stage: r.pipeline_stage,
             gmail_account_id: r.gmail_account_id,
             contact_id: r.contact_id,
+            tracking_id: r.tracking_id,
+            open_count: r.open_count,
+            opened_at: r.opened_at,
+            clicked_at: r.clicked_at,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
@@ -207,6 +211,10 @@ export async function getSentEmailsAction(
             pipeline_stage: r.pipeline_stage,
             gmail_account_id: r.gmail_account_id,
             contact_id: r.contact_id,
+            tracking_id: r.tracking_id,
+            open_count: r.open_count,
+            opened_at: r.opened_at,
+            clicked_at: r.clicked_at,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
@@ -413,7 +421,7 @@ export async function getThreadMessagesAction(threadId: string) {
         .select(`
             id, thread_id, from_email, to_email, subject,
             body, direction, sent_at, is_unread, pipeline_stage,
-            gmail_account_id,
+            gmail_account_id, tracking_id, open_count, opened_at, clicked_at,
             gmail_accounts ( email, users ( name ) )
         `)
         .eq('thread_id', threadId)

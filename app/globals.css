@@ -3654,8 +3654,17 @@ input[type="date"] {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     z-index: 1000;
     padding: 1rem;
-    width: 440px;
+    width: max-content;
+    min-width: 200px;
+    max-width: 440px;
     animation: fadeIn 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.gmail-msg-popover.more-options {
+    left: auto;
+    right: 0;
+    padding: 6px 0;
+    width: 180px;
 }
 
 .popover-row {
@@ -3728,4 +3737,23 @@ input[type="date"] {
     border-radius: 50%;
     border-top-color: white;
     animation: spin 0.6s linear infinite;
+}
+
+.popover-action-item {
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+
+.popover-action-item:hover {
+    background: var(--bg-hover);
+}
+
+.popover-separator {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
 }

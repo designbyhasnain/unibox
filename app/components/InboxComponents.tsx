@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { CheckCheck, Check, Eye, MousePointerClick } from 'lucide-react';
 import { avatarColor, formatDate, cleanPreview } from '../utils/helpers';
 import AddProjectModal from './AddProjectModal';
 import { ensureContactAction } from '../../src/actions/clientActions';
@@ -52,7 +53,18 @@ export function EmailRow({ email, isSelected, isRowChecked, showBadge, onClick, 
             </div>
 
             <div className="grid-col col-main">
-                <div className="sender-name">{senderName}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div className="sender-name">{senderName}</div>
+                    {email.tracking_id && (
+                        <div className="tracking-status-compact" title={email.open_count > 0 ? `Opened ${email.open_count} times` : 'Not opened yet'}>
+                            {email.open_count > 0 ? (
+                                <CheckCheck size={14} color={email.clicked_at ? '#1d9bf0' : '#4d9eff'} />
+                            ) : (
+                                <Check size={14} color="var(--text-muted)" />
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             <div className="grid-col col-main" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -74,7 +86,16 @@ export function EmailRow({ email, isSelected, isRowChecked, showBadge, onClick, 
                 {email.gmail_accounts?.user?.name || 'Unassigned'}
             </div>
 
-            <div className="grid-col right muted" style={{ fontSize: '0.75rem' }}>
+            <div className="grid-col right muted" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
+                {email.tracking_id && (
+                    <div className="tracking-status" title={email.open_count > 0 ? `Opened ${email.open_count} times` : 'Not opened yet'}>
+                        {email.open_count > 0 ? (
+                            <CheckCheck size={16} color={email.clicked_at ? '#1d9bf0' : '#4d9eff'} />
+                        ) : (
+                            <Check size={16} color="var(--text-muted)" />
+                        )}
+                    </div>
+                )}
                 {formatDate(email.sent_at)}
             </div>
 
@@ -329,8 +350,13 @@ export function EmailDetail({
     const [targetClient, setTargetClient] = React.useState<any>(null);
     const [isCreatingProject, setIsCreatingProject] = React.useState(false);
 
+    const [openMoreId, setOpenMoreId] = React.useState<string | null>(null);
+
     React.useEffect(() => {
-        const handleClickOutside = () => setOpenDetailsId(null);
+        const handleClickOutside = () => {
+            setOpenDetailsId(null);
+            setOpenMoreId(null);
+        };
         if (openDetailsId) {
             window.addEventListener('click', handleClickOutside);
         }
@@ -492,6 +518,15 @@ export function EmailDetail({
                                         <div className="gmail-msg-info">
                                             <div className="gmail-msg-top-row">
                                                 <span className="gmail-sender-name">{senderName}</span>
+                                                {msg.direction === 'SENT' && msg.tracking_id && (
+                                                    <div className="tracking-status-thread" style={{ display: 'inline-flex', marginLeft: '8px' }}>
+                                                        {msg.open_count > 0 ? (
+                                                            <CheckCheck size={14} color={msg.clicked_at ? '#1d9bf0' : '#4d9eff'} />
+                                                        ) : (
+                                                            <Check size={14} color="var(--text-muted)" />
+                                                        )}
+                                                    </div>
+                                                )}
                                                 {isCollapsed && (
                                                     <span className="gmail-snippet">
                                                         — {cleanPreview(msg.snippet || msg.body || '')}
@@ -545,16 +580,112 @@ export function EmailDetail({
                                                 <button className="gmail-action-btn" title="Reply" onClick={(e) => { e.stopPropagation(); onReply(); }}>
                                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17L4 12l5-5M4 12h16" /></svg>
                                                 </button>
-                                                <button className="gmail-action-btn" title="More options">
-                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></svg>
-                                                </button>
+                                                <div style={{ position: 'relative' }}>
+                                                    <button
+                                                        className="gmail-action-btn"
+                                                        title="More options"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setOpenMoreId(openMoreId === msg.id ? null : msg.id);
+                                                            setOpenDetailsId(null);
+                                                        }}
+                                                    >
+                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></svg>
+                                                    </button>
+                                                    {openMoreId === msg.id && (
+                                                        <div className="gmail-msg-popover more-options" style={{ top: '100%', right: 0, left: 'auto', width: '180px', padding: '6px 0' }}>
+                                                            <div className="popover-action-item" onClick={async () => {
+                                                                const { markEmailAsUnreadAction } = await import('../../src/actions/emailActions');
+                                                                await markEmailAsUnreadAction(msg.id);
+                                                                setOpenMoreId(null);
+                                                            }}>
+                                                                Mark as unread
+                                                            </div>
+                                                            <div className="popover-action-item" onClick={async () => {
+                                                                if (confirm('Delete this message?')) {
+                                                                    const { deleteEmailAction } = await import('../../src/actions/emailActions');
+                                                                    await deleteEmailAction(msg.id);
+                                                                    setOpenMoreId(null);
+                                                                    onBack();
+                                                                }
+                                                            }}>
+                                                                Delete this message
+                                                            </div>
+                                                            <div className="popover-separator" />
+                                                            <div className="popover-action-item" onClick={() => { window.print(); setOpenMoreId(null); }}>
+                                                                Print
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
 
+                                    {/* ─── Tracking Summary ─── */}
+                                    {!isCollapsed && msg.direction === 'SENT' && msg.tracking_id && (
+                                        <div className="tracking-summary-bar" style={{
+                                            margin: '0 24px 12px 24px',
+                                            padding: '8px 12px',
+                                            background: 'var(--surface-hover)',
+                                            borderRadius: '6px',
+                                            fontSize: '0.75rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '16px',
+                                            color: 'var(--text-secondary)',
+                                            borderLeft: '3px solid #1d9bf0'
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <Eye size={14} color="#1d9bf0" />
+                                                <strong>{msg.open_count || 0} Opens</strong>
+                                                {msg.opened_at && <span>(First: {formatDate(msg.opened_at)})</span>}
+                                            </div>
+                                            {msg.clicked_at && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <MousePointerClick size={14} color="#1d9bf0" />
+                                                    <strong>Link Clicked</strong>
+                                                    <span>({formatDate(msg.clicked_at)})</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {/* ─── Message Body ─── */}
                                     {!isCollapsed && (
                                         <div className="gmail-msg-body">
+                                            {/* --- TRACKING STATS --- */}
+                                            {msg.tracking_id && (
+                                                <div className="tracking-stats-bar" style={{
+                                                    marginBottom: 16,
+                                                    padding: '10px 14px',
+                                                    background: 'rgba(29, 155, 240, 0.05)',
+                                                    border: '1px solid rgba(29, 155, 240, 0.15)',
+                                                    borderRadius: 10,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 20,
+                                                    fontSize: '0.8125rem',
+                                                    color: 'var(--text-primary)'
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <Eye size={16} color="#1d9bf0" />
+                                                        <span><strong>{msg.open_count || 0}</strong> Open{msg.open_count !== 1 ? 's' : ''}</span>
+                                                    </div>
+                                                    {msg.clicked_at && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                            <MousePointerClick size={16} color="#00ba7c" />
+                                                            <span>Clicked</span>
+                                                        </div>
+                                                    )}
+                                                    {msg.opened_at && (
+                                                        <div style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                                                            Last opened: {formatFullDate(msg.opened_at)}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             {isHtml ? (
                                                 <EmailBodyFrame
                                                     html={(msg.body || '')

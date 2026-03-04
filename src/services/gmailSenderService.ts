@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { supabase } from '../lib/supabase';
 import { handleEmailSent } from './emailSyncLogic';
 import { refreshAccessToken } from './googleAuthService';
+import { injectTracking } from './trackingService';
 
 /**
  * Sends an email via Gmail API and syncs it to the database.
@@ -44,6 +45,10 @@ export async function sendGmailEmail(params: {
         oauth2Client.setCredentials({ access_token: token });
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
+        // --- TRACKING INJECTION ---
+        const { trackedBody, trackingId } = injectTracking(body);
+        // -------------------------
+
         // Build MIME message manually to avoid bulky dependencies if possible, 
         // but ensure it's robust for UTF-8.
         const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
@@ -54,7 +59,7 @@ export async function sendGmailEmail(params: {
             `MIME-Version: 1.0`,
             `Subject: ${utf8Subject}`,
             ``,
-            body,
+            trackedBody,
         ];
         const message = messageParts.join('\n');
 
@@ -73,7 +78,7 @@ export async function sendGmailEmail(params: {
             },
         });
 
-        return res.data;
+        return { ...res.data, trackingId };
     };
 
     try {
@@ -89,6 +94,7 @@ export async function sendGmailEmail(params: {
             subject: subject,
             body: body,
             sentAt: new Date(),
+            trackingId: sentData.trackingId,
         });
 
         return { success: true, messageId: sentData.id };
@@ -113,6 +119,7 @@ export async function sendGmailEmail(params: {
                     subject: subject,
                     body: body,
                     sentAt: new Date(),
+                    trackingId: sentData.trackingId,
                 });
 
                 return { success: true, messageId: sentData.id };

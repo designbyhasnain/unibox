@@ -137,6 +137,12 @@ export default function InboxPage() {
             }
         };
         window.addEventListener('keydown', handleKeyDown);
+
+        // Request notification permission
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
@@ -264,6 +270,23 @@ export default function InboxPage() {
 
         if (selectedEmail?.id === updatedEmail.id) {
             setSelectedEmail((prev: any) => ({ ...prev, ...updatedEmail }));
+        }
+
+        // Show notification for tracking events
+        const isTrackingUpdate = updatedEmail.open_count > 0 || updatedEmail.clicked_at;
+        if (isTrackingUpdate) {
+            const hasPermission = 'Notification' in window && Notification.permission === 'granted';
+            if (hasPermission) {
+                // We only want to notify on NEW opens/clicks. 
+                // Since this is a realtime update, we check if it was already opened.
+                // For simplicity, we can just check if the tab is focused.
+                if (document.visibilityState !== 'visible') {
+                    new Notification('Email Engagement', {
+                        body: `${updatedEmail.to_email} just ${updatedEmail.clicked_at ? 'clicked a link in' : 'opened'} your email: ${updatedEmail.subject}`,
+                        icon: '/favicon.ico'
+                    });
+                }
+            }
         }
     }, [activeStage, selectedEmail, accounts]);
 

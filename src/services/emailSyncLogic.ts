@@ -13,6 +13,7 @@ export async function handleEmailSent(data: {
     sentAt: Date;
     isUnread?: boolean;
     isSpam?: boolean;
+    trackingId?: string | null | undefined;
 }) {
     const { toEmail, messageId, threadId } = data;
 
@@ -44,29 +45,36 @@ export async function handleEmailSent(data: {
     );
 
     // 5. Insert message
+    const upsertData: any = {
+        id: messageId,
+        gmail_account_id: data.gmailAccountId,
+        thread_id: threadId,
+        contact_id: contact?.id ?? null,
+        from_email: data.fromEmail,
+        to_email: data.toEmail,
+        subject: data.subject,
+        body: data.body,
+        snippet: data.body
+            .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, '') // Remove style/script content
+            .replace(/<[^>]*>/g, ' ') // Remove all remaining tags
+            .replace(/\s+/g, ' ') // Collapse whitespace
+            .trim()
+            .substring(0, 300),
+        direction: 'SENT',
+        is_unread: data.isUnread ?? false,
+        pipeline_stage: currentThreadStage,
+        is_spam: data.isSpam ?? false,
+        sent_at: data.sentAt.toISOString(),
+    };
+
+    if (data.trackingId) {
+        upsertData.tracking_id = data.trackingId;
+    }
+
+    // 5. Insert message
     const { data: emailMsg, error } = await supabase
         .from('email_messages')
-        .upsert({
-            id: messageId,
-            gmail_account_id: data.gmailAccountId,
-            thread_id: threadId,
-            contact_id: contact?.id ?? null,
-            from_email: data.fromEmail,
-            to_email: data.toEmail,
-            subject: data.subject,
-            body: data.body,
-            snippet: data.body
-                .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, '') // Remove style/script content
-                .replace(/<[^>]*>/g, ' ') // Remove all remaining tags
-                .replace(/\s+/g, ' ') // Collapse whitespace
-                .trim()
-                .substring(0, 300),
-            direction: 'SENT',
-            is_unread: data.isUnread ?? false,
-            pipeline_stage: currentThreadStage,
-            is_spam: data.isSpam ?? false,
-            sent_at: data.sentAt.toISOString(),
-        }, { onConflict: 'id' })
+        .upsert(upsertData, { onConflict: 'id' })
         .select()
         .single();
 
@@ -137,7 +145,19 @@ export async function handleEmailReceived(data: {
         });
     }
 
-    // 4. Force Unread Flag for replies (Notification)
+    // 5. Implicit Open Tracking: If we receive a reply, the recipient MUST have opened our previous SENT message(s).
+    // We update the open_count and opened_at for any SENT message in this thread that shows 0 opens.
+    await supabase
+        .from('email_messages')
+        .update({
+            open_count: 1,
+            opened_at: new Date().toISOString()
+        })
+        .eq('thread_id', threadId)
+        .eq('direction', 'SENT')
+        .eq('open_count', 0);
+
+    // 6. Force Unread Flag for replies (Notification)
     const finalIsUnread = data.isUnread ?? true;
 
     // 3. Upsert thread
