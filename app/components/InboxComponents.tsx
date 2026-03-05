@@ -301,6 +301,22 @@ function formatFullDate(dateStr: string): string {
     }) + ' at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
+function timeAgo(dateStr: string): string {
+    if (!dateStr) return '';
+    const now = new Date();
+    const then = new Date(dateStr);
+    const diffMs = now.getTime() - then.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin} min${diffMin > 1 ? 's' : ''} ago`;
+    const diffHrs = Math.floor(diffMin / 60);
+    if (diffHrs < 24) return `${diffHrs} hour${diffHrs > 1 ? 's' : ''} ago`;
+    const diffDays = Math.floor(diffHrs / 24);
+    if (diffDays < 30) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    const diffMonths = Math.floor(diffDays / 30);
+    return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
+}
+
 function extractSenderName(rawFrom: string): string {
     const parts = (rawFrom || '').split('<');
     const name = (parts[0] ?? '').trim().replace(/"/g, '');
@@ -689,6 +705,64 @@ export function EmailDetail({
                                         )}
                                     </div>
 
+
+                                    {/* ─── Tracking Analytics Bar ─── */}
+                                    {!isCollapsed && isSent && ((msg.opens_count || 0) > 0 || (msg.clicks_count || 0) > 0) && (
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '16px',
+                                            padding: '8px 16px',
+                                            margin: '0 16px 4px',
+                                            background: 'rgba(52, 168, 83, 0.06)',
+                                            borderRadius: '8px',
+                                            border: '1px solid rgba(52, 168, 83, 0.15)',
+                                            fontSize: '12px',
+                                            color: '#5f6368',
+                                        }}>
+                                            {/* Opens */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34a853" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                                    <circle cx="12" cy="12" r="3" />
+                                                </svg>
+                                                <span style={{ color: '#34a853', fontWeight: 600 }}>
+                                                    Opened {msg.opens_count || 0} time{(msg.opens_count || 0) !== 1 ? 's' : ''}
+                                                </span>
+                                            </div>
+
+                                            {/* Clicks */}
+                                            {(msg.clicks_count || 0) > 0 && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <path d="M9 9l5 12 1.8-5.2L21 14z" />
+                                                        <path d="M7.2 2.2L8 5.1" />
+                                                        <path d="M2.2 7.2l2.9.8" />
+                                                        <path d="M3.5 3.5l2.1 2.1" />
+                                                    </svg>
+                                                    <span style={{ color: '#1a73e8', fontWeight: 600 }}>
+                                                        {msg.clicks_count} click{msg.clicks_count !== 1 ? 's' : ''}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {/* Last opened time */}
+                                            {msg.last_opened_at && (
+                                                <>
+                                                    <div style={{ width: '1px', height: '14px', background: '#dadce0' }} />
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                            <circle cx="12" cy="12" r="10" />
+                                                            <path d="M12 6v6l4 2" />
+                                                        </svg>
+                                                        <span style={{ color: '#80868b' }}>
+                                                            Last opened {timeAgo(msg.last_opened_at)}
+                                                        </span>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {/* ─── Message Body ─── */}
                                     {!isCollapsed && (
