@@ -158,6 +158,7 @@ export async function getInboxEmailsAction(
             is_tracked: r.is_tracked,
             opens_count: r.opens_count || 0,
             clicks_count: r.clicks_count || 0,
+            has_reply: r.has_reply || false,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
@@ -225,6 +226,7 @@ export async function getSentEmailsAction(
             is_tracked: r.is_tracked,
             opens_count: r.opens_count || 0,
             clicks_count: r.clicks_count || 0,
+            has_reply: r.has_reply || false,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
