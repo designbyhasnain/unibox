@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { sendGmailEmail } from '../services/gmailSenderService';
 import { sendManualEmail, unspamManualMessage } from '../services/manualEmailService';
 import { unspamGmailMessage } from '../services/gmailSyncService';
+import { prepareTrackedEmail } from '../services/trackingService';
 
 const PAGE_SIZE = 50;
 
@@ -25,6 +26,7 @@ export async function sendEmailAction(params: {
     subject: string;
     body: string;
     threadId?: string;
+    isTracked?: boolean;
 }) {
     try {
         const { data: account, error: accError } = await supabase
@@ -37,24 +39,39 @@ export async function sendEmailAction(params: {
             throw new Error('Sender account not found.');
         }
 
-        /* Daily Limit check removed with Phase 2 */
+        // Inject tracking pixel and wrap links
+        const isTracked = params.isTracked !== false; // default true
+        const { body: trackedBody, trackingId } = prepareTrackedEmail(params.body, isTracked);
+        const sendParams = { ...params, body: trackedBody };
 
         let result;
         if (account.connection_method === 'MANUAL') {
-            result = await sendManualEmail(params);
+            result = await sendManualEmail(sendParams);
         } else {
-            result = await sendGmailEmail(params);
+            result = await sendGmailEmail(sendParams);
         }
 
-        // Increment sent count on success
+        // Increment sent count and save tracking_id on success
         if (result && result.success) {
             await supabase
                 .from('gmail_accounts')
                 .update({ sent_count_today: (account.sent_count_today || 0) + 1 })
                 .eq('id', params.accountId);
+
+            // Save tracking_id to the sent message
+            if (isTracked && result.messageId) {
+                const cleanMsgId = result.messageId.replace(/[<>]/g, '');
+                await supabase
+                    .from('email_messages')
+                    .update({
+                        tracking_id: trackingId,
+                        is_tracked: true,
+                    })
+                    .eq('id', cleanMsgId);
+            }
         }
 
-        return result;
+        return { ...result, trackingId: isTracked ? trackingId : undefined };
     } catch (error: any) {
         console.error('sendEmailAction error:', error);
         return {
@@ -138,6 +155,9 @@ export async function getInboxEmailsAction(
             pipeline_stage: stage === 'SPAM' ? 'SPAM' : r.pipeline_stage,
             gmail_account_id: r.gmail_account_id,
             contact_id: r.contact_id,
+            is_tracked: r.is_tracked,
+            opens_count: r.opens_count || 0,
+            clicks_count: r.clicks_count || 0,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
@@ -202,6 +222,9 @@ export async function getSentEmailsAction(
             pipeline_stage: r.pipeline_stage,
             gmail_account_id: r.gmail_account_id,
             contact_id: r.contact_id,
+            is_tracked: r.is_tracked,
+            opens_count: r.opens_count || 0,
+            clicks_count: r.clicks_count || 0,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
@@ -430,7 +453,7 @@ export async function getThreadMessagesAction(threadId: string) {
         .select(`
             id, thread_id, from_email, to_email, subject,
             body, direction, sent_at, is_unread, pipeline_stage,
-            gmail_account_id,
+            gmail_account_id, is_tracked, opens_count, clicks_count, last_opened_at,
             gmail_accounts ( email, users ( name ) )
         `)
         .eq('thread_id', threadId)
@@ -678,4 +701,36 @@ export async function searchEmailsAction(userId: string, query: string, limit = 
             user: { name: m.gmail_accounts?.users?.name || 'System' }
         }
     }));
+}
+
+// ─── Email Tracking ──────────────────────────────────────────────────────────
+
+export async function getEmailTrackingAction(messageId: string) {
+    try {
+        // 1. Get tracking info from email_messages
+        const { data: email, error: emailError } = await supabase
+            .from('email_messages')
+            .select('tracking_id, is_tracked, opens_count, last_opened_at, clicks_count')
+            .eq('id', messageId)
+            .single();
+
+        if (emailError || !email) return null;
+        if (!email.tracking_id) return { ...email, events: [] };
+
+        // 2. Get tracking events
+        const { data: events, error: eventsError } = await supabase
+            .from('email_tracking_events')
+            .select('*')
+            .eq('tracking_id', email.tracking_id)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        return {
+            ...email,
+            events: events || [],
+        };
+    } catch (err) {
+        console.error('getEmailTrackingAction error:', err);
+        return null;
+    }
 }

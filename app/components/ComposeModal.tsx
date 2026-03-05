@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction } from '../../src/actions/emailActions';
 import { getAccountsAction } from '../../src/actions/accountActions';
-import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield } from 'lucide-react';
+import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Eye, MousePointerClick, FileText, Unlink } from 'lucide-react';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
 
 interface ComposeModalProps {
@@ -36,6 +36,9 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const [fontSize, setFontSize] = useState('Normal');
     const [showMoreOptions, setShowMoreOptions] = useState(false);
     const [showFromDropdown, setShowFromDropdown] = useState(false);
+    const [isTrackingEnabled, setIsTrackingEnabled] = useState(true);
+    const [showTrackingMenu, setShowTrackingMenu] = useState(false);
+    const trackingMenuRef = useRef<HTMLDivElement>(null);
 
     const editorRef = useRef<HTMLDivElement>(null);
     const moreOptionsRef = useRef<HTMLDivElement>(null);
@@ -96,22 +99,25 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             if (fromDropdownRef.current && !fromDropdownRef.current.contains(event.target as Node)) {
                 setShowFromDropdown(false);
             }
+            if (trackingMenuRef.current && !trackingMenuRef.current.contains(event.target as Node)) {
+                setShowTrackingMenu(false);
+            }
         };
 
-        if (showEmojiPicker || showMoreOptions || showFromDropdown) {
+        if (showEmojiPicker || showMoreOptions || showFromDropdown || showTrackingMenu) {
             document.addEventListener('mousedown', handleClickOutside);
         }
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [showEmojiPicker, showMoreOptions, showFromDropdown]);
+    }, [showEmojiPicker, showMoreOptions, showFromDropdown, showTrackingMenu]);
 
     const handleSend = async () => {
         if (!to.trim() || !fromAccount || isSending) return;
         setIsSending(true);
         setSendResult(null);
         try {
-            const payload = { to, subject, body, accountId: fromAccount, ...(threadId ? { threadId } : {}) };
+            const payload = { to, subject, body, accountId: fromAccount, isTracked: isTrackingEnabled, ...(threadId ? { threadId } : {}) };
             const result = await sendEmailAction(payload) as { success: boolean, error?: string, messageId?: string };
             if (result.success) {
                 setSendResult({ success: true, message: 'Message sent.' });
@@ -124,6 +130,28 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             setSendResult({ success: false, message: err.message || 'Error occurred.' });
             setIsSending(false);
         }
+    };
+
+    const handleInsertTrackedLink = () => {
+        const url = prompt('Enter the URL to track:');
+        if (url) {
+            restoreSelection();
+            const linkText = window.getSelection()?.toString() || url;
+            document.execCommand('insertHTML', false, `<a href="${url}" style="color:#1a73e8;text-decoration:underline;">${linkText}</a>`);
+            if (editorRef.current) setBody(editorRef.current.innerHTML);
+        }
+        setShowTrackingMenu(false);
+    };
+
+    const handleInsertTrackedButton = () => {
+        const url = prompt('Enter the button URL:');
+        const label = prompt('Enter the button text:', 'Click Here');
+        if (url && label) {
+            restoreSelection();
+            document.execCommand('insertHTML', false, `<a href="${url}" style="display:inline-block;padding:10px 24px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:4px;font-weight:500;font-size:14px;">${label}</a>&nbsp;`);
+            if (editorRef.current) setBody(editorRef.current.innerHTML);
+        }
+        setShowTrackingMenu(false);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -469,172 +497,262 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                         </div>
                     </div>
 
-                    <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #3c4043' }}>
-                        <div className="compose-footer-left" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <div className="compose-send-group">
-                                <button
-                                    className="compose-send-btn"
-                                    onClick={handleSend}
-                                    disabled={isSending || !to.trim()}
-                                >
-                                    {isSending ? 'Sending...' : 'Send'}
-                                </button>
-                                <button className="compose-send-caret" disabled={isSending || !to.trim()}>
-                                    <ChevronDown size={14} />
-                                </button>
-                            </div>
-
-                            <button
-                                className={`compose-icon-btn formatting-toggle ${showFormatting ? 'active' : ''}`}
-                                title="Formatting options"
-                                onClick={() => setShowFormatting(!showFormatting)}
-                            >
-                                <Type size={20} />
-                            </button>
-
-                            <button className="compose-icon-btn" title="Attach files" onClick={handleAttachmentClick}>
-                                <Paperclip size={20} />
-                            </button>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                style={{ display: 'none' }}
-                                onChange={handleFileChange}
-                                multiple
-                            />
-
-                            <button className="compose-icon-btn" title="Insert link" onClick={handleInsertLink}>
-                                <Link size={20} />
-                            </button>
-
-                            <div style={{ position: 'relative' }}>
-                                <button
-                                    className={`compose-icon-btn ${showEmojiPicker ? 'active' : ''}`}
-                                    title="Insert emoji"
-                                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                                >
-                                    <Smile size={20} />
-                                </button>
-
-                                {showEmojiPicker && (
-                                    <div className="emoji-picker-container emoji-picker-advanced" ref={emojiPickerRef} style={{
-                                        position: 'absolute',
-                                        bottom: 'calc(100% + 10px)',
-                                        left: '0',
-                                        zIndex: 1000,
-                                        backgroundColor: '#ffffff',
-                                        border: '1px solid #e0e0e0',
-                                        borderRadius: '8px',
-                                        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                                        width: '320px'
-                                    }}>
-                                        <div className="emoji-picker-header" style={{ padding: '8px' }}>
-                                            <input
-                                                type="text"
-                                                placeholder="Search emojis..."
-                                                value={emojiSearch}
-                                                onChange={(e) => setEmojiSearch(e.target.value)}
-                                                autoFocus
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '8px',
-                                                    background: '#f1f3f4',
-                                                    border: '1px solid #e0e0e0',
-                                                    borderRadius: '4px',
-                                                    color: '#202124',
-                                                    fontSize: '13px',
-                                                    outline: 'none'
-                                                }}
-                                            />
-                                        </div>
-                                        <div className="emoji-picker-content" style={{ maxHeight: '250px', overflowY: 'auto', padding: '8px' }}>
-                                            {filteredEmojiGroups.map((group) => (
-                                                <div key={group.label} className="emoji-category">
-                                                    <div className="emoji-category-title" style={{ fontSize: '11px', color: '#5f6368', padding: '4px 8px', textTransform: 'uppercase', fontWeight: 600 }}>
-                                                        {group.label}
-                                                    </div>
-                                                    <div className="emoji-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '4px' }}>
-                                                        {group.emojis.map((emojiObj, idx) => (
-                                                            <button
-                                                                key={`${emojiObj.char}-${idx}`}
-                                                                className="emoji-btn"
-                                                                onClick={() => {
-                                                                    execCommand('insertText', emojiObj.char);
-                                                                    setShowEmojiPicker(false);
-                                                                }}
-                                                                type="button"
-                                                                style={{
-                                                                    fontSize: '20px',
-                                                                    padding: '4px',
-                                                                    background: 'none',
-                                                                    border: 'none',
-                                                                    cursor: 'pointer',
-                                                                    borderRadius: '4px'
-                                                                }}
-                                                            >
-                                                                {emojiObj.char}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {filteredEmojiGroups?.[0]?.emojis?.length === 0 && (
-                                                <div className="no-emojis" style={{ textAlign: 'center', color: '#5f6368', padding: '16px' }}>No emojis found</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            <button className="compose-icon-btn" title="Insert files using Drive">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.34 10.5l-4-7h-6.7l4 7h6.7zM14 11.5l-4 7h6.7l4-7H14zM12 11.1L8.3 4.5H1.6l4 7H12zM12.7 12.5H6l-4 7h6.7l4-7z" /></svg>
-                            </button>
-
-                            <button className="compose-icon-btn" title="Insert photo" onClick={handleAttachmentClick}>
-                                <Image size={20} />
-                            </button>
-
-                            <button className="compose-icon-btn" title="Toggle confidential mode">
-                                <Shield size={20} />
-                            </button>
-
-                            <button className="compose-icon-btn" title="Insert signature" onClick={handleInsertSignature}>
-                                <Highlighter size={20} />
-                            </button>
-                        </div>
-
-                        <div className="compose-footer-right" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            {sendResult && (
-                                <span style={{ fontSize: '12px', color: sendResult.success ? '#81c995' : '#f28b82', paddingRight: '8px' }}>
-                                    {sendResult.message}
+                    <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', flexDirection: 'column', borderTop: '1px solid #3c4043' }}>
+                        {/* Tracking Indicator Bar — Mailsuite style */}
+                        {isTrackingEnabled && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: '6px' }}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                                    <path d="M1 12l5 5L18 5" stroke="#34a853" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    <path d="M7 12l5 5L24 5" stroke="#34a853" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                <span style={{ fontSize: '12px', color: '#9aa0a6', letterSpacing: '0.2px' }}>
+                                    Email tracked with <strong style={{ color: '#34a853' }}>Unibox</strong>
                                 </span>
-                            )}
-                            <div style={{ position: 'relative' }}>
-                                <button
-                                    className={`compose-icon-btn compose-more-options ${showMoreOptions ? 'active' : ''}`}
-                                    title="More options"
-                                    onClick={() => setShowMoreOptions(!showMoreOptions)}
+                                <span style={{ margin: '0 4px', color: '#5f6368', fontSize: '11px' }}>·</span>
+                                <span
+                                    style={{ fontSize: '12px', color: '#ea4335', cursor: 'pointer' }}
+                                    onClick={() => setIsTrackingEnabled(false)}
                                 >
-                                    <MoreVertical size={20} />
-                                </button>
-                                {showMoreOptions && (
-                                    <div className="gmail-msg-popover more-options" ref={moreOptionsRef} style={{ bottom: 'calc(100% + 10px)', top: 'auto', right: 0, left: 'auto', width: '180px', padding: '6px 0', background: 'var(--bg-elevated)', border: '1px solid var(--border-strong)' }}>
-                                        <div className="popover-action-item" onClick={() => { window.print(); setShowMoreOptions(false); }}>
-                                            Print
-                                        </div>
-                                        <div className="popover-action-item" onClick={() => { alert('Check spelling coming soon...'); setShowMoreOptions(false); }}>
-                                            Check spelling
-                                        </div>
-                                        <div className="popover-separator" />
-                                        <div className="popover-action-item" onClick={() => { setShowMoreOptions(false); }}>
-                                            Plain text mode
-                                        </div>
-                                    </div>
-                                )}
+                                    Opt out
+                                </span>
+                                <span
+                                    style={{ fontSize: '14px', color: '#ea4335', cursor: 'pointer', marginLeft: '2px', fontWeight: 600 }}
+                                    onClick={() => setIsTrackingEnabled(false)}
+                                >
+                                    ✕
+                                </span>
                             </div>
-                            <button className="compose-icon-btn delete-btn" onClick={onClose} title="Discard draft">
-                                <Trash2 size={20} />
-                            </button>
+                        )}
+
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div className="compose-footer-left" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <div className="compose-send-group">
+                                    <button
+                                        className="compose-send-btn"
+                                        onClick={handleSend}
+                                        disabled={isSending || !to.trim()}
+                                    >
+                                        {isSending ? 'Sending...' : 'Send'}
+                                    </button>
+                                    <button className="compose-send-caret" disabled={isSending || !to.trim()}>
+                                        <ChevronDown size={14} />
+                                    </button>
+                                </div>
+
+                                {/* Tracking Toggle Icon — green double check like Mailsuite */}
+                                <div style={{ position: 'relative' }} ref={trackingMenuRef}>
+                                    <button
+                                        className={`compose-icon-btn ${isTrackingEnabled ? 'tracking-active' : ''}`}
+                                        title={isTrackingEnabled ? 'Tracking enabled (click for options)' : 'Enable email tracking'}
+                                        onClick={() => {
+                                            if (!isTrackingEnabled) {
+                                                setIsTrackingEnabled(true);
+                                            } else {
+                                                setShowTrackingMenu(!showTrackingMenu);
+                                            }
+                                        }}
+                                        style={{
+                                            background: isTrackingEnabled ? 'rgba(52,168,83,0.15)' : 'transparent',
+                                            borderRadius: '50%',
+                                            width: '32px',
+                                            height: '32px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                        }}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                                            <path d="M1 12l5 5L18 5" stroke={isTrackingEnabled ? '#34a853' : '#9aa0a6'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                            <path d="M7 12l5 5L24 5" stroke={isTrackingEnabled ? '#34a853' : '#9aa0a6'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                    </button>
+
+                                    {/* Tracking Popup Menu — Mailsuite style */}
+                                    {showTrackingMenu && (
+                                        <div className="gmail-msg-popover tracking-menu" style={{
+                                            position: 'absolute',
+                                            bottom: 'calc(100% + 10px)',
+                                            left: 0,
+                                            width: '220px',
+                                            padding: '6px 0',
+                                            background: '#ffffff',
+                                            border: '1px solid #e0e0e0',
+                                            borderRadius: '8px',
+                                            boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                                            zIndex: 2000,
+                                        }}>
+                                            <div style={{ padding: '8px 16px 6px', fontSize: '12px', fontWeight: 600, color: '#202124', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                Insert
+                                            </div>
+                                            <div className="popover-action-item" onClick={handleInsertTrackedLink} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124' }}>
+                                                <Link size={16} style={{ color: '#1a73e8' }} />
+                                                <span>Tracked link</span>
+                                            </div>
+                                            <div className="popover-action-item" onClick={handleInsertTrackedButton} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124' }}>
+                                                <MousePointerClick size={16} style={{ color: '#1a73e8' }} />
+                                                <span>Tracked button</span>
+                                            </div>
+                                            <div style={{ borderTop: '1px solid #e0e0e0', margin: '4px 0' }} />
+                                            <div className="popover-action-item" onClick={() => { setIsTrackingEnabled(false); setShowTrackingMenu(false); }} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#ea4335' }}>
+                                                <Unlink size={16} />
+                                                <span>Disable tracking</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <button
+                                    className={`compose-icon-btn formatting-toggle ${showFormatting ? 'active' : ''}`}
+                                    title="Formatting options"
+                                    onClick={() => setShowFormatting(!showFormatting)}
+                                >
+                                    <Type size={20} />
+                                </button>
+
+                                <button className="compose-icon-btn" title="Attach files" onClick={handleAttachmentClick}>
+                                    <Paperclip size={20} />
+                                </button>
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    style={{ display: 'none' }}
+                                    onChange={handleFileChange}
+                                    multiple
+                                />
+
+                                <button className="compose-icon-btn" title="Insert link" onClick={handleInsertLink}>
+                                    <Link size={20} />
+                                </button>
+
+                                <div style={{ position: 'relative' }}>
+                                    <button
+                                        className={`compose-icon-btn ${showEmojiPicker ? 'active' : ''}`}
+                                        title="Insert emoji"
+                                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                                    >
+                                        <Smile size={20} />
+                                    </button>
+
+                                    {showEmojiPicker && (
+                                        <div className="emoji-picker-container emoji-picker-advanced" ref={emojiPickerRef} style={{
+                                            position: 'absolute',
+                                            bottom: 'calc(100% + 10px)',
+                                            left: '0',
+                                            zIndex: 1000,
+                                            backgroundColor: '#ffffff',
+                                            border: '1px solid #e0e0e0',
+                                            borderRadius: '8px',
+                                            boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                                            width: '320px'
+                                        }}>
+                                            <div className="emoji-picker-header" style={{ padding: '8px' }}>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search emojis..."
+                                                    value={emojiSearch}
+                                                    onChange={(e) => setEmojiSearch(e.target.value)}
+                                                    autoFocus
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '8px',
+                                                        background: '#f1f3f4',
+                                                        border: '1px solid #e0e0e0',
+                                                        borderRadius: '4px',
+                                                        color: '#202124',
+                                                        fontSize: '13px',
+                                                        outline: 'none'
+                                                    }}
+                                                />
+                                            </div>
+                                            <div className="emoji-picker-content" style={{ maxHeight: '250px', overflowY: 'auto', padding: '8px' }}>
+                                                {filteredEmojiGroups.map((group) => (
+                                                    <div key={group.label} className="emoji-category">
+                                                        <div className="emoji-category-title" style={{ fontSize: '11px', color: '#5f6368', padding: '4px 8px', textTransform: 'uppercase', fontWeight: 600 }}>
+                                                            {group.label}
+                                                        </div>
+                                                        <div className="emoji-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '4px' }}>
+                                                            {group.emojis.map((emojiObj, idx) => (
+                                                                <button
+                                                                    key={`${emojiObj.char}-${idx}`}
+                                                                    className="emoji-btn"
+                                                                    onClick={() => {
+                                                                        execCommand('insertText', emojiObj.char);
+                                                                        setShowEmojiPicker(false);
+                                                                    }}
+                                                                    type="button"
+                                                                    style={{
+                                                                        fontSize: '20px',
+                                                                        padding: '4px',
+                                                                        background: 'none',
+                                                                        border: 'none',
+                                                                        cursor: 'pointer',
+                                                                        borderRadius: '4px'
+                                                                    }}
+                                                                >
+                                                                    {emojiObj.char}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {filteredEmojiGroups?.[0]?.emojis?.length === 0 && (
+                                                    <div className="no-emojis" style={{ textAlign: 'center', color: '#5f6368', padding: '16px' }}>No emojis found</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <button className="compose-icon-btn" title="Insert files using Drive">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.34 10.5l-4-7h-6.7l4 7h6.7zM14 11.5l-4 7h6.7l4-7H14zM12 11.1L8.3 4.5H1.6l4 7H12zM12.7 12.5H6l-4 7h6.7l4-7z" /></svg>
+                                </button>
+
+                                <button className="compose-icon-btn" title="Insert photo" onClick={handleAttachmentClick}>
+                                    <Image size={20} />
+                                </button>
+
+                                <button className="compose-icon-btn" title="Toggle confidential mode">
+                                    <Shield size={20} />
+                                </button>
+
+                                <button className="compose-icon-btn" title="Insert signature" onClick={handleInsertSignature}>
+                                    <Highlighter size={20} />
+                                </button>
+                            </div>
+
+                            <div className="compose-footer-right" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                {sendResult && (
+                                    <span style={{ fontSize: '12px', color: sendResult.success ? '#81c995' : '#f28b82', paddingRight: '8px' }}>
+                                        {sendResult.message}
+                                    </span>
+                                )}
+                                <div style={{ position: 'relative' }}>
+                                    <button
+                                        className={`compose-icon-btn compose-more-options ${showMoreOptions ? 'active' : ''}`}
+                                        title="More options"
+                                        onClick={() => setShowMoreOptions(!showMoreOptions)}
+                                    >
+                                        <MoreVertical size={20} />
+                                    </button>
+                                    {showMoreOptions && (
+                                        <div className="gmail-msg-popover more-options" ref={moreOptionsRef} style={{ bottom: 'calc(100% + 10px)', top: 'auto', right: 0, left: 'auto', width: '180px', padding: '6px 0', background: 'var(--bg-elevated)', border: '1px solid var(--border-strong)' }}>
+                                            <div className="popover-action-item" onClick={() => { window.print(); setShowMoreOptions(false); }}>
+                                                Print
+                                            </div>
+                                            <div className="popover-action-item" onClick={() => { alert('Check spelling coming soon...'); setShowMoreOptions(false); }}>
+                                                Check spelling
+                                            </div>
+                                            <div className="popover-separator" />
+                                            <div className="popover-action-item" onClick={() => { setShowMoreOptions(false); }}>
+                                                Plain text mode
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <button className="compose-icon-btn delete-btn" onClick={onClose} title="Discard draft">
+                                    <Trash2 size={20} />
+                                </button>
+                            </div>
                         </div>
                     </div >
                 </>
