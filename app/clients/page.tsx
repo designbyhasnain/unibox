@@ -18,6 +18,8 @@ const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
 
 let globalClientsCache: any[] | null = null;
 let globalManagersCache: any[] | null = null;
+let globalClientDetailsCache: Record<string, { emails: any[]; projects: any[] }> = {};
+let globalThreadCache: Record<string, any[]> = {};
 
 export default function ClientsPage() {
     const [clients, setClients] = useState<any[]>(() => globalClientsCache || []);
@@ -65,23 +67,31 @@ export default function ClientsPage() {
 
     const handleSelectEmail = async (email: any) => {
         setSelectedEmail(email);
-        setThreadMessages([email]);
+
+        if (email.thread_id && globalThreadCache[email.thread_id]) {
+            setThreadMessages(globalThreadCache[email.thread_id] || []);
+        } else {
+            setThreadMessages([email]);
+        }
 
         if (email.is_unread) {
             setClientEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_unread: false } : e));
             await markEmailAsReadAction(email.id);
         }
 
-        setIsThreadLoading(true);
-        try {
-            const messages = await getThreadMessagesAction(email.thread_id);
-            if (messages && messages.length > 0) {
-                setThreadMessages(messages);
+        if (email.thread_id) {
+            if (!globalThreadCache[email.thread_id]) setIsThreadLoading(true);
+            try {
+                const messages = await getThreadMessagesAction(email.thread_id);
+                if (messages && messages.length > 0) {
+                    globalThreadCache[email.thread_id] = messages;
+                    setThreadMessages(messages);
+                }
+            } catch (err) {
+                console.error('Failed to load thread:', err);
+            } finally {
+                setIsThreadLoading(false);
             }
-        } catch (err) {
-            console.error('Failed to load thread:', err);
-        } finally {
-            setIsThreadLoading(false);
         }
     };
 
@@ -146,9 +156,18 @@ export default function ClientsPage() {
 
     const handleSelectClient = async (client: any) => {
         setSelectedClient(client);
-        setClientEmails([]);
-        setClientProjects([]);
-        setIsDetailLoading(true);
+
+        const cached = globalClientDetailsCache[client.id];
+        if (cached) {
+            setClientEmails(cached.emails);
+            setClientProjects(cached.projects);
+            setIsDetailLoading(false);
+        } else {
+            setClientEmails([]);
+            setClientProjects([]);
+            setIsDetailLoading(true);
+        }
+
         setActiveTab('emails');
 
         if (client.unread_count > 0) {
@@ -161,6 +180,7 @@ export default function ClientsPage() {
                 getClientEmailsAction(ADMIN_USER_ID, client.email),
                 getClientProjectsAction(client.id),
             ]);
+            globalClientDetailsCache[client.id] = { emails, projects };
             setClientEmails(emails);
             setClientProjects(projects);
         } catch (err) {
@@ -627,13 +647,14 @@ export default function ClientsPage() {
                                                     </div>
                                                 </div>
                                                 <div id="client-email-list-scroll" style={{ flex: 1, overflowY: 'auto' }}>
-                                                    <div className="universal-grid grid-inbox grid-header">
-                                                        <div className="grid-col" />
-                                                        <div className="grid-col">Sender</div>
-                                                        <div className="grid-col">Subject / Preview</div>
-                                                        <div className="grid-col">Gmail Account</div>
-                                                        <div className="grid-col">Manager</div>
-                                                        <div className="grid-col right">Date</div>
+                                                    <div className="gmail-list-header">
+                                                        <div className="gmail-lh-check" />
+                                                        <div className="gmail-lh-star" />
+                                                        <div className="gmail-lh-sender">Sender</div>
+                                                        <div className="gmail-lh-body">Subject / Preview</div>
+                                                        <div className="gmail-lh-account">Gmail Account</div>
+                                                        <div className="gmail-lh-manager">Manager</div>
+                                                        <div className="gmail-lh-date">Date</div>
                                                     </div>
                                                     {clientEmails.length === 0 ? (
                                                         <div className="empty-state" style={{ paddingTop: '3rem' }}>

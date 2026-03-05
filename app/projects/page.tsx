@@ -64,6 +64,8 @@ const reviewColors: Record<string, string> = {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 let globalProjectsCache: { projects: Project[], managers: any[], clients: Client[] } | null = null;
+let globalProjectDetailsCache: Record<string, { emails: any[] }> = {};
+let globalThreadCache: Record<string, any[]> = {};
 
 export default function ProjectsPage() {
     const [projects, setProjects] = useState<Project[]>(() => globalProjectsCache?.projects || []);
@@ -140,13 +142,22 @@ export default function ProjectsPage() {
     const handleSelectProject = async (project: Project) => {
         setSelectedProject(project);
         setSelectedEmail(null);
-        setProjectEmails([]);
-        setIsDetailLoading(true);
+
+        const cached = globalProjectDetailsCache[project.id];
+        if (cached) {
+            setProjectEmails(cached.emails);
+            setIsDetailLoading(false);
+        } else {
+            setProjectEmails([]);
+            setIsDetailLoading(true);
+        }
+
         setActiveTab('details');
 
         if (project.client?.email) {
             try {
                 const emails = await getClientEmailsAction(ADMIN_USER_ID, project.client.email);
+                globalProjectDetailsCache[project.id] = { emails };
                 setProjectEmails(emails);
             } catch (err) {
                 console.error('Failed to load project emails:', err);
@@ -157,23 +168,31 @@ export default function ProjectsPage() {
 
     const handleSelectEmail = async (email: any) => {
         setSelectedEmail(email);
-        setThreadMessages([email]);
+
+        if (email.thread_id && globalThreadCache[email.thread_id]) {
+            setThreadMessages(globalThreadCache[email.thread_id] || []);
+        } else {
+            setThreadMessages([email]);
+        }
 
         if (email.is_unread) {
             setProjectEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_unread: false } : e));
             await markEmailAsReadAction(email.id);
         }
 
-        setIsThreadLoading(true);
-        try {
-            const messages = await getThreadMessagesAction(email.thread_id);
-            if (messages && messages.length > 0) {
-                setThreadMessages(messages);
+        if (email.thread_id) {
+            if (!globalThreadCache[email.thread_id]) setIsThreadLoading(true);
+            try {
+                const messages = await getThreadMessagesAction(email.thread_id);
+                if (messages && messages.length > 0) {
+                    globalThreadCache[email.thread_id] = messages;
+                    setThreadMessages(messages);
+                }
+            } catch (err) {
+                console.error('Failed to load thread:', err);
+            } finally {
+                setIsThreadLoading(false);
             }
-        } catch (err) {
-            console.error('Failed to load thread:', err);
-        } finally {
-            setIsThreadLoading(false);
         }
     };
 
@@ -748,13 +767,14 @@ export default function ProjectsPage() {
                                             </div>
                                         </div>
                                         <div id="project-email-list-scroll" style={{ flex: 1, overflowY: 'auto' }}>
-                                            <div className="universal-grid grid-inbox grid-header">
-                                                <div className="grid-col" />
-                                                <div className="grid-col">Sender</div>
-                                                <div className="grid-col">Subject / Preview</div>
-                                                <div className="grid-col">Gmail Account</div>
-                                                <div className="grid-col">Manager</div>
-                                                <div className="grid-col right">Date</div>
+                                            <div className="gmail-list-header">
+                                                <div className="gmail-lh-check" />
+                                                <div className="gmail-lh-star" />
+                                                <div className="gmail-lh-sender">Sender</div>
+                                                <div className="gmail-lh-body">Subject / Preview</div>
+                                                <div className="gmail-lh-account">Gmail Account</div>
+                                                <div className="gmail-lh-manager">Manager</div>
+                                                <div className="gmail-lh-date">Date</div>
                                             </div>
                                             {isDetailLoading ? (
                                                 <div className="empty-state" style={{ paddingTop: '3rem' }}>

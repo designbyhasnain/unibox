@@ -253,13 +253,26 @@ export async function getClientEmailsAction(userId: string, targetEmail: string)
         return [];
     }
 
-    return (messages || []).map((m: any) => ({
-        ...m,
-        gmail_accounts: {
-            email: m.gmail_accounts?.email,
-            user: { name: m.gmail_accounts?.users?.name || 'System' }
+    // Group by thread_id to mimic Gmail's conversation list view
+    const threadMap = new Map();
+    const groupedMessages: any[] = [];
+
+    for (const m of (messages || [])) {
+        if (!threadMap.has(m.thread_id)) {
+            threadMap.set(m.thread_id, true);
+            const acc = Array.isArray(m.gmail_accounts) ? m.gmail_accounts[0] : m.gmail_accounts;
+            const user = acc ? (Array.isArray(acc.users) ? acc.users[0] : acc.users) : null;
+            groupedMessages.push({
+                ...m,
+                gmail_accounts: {
+                    email: acc?.email,
+                    user: { name: user?.name || 'System' }
+                }
+            });
         }
-    }));
+    }
+
+    return groupedMessages;
 }
 
 // ─── Mark Email As Read ───────────────────────────────────────────────────────
@@ -636,4 +649,28 @@ export async function markAsNotSpamAction(messageId: string) {
 
 
 
+// ─── Search Emails ────────────────────────────────────────────────────────────
 
+export async function searchEmailsAction(userId: string, query: string) {
+    if (!query || query.trim().length < 1) return [];
+
+    const accountIds = await getAccountIds(userId);
+    if (!accountIds) return [];
+
+    const q = query.trim();
+
+    const { data, error } = await supabase
+        .from('email_messages')
+        .select('id, thread_id, from_email, to_email, subject, snippet, direction, sent_at, is_unread, pipeline_stage, gmail_account_id')
+        .in('gmail_account_id', accountIds)
+        .or(`subject.ilike.%${q}%,from_email.ilike.%${q}%,snippet.ilike.%${q}%,to_email.ilike.%${q}%`)
+        .order('sent_at', { ascending: false })
+        .limit(6);
+
+    if (error) {
+        console.error('[searchEmailsAction] error:', error);
+        return [];
+    }
+
+    return data || [];
+}

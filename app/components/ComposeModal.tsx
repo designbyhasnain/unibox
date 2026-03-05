@@ -35,9 +35,11 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const [fontFamily, setFontFamily] = useState('Sans Serif');
     const [fontSize, setFontSize] = useState('Normal');
     const [showMoreOptions, setShowMoreOptions] = useState(false);
+    const [showFromDropdown, setShowFromDropdown] = useState(false);
 
     const editorRef = useRef<HTMLDivElement>(null);
     const moreOptionsRef = useRef<HTMLDivElement>(null);
+    const fromDropdownRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const emojiPickerRef = useRef<HTMLDivElement>(null);
     const savedSelection = useRef<Range | null>(null);
@@ -91,15 +93,18 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             if (moreOptionsRef.current && !moreOptionsRef.current.contains(event.target as Node)) {
                 setShowMoreOptions(false);
             }
+            if (fromDropdownRef.current && !fromDropdownRef.current.contains(event.target as Node)) {
+                setShowFromDropdown(false);
+            }
         };
 
-        if (showEmojiPicker || showMoreOptions) {
+        if (showEmojiPicker || showMoreOptions || showFromDropdown) {
             document.addEventListener('mousedown', handleClickOutside);
         }
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [showEmojiPicker, showMoreOptions]);
+    }, [showEmojiPicker, showMoreOptions, showFromDropdown]);
 
     const handleSend = async () => {
         if (!to.trim() || !fromAccount || isSending) return;
@@ -221,20 +226,61 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                     <div className="compose-body-container">
                         <div className="compose-row">
                             <span className="compose-inline-label">From</span>
-                            <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                <select
-                                    className="compose-input"
-                                    value={fromAccount}
-                                    onChange={(e) => setFromAccount(e.target.value)}
-                                    style={{ appearance: 'none', cursor: 'pointer', paddingRight: '24px' }}
+                            <div ref={fromDropdownRef} style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                <div
+                                    onClick={() => setShowFromDropdown(!showFromDropdown)}
+                                    style={{
+                                        flex: 1,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        cursor: 'pointer',
+                                        padding: '4px 0',
+                                        fontSize: '14px',
+                                        color: '#202124'
+                                    }}
                                 >
-                                    {accounts.map(acc => (
-                                        <option key={acc.id} value={acc.id} style={{ background: '#202124', color: '#e8eaed' }}>
-                                            {acc.email} {acc.manager_name ? `(${acc.manager_name})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                                <ChevronDown size={14} style={{ position: 'absolute', right: 0, pointerEvents: 'none', color: '#9aa0a6' }} />
+                                    <span>
+                                        {accounts.find(a => a.id === fromAccount)
+                                            ? `${accounts.find(a => a.id === fromAccount)!.email}${accounts.find(a => a.id === fromAccount)!.manager_name ? ` (${accounts.find(a => a.id === fromAccount)!.manager_name})` : ''}`
+                                            : 'Select account'}
+                                    </span>
+                                    <ChevronDown size={14} style={{ color: '#5f6368', flexShrink: 0 }} />
+                                </div>
+                                {showFromDropdown && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: 'calc(100% + 4px)',
+                                        left: '-16px',
+                                        right: '-24px',
+                                        background: '#ffffff',
+                                        border: '1px solid #e0e0e0',
+                                        borderRadius: '4px',
+                                        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                                        zIndex: 2000,
+                                        maxHeight: '240px',
+                                        overflowY: 'auto'
+                                    }}>
+                                        {accounts.map(acc => (
+                                            <div
+                                                key={acc.id}
+                                                onClick={() => { setFromAccount(acc.id); setShowFromDropdown(false); }}
+                                                style={{
+                                                    padding: '10px 16px',
+                                                    fontSize: '14px',
+                                                    color: '#202124',
+                                                    cursor: 'pointer',
+                                                    background: acc.id === fromAccount ? '#e8f0fe' : '#ffffff',
+                                                    fontWeight: acc.id === fromAccount ? 500 : 400
+                                                }}
+                                                onMouseEnter={e => (e.currentTarget.style.background = acc.id === fromAccount ? '#e8f0fe' : '#f1f3f4')}
+                                                onMouseLeave={e => (e.currentTarget.style.background = acc.id === fromAccount ? '#e8f0fe' : '#ffffff')}
+                                            >
+                                                {acc.email} {acc.manager_name ? `(${acc.manager_name})` : ''}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -310,7 +356,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                 </div>
                             )}
                             {showFormatting && (
-                                <div className="formatting-toolbar" style={{ borderBottom: '1px solid #3c4043', position: 'relative', background: '#303134' }}>
+                                <div className="formatting-toolbar" style={{ borderBottom: '1px solid #e0e0e0', position: 'relative', background: '#f8f9fa' }}>
                                     <div className="format-group">
                                         <select
                                             className="format-select font-family-select"
@@ -476,10 +522,10 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                         bottom: 'calc(100% + 10px)',
                                         left: '0',
                                         zIndex: 1000,
-                                        backgroundColor: '#202124',
-                                        border: '1px solid #3c4043',
+                                        backgroundColor: '#ffffff',
+                                        border: '1px solid #e0e0e0',
                                         borderRadius: '8px',
-                                        boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                                        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
                                         width: '320px'
                                     }}>
                                         <div className="emoji-picker-header" style={{ padding: '8px' }}>
@@ -492,18 +538,19 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                                 style={{
                                                     width: '100%',
                                                     padding: '8px',
-                                                    background: '#303134',
-                                                    border: 'none',
+                                                    background: '#f1f3f4',
+                                                    border: '1px solid #e0e0e0',
                                                     borderRadius: '4px',
-                                                    color: 'white',
-                                                    fontSize: '13px'
+                                                    color: '#202124',
+                                                    fontSize: '13px',
+                                                    outline: 'none'
                                                 }}
                                             />
                                         </div>
                                         <div className="emoji-picker-content" style={{ maxHeight: '250px', overflowY: 'auto', padding: '8px' }}>
                                             {filteredEmojiGroups.map((group) => (
                                                 <div key={group.label} className="emoji-category">
-                                                    <div className="emoji-category-title" style={{ fontSize: '11px', color: '#9aa0a6', padding: '4px 8px', textTransform: 'uppercase' }}>
+                                                    <div className="emoji-category-title" style={{ fontSize: '11px', color: '#5f6368', padding: '4px 8px', textTransform: 'uppercase', fontWeight: 600 }}>
                                                         {group.label}
                                                     </div>
                                                     <div className="emoji-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '4px' }}>
@@ -532,7 +579,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                                 </div>
                                             ))}
                                             {filteredEmojiGroups?.[0]?.emojis?.length === 0 && (
-                                                <div className="no-emojis" style={{ textAlign: 'center', color: '#9aa0a6', padding: '16px' }}>No emojis found</div>
+                                                <div className="no-emojis" style={{ textAlign: 'center', color: '#5f6368', padding: '16px' }}>No emojis found</div>
                                             )}
                                         </div>
                                     </div>

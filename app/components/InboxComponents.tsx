@@ -31,18 +31,30 @@ interface EmailRowProps {
 }
 
 export function EmailRow({ email, isSelected, isRowChecked, showBadge, onClick, onToggleSelect }: EmailRowProps) {
-    const senderRaw = email.from_email || '';
-    const senderName = senderRaw.split('<')[0].trim() || senderRaw.split('@')[0] || 'Unknown';
+    let senderName = 'Unknown';
+    if (email.direction === 'SENT') {
+        const toRaw = email.to_email || '';
+        const toNameMatch = toRaw.split(',')[0]?.match(/^([^<]+)</);
+        const toName = toNameMatch ? toNameMatch[1]?.trim().replace(/"/g, '') : toRaw.split('@')[0];
+        senderName = `To: ${toName || 'Unknown'}`;
+    } else {
+        const fromRaw = email.from_email || '';
+        const fromNameMatch = fromRaw.match(/^([^<]+)</);
+        const fromName = fromNameMatch ? fromNameMatch[1]?.trim().replace(/"/g, '') : fromRaw.split('@')[0];
+        senderName = fromName || 'Unknown';
+    }
     const stage = email.pipeline_stage;
     const preview = cleanPreview(email.snippet || email.body || '');
+    const isUnread = email.is_unread;
 
     return (
         <div
-            className={`universal-grid grid-inbox grid-row ${email.is_unread ? 'unread' : ''} ${isSelected ? 'selected' : ''}`}
+            className={`gmail-email-row ${isUnread ? 'unread' : 'read'} ${isSelected ? 'selected' : ''}`}
             onClick={onClick}
         >
-            <div className="grid-col col-main" style={{ display: 'flex', alignItems: 'center' }}>
-                <label className="check-container" onClick={(e) => e.stopPropagation()} style={{ margin: 0 }}>
+            {/* Checkbox */}
+            <div className="gmail-row-check" onClick={(e) => e.stopPropagation()}>
+                <label className="check-container" style={{ margin: 0 }}>
                     <input
                         type="checkbox"
                         checked={isRowChecked}
@@ -52,30 +64,46 @@ export function EmailRow({ email, isSelected, isRowChecked, showBadge, onClick, 
                 </label>
             </div>
 
-            <div className="grid-col col-main">
-                <div className="sender-name">{senderName}</div>
+            {/* Star */}
+            <div className="gmail-row-star" onClick={(e) => e.stopPropagation()}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#bdc1c6" strokeWidth="1.5" style={{ cursor: 'pointer', display: 'block' }}>
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
             </div>
 
-            <div className="grid-col col-main" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <span className="subject-text" style={{ color: email.is_unread ? 'white' : 'var(--text-primary)', fontWeight: email.is_unread ? 700 : 500 }}>{email.subject}</span>
-                {/* Preview hidden to keep list clean */}
+            {/* Sender — fixed width */}
+            <div className="gmail-row-sender">
+                {senderName}
+            </div>
 
+            {/* Subject + Preview + Badge — flex grow */}
+            <div className="gmail-row-body">
+                <span className="gmail-row-subject">{email.subject || '(no subject)'}</span>
+                {preview && (
+                    <>
+                        <span className="gmail-row-dash"> – </span>
+                        <span className="gmail-row-preview">{preview}</span>
+                    </>
+                )}
                 {showBadge && (
-                    <span className={`badge ${stage ? STAGE_COLORS[stage] : 'badge-blue'}`} style={{ marginLeft: 'auto', fontSize: '13px' }}>
-                        {stage ? STAGE_LABELS[stage] : (email.is_unread ? 'New' : 'Cold')}
+                    <span className={`badge gmail-row-badge ${stage ? STAGE_COLORS[stage] : 'badge-blue'}`}>
+                        {stage ? STAGE_LABELS[stage] : 'Cold'}
                     </span>
                 )}
             </div>
 
-            <div className="grid-col secondary">
-                {email.gmail_accounts?.email || '-'}
+            {/* Gmail Account */}
+            <div className="gmail-row-account">
+                {email.gmail_accounts?.email || ''}
             </div>
 
-            <div className="grid-col" style={{ color: 'var(--text-accent)', fontSize: '0.8125rem' }}>
-                {email.gmail_accounts?.user?.name || 'Unassigned'}
+            {/* Manager */}
+            <div className="gmail-row-manager">
+                {email.gmail_accounts?.user?.name || ''}
             </div>
 
-            <div className="grid-col right muted" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
+            {/* Date */}
+            <div className="gmail-row-date">
                 {formatDate(email.sent_at)}
             </div>
         </div>
@@ -470,8 +498,13 @@ export function EmailDetail({
                         {threadMessages.map((msg, idx) => {
                             const isLast = idx === threadMessages.length - 1;
                             const isCollapsed = collapsedThreads.has(msg.id) && !isLast;
-                            const senderName = msg.direction === 'SENT' ? 'me' : extractSenderName(msg.from_email || '');
-                            const senderEmail = msg.direction === 'SENT' ? email.to_email : extractEmail(msg.from_email || '');
+                            const isSent = msg.direction === 'SENT';
+
+                            const senderNameRaw = extractSenderName(msg.from_email || '');
+                            const senderName = senderNameRaw || 'Unknown';
+                            const expandedEmail = extractEmail(msg.from_email || '');
+                            const toRecipientsText = isSent ? (msg.to_email ? extractSenderName(msg.to_email) || expandedEmail : 'recipient') : 'me';
+
                             const isHtml = isHtmlBody(msg.body || '');
 
                             return (
@@ -480,25 +513,31 @@ export function EmailDetail({
                                     <div
                                         className="gmail-msg-header"
                                         onClick={!isLast ? () => toggleCollapse(msg.id) : undefined}
-                                        style={!isLast ? { cursor: 'pointer' } : {}}
+                                        style={!isLast ? { cursor: 'pointer', alignItems: (isCollapsed || isLast) ? 'flex-start' : 'center' } : { alignItems: 'flex-start' }}
                                     >
                                         <div
                                             className="gmail-avatar"
                                             style={{
-                                                background: msg.direction === 'SENT'
-                                                    ? 'linear-gradient(135deg, #4f8cff, #6366f1)'
-                                                    : avatarColor(msg.from_email || 'x'),
+                                                background: avatarColor(expandedEmail || senderName),
+                                                marginTop: (isCollapsed || isLast) ? '2px' : '0'
                                             }}
                                         >
-                                            {msg.direction === 'SENT' ? 'Me' : (senderName.charAt(0) || '?').toUpperCase()}
+                                            {(senderName.charAt(0) || '?').toUpperCase()}
                                         </div>
 
                                         <div className="gmail-msg-info">
-                                            <div className="gmail-msg-top-row">
-                                                <span className="gmail-sender-name">{senderName}</span>
+                                            <div className="gmail-msg-top-row" style={isCollapsed ? { flexDirection: 'column', alignItems: 'flex-start', gap: '0' } : { flexDirection: 'row', alignItems: 'baseline', gap: '4px' }}>
+                                                <span className="gmail-sender-name">
+                                                    {senderName}
+                                                    {!isCollapsed && expandedEmail && expandedEmail !== senderName && (
+                                                        <span className="gmail-meta-email" style={{ fontWeight: 'normal', color: 'var(--text-muted)', fontSize: '0.75rem', marginLeft: '4px' }}>
+                                                            &lt;{expandedEmail}&gt;
+                                                        </span>
+                                                    )}
+                                                </span>
                                                 {isCollapsed && (
-                                                    <span className="gmail-snippet">
-                                                        — {cleanPreview(msg.snippet || msg.body || '')}
+                                                    <span className="gmail-snippet" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', marginTop: '1px' }}>
+                                                        {cleanPreview(msg.snippet || msg.body || '')}
                                                     </span>
                                                 )}
                                             </div>
@@ -512,7 +551,7 @@ export function EmailDetail({
                                                         }}
                                                     >
                                                         <span className="gmail-meta-to">
-                                                            to {msg.direction === 'SENT' ? (msg.to_email || 'recipient') : 'me'}
+                                                            to {toRecipientsText}
                                                         </span>
                                                         <svg
                                                             width="12"

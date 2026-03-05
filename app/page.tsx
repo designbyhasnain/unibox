@@ -18,6 +18,7 @@ import {
     getTabCountsAction,
     markAsNotInterestedAction,
     markAsNotSpamAction,
+    searchEmailsAction,
 } from '../src/actions/emailActions';
 import { getAccountsAction } from '../src/actions/accountActions';
 import { useRealtimeInbox } from '../src/hooks/useRealtimeInbox';
@@ -37,18 +38,23 @@ const TABS = [
 
 interface ToastItem { id: string; subject: string; from: string; }
 
+const globalStageCache: Record<string, { emails: any[]; totalCount: number; totalPages: number; page: number }> = {};
+let globalTabCountsCache: Record<string, number> = {};
+let globalActiveStage = 'COLD_LEAD';
+let globalThreadCache: Record<string, any[]> = {};
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function InboxPage() {
     // ── Email List State ───────────────────────────────────────────────────────
-    const [emails, setEmails] = useState<any[]>([]);
-    const [totalCount, setTotalCount] = useState(0);
-    const [totalPages, setTotalPages] = useState(0);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [isLoading, setIsLoading] = useState(true);
-    const [activeStage, setActiveStage] = useState('COLD_LEAD');
+    const [emails, setEmails] = useState<any[]>(() => globalStageCache[globalActiveStage]?.emails || []);
+    const [totalCount, setTotalCount] = useState(() => globalStageCache[globalActiveStage]?.totalCount || 0);
+    const [totalPages, setTotalPages] = useState(() => globalStageCache[globalActiveStage]?.totalPages || 0);
+    const [currentPage, setCurrentPage] = useState(() => globalStageCache[globalActiveStage]?.page || 1);
+    const [isLoading, setIsLoading] = useState(() => !globalStageCache[globalActiveStage]);
+    const [activeStage, setActiveStage] = useState(globalActiveStage);
     const [searchTerm, setSearchTerm] = useState('');
-    const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
+    const [tabCounts, setTabCounts] = useState<Record<string, number>>(globalTabCountsCache);
 
     // ── Selected Email / Thread State ─────────────────────────────────────────
     const [selectedEmail, setSelectedEmail] = useState<any>(null);
@@ -79,31 +85,54 @@ export default function InboxPage() {
     // ── Refs ───────────────────────────────────────────────────────────────────
     const toastTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
     const lastSyncTimeRef = useRef<number>(0);
+    const searchRef = useRef<HTMLDivElement>(null);
+    const searchInputRef = useRef<HTMLInputElement>(null);
+
+    // ── Search State ───────────────────────────────────────────────────────────
+    const [searchFocused, setSearchFocused] = useState(false);
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [searchLoading, setSearchLoading] = useState(false);
+    const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ─── Load Emails (no stale cache — always fresh from DB) ──────────────────
     const loadEmails = useCallback(async (page: number, stage?: string) => {
-        setIsLoading(true);
+        const targetStage = stage ?? globalActiveStage;
+        if (!globalStageCache[targetStage]) setIsLoading(true);
         try {
             const result = await getInboxEmailsAction(
                 ADMIN_USER_ID,
                 page,
                 PAGE_SIZE,
-                stage ?? activeStage,
+                targetStage,
             );
-            setEmails(result.emails);
-            setTotalCount(result.totalCount);
-            setTotalPages(result.totalPages);
-            setCurrentPage(result.page);
+
+            globalStageCache[targetStage] = {
+                emails: result.emails,
+                totalCount: result.totalCount,
+                totalPages: result.totalPages,
+                page: result.page
+            };
+
+            // Only update local state if this is still the active stage
+            if (targetStage === globalActiveStage) {
+                setEmails(result.emails);
+                setTotalCount(result.totalCount);
+                setTotalPages(result.totalPages);
+                setCurrentPage(result.page);
+            }
 
             // Refresh counts for all tabs
             const counts = await getTabCountsAction(ADMIN_USER_ID);
+            globalTabCountsCache = counts;
             setTabCounts(counts);
         } catch (err) {
             console.error('loadEmails error:', err);
         } finally {
-            setIsLoading(false);
+            if (targetStage === globalActiveStage) {
+                setIsLoading(false);
+            }
         }
-    }, [activeStage]);
+    }, []);
 
     // Initial load
     useEffect(() => { loadEmails(1); }, [loadEmails]);
@@ -114,6 +143,63 @@ export default function InboxPage() {
             .then(setAccounts)
             .catch((err) => console.error('Failed to fetch accounts:', err));
     }, []);
+
+    // Search: live debounced
+    useEffect(() => {
+        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        if (!searchTerm.trim()) { setSearchResults([]); return; }
+        setSearchLoading(true);
+        searchDebounceRef.current = setTimeout(async () => {
+            const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm);
+            setSearchResults(results);
+            setSearchLoading(false);
+        }, 250);
+        return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+    }, [searchTerm]);
+
+    // Close search popup on outside click
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+                setSearchFocused(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Helpers
+    const formatSearchDate = (dateStr: string) => {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        const now = new Date();
+        const isToday = d.toDateString() === now.toDateString();
+        const isThisYear = d.getFullYear() === now.getFullYear();
+        if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (isThisYear) return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+
+    const getInitial = (emailObj: any) => {
+        const name = getSenderName(emailObj).replace(/^To:\s*/, '');
+        const match = name.match(/^([A-Za-z])/);
+        return match ? match[1]!.toUpperCase() : '?';
+    };
+
+    const getSenderName = (emailObj: any) => {
+        if (!emailObj) return 'Unknown';
+        if (emailObj.direction === 'SENT') {
+            const toRaw = emailObj.to_email || '';
+            const toNameMatch = toRaw.split(',')[0]?.match(/^([^<]+)</);
+            const toName = toNameMatch ? toNameMatch[1]?.trim().replace(/"/g, '') : toRaw.split('@')[0];
+            return `To: ${toName || 'Unknown'}`;
+        } else {
+            const fromRaw = emailObj.from_email || '';
+            const fromNameMatch = fromRaw.match(/^([^<]+)</);
+            const fromName = fromNameMatch ? fromNameMatch[1]?.trim().replace(/"/g, '') : fromRaw.split('@')[0];
+            return fromName || 'Unknown';
+        }
+    };
 
     // Read settings from localStorage
     useEffect(() => {
@@ -272,22 +358,6 @@ export default function InboxPage() {
             setSelectedEmail((prev: any) => ({ ...prev, ...updatedEmail }));
         }
 
-        // Show notification for tracking events
-        const isTrackingUpdate = updatedEmail.open_count > 0 || updatedEmail.clicked_at;
-        if (isTrackingUpdate) {
-            const hasPermission = 'Notification' in window && Notification.permission === 'granted';
-            if (hasPermission) {
-                // We only want to notify on NEW opens/clicks. 
-                // Since this is a realtime update, we check if it was already opened.
-                // For simplicity, we can just check if the tab is focused.
-                if (document.visibilityState !== 'visible') {
-                    new Notification('Email Engagement', {
-                        body: `${updatedEmail.to_email} just ${updatedEmail.clicked_at ? 'clicked a link in' : 'opened'} your email: ${updatedEmail.subject}`,
-                        icon: '/favicon.ico'
-                    });
-                }
-            }
-        }
     }, [activeStage, selectedEmail, accounts]);
 
     const handleEmailDeleted = useCallback((messageId: string) => {
@@ -340,7 +410,12 @@ export default function InboxPage() {
     const handleSelectEmail = async (email: any) => {
         setIsReplyingInline(false);
         setSelectedEmail(email);
-        setThreadMessages([email]);
+
+        if (email.thread_id && globalThreadCache[email.thread_id]) {
+            setThreadMessages(globalThreadCache[email.thread_id] || []);
+        } else {
+            setThreadMessages([email]);
+        }
 
         if (email.is_unread) {
             setEmails((prev) => prev.map((e) => e.id === email.id ? { ...e, is_unread: false } : e));
@@ -348,9 +423,10 @@ export default function InboxPage() {
         }
 
         if (email.thread_id) {
-            setIsThreadLoading(true);
+            if (!globalThreadCache[email.thread_id]) setIsThreadLoading(true);
             try {
                 const history = await getThreadMessagesAction(email.thread_id);
+                globalThreadCache[email.thread_id] = history;
                 setThreadMessages(history);
             } catch (err) {
                 console.error('Failed to fetch thread history:', err);
@@ -473,18 +549,99 @@ export default function InboxPage() {
             <main className="main-area">
                 {/* Topbar */}
                 <header className="topbar">
-                    <div className="search-bar">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                            <circle cx="11" cy="11" r="8" />
-                            <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-                        </svg>
-                        <input
-                            type="text"
-                            placeholder="Search messages, contacts..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                        <div className="search-shortcut">⌘K</div>
+                    <div className="search-bar-wrap" ref={searchRef}>
+                        <div
+                            className={`search-bar${searchFocused ? ' search-bar--focused' : ''}`}
+                            onClick={() => { setSearchFocused(true); searchInputRef.current?.focus(); }}
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <circle cx="11" cy="11" r="8" />
+                                <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
+                            </svg>
+                            <input
+                                ref={searchInputRef}
+                                type="text"
+                                placeholder="Search in mail"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                onFocus={() => setSearchFocused(true)}
+                                onKeyDown={(e) => { if (e.key === 'Escape') { setSearchFocused(false); setSearchTerm(''); } }}
+                                autoComplete="off"
+                            />
+                            {searchTerm && (
+                                <button
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', color: '#5f6368', display: 'flex', alignItems: 'center' }}
+                                    onClick={(e) => { e.stopPropagation(); setSearchTerm(''); setSearchResults([]); searchInputRef.current?.focus(); }}
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+                                </button>
+                            )}
+                            {!searchTerm && <div className="search-shortcut">⌘K</div>}
+                        </div>
+
+                        {/* Gmail-style search popup */}
+                        {searchFocused && (
+                            <div className="search-popup">
+                                {/* Filter chips */}
+                                <div className="search-chips">
+                                    <button className="search-chip" onClick={() => setSearchTerm(searchTerm + ' has:attachment')}>Has attachment</button>
+                                    <button className="search-chip" onClick={() => setSearchTerm(searchTerm + ' newer_than:7d')}>Last 7 days</button>
+                                    <button className="search-chip" onClick={() => setSearchTerm(searchTerm + ' from:me')}>From me</button>
+                                </div>
+
+                                {/* Results */}
+                                {searchLoading && (
+                                    <div className="search-loading">
+                                        <div className="spinner spinner-xs" style={{ width: 16, height: 16, borderWidth: 2 }} />
+                                        <span>Searching...</span>
+                                    </div>
+                                )}
+
+                                {!searchLoading && searchResults.length > 0 && (
+                                    <div className="search-results-list">
+                                        {searchResults.map((result) => (
+                                            <div
+                                                key={result.id}
+                                                className="search-result-item"
+                                                onClick={() => {
+                                                    setSearchFocused(false);
+                                                    // Open the email
+                                                    handleSelectEmail(result);
+                                                }}
+                                            >
+                                                <div className="search-result-avatar">
+                                                    {getInitial(result)}
+                                                </div>
+                                                <div className="search-result-body">
+                                                    <div className="search-result-top">
+                                                        <span className="search-result-sender">{getSenderName(result)}</span>
+                                                        <span className="search-result-date">{formatSearchDate(result.sent_at)}</span>
+                                                    </div>
+                                                    <div className="search-result-subject">{result.subject || '(no subject)'}</div>
+                                                    <div className="search-result-preview">{result.snippet}</div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {!searchLoading && searchTerm && searchResults.length === 0 && (
+                                    <div className="search-no-results">No results found for &ldquo;{searchTerm}&rdquo;</div>
+                                )}
+
+                                {/* All results link */}
+                                {searchTerm && !searchLoading && (
+                                    <div className="search-all-link">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <circle cx="11" cy="11" r="8" />
+                                            <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
+                                        </svg>
+                                        <span>All search results for &ldquo;{searchTerm}&rdquo;</span>
+                                        <span style={{ fontSize: 11, color: '#9aa0a6', marginLeft: 4 }}>Press Enter</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <div className="topbar-actions">
@@ -527,7 +684,21 @@ export default function InboxPage() {
                                 key={tab.id}
                                 className={`tab ${activeStage === tab.id ? 'active' : ''}`}
                                 onClick={() => {
+                                    globalActiveStage = tab.id;
                                     setActiveStage(tab.id);
+
+                                    // Instantly update from cache if available
+                                    const cachedData = globalStageCache[tab.id];
+                                    if (cachedData) {
+                                        setEmails(cachedData.emails);
+                                        setTotalCount(cachedData.totalCount);
+                                        setTotalPages(cachedData.totalPages);
+                                        setCurrentPage(cachedData.page);
+                                        setIsLoading(false);
+                                    } else {
+                                        setIsLoading(true);
+                                    }
+
                                     setSelectedEmail(null);
                                     loadEmails(1, tab.id);
                                 }}
@@ -579,13 +750,14 @@ export default function InboxPage() {
 
                             {/* Email Rows */}
                             <div id="email-list-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                                <div className="universal-grid grid-inbox grid-header">
-                                    <div className="grid-col" /> {/* Checkbox space */}
-                                    <div className="grid-col">Sender</div>
-                                    <div className="grid-col">Subject / Preview</div>
-                                    <div className="grid-col">Gmail Account</div>
-                                    <div className="grid-col">Manager</div>
-                                    <div className="grid-col right">Date</div>
+                                <div className="gmail-list-header">
+                                    <div className="gmail-lh-check" />
+                                    <div className="gmail-lh-star" />
+                                    <div className="gmail-lh-sender">SENDER</div>
+                                    <div className="gmail-lh-body">SUBJECT / PREVIEW</div>
+                                    <div className="gmail-lh-account">GMAIL ACCOUNT</div>
+                                    <div className="gmail-lh-manager">MANAGER</div>
+                                    <div className="gmail-lh-date">DATE</div>
                                 </div>
                                 {isLoading ? (
                                     <div className="empty-state">

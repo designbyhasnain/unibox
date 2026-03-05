@@ -35,7 +35,9 @@ export async function handleEmailSent(data: {
         .limit(1)
         .maybeSingle();
 
-    const currentThreadStage = threadStatus?.pipeline_stage || contact?.pipeline_stage || 'COLD_LEAD';
+    // If there is an existing thread stage, use it. Otherwise, new outbound threads are ALWAYS COLD_LEAD.
+    // This prevents 3-4 random sent emails from appearing in the Leads tab.
+    const currentThreadStage = threadStatus?.pipeline_stage || 'COLD_LEAD';
 
     // 4. Upsert thread
     await supabase.from('email_threads').upsert(

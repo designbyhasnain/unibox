@@ -25,15 +25,17 @@ const PAGE_SIZE = 25;
 
 interface ToastItem { id: string; subject: string; to: string; }
 
+let globalSentCache: { emails: any[]; totalCount: number; totalPages: number; page: number } | null = null;
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SentPage() {
     // ── List State ────────────────────────────────────────────────────────────
-    const [emails, setEmails] = useState<any[]>([]);
-    const [totalCount, setTotalCount] = useState(0);
-    const [totalPages, setTotalPages] = useState(0);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [isLoading, setIsLoading] = useState(true);
+    const [emails, setEmails] = useState<any[]>(() => globalSentCache?.emails || []);
+    const [totalCount, setTotalCount] = useState(() => globalSentCache?.totalCount || 0);
+    const [totalPages, setTotalPages] = useState(() => globalSentCache?.totalPages || 0);
+    const [currentPage, setCurrentPage] = useState(() => globalSentCache?.page || 1);
+    const [isLoading, setIsLoading] = useState(() => !globalSentCache);
     const [searchTerm, setSearchTerm] = useState('');
 
     // ── Selected Email / Thread ───────────────────────────────────────────────
@@ -61,9 +63,10 @@ export default function SentPage() {
     // ─── Load Sent Emails (always fresh — no stale cache) ─────────────────────
 
     const loadEmails = useCallback(async (page: number) => {
-        setIsLoading(true);
+        if (!globalSentCache || globalSentCache.page !== page) setIsLoading(true);
         try {
             const result = await getSentEmailsAction(ADMIN_USER_ID, page, PAGE_SIZE);
+            globalSentCache = { emails: result.emails, totalCount: result.totalCount, totalPages: result.totalPages, page: result.page };
             setEmails(result.emails);
             setTotalCount(result.totalCount);
             setTotalPages(result.totalPages);
