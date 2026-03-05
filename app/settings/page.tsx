@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
+import Topbar from '../components/Topbar';
 import { useRouter } from 'next/navigation';
 
 interface SettingRow {
@@ -69,13 +70,22 @@ export default function SettingsPage() {
             <Sidebar onOpenCompose={() => router.push('/')} />
             <main className="main-area">
                 {/* Topbar */}
-                <header className="topbar">
-                    <span style={{ fontWeight: 600, fontSize: '0.9375rem', letterSpacing: '-0.01em' }}>Settings</span>
-                    <div className="topbar-actions">
-                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem' }}>Admin</span>
-                        <div className="avatar-btn">A</div>
-                    </div>
-                </header>
+                <Topbar
+                    searchTerm=""
+                    setSearchTerm={() => { }}
+                    placeholder="Search settings..."
+                    onSearch={() => { }}
+                    onClearSearch={() => { }}
+                    leftContent={
+                        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Settings</h1>
+                    }
+                    rightContent={
+                        <div className="topbar-actions">
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem' }}>Admin</span>
+                            <div className="avatar-btn">A</div>
+                        </div>
+                    }
+                />
 
                 {/* Content */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>

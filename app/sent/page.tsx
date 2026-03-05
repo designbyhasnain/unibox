@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
+import Topbar from '../components/Topbar';
 import ComposeModal from '../components/ComposeModal';
 import InlineReply from '../components/InlineReply';
 import {
@@ -21,7 +22,7 @@ import { avatarColor, formatDate, cleanBody } from '../utils/helpers';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 50;
 
 interface ToastItem { id: string; subject: string; to: string; }
 
@@ -315,52 +316,48 @@ export default function SentPage() {
             />
 
             <main className="main-area">
-                {/* Topbar */}
-                <header className="topbar">
-                    <div className="search-bar">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2">
-                            <circle cx="11" cy="11" r="8" />
-                            <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-                        </svg>
-                        <input
-                            type="text"
-                            placeholder="Search sent messages..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-
-                    <div className="topbar-actions">
-                        {syncMessage && (
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{syncMessage}</span>
-                        )}
-                        <div className="status-pill">
-                            <div
-                                className={`status-dot ${isLive ? 'live' : ''}`}
-                                style={!isLive ? { background: 'var(--text-muted)' } : {}}
-                            />
-                            <span>{isLive ? 'Live' : 'Connecting...'}</span>
-                        </div>
-                        <button
-                            className="icon-btn"
-                            onClick={handleSync}
-                            disabled={isSyncing}
-                            title="Sync"
-                            id="sync-btn"
-                        >
-                            <svg
-                                width="15" height="15" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                                style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}
+                <Topbar
+                    searchTerm={searchTerm}
+                    setSearchTerm={setSearchTerm}
+                    placeholder="Search sent messages..."
+                    onSearch={() => { }}
+                    onClearSearch={() => setSearchTerm('')}
+                    leftContent={
+                        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Sent</h1>
+                    }
+                    rightContent={
+                        <div className="topbar-actions">
+                            {syncMessage && (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{syncMessage}</span>
+                            )}
+                            <div className="status-pill">
+                                <div
+                                    className={`status-dot ${isLive ? 'live' : ''}`}
+                                    style={!isLive ? { background: 'var(--text-muted)' } : {}}
+                                />
+                                <span>{isLive ? 'Live' : 'Connecting...'}</span>
+                            </div>
+                            <button
+                                className="icon-btn"
+                                onClick={handleSync}
+                                disabled={isSyncing}
+                                title="Sync"
+                                id="sync-btn"
                             >
-                                <polyline points="23 4 23 10 17 10" />
-                                <polyline points="1 20 1 14 7 14" />
-                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                            </svg>
-                        </button>
-                        <div className="avatar-btn" title="Admin">A</div>
-                    </div>
-                </header>
+                                <svg
+                                    width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                    style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}
+                                >
+                                    <polyline points="23 4 23 10 17 10" />
+                                    <polyline points="1 20 1 14 7 14" />
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                                </svg>
+                            </button>
+                            <div className="avatar-btn" title="Admin">A</div>
+                        </div>
+                    }
+                />
 
                 {/* Tab bar */}
                 <div className="tabs-bar">

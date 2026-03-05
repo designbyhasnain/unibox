@@ -11,6 +11,7 @@ const STAGE_COLORS: Record<string, string> = {
     LEAD: 'badge-yellow',
     OFFER_ACCEPTED: 'badge-green',
     CLOSED: 'badge-purple',
+    NOT_INTERESTED: 'badge-red',
 };
 
 const STAGE_LABELS: Record<string, string> = {
@@ -18,6 +19,7 @@ const STAGE_LABELS: Record<string, string> = {
     LEAD: 'Lead',
     OFFER_ACCEPTED: 'Offer Accepted',
     CLOSED: 'Closed',
+    NOT_INTERESTED: 'Not Interested',
 };
 
 
@@ -121,8 +123,8 @@ interface EmailDetailProps {
     onStageChange: (messageId: string, stage: string) => void;
     onReply: () => void;
     onForward: () => void;
-    onNotInterested?: (email: string) => void;
-    onNotSpam?: (messageId: string) => void;
+    onNotInterested?: ((email: string) => void) | undefined;
+    onNotSpam?: ((messageId: string) => void) | undefined;
     replySlot?: React.ReactNode;
 }
 
@@ -131,6 +133,7 @@ const STAGE_OPTIONS = [
     { id: 'LEAD', label: 'Lead' },
     { id: 'OFFER_ACCEPTED', label: 'Offer Accepted' },
     { id: 'CLOSED', label: 'Closed' },
+    { id: 'NOT_INTERESTED', label: 'Not Interested' },
 ];
 
 /** Safely render HTML email body inside a sandboxed iframe for Gmail-like fidelity */
@@ -418,7 +421,7 @@ export function EmailDetail({
                     </button>
 
 
-                    {onNotSpam && (
+                    {onNotSpam && email?.pipeline_stage === 'SPAM' && (
                         <button
                             className="gmail-toolbar-btn"
                             style={{ marginLeft: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '12px', borderRadius: 0 }}
@@ -431,7 +434,7 @@ export function EmailDetail({
                         </button>
                     )}
 
-                    {onNotInterested && (
+                    {onNotInterested && email?.pipeline_stage !== 'NOT_INTERESTED' && (
                         <button
                             className="gmail-toolbar-btn danger"
                             style={{ marginLeft: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '12px', borderRadius: 0 }}

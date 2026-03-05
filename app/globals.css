@@ -293,10 +293,11 @@ a {
 /* ── Topbar ── */
 .topbar {
     height: var(--topbar-height);
-    display: flex;
+    display: grid;
+    grid-template-columns: 320px 1fr 320px;
+    /* Perfectly centered search bar */
     align-items: center;
-    padding: 0 1rem 0 0;
-    gap: 1rem;
+    padding: 0 1.5rem;
     background: var(--bg-base);
     border-bottom: none;
     flex-shrink: 0;
@@ -305,11 +306,22 @@ a {
     overflow: visible;
 }
 
+.topbar-left {
+    min-width: 0;
+}
+
+.topbar-right {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    min-width: 0;
+}
+
 .topbar-actions {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    margin-left: auto;
+    justify-content: flex-end;
 }
 
 .sync-status {
@@ -337,6 +349,7 @@ a {
     height: 48px;
     transition: all var(--fast) var(--ease);
     position: relative;
+    cursor: text;
 }
 
 .search-bar:focus-within {
@@ -345,17 +358,22 @@ a {
     box-shadow: 0 1px 3px 0 rgba(60, 64, 67, 0.30), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
 }
 
-.search-shortcut {
-    position: absolute;
-    right: 0.75rem;
-    background: var(--bg-base);
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    padding: 2px 5px;
-    border-radius: 4px;
-    font-weight: 600;
-    pointer-events: none;
+.search-filter-btn {
+    background: none;
+    border: none;
+    color: #5f6368;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.search-filter-btn:hover {
+    background: rgba(60, 64, 67, 0.08);
+    color: #202124;
 }
 
 .search-bar input {
@@ -377,10 +395,11 @@ a {
     position: relative;
     width: 100%;
     max-width: 720px;
+    margin: 0 auto;
     display: flex;
     flex-direction: column;
     overflow: visible;
-    z-index: 1001;
+    z-index: 2000;
 }
 
 .search-bar--focused {
@@ -392,16 +411,16 @@ a {
 
 .search-popup {
     position: absolute;
-    top: calc(100% + 0px);
+    top: calc(100% - 1px);
     left: 0;
     right: 0;
     background: #ffffff;
     border-radius: 0 0 24px 24px;
     box-shadow: 0 4px 8px rgba(60, 64, 67, 0.3), 0 8px 16px rgba(60, 64, 67, 0.15);
-    border-top: 1px solid #e8eaed;
-    z-index: 9999;
+    border-top: 1px solid #f1f3f4;
+    z-index: 1999;
     overflow: hidden;
-    min-width: 500px;
+    min-width: 100%;
 }
 
 /* Filter chips row */
@@ -409,40 +428,241 @@ a {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 16px;
+    padding: 12px 16px;
     border-bottom: 1px solid #f1f3f4;
+    background: #fff;
+    overflow-x: auto;
 }
 
 .search-chip {
-    background: #f1f3f4;
-    border: none;
-    border-radius: 16px;
-    padding: 5px 14px;
+    background: #fff;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    padding: 6px 14px;
     font-size: 13px;
-    font-family: 'Google Sans', Roboto, Arial, sans-serif;
-    color: #202124;
+    font-family: 'Google Sans', Roboto, sans-serif;
+    color: #3c4043;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: all 0.2s;
     white-space: nowrap;
+    display: flex;
+    align-items: center;
 }
 
 .search-chip:hover {
-    background: #e8eaed;
+    background: #f1f3f4;
+    border-color: #dadce0;
+}
+
+.search-chip.active {
+    background: #eaf1fb;
+    border-color: #d3e3fd;
+    color: #1a73e8;
 }
 
 /* Results list */
 .search-results-list {
     overflow-y: auto;
-    max-height: 320px;
+    max-height: 400px;
+    padding-bottom: 8px;
 }
 
-.search-result-item {
+.search-item {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
-    padding: 10px 16px;
+    gap: 16px;
+    padding: 12px 16px;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background 0.15s;
+}
+
+.search-item:hover {
+    background: #f1f3f4;
+}
+
+.search-item-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #5f6368;
+    margin-top: 2px;
+}
+
+.search-item-content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.search-item-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.search-item-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: #202124;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-item-date {
+    font-size: 12px;
+    color: #5f6368;
+    margin-left: 12px;
+    flex-shrink: 0;
+}
+
+.search-item-sub {
+    font-size: 13px;
+    color: #5f6368;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-all-btn {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 16px;
+    cursor: pointer;
+    border-top: 1px solid #f1f3f4;
+    color: #1a73e8;
+    font-size: 14px;
+    font-weight: 500;
+    background: #fff;
+    transition: background 0.15s;
+}
+
+.search-all-btn:hover {
+    background: #f1f3f4;
+}
+
+.press-enter-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #70757a;
+    background: #f1f3f4;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Advanced Search Popup */
+.adv-search-popup {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    padding: 16px 0;
+    z-index: 10000;
+    color: #202124;
+    font-size: 14px;
+    font-family: Roboto, Arial, sans-serif;
+    border: 1px solid #ccc;
+}
+
+.adv-search-row {
+    display: flex;
+    align-items: center;
+    padding: 4px 16px;
+    margin-bottom: 8px;
+}
+
+.adv-search-row label {
+    width: 140px;
+    color: #5f6368;
+    font-weight: 400;
+}
+
+.adv-search-row input[type="text"],
+.adv-search-row select {
+    flex: 1;
+    border: none;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 4px 0;
+    outline: none;
+    font-size: 14px;
+    transition: border-bottom-color 0.2s;
+}
+
+.adv-search-row input[type="text"]:focus {
+    border-bottom: 2px solid #1a73e8;
+}
+
+.adv-select-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.adv-date-input {
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+.adv-search-footer-options {
+    padding: 8px 16px;
+    display: flex;
+    gap: 24px;
+}
+
+.adv-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 400;
+}
+
+.adv-search-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 16px 0 16px;
+    margin-top: 8px;
+}
+
+.adv-btn-ghost {
+    background: none;
+    border: none;
+    color: #5f6368;
+    cursor: pointer;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 4px;
+}
+
+.adv-btn-ghost:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.adv-btn-primary {
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    padding: 8px 24px;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.adv-btn-primary:hover {
+    background: #1765cc;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .search-result-item:hover {
@@ -1032,37 +1252,37 @@ a {
    Gmail-Exact Email Row System
    ══════════════════════════════════════════════════════ */
 
-/* List header — very subtle, barely visible column labels (Gmail style) */
+/* List header — Minimal and clean (Gmail style) */
 .gmail-list-header {
     display: flex;
     align-items: center;
-    height: 24px;
-    padding: 0 8px;
-    border-bottom: 1px solid #e0e0e0;
-    background: #f6f8fc;
-    font-size: 9px;
-    font-weight: 500;
-    color: #9aa0a6;
-    letter-spacing: 0.06em;
+    height: 40px !important;
+    padding: 0 16px;
+    border-bottom: 1px solid #f1f3f4;
+    background: #ffffff;
+    font-size: 11px !important;
+    font-weight: 600;
+    color: #5f6368;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
     user-select: none;
     flex-shrink: 0;
 }
 
 .gmail-lh-check {
-    width: 40px;
+    width: 52px;
     flex-shrink: 0;
 }
 
 .gmail-lh-star {
-    width: 24px;
+    width: 32px;
     flex-shrink: 0;
 }
 
 .gmail-lh-sender {
-    width: 160px;
+    width: 220px;
     flex-shrink: 0;
-    padding-right: 8px;
+    padding-right: 12px;
 }
 
 .gmail-lh-body {
@@ -1071,43 +1291,45 @@ a {
 }
 
 .gmail-lh-account {
-    width: 190px;
+    width: 220px;
     flex-shrink: 0;
-    padding: 0 8px;
+    padding: 0 12px;
 }
 
 .gmail-lh-manager {
-    width: 80px;
+    width: 100px;
     flex-shrink: 0;
 }
 
 .gmail-lh-date {
-    width: 60px;
+    width: 100px;
     flex-shrink: 0;
     text-align: right;
 }
 
-/* Email row — 30px height, exact Gmail density */
+/* Email row — 50px height, exact Gmail density */
 .gmail-email-row {
     display: flex;
     align-items: center;
-    height: 30px;
-    padding: 0 8px;
+    height: 50px !important;
+    min-height: 50px !important;
+    padding: 0 16px;
     cursor: pointer;
-    border-bottom: 1px solid #e8eaed;
-    transition: box-shadow 0.1s, background 0.1s;
-    font-size: 13px;
-    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    border-bottom: 1px solid #f1f3f4;
+    transition: box-shadow 0.1s;
+    font-size: 0.875rem !important;
+    /* 14px */
+    font-family: Roboto, Arial, sans-serif;
     position: relative;
-    background: #f6f8fc;
+    background: #ffffff !important;
 }
 
 .gmail-email-row.unread {
-    background: #ffffff;
+    background: #ffffff !important;
 }
 
 .gmail-email-row.read {
-    background: #f6f8fc;
+    background: #f6f8fc !important;
 }
 
 .gmail-email-row:hover {
@@ -1120,18 +1342,17 @@ a {
     background: #d3e3fd !important;
 }
 
-/* Checkbox cell */
+/* Sub-elements alignment with matching widths */
 .gmail-row-check {
-    width: 40px;
+    width: 52px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-/* Star cell */
 .gmail-row-star {
-    width: 24px;
+    width: 32px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -1144,14 +1365,14 @@ a {
     opacity: 1;
 }
 
-/* Sender cell */
 .gmail-row-sender {
-    width: 160px;
+    width: 220px;
     flex-shrink: 0;
-    padding-right: 8px;
-    font-size: 13px;
-    font-weight: 400;
-    color: #444746;
+    padding-right: 16px;
+    font-size: 0.875rem;
+    /* 14px */
+    font-weight: 500;
+    color: #202124;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1174,7 +1395,8 @@ a {
 
 /* Subject */
 .gmail-row-subject {
-    font-size: 13px;
+    font-size: 0.9375rem;
+    /* 15px */
     font-weight: 400;
     color: #202124;
     white-space: nowrap;
@@ -1220,10 +1442,11 @@ a {
 
 /* Gmail Account cell */
 .gmail-row-account {
-    width: 190px;
+    width: 220px;
     flex-shrink: 0;
-    padding: 0 8px;
-    font-size: 12px;
+    padding: 0 12px;
+    font-size: 0.9375rem;
+    /* 15px */
     color: #5f6368;
     white-space: nowrap;
     overflow: hidden;
@@ -1232,9 +1455,10 @@ a {
 
 /* Manager cell */
 .gmail-row-manager {
-    width: 80px;
+    width: 100px;
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: 0.9375rem;
+    /* 15px */
     color: #1a73e8;
     white-space: nowrap;
     overflow: hidden;
@@ -1242,12 +1466,13 @@ a {
 }
 
 /* Date cell */
+/* Date cell */
 .gmail-row-date {
-    width: 60px;
+    width: 100px;
     flex-shrink: 0;
     text-align: right;
-    font-size: 11px;
-    font-weight: 400;
+    font-size: 0.9375rem;
+    /* 15px */
     color: #444746;
     white-space: nowrap;
 }
@@ -1329,7 +1554,7 @@ a {
 
 /* Header standard style */
 .grid-header {
-    height: 48px;
+    height: 52px;
     border-bottom: 2px solid var(--border);
     background: var(--bg-base);
     font-size: 1rem;
@@ -1403,7 +1628,7 @@ a {
 
 /* Flavor: Inbox (Check, Sender, Subject, Account, Manager, Date) */
 .grid-inbox {
-    grid-template-columns: 48px 220px 1fr 220px 130px 100px !important;
+    grid-template-columns: 64px 200px 1fr 200px 90px 90px !important;
 }
 
 /* Flavor: Standard (Name, Account, Manager, Extra) */

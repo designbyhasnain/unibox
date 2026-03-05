@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ComposeModal from './components/ComposeModal';
 import Sidebar from './components/Sidebar';
+import Topbar from './components/Topbar';
 import InlineReply from './components/InlineReply';
 import { EmailRow, EmailDetail, PaginationControls, ToastStack } from './components/InboxComponents';
 import {
@@ -26,13 +27,14 @@ import { useRealtimeInbox } from '../src/hooks/useRealtimeInbox';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 50;
 
 const TABS = [
     { id: 'COLD_LEAD', label: 'Cold' },
     { id: 'LEAD', label: 'Leads' },
     { id: 'OFFER_ACCEPTED', label: 'Offer Accepted' },
     { id: 'CLOSED', label: 'Closed' },
+    { id: 'NOT_INTERESTED', label: 'Not Interested' },
     { id: 'SPAM', label: 'Spam' },
 ];
 
@@ -85,26 +87,32 @@ export default function InboxPage() {
     // ── Refs ───────────────────────────────────────────────────────────────────
     const toastTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
     const lastSyncTimeRef = useRef<number>(0);
-    const searchRef = useRef<HTMLDivElement>(null);
-    const searchInputRef = useRef<HTMLInputElement>(null);
 
     // ── Search State ───────────────────────────────────────────────────────────
-    const [searchFocused, setSearchFocused] = useState(false);
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [searchLoading, setSearchLoading] = useState(false);
-    const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [isSearchResults, setIsSearchResults] = useState(false);
 
     // ─── Load Emails (no stale cache — always fresh from DB) ──────────────────
     const loadEmails = useCallback(async (page: number, stage?: string) => {
-        const targetStage = stage ?? globalActiveStage;
-        if (!globalStageCache[targetStage]) setIsLoading(true);
+        const targetStage = stage || activeStage;
+        const cached = globalStageCache[targetStage];
+
+        if (cached) {
+            setEmails(cached.emails);
+            setTotalCount(cached.totalCount);
+            setTotalPages(cached.totalPages);
+            setCurrentPage(cached.page);
+            setTabCounts(globalTabCountsCache);
+        } else {
+            setIsLoading(true);
+        }
+
         try {
-            const result = await getInboxEmailsAction(
-                ADMIN_USER_ID,
-                page,
-                PAGE_SIZE,
-                targetStage,
-            );
+            const [result, counts] = await Promise.all([
+                getInboxEmailsAction(ADMIN_USER_ID, page, PAGE_SIZE, targetStage),
+                getTabCountsAction(ADMIN_USER_ID)
+            ]);
 
             globalStageCache[targetStage] = {
                 emails: result.emails,
@@ -112,27 +120,24 @@ export default function InboxPage() {
                 totalPages: result.totalPages,
                 page: result.page
             };
+            globalTabCountsCache = counts;
 
-            // Only update local state if this is still the active stage
-            if (targetStage === globalActiveStage) {
+            // Only update local state if this is still the active stage and we aren't showing search results
+            if (targetStage === activeStage && !isSearchResults) {
                 setEmails(result.emails);
                 setTotalCount(result.totalCount);
                 setTotalPages(result.totalPages);
                 setCurrentPage(result.page);
+                setTabCounts(counts);
             }
-
-            // Refresh counts for all tabs
-            const counts = await getTabCountsAction(ADMIN_USER_ID);
-            globalTabCountsCache = counts;
-            setTabCounts(counts);
         } catch (err) {
             console.error('loadEmails error:', err);
         } finally {
-            if (targetStage === globalActiveStage) {
+            if (targetStage === activeStage) {
                 setIsLoading(false);
             }
         }
-    }, []);
+    }, [activeStage, isSearchResults]);
 
     // Initial load
     useEffect(() => { loadEmails(1); }, [loadEmails]);
@@ -144,42 +149,50 @@ export default function InboxPage() {
             .catch((err) => console.error('Failed to fetch accounts:', err));
     }, []);
 
-    // Search: live debounced
-    useEffect(() => {
-        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-        if (!searchTerm.trim()) { setSearchResults([]); return; }
+    const handleSearchSubmit = useCallback(async (e?: React.FormEvent | React.KeyboardEvent) => {
+        if (e) e.preventDefault();
+        if (!searchTerm.trim()) return;
+
         setSearchLoading(true);
-        searchDebounceRef.current = setTimeout(async () => {
-            const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm);
-            setSearchResults(results);
+        setIsSearchResults(true);
+        try {
+            const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 100);
+            setEmails(results);
+            setTotalCount(results.length);
+            setTotalPages(1);
+            setCurrentPage(1);
+            setSelectedEmail(null);
+        } catch (err) {
+            console.error('Search submit error:', err);
+        } finally {
             setSearchLoading(false);
-        }, 250);
-        return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+        }
     }, [searchTerm]);
 
-    // Close search popup on outside click
+    // ── Live Search ───────────────────────────────────────────────────────────
     useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-                setSearchFocused(false);
+        if (!searchTerm.trim()) {
+            setSearchResults([]);
+            setSearchLoading(false);
+            return;
+        }
+
+        const timer = setTimeout(async () => {
+            setSearchLoading(true);
+            try {
+                const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 8); // Top 8 suggestions
+                setSearchResults(results);
+            } catch (err) {
+                console.error('Live search error:', err);
+            } finally {
+                setSearchLoading(false);
             }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
 
     // Helpers
-    const formatSearchDate = (dateStr: string) => {
-        if (!dateStr) return '';
-        const d = new Date(dateStr);
-        const now = new Date();
-        const isToday = d.toDateString() === now.toDateString();
-        const isThisYear = d.getFullYear() === now.getFullYear();
-        if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        if (isThisYear) return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-        return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-    };
-
     const getInitial = (emailObj: any) => {
         const name = getSenderName(emailObj).replace(/^To:\s*/, '');
         const match = name.match(/^([A-Za-z])/);
@@ -262,7 +275,8 @@ export default function InboxPage() {
             setTimeout(() => {
                 setIsSyncing(false);
                 setSyncMessage('');
-                loadEmails(1);
+                // Use explicit stage and current page to prevent jumps
+                loadEmails(currentPage, activeStage);
             }, 2000);
         } catch (err) {
             console.error('Sync failed:', err);
@@ -437,11 +451,37 @@ export default function InboxPage() {
     };
 
     const handleChangeStage = async (messageId: string, newStage: string) => {
-        setEmails((prev) => prev.map((e) => e.id === messageId ? { ...e, pipeline_stage: newStage } : e));
-        if (selectedEmail?.id === messageId) {
-            setSelectedEmail((prev: any) => ({ ...prev, pipeline_stage: newStage }));
+        const target = emails.find(e => e.id === messageId);
+        setEmails((prev) => {
+            const shouldRemove = activeStage !== 'ALL' && activeStage !== 'SPAM' && newStage !== activeStage;
+            if (shouldRemove) {
+                return prev.filter((e) => {
+                    const isMatch = e.id === messageId ||
+                        (target?.contact_id && e.contact_id === target.contact_id) ||
+                        (target?.from_email && e.from_email === target.from_email);
+                    return !isMatch;
+                });
+            }
+            return prev.map((e) => {
+                const isMatch = e.id === messageId ||
+                    (target?.contact_id && e.contact_id === target.contact_id) ||
+                    (target?.from_email && e.from_email === target.from_email);
+                return isMatch ? { ...e, pipeline_stage: newStage } : e;
+            });
+        });
+
+        if (selectedEmail?.id === messageId ||
+            (target?.contact_id && selectedEmail?.contact_id === target.contact_id) ||
+            (target?.from_email && selectedEmail?.from_email === target.from_email)) {
+            const shouldCloseDetail = activeStage !== 'ALL' && activeStage !== 'SPAM' && newStage !== activeStage;
+            if (shouldCloseDetail) {
+                setSelectedEmail(null);
+            } else {
+                setSelectedEmail((prev: any) => prev ? { ...prev, pipeline_stage: newStage } : null);
+            }
         }
         await updateEmailStageAction(messageId, newStage);
+        loadEmails(currentPage, activeStage); // Refresh counts and sync
     };
 
     const handleNotInterested = async (email: string) => {
@@ -525,16 +565,8 @@ export default function InboxPage() {
 
     // ─── Derived State ────────────────────────────────────────────────────────
 
-    const filteredEmails = emails.filter((e) => {
-        if (!searchTerm) return true;
-        const sl = searchTerm.toLowerCase();
-        return (
-            (e.subject && e.subject.toLowerCase().includes(sl)) ||
-            (e.from_email && e.from_email.toLowerCase().includes(sl)) ||
-            (e.to_email && e.to_email.toLowerCase().includes(sl)) ||
-            (e.body && e.body.toLowerCase().includes(sl))
-        );
-    });
+    // Removal of filteredEmails logic to prevent background list flickering while typing.
+    // Gmail only updates the main list when Enter is pressed.
 
 
 
@@ -547,134 +579,56 @@ export default function InboxPage() {
             <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
             <main className="main-area">
-                {/* Topbar */}
-                <header className="topbar">
-                    <div className="search-bar-wrap" ref={searchRef}>
-                        <div
-                            className={`search-bar${searchFocused ? ' search-bar--focused' : ''}`}
-                            onClick={() => { setSearchFocused(true); searchInputRef.current?.focus(); }}
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <circle cx="11" cy="11" r="8" />
-                                <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-                            </svg>
-                            <input
-                                ref={searchInputRef}
-                                type="text"
-                                placeholder="Search in mail"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                onFocus={() => setSearchFocused(true)}
-                                onKeyDown={(e) => { if (e.key === 'Escape') { setSearchFocused(false); setSearchTerm(''); } }}
-                                autoComplete="off"
-                            />
-                            {searchTerm && (
-                                <button
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', color: '#5f6368', display: 'flex', alignItems: 'center' }}
-                                    onClick={(e) => { e.stopPropagation(); setSearchTerm(''); setSearchResults([]); searchInputRef.current?.focus(); }}
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
-                                </button>
-                            )}
-                            {!searchTerm && <div className="search-shortcut">⌘K</div>}
-                        </div>
-
-                        {/* Gmail-style search popup */}
-                        {searchFocused && (
-                            <div className="search-popup">
-                                {/* Filter chips */}
-                                <div className="search-chips">
-                                    <button className="search-chip" onClick={() => setSearchTerm(searchTerm + ' has:attachment')}>Has attachment</button>
-                                    <button className="search-chip" onClick={() => setSearchTerm(searchTerm + ' newer_than:7d')}>Last 7 days</button>
-                                    <button className="search-chip" onClick={() => setSearchTerm(searchTerm + ' from:me')}>From me</button>
+                <Topbar
+                    searchTerm={searchTerm}
+                    setSearchTerm={setSearchTerm}
+                    onSearch={(term) => {
+                        handleSearchSubmit();
+                    }}
+                    onClearSearch={() => {
+                        setSearchTerm('');
+                        setSearchResults([]);
+                        setIsSearchResults(false);
+                        loadEmails(1, activeStage);
+                    }}
+                    searchResults={searchResults}
+                    searchLoading={searchLoading}
+                    onResultClick={(res) => {
+                        handleSelectEmail(res);
+                    }}
+                    rightContent={
+                        <div className="topbar-actions" style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', paddingRight: '1rem', alignItems: 'center', gap: '1rem' }}>
+                            {isSyncing && (
+                                <div className="sync-status">
+                                    <div className="spinner spinner-xs" />
+                                    <span>{syncMessage || 'Syncing...'}</span>
                                 </div>
-
-                                {/* Results */}
-                                {searchLoading && (
-                                    <div className="search-loading">
-                                        <div className="spinner spinner-xs" style={{ width: 16, height: 16, borderWidth: 2 }} />
-                                        <span>Searching...</span>
-                                    </div>
-                                )}
-
-                                {!searchLoading && searchResults.length > 0 && (
-                                    <div className="search-results-list">
-                                        {searchResults.map((result) => (
-                                            <div
-                                                key={result.id}
-                                                className="search-result-item"
-                                                onClick={() => {
-                                                    setSearchFocused(false);
-                                                    // Open the email
-                                                    handleSelectEmail(result);
-                                                }}
-                                            >
-                                                <div className="search-result-avatar">
-                                                    {getInitial(result)}
-                                                </div>
-                                                <div className="search-result-body">
-                                                    <div className="search-result-top">
-                                                        <span className="search-result-sender">{getSenderName(result)}</span>
-                                                        <span className="search-result-date">{formatSearchDate(result.sent_at)}</span>
-                                                    </div>
-                                                    <div className="search-result-subject">{result.subject || '(no subject)'}</div>
-                                                    <div className="search-result-preview">{result.snippet}</div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {!searchLoading && searchTerm && searchResults.length === 0 && (
-                                    <div className="search-no-results">No results found for &ldquo;{searchTerm}&rdquo;</div>
-                                )}
-
-                                {/* All results link */}
-                                {searchTerm && !searchLoading && (
-                                    <div className="search-all-link">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <circle cx="11" cy="11" r="8" />
-                                            <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-                                        </svg>
-                                        <span>All search results for &ldquo;{searchTerm}&rdquo;</span>
-                                        <span style={{ fontSize: 11, color: '#9aa0a6', marginLeft: 4 }}>Press Enter</span>
-                                    </div>
-                                )}
+                            )}
+                            <div className="status-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', background: 'var(--bg-elevated)', padding: '4px 10px', borderRadius: '100px', border: '1px solid var(--border)' }}>
+                                <div className={`status-dot ${isLive ? 'live' : ''}`} />
+                                <span>{isLive ? 'Live' : 'Connecting...'}</span>
                             </div>
-                        )}
-                    </div>
-
-                    <div className="topbar-actions">
-                        {isSyncing && (
-                            <div className="sync-status">
-                                <div className="spinner spinner-xs" />
-                                <span>{syncMessage || 'Syncing...'}</span>
-                            </div>
-                        )}
-                        <div className="status-pill">
-                            <div className={`status-dot ${isLive ? 'live' : ''}`} />
-                            <span>{isLive ? 'Live' : 'Connecting...'}</span>
-                        </div>
-                        <button
-                            className="icon-btn"
-                            onClick={handleSync}
-                            disabled={isSyncing}
-                            title="Refresh messages"
-                            id="sync-btn"
-                        >
-                            <svg
-                                width="18" height="18" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                                style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}
+                            <button
+                                className="icon-btn"
+                                onClick={handleSync}
+                                disabled={isSyncing}
+                                title="Refresh messages"
+                                id="sync-btn"
                             >
-                                <path d="M23 4v6h-6M1 20v-6h6" />
-                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                            </svg>
-                        </button>
-                        <div className="divider-v" />
-                        <div className="avatar-btn" title="Admin">A</div>
-                    </div>
-                </header>
+                                <svg
+                                    width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                                    style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}
+                                >
+                                    <path d="M23 4v6h-6M1 20v-6h6" />
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                                </svg>
+                            </button>
+                            <div className="divider-v" />
+                            <div className="avatar-btn">A</div>
+                        </div>
+                    }
+                />
 
                 <div className="tabs-bar">
                     {TABS.map((tab) => {
@@ -686,6 +640,9 @@ export default function InboxPage() {
                                 onClick={() => {
                                     globalActiveStage = tab.id;
                                     setActiveStage(tab.id);
+                                    setIsSearchResults(false);
+                                    setSearchTerm('');
+                                    setSearchResults([]);
 
                                     // Instantly update from cache if available
                                     const cachedData = globalStageCache[tab.id];
@@ -766,20 +723,25 @@ export default function InboxPage() {
                                             Loading messages...
                                         </span>
                                     </div>
-                                ) : filteredEmails.length === 0 ? (
+                                ) : emails.length === 0 ? (
                                     <div className="empty-state">
                                         <div className="empty-state-icon">
                                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
                                                 <path d="M22 12l-10-9-10 9M9 21V12h6v9" />
                                             </svg>
                                         </div>
-                                        <div className="empty-state-title">No messages</div>
+                                        <div className="empty-state-title">
+                                            {isSearchResults ? 'No search results' : 'No messages'}
+                                        </div>
                                         <div className="empty-state-desc">
-                                            Your {TABS.find((t) => t.id === activeStage)?.label} is empty.
+                                            {isSearchResults
+                                                ? `No messages found for "${searchTerm}"`
+                                                : `Your ${TABS.find((t) => t.id === activeStage)?.label || 'Inbox'} is empty.`
+                                            }
                                         </div>
                                     </div>
                                 ) : (
-                                    filteredEmails.map((email: any) => (
+                                    emails.map((email: any) => (
                                         <EmailRow
                                             key={email.id}
                                             email={email}
@@ -818,7 +780,7 @@ export default function InboxPage() {
                                 setIsComposeOpen(true);
                             }}
                             onNotInterested={handleNotInterested}
-                            onNotSpam={handleNotSpam}
+                            onNotSpam={activeStage === 'SPAM' ? handleNotSpam : undefined}
                             replySlot={
                                 <InlineReply
                                     threadId={selectedEmail.thread_id}
@@ -832,7 +794,7 @@ export default function InboxPage() {
                         />
                     )}
                 </div>
-            </main>
+            </main >
 
             {isComposeOpen && (
                 <ComposeModal
@@ -845,7 +807,8 @@ export default function InboxPage() {
                     }
                     threadId={selectedEmail && composeDefaultTo ? selectedEmail.thread_id : ''}
                 />
-            )}
+            )
+            }
         </>
     );
 }

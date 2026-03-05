@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from '../components/Sidebar';
+import Topbar from '../components/Topbar';
 import ComposeModal from '../components/ComposeModal';
 import AddProjectModal from '../components/AddProjectModal';
 import { getClientsAction, getClientProjectsAction, updateClientAction } from '../../src/actions/clientActions';
@@ -240,37 +241,25 @@ export default function ClientsPage() {
             <Sidebar onOpenCompose={() => { setComposeDefaultTo(''); setIsComposeOpen(true); }} />
 
             <main className="main-area">
-                {/* Header Section */}
-                <header className="page-header" style={{ padding: '1rem 1.5rem', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Clients</h1>
-                            <div className="divider-v" />
-                            <div className="search-bar-modern" style={{ position: 'relative', width: 320 }}>
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}>
-                                    <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-                                </svg>
-                                <input
-                                    type="text"
-                                    placeholder="Search by name, email or manager..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    style={{ width: '100%', height: 38, padding: '0 3rem 0 2.5rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '10px', fontSize: '0.875rem', outline: 'none' }}
-                                />
-                                <div style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'var(--bg-surface)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700, pointerEvents: 'none' }}>
-                                    ⌘K
-                                </div>
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Topbar
+                    searchTerm={searchTerm}
+                    setSearchTerm={setSearchTerm}
+                    placeholder="Search by name, email or manager..."
+                    onSearch={() => { }}
+                    onClearSearch={() => setSearchTerm('')}
+                    leftContent={
+                        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Clients</h1>
+                    }
+                    rightContent={
+                        <div className="topbar-actions">
                             <button className="btn btn-primary sm" onClick={() => setIsAddClientOpen(true)}>
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 6 }}><path d="M12 5v14M5 12h14" /></svg>
                                 New Client
                             </button>
                             <div className="avatar-btn">A</div>
                         </div>
-                    </div>
-                </header>
+                    }
+                />
 
                 {/* Filter Tabs & Toolbar */}
                 <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>

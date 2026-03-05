@@ -5,7 +5,7 @@ import { sendGmailEmail } from '../services/gmailSenderService';
 import { sendManualEmail, unspamManualMessage } from '../services/manualEmailService';
 import { unspamGmailMessage } from '../services/gmailSyncService';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 50;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ export async function getInboxEmailsAction(
             direction: r.direction,
             sent_at: r.sent_at,
             is_unread: r.is_unread,
-            pipeline_stage: r.pipeline_stage,
+            pipeline_stage: stage === 'SPAM' ? 'SPAM' : r.pipeline_stage,
             gmail_account_id: r.gmail_account_id,
             contact_id: r.contact_id,
             gmail_accounts: {
@@ -399,15 +399,24 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
             .eq('id', contactId);
     }
 
-    // 3. Update the pipeline stage on the targeted email message
+    // 3. Update the pipeline stage on ALL messages from this contact/email
+    // This handles the user request: "all emails of this address follow the tag"
     const { error } = await supabase
         .from('email_messages')
         .update({ pipeline_stage: stage })
-        .eq('id', messageId);
+        .or(`id.eq.${messageId}${contactId ? `,contact_id.eq.${contactId}` : ''}${actualEmail ? `,from_email.ilike.%${actualEmail}%,to_email.ilike.%${actualEmail}%` : ''}`);
 
     if (error) {
         console.error('updateEmailStageAction error:', error);
         return { success: false };
+    }
+
+    // 4. Remove from ignored_senders if moving out of NOT_INTERESTED
+    if (stage !== 'NOT_INTERESTED' && actualEmail) {
+        await supabase
+            .from('ignored_senders')
+            .delete()
+            .eq('email', actualEmail.toLowerCase());
     }
 
     return { success: true };
@@ -514,49 +523,19 @@ export async function markAsNotInterestedAction(email: string) {
 
         if (ignoreError) throw ignoreError;
 
-        // 2. Find the contact IDs before deleting messages (to cleanup projects)
-        const { data: contacts } = await supabase
+        // Update all messages from this specific email to NOT_INTERESTED stage
+        const { error: updateError } = await supabase
+            .from('email_messages')
+            .update({ pipeline_stage: 'NOT_INTERESTED' })
+            .ilike('from_email', `%${senderEmail}%`);
+
+        if (updateError) throw updateError;
+
+        // 3. Update contact if exists
+        await supabase
             .from('contacts')
-            .select('id')
+            .update({ pipeline_stage: 'NOT_INTERESTED' })
             .ilike('email', `%${senderEmail}%`);
-
-        // 3. Delete all associated projects if contacts exist
-        if (contacts && contacts.length > 0) {
-            const contactIds = contacts.map(c => c.id);
-
-            await supabase
-                .from('projects')
-                .delete()
-                .in('client_id', contactIds);
-
-            // 4. Delete the contacts themselves
-            await supabase
-                .from('contacts')
-                .delete()
-                .in('id', contactIds);
-        }
-
-        // 5. Find all messages from this sender to cleanup any projects linked by `source_email_id`
-        const { data: messages } = await supabase
-            .from('email_messages')
-            .select('id')
-            .ilike('from_email', `%${senderEmail}%`);
-
-        if (messages && messages.length > 0) {
-            const messageIds = messages.map(m => m.id);
-            await supabase
-                .from('projects')
-                .delete()
-                .in('source_email_id', messageIds);
-        }
-
-        // 6. Delete all existing messages from this specific email
-        const { error: deleteError } = await supabase
-            .from('email_messages')
-            .delete()
-            .ilike('from_email', `%${senderEmail}%`);
-
-        if (deleteError) throw deleteError;
 
         return { success: true };
     } catch (err: any) {
@@ -569,48 +548,17 @@ export async function getTabCountsAction(userId: string) {
     const accountIds = await getAccountIds(userId);
     if (!accountIds) return {};
 
-    // We want the count of THREADS for each stage
-    const { data, error } = await supabase
-        .from('email_messages')
-        .select('thread_id, pipeline_stage, is_spam, sent_at')
-        .in('gmail_account_id', accountIds)
-        .order('sent_at', { ascending: false });
+    try {
+        const { data, error } = await supabase.rpc('get_all_tab_counts', {
+            p_account_ids: accountIds
+        });
 
-    if (error) return {};
-
-    // Group by thread_id to count conversations, then by stage/spam
-    const threads = new Map<string, { stage: string | null; isSpam: boolean }>();
-    data.forEach((m) => {
-        if (!threads.has(m.thread_id)) {
-            // Because we sorted by sent_at desc, this is the most recent message's status
-            threads.set(m.thread_id, { stage: m.pipeline_stage, isSpam: !!m.is_spam });
-        } else if (m.is_spam) {
-            // Also consider spam if any message in the thread is spam
-            const current = threads.get(m.thread_id)!;
-            current.isSpam = true;
-        }
-    });
-
-    const counts: Record<string, number> = {
-        ALL: 0,
-        COLD_LEAD: 0,
-        LEAD: 0,
-        OFFER_ACCEPTED: 0,
-        CLOSED: 0,
-        SPAM: 0,
-    };
-
-    threads.forEach((info) => {
-        if (info.isSpam) {
-            counts['SPAM'] = (counts['SPAM'] || 0) + 1;
-        } else {
-            const effectiveStage = info.stage || 'COLD_LEAD';
-            counts[effectiveStage] = (counts[effectiveStage] || 0) + 1;
-            counts['ALL'] = (counts['ALL'] || 0) + 1;
-        }
-    });
-
-    return counts;
+        if (error) throw error;
+        return data as Record<string, number>;
+    } catch (err) {
+        console.error('getTabCountsAction error:', err);
+        return {};
+    }
 }
 
 export async function markAsNotSpamAction(messageId: string) {
@@ -634,10 +582,10 @@ export async function markAsNotSpamAction(messageId: string) {
             await unspamGmailMessage(account, messageId);
         }
 
-        // 3. Mark as not spam in DB
+        // 3. Mark as not spam in DB and reset stage to COLD_LEAD
         await supabase
             .from('email_messages')
-            .update({ is_spam: false })
+            .update({ is_spam: false, pipeline_stage: 'COLD_LEAD' })
             .eq('id', messageId);
 
         return { success: true };
@@ -651,26 +599,83 @@ export async function markAsNotSpamAction(messageId: string) {
 
 // ─── Search Emails ────────────────────────────────────────────────────────────
 
-export async function searchEmailsAction(userId: string, query: string) {
+export async function searchEmailsAction(userId: string, query: string, limit = 6) {
     if (!query || query.trim().length < 1) return [];
 
     const accountIds = await getAccountIds(userId);
     if (!accountIds) return [];
 
-    const q = query.trim();
+    let q = query.trim();
+    let rpcQuery = supabase.from('email_messages').select(`
+        id, thread_id, from_email, to_email, subject, snippet, direction, sent_at, is_unread, pipeline_stage, gmail_account_id,
+        gmail_accounts ( email, users ( name ) )
+    `);
 
-    const { data, error } = await supabase
-        .from('email_messages')
-        .select('id, thread_id, from_email, to_email, subject, snippet, direction, sent_at, is_unread, pipeline_stage, gmail_account_id')
+    // Advanced operator handling
+    // 1. from:
+    const fromMatch = q.match(/from:([^\s]+)/);
+    if (fromMatch) {
+        const value = fromMatch[1];
+        if (value === 'me') {
+            rpcQuery = rpcQuery.eq('direction', 'SENT');
+        } else {
+            rpcQuery = rpcQuery.ilike('from_email', `%${value}%`);
+        }
+        q = q.replace(/from:[^\s]+/, '').trim();
+    }
+
+    // 2. to:
+    const toMatch = q.match(/to:([^\s]+)/);
+    if (toMatch) {
+        rpcQuery = rpcQuery.ilike('to_email', `%${toMatch[1]}%`);
+        q = q.replace(/to:[^\s]+/, '').trim();
+    }
+
+    // 3. subject:
+    const subjectMatch = q.match(/subject:([^\s]+)/);
+    if (subjectMatch) {
+        rpcQuery = rpcQuery.ilike('subject', `%${subjectMatch[1]}%`);
+        q = q.replace(/subject:[^\s]+/, '').trim();
+    }
+
+    // 4. has:attachment (placeholder)
+    if (q.includes('has:attachment')) {
+        q = q.replace('has:attachment', '').trim();
+    }
+
+    // 5. newer_than:
+    const match = q.match(/newer_than:(\d+)([dwmy])/);
+    if (match && match[1] && match[2]) {
+        const val = parseInt(match[1]);
+        const unit = match[2];
+        const date = new Date();
+        if (unit === 'd') date.setDate(date.getDate() - val);
+        if (unit === 'w') date.setDate(date.getDate() - val * 7);
+        if (unit === 'm') date.setMonth(date.getMonth() - val);
+        if (unit === 'y') date.setFullYear(date.getFullYear() - val);
+        rpcQuery = rpcQuery.gte('sent_at', date.toISOString());
+        q = q.replace(/newer_than:\d+[dwmy]/, '').trim();
+    }
+
+    if (q) {
+        rpcQuery = rpcQuery.or(`subject.ilike.%${q}%,from_email.ilike.%${q}%,snippet.ilike.%${q}%,to_email.ilike.%${q}%`);
+    }
+
+    const { data, error } = await rpcQuery
         .in('gmail_account_id', accountIds)
-        .or(`subject.ilike.%${q}%,from_email.ilike.%${q}%,snippet.ilike.%${q}%,to_email.ilike.%${q}%`)
         .order('sent_at', { ascending: false })
-        .limit(6);
+        .limit(limit);
 
     if (error) {
-        console.error('[searchEmailsAction] error:', error);
+        console.error('searchEmailsAction error:', error);
         return [];
     }
 
-    return data || [];
+    return (data || []).map((m: any) => ({
+        ...m,
+        gmail_accounts: {
+            email: m.gmail_accounts?.email,
+            user: { name: m.gmail_accounts?.users?.name || 'System' }
+        }
+    }));
 }

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
+import Topbar from '../components/Topbar';
 import ComposeModal from '../components/ComposeModal';
 import {
     getGoogleAuthUrlAction,
@@ -197,34 +198,39 @@ export default function AccountsPage() {
             <Sidebar onOpenCompose={() => setIsComposeOpen(true)} />
 
             <main className="main-area">
-                {/* Topbar */}
-                <header className="topbar">
-                    <div className="search-bar">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2">
-                            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-                        </svg>
-                        <input
-                            type="text"
-                            placeholder="Search accounts..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
-                    </div>
-                    <div className="topbar-actions">
-                        <button
-                            className="icon-btn"
-                            onClick={handleSync}
-                            disabled={isSyncing}
-                            title={isSyncing ? 'Syncing...' : 'Sync all accounts'}
-                        >
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
-                                <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
-                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                            </svg>
-                        </button>
-                        <div className="avatar-btn">A</div>
-                    </div>
-                </header>
+                <Topbar
+                    searchTerm={searchQuery}
+                    setSearchTerm={setSearchQuery}
+                    placeholder="Search accounts..."
+                    onSearch={() => { }}
+                    onClearSearch={() => setSearchQuery('')}
+                    leftContent={
+                        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Accounts</h1>
+                    }
+                    rightContent={
+                        <div className="topbar-actions">
+                            <button
+                                className="icon-btn"
+                                onClick={handleSync}
+                                disabled={isSyncing}
+                                title={isSyncing ? 'Syncing...' : 'Sync all accounts'}
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
+                                    <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                                </svg>
+                            </button>
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => { setShowSelectionModal(true); setError(null); }}
+                            >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14m-7-7h14" /></svg>
+                                Add Account
+                            </button>
+                            <div className="avatar-btn">A</div>
+                        </div>
+                    }
+                />
 
                 {/* Tabs / Sub-header */}
                 <div className="tabs-bar">
