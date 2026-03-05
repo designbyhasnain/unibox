@@ -497,26 +497,26 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                         </div>
                     </div>
 
-                    <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', flexDirection: 'column', borderTop: '1px solid #3c4043' }}>
+                    <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', flexDirection: 'column', borderTop: '1px solid #e0e0e0', overflow: 'visible', position: 'relative' }}>
                         {/* Tracking Indicator Bar — Mailsuite style */}
                         {isTrackingEnabled && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: '6px' }}>
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 0 6px', borderBottom: '1px solid #e8eaed', marginBottom: '6px' }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
                                     <path d="M1 12l5 5L18 5" stroke="#34a853" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                                     <path d="M7 12l5 5L24 5" stroke="#34a853" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                                 </svg>
-                                <span style={{ fontSize: '12px', color: '#9aa0a6', letterSpacing: '0.2px' }}>
+                                <span style={{ fontSize: '11px', color: '#5f6368', letterSpacing: '0.2px' }}>
                                     Email tracked with <strong style={{ color: '#34a853' }}>Unibox</strong>
                                 </span>
-                                <span style={{ margin: '0 4px', color: '#5f6368', fontSize: '11px' }}>·</span>
+                                <span style={{ margin: '0 2px', color: '#dadce0', fontSize: '11px' }}>·</span>
                                 <span
-                                    style={{ fontSize: '12px', color: '#ea4335', cursor: 'pointer' }}
+                                    style={{ fontSize: '11px', color: '#ea4335', cursor: 'pointer' }}
                                     onClick={() => setIsTrackingEnabled(false)}
                                 >
                                     Opt out
                                 </span>
                                 <span
-                                    style={{ fontSize: '14px', color: '#ea4335', cursor: 'pointer', marginLeft: '2px', fontWeight: 600 }}
+                                    style={{ fontSize: '13px', color: '#ea4335', cursor: 'pointer', marginLeft: '1px', fontWeight: 600 }}
                                     onClick={() => setIsTrackingEnabled(false)}
                                 >
                                     ✕
@@ -524,9 +524,9 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                             </div>
                         )}
 
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div className="compose-footer-left" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <div className="compose-send-group">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                            <div className="compose-footer-left" style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                <div className="compose-send-group" style={{ marginRight: '8px' }}>
                                     <button
                                         className="compose-send-btn"
                                         onClick={handleSend}
@@ -552,7 +552,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                             }
                                         }}
                                         style={{
-                                            background: isTrackingEnabled ? 'rgba(52,168,83,0.15)' : 'transparent',
+                                            background: isTrackingEnabled ? 'rgba(52,168,83,0.12)' : 'transparent',
                                             borderRadius: '50%',
                                             width: '32px',
                                             height: '32px',
@@ -561,39 +561,48 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                             justifyContent: 'center',
                                         }}
                                     >
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                                             <path d="M1 12l5 5L18 5" stroke={isTrackingEnabled ? '#34a853' : '#9aa0a6'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                                             <path d="M7 12l5 5L24 5" stroke={isTrackingEnabled ? '#34a853' : '#9aa0a6'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                                         </svg>
                                     </button>
 
-                                    {/* Tracking Popup Menu — Mailsuite style */}
+                                    {/* Tracking Popup Menu */}
                                     {showTrackingMenu && (
-                                        <div className="gmail-msg-popover tracking-menu" style={{
-                                            position: 'absolute',
-                                            bottom: 'calc(100% + 10px)',
-                                            left: 0,
+                                        <div style={{
+                                            position: 'fixed',
+                                            bottom: '52px',
+                                            left: 'auto',
                                             width: '220px',
                                             padding: '6px 0',
-                                            background: '#ffffff',
-                                            border: '1px solid #e0e0e0',
+                                            background: '#fff',
+                                            border: '1px solid #dadce0',
                                             borderRadius: '8px',
-                                            boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                                            zIndex: 2000,
+                                            boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                                            zIndex: 9999,
                                         }}>
-                                            <div style={{ padding: '8px 16px 6px', fontSize: '12px', fontWeight: 600, color: '#202124', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            <div style={{ padding: '8px 16px 6px', fontSize: '11px', fontWeight: 600, color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                                 Insert
                                             </div>
-                                            <div className="popover-action-item" onClick={handleInsertTrackedLink} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124' }}>
+                                            <div onClick={handleInsertTrackedLink} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124', fontSize: '13px' }}
+                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f1f3f4')}
+                                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                            >
                                                 <Link size={16} style={{ color: '#1a73e8' }} />
                                                 <span>Tracked link</span>
                                             </div>
-                                            <div className="popover-action-item" onClick={handleInsertTrackedButton} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124' }}>
+                                            <div onClick={handleInsertTrackedButton} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124', fontSize: '13px' }}
+                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f1f3f4')}
+                                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                            >
                                                 <MousePointerClick size={16} style={{ color: '#1a73e8' }} />
                                                 <span>Tracked button</span>
                                             </div>
-                                            <div style={{ borderTop: '1px solid #e0e0e0', margin: '4px 0' }} />
-                                            <div className="popover-action-item" onClick={() => { setIsTrackingEnabled(false); setShowTrackingMenu(false); }} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#ea4335' }}>
+                                            <div style={{ borderTop: '1px solid #e8eaed', margin: '4px 0' }} />
+                                            <div onClick={() => { setIsTrackingEnabled(false); setShowTrackingMenu(false); }} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#ea4335', fontSize: '13px' }}
+                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#fce8e6')}
+                                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                            >
                                                 <Unlink size={16} />
                                                 <span>Disable tracking</span>
                                             </div>

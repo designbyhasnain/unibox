@@ -2663,7 +2663,7 @@ select.form-input option {
     display: flex;
     flex-direction: column;
     color: #111827;
-    overflow: hidden;
+    overflow: visible;
     transition: width var(--slow) var(--ease), height var(--slow) var(--ease), right var(--slow) var(--ease), bottom var(--slow) var(--ease);
 }
 
