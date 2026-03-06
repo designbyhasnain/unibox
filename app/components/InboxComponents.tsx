@@ -311,6 +311,57 @@ function EmailBodyFrame({ html }: { html: string }) {
                                 }
                             }
                         });
+
+                        // Pass 2: Fallback for unstructured "On ... wrote:" quotes
+                        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+                        let quoteStartNode = null;
+                        while(walker.nextNode()) {
+                            const node = walker.currentNode;
+                            if (/On\s+[\s\S]{10,200}?(?:wrote|schreef|escribió):/i.test(node.nodeValue)) {
+                                quoteStartNode = node;
+                                break;
+                            }
+                        }
+
+                        if (quoteStartNode) {
+                            let p = quoteStartNode.parentElement;
+                            let isHidden = false;
+                            while(p) {
+                                if (p.classList && p.classList.contains('gmail-quote-hide')) { isHidden = true; break; }
+                                p = p.parentElement;
+                            }
+                            if (!isHidden) {
+                                let blockAncestor = quoteStartNode;
+                                // Go up to highest element right under body
+                                while(blockAncestor.parentElement && blockAncestor.parentElement !== document.body) {
+                                    blockAncestor = blockAncestor.parentElement;
+                                }
+                                
+                                const wrapper = document.createElement('div');
+                                wrapper.className = 'gmail-quote-hide';
+                                
+                                let curr = blockAncestor;
+                                const toHide = [];
+                                while(curr) {
+                                    toHide.push(curr);
+                                    curr = curr.nextSibling;
+                                }
+                                
+                                blockAncestor.parentNode.insertBefore(wrapper, blockAncestor);
+                                toHide.forEach(n => wrapper.appendChild(n));
+                                
+                                const toggle = document.createElement('div');
+                                toggle.title = "Show trimmed content";
+                                toggle.className = 'gmail-quote-toggle';
+                                toggle.innerHTML = '<span class="gmail-quote-dots">...</span>';
+                                toggle.onclick = function(e) {
+                                    wrapper.classList.remove('gmail-quote-hide');
+                                    toggle.style.display = 'none';
+                                    e.stopPropagation();
+                                };
+                                wrapper.parentNode.insertBefore(toggle, wrapper);
+                            }
+                        }
                     });
                 </script>
             </body>
@@ -369,11 +420,44 @@ function EmailBodyFrame({ html }: { html: string }) {
 
 /** Plain text body renderer with clickable link detection */
 function PlainTextBody({ text }: { text: string }) {
-    const urlRegex = /(https?:\/\/[^\s<]+)/g;
-    const parts = text.split(urlRegex);
+    const [expanded, setExpanded] = React.useState(false);
+
+    // Look for unstructured quotes like "On [datetime] [email] wrote:"
+    const quoteRegex = /(?:\r?\n\s*)?On\s+[\s\S]{10,200}?(?:wrote|schreef|escribió):/i;
+    const match = text.match(quoteRegex);
+
+    if (match && !expanded && match.index !== undefined && match.index > 0) {
+        const index = match.index;
+        const mainText = text.substring(0, index);
+        const quoteText = text.substring(index);
+
+        return (
+            <div className="plain-text-body" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                <TextWithLinks text={mainText} />
+                <div
+                    title="Show trimmed content"
+                    className="gmail-quote-toggle"
+                    onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+                    style={{ margin: '8px 0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '22px', height: '12px', background: '#f1f3f4', cursor: 'pointer', borderRadius: '2px', border: '1px solid #dadce0' }}
+                >
+                    <span style={{ color: '#5f6368', lineHeight: 0, fontSize: '14px', letterSpacing: '1.5px', position: 'relative', top: '-5px', fontWeight: 'bold' }}>...</span>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="plain-text-body">
+        <div className="plain-text-body" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+            <TextWithLinks text={text} />
+        </div>
+    );
+}
+
+function TextWithLinks({ text }: { text: string }) {
+    const urlRegex = /(https?:\/\/[^\s<]+)/g;
+    const parts = text.split(urlRegex);
+    return (
+        <>
             {parts.map((part, i) =>
                 urlRegex.test(part) ? (
                     <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="email-link">
@@ -383,7 +467,7 @@ function PlainTextBody({ text }: { text: string }) {
                     <React.Fragment key={i}>{part}</React.Fragment>
                 )
             )}
-        </div>
+        </>
     );
 }
 

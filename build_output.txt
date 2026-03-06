@@ -6,18 +6,31 @@
 - Environments: .env.local, .env
 
   Creating an optimized production build ...
-Γ£ô Compiled successfully in 4.2s
+Γ£ô Compiled successfully in 10.1s
   Running TypeScript ...
-Failed to compile.
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/13) ...
+  Generating static pages using 7 workers (3/13) 
+  Generating static pages using 7 workers (6/13) 
+  Generating static pages using 7 workers (9/13) 
+Γ£ô Generating static pages using 7 workers (13/13) in 3.9s
+  Finalizing page optimization ...
 
-./app/context/FilterContext.tsx:3:65
-Type error: 'ReactNode' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+Route (app)
+Γöî Γùï /
+Γö£ Γùï /_not-found
+Γö£ Γùï /accounts
+Γö£ ╞Æ /api/auth/google/callback
+Γö£ ╞Æ /api/sync
+Γö£ ╞Æ /api/track
+Γö£ ╞Æ /api/track/click
+Γö£ ╞Æ /api/webhooks/gmail
+Γö£ Γùï /clients
+Γö£ Γùï /projects
+Γö£ Γùï /sent
+Γöö Γùï /settings
 
-  1 | 'use client';
-  2 |
-> 3 | import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-    |                                                                 ^
-  4 |
-  5 | interface FilterContextType {
-  6 |     selectedAccountId: string; // 'ALL' or a specific ID
-Next.js build worker exited with code: 1 and signal: null
+
+Γùï  (Static)   prerendered as static content
+╞Æ  (Dynamic)  server-rendered on demand
+
