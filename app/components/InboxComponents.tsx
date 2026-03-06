@@ -228,142 +228,10 @@ function EmailBodyFrame({ html }: { html: string }) {
                     }
                     pre { padding: 12px; overflow-x: auto; }
                     hr { border: none; border-top: 1px solid #e0e0e0; margin: 16px 0; }
-                    
-                    /* Gmail Quote Folding */
-                    .gmail-quote-hide { display: none !important; }
-                    .gmail-quote-toggle { 
-                        display: inline-flex;
-                        align-items: center;
-                        justify-content: center;
-                        width: 22px;
-                        height: 12px;
-                        background: #f1f3f4;
-                        cursor: pointer;
-                        border-radius: 2px;
-                        margin: 4px 0 8px 0;
-                        border: 1px solid #dadce0;
-                        transition: background 0.2s;
-                    }
-                    .gmail-quote-toggle:hover { background: #e8eaed; }
-                    .gmail-quote-dots {
-                        color: #5f6368;
-                        line-height: 0;
-                        font-size: 14px;
-                        letter-spacing: 1.5px;
-                        position: relative;
-                        top: -5px;
-                        font-weight: bold;
-                        pointer-events: none;
-                    }
                 </style>
             </head>
             <body>
                 ${sanitized}
-                <script>
-                    document.addEventListener('DOMContentLoaded', () => {
-                        const quotes = document.querySelectorAll('.gmail_quote, .yahoo_quoted, blockquote[type="cite"], blockquote');
-                        const processed = new Set();
-
-                        quotes.forEach(q => {
-                            let parent = q.parentElement;
-                            let isNested = false;
-                            while(parent) {
-                                if (processed.has(parent)) { isNested = true; break; }
-                                parent = parent.parentElement;
-                            }
-                            if (isNested) return;
-
-                            let prevText = '';
-                            let prev = q.previousElementSibling || q.previousSibling;
-                            if (prev) {
-                                prevText = prev.textContent || '';
-                            }
-
-                            const isKnownQuote = q.classList.contains('gmail_quote') || q.classList.contains('yahoo_quoted') || q.getAttribute('type') === 'cite';
-                            const hasWrote = /wrote:/i.test(prevText) || /schreef:/i.test(prevText) || /escribió:/i.test(prevText);
-
-                            if (isKnownQuote || hasWrote) {
-                                processed.add(q);
-                                q.classList.add('gmail-quote-hide');
-
-                                // Look for "On ... wrote:" element to hide it as well
-                                let introToHide = null;
-                                if (hasWrote && prev && prev.nodeType === 1) { // is Element
-                                    introToHide = prev;
-                                    introToHide.classList.add('gmail-quote-hide');
-                                }
-
-                                const toggle = document.createElement('div');
-                                toggle.title = "Show trimmed content";
-                                toggle.className = 'gmail-quote-toggle';
-                                toggle.innerHTML = '<span class="gmail-quote-dots">...</span>';
-                                toggle.onclick = function(e) {
-                                    q.classList.remove('gmail-quote-hide');
-                                    if (introToHide) introToHide.classList.remove('gmail-quote-hide');
-                                    toggle.style.display = 'none';
-                                    e.stopPropagation();
-                                };
-                                
-                                if (introToHide) {
-                                    introToHide.parentNode.insertBefore(toggle, introToHide);
-                                } else {
-                                    q.parentNode.insertBefore(toggle, q);
-                                }
-                            }
-                        });
-
-                        // Pass 2: Fallback for unstructured "On ... wrote:" quotes
-                        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-                        let quoteStartNode = null;
-                        while(walker.nextNode()) {
-                            const node = walker.currentNode;
-                            if (/On\s+[\s\S]{10,200}?(?:wrote|schreef|escribió):/i.test(node.nodeValue)) {
-                                quoteStartNode = node;
-                                break;
-                            }
-                        }
-
-                        if (quoteStartNode) {
-                            let p = quoteStartNode.parentElement;
-                            let isHidden = false;
-                            while(p) {
-                                if (p.classList && p.classList.contains('gmail-quote-hide')) { isHidden = true; break; }
-                                p = p.parentElement;
-                            }
-                            if (!isHidden) {
-                                let blockAncestor = quoteStartNode;
-                                // Go up to highest element right under body
-                                while(blockAncestor.parentElement && blockAncestor.parentElement !== document.body) {
-                                    blockAncestor = blockAncestor.parentElement;
-                                }
-                                
-                                const wrapper = document.createElement('div');
-                                wrapper.className = 'gmail-quote-hide';
-                                
-                                let curr = blockAncestor;
-                                const toHide = [];
-                                while(curr) {
-                                    toHide.push(curr);
-                                    curr = curr.nextSibling;
-                                }
-                                
-                                blockAncestor.parentNode.insertBefore(wrapper, blockAncestor);
-                                toHide.forEach(n => wrapper.appendChild(n));
-                                
-                                const toggle = document.createElement('div');
-                                toggle.title = "Show trimmed content";
-                                toggle.className = 'gmail-quote-toggle';
-                                toggle.innerHTML = '<span class="gmail-quote-dots">...</span>';
-                                toggle.onclick = function(e) {
-                                    wrapper.classList.remove('gmail-quote-hide');
-                                    toggle.style.display = 'none';
-                                    e.stopPropagation();
-                                };
-                                wrapper.parentNode.insertBefore(toggle, wrapper);
-                            }
-                        }
-                    });
-                </script>
             </body>
             </html>
         `;
@@ -420,32 +288,6 @@ function EmailBodyFrame({ html }: { html: string }) {
 
 /** Plain text body renderer with clickable link detection */
 function PlainTextBody({ text }: { text: string }) {
-    const [expanded, setExpanded] = React.useState(false);
-
-    // Look for unstructured quotes like "On [datetime] [email] wrote:"
-    const quoteRegex = /(?:\r?\n\s*)?On\s+[\s\S]{10,200}?(?:wrote|schreef|escribió):/i;
-    const match = text.match(quoteRegex);
-
-    if (match && !expanded && match.index !== undefined && match.index > 0) {
-        const index = match.index;
-        const mainText = text.substring(0, index);
-        const quoteText = text.substring(index);
-
-        return (
-            <div className="plain-text-body" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-                <TextWithLinks text={mainText} />
-                <div
-                    title="Show trimmed content"
-                    className="gmail-quote-toggle"
-                    onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
-                    style={{ margin: '8px 0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '22px', height: '12px', background: '#f1f3f4', cursor: 'pointer', borderRadius: '2px', border: '1px solid #dadce0' }}
-                >
-                    <span style={{ color: '#5f6368', lineHeight: 0, fontSize: '14px', letterSpacing: '1.5px', position: 'relative', top: '-5px', fontWeight: 'bold' }}>...</span>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <div className="plain-text-body" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
             <TextWithLinks text={text} />
@@ -511,6 +353,73 @@ function extractEmail(rawFrom: string): string {
 function isHtmlBody(body: string): boolean {
     if (!body) return false;
     return /<(html|div|p|table|span|br|img|a|style|head|body|td|tr)\b/i.test(body);
+}
+
+export function stripOldEmailContent(body: string, isHtml: boolean): string {
+    if (!body) return '';
+    let cleaned = body;
+
+    // Remove attachments placeholder from body text before checking lengths
+    cleaned = cleaned.replace(/<!-- ATTACHMENTS: [\s\S]*? -->/gi, '');
+
+    const breakPoints = [
+        '<div class="gmail_quote"',
+        '<div class="yahoo_quoted"',
+        '<blockquote type="cite"',
+        '<div class="x_gmail_quote"',
+        '<div dir="ltr" class="gmail_attr"',
+        ' id="appendonsend"'
+    ];
+
+    if (isHtml) {
+        let minIndex = cleaned.length;
+        for (const point of breakPoints) {
+            const idx = cleaned.indexOf(point);
+            if (idx !== -1 && idx < minIndex) {
+                minIndex = idx;
+            }
+        }
+        if (minIndex < cleaned.length) {
+            cleaned = cleaned.substring(0, minIndex);
+        }
+
+        const onWroteRegex = /(?:<br\s*\/?>|<\/?p[^>]*>|<\/?div[^>]*>|\r|\n|\s)*On\s+(?:(?!\bOn\b)[\s\S]){10,300}?(?:wrote|schreef|escribió):/i;
+        const match = cleaned.match(onWroteRegex);
+        if (match && match.index !== undefined && match.index > 0) {
+            cleaned = cleaned.substring(0, match.index);
+        }
+
+        const dividerRegex = /-{5,}\s*Original Message\s*-{5,}/i;
+        const divMatch = cleaned.match(dividerRegex);
+        if (divMatch && divMatch.index !== undefined && divMatch.index > 0) {
+            cleaned = cleaned.substring(0, divMatch.index);
+        }
+
+        const outlookHr = cleaned.match(/<hr[^>]*tabindex="-1"[^>]*>/i);
+        if (outlookHr && outlookHr.index !== undefined && outlookHr.index > 0) {
+            cleaned = cleaned.substring(0, outlookHr.index);
+        }
+    } else {
+        const plainRegex = /(?:\r?\n\s*)?On\s+(?:(?!\bOn\b)[\s\S]){10,300}?(?:wrote|schreef|escribió):/i;
+        const match = cleaned.match(plainRegex);
+        if (match && match.index !== undefined && match.index > 0) {
+            cleaned = cleaned.substring(0, match.index);
+        }
+
+        const plainDivider = /(?:\r?\n\s*)*-{5,}\s*Original Message\s*-{5,}/i;
+        const divMatch = cleaned.match(plainDivider);
+        if (divMatch && divMatch.index !== undefined && divMatch.index > 0) {
+            cleaned = cleaned.substring(0, divMatch.index);
+        }
+
+        const underscoreDivider = /(?:\r?\n\s*)*_{10,}/;
+        const hrMatch = cleaned.match(underscoreDivider);
+        if (hrMatch && hrMatch.index !== undefined && hrMatch.index > 0) {
+            cleaned = cleaned.substring(0, hrMatch.index);
+        }
+    }
+
+    return cleaned.trim();
 }
 
 function MessageDetailsPopover({ msg }: { msg: any }) {
@@ -1001,41 +910,43 @@ export function EmailDetail({
                                     )}
 
                                     {/* ─── Message Body ─── */}
-                                    {!isCollapsed && (
-                                        <div className="gmail-msg-body">
+                                    {!isCollapsed && (() => {
+                                        const isHtmlLocal = isHtmlBody(msg.body || '');
+                                        const cleanBody = stripOldEmailContent(msg.body || '', isHtmlLocal);
+                                        return (
+                                            <div className="gmail-msg-body">
+                                                {isHtmlLocal ? (
+                                                    <EmailBodyFrame
+                                                        html={cleanBody
+                                                            .replace(/<img /gi, '<img referrerpolicy="no-referrer" ')
+                                                            .replace(/data-src=/gi, 'src=')}
+                                                    />
+                                                ) : (
+                                                    <PlainTextBody text={cleanBody} />
+                                                )}
 
-                                            {isHtml ? (
-                                                <EmailBodyFrame
-                                                    html={(msg.body || '')
-                                                        .replace(/<img /gi, '<img referrerpolicy="no-referrer" ')
-                                                        .replace(/data-src=/gi, 'src=')
-                                                        .replace(/<!-- ATTACHMENTS: [\s\S]*? -->/g, '')}
-                                                />
-                                            ) : (
-                                                <PlainTextBody text={(msg.body || '').replace(/<!-- ATTACHMENTS: [\s\S]*? -->/g, '')} />
-                                            )}
-
-                                            {/* Attachments */}
-                                            {msg.body?.includes('<!-- ATTACHMENTS:') && (
-                                                <div className="gmail-attachments">
-                                                    {(() => {
-                                                        const match = msg.body.match(/<!-- ATTACHMENTS: ([\s\S]*?) -->/);
-                                                        if (!match) return null;
-                                                        try {
-                                                            const atts = JSON.parse(match[1]);
-                                                            return atts.map((a: any) => (
-                                                                <div key={a.id} className="gmail-attachment-chip">
-                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
-                                                                    <span>{a.filename || 'Attachment'}</span>
-                                                                    <span className="gmail-att-size">{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ''}</span>
-                                                                </div>
-                                                            ));
-                                                        } catch { return null; }
-                                                    })()}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
+                                                {/* Attachments */}
+                                                {msg.body?.includes('<!-- ATTACHMENTS:') && (
+                                                    <div className="gmail-attachments">
+                                                        {(() => {
+                                                            const match = msg.body.match(/<!-- ATTACHMENTS: ([\s\S]*?) -->/);
+                                                            if (!match) return null;
+                                                            try {
+                                                                const atts = JSON.parse(match[1]);
+                                                                return atts.map((a: any) => (
+                                                                    <div key={a.id} className="gmail-attachment-chip">
+                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
+                                                                        <span>{a.filename || 'Attachment'}</span>
+                                                                        <span className="gmail-att-size">{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ''}</span>
+                                                                    </div>
+                                                                ));
+                                                            } catch { return null; }
+                                                        })()}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
+                                    })()}
                                 </div>
                             );
                         })}
