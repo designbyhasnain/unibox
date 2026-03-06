@@ -228,9 +228,92 @@ function EmailBodyFrame({ html }: { html: string }) {
                     }
                     pre { padding: 12px; overflow-x: auto; }
                     hr { border: none; border-top: 1px solid #e0e0e0; margin: 16px 0; }
+                    
+                    /* Gmail Quote Folding */
+                    .gmail-quote-hide { display: none !important; }
+                    .gmail-quote-toggle { 
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 22px;
+                        height: 12px;
+                        background: #f1f3f4;
+                        cursor: pointer;
+                        border-radius: 2px;
+                        margin: 4px 0 8px 0;
+                        border: 1px solid #dadce0;
+                        transition: background 0.2s;
+                    }
+                    .gmail-quote-toggle:hover { background: #e8eaed; }
+                    .gmail-quote-dots {
+                        color: #5f6368;
+                        line-height: 0;
+                        font-size: 14px;
+                        letter-spacing: 1.5px;
+                        position: relative;
+                        top: -5px;
+                        font-weight: bold;
+                        pointer-events: none;
+                    }
                 </style>
             </head>
-            <body>${sanitized}</body>
+            <body>
+                ${sanitized}
+                <script>
+                    document.addEventListener('DOMContentLoaded', () => {
+                        const quotes = document.querySelectorAll('.gmail_quote, .yahoo_quoted, blockquote[type="cite"], blockquote');
+                        const processed = new Set();
+
+                        quotes.forEach(q => {
+                            let parent = q.parentElement;
+                            let isNested = false;
+                            while(parent) {
+                                if (processed.has(parent)) { isNested = true; break; }
+                                parent = parent.parentElement;
+                            }
+                            if (isNested) return;
+
+                            let prevText = '';
+                            let prev = q.previousElementSibling || q.previousSibling;
+                            if (prev) {
+                                prevText = prev.textContent || '';
+                            }
+
+                            const isKnownQuote = q.classList.contains('gmail_quote') || q.classList.contains('yahoo_quoted') || q.getAttribute('type') === 'cite';
+                            const hasWrote = /wrote:/i.test(prevText) || /schreef:/i.test(prevText) || /escribió:/i.test(prevText);
+
+                            if (isKnownQuote || hasWrote) {
+                                processed.add(q);
+                                q.classList.add('gmail-quote-hide');
+
+                                // Look for "On ... wrote:" element to hide it as well
+                                let introToHide = null;
+                                if (hasWrote && prev && prev.nodeType === 1) { // is Element
+                                    introToHide = prev;
+                                    introToHide.classList.add('gmail-quote-hide');
+                                }
+
+                                const toggle = document.createElement('div');
+                                toggle.title = "Show trimmed content";
+                                toggle.className = 'gmail-quote-toggle';
+                                toggle.innerHTML = '<span class="gmail-quote-dots">...</span>';
+                                toggle.onclick = function(e) {
+                                    q.classList.remove('gmail-quote-hide');
+                                    if (introToHide) introToHide.classList.remove('gmail-quote-hide');
+                                    toggle.style.display = 'none';
+                                    e.stopPropagation();
+                                };
+                                
+                                if (introToHide) {
+                                    introToHide.parentNode.insertBefore(toggle, introToHide);
+                                } else {
+                                    q.parentNode.insertBefore(toggle, q);
+                                }
+                            }
+                        });
+                    });
+                </script>
+            </body>
             </html>
         `;
 
@@ -249,6 +332,15 @@ function EmailBodyFrame({ html }: { html: string }) {
 
         iframe.addEventListener('load', () => {
             resizeHandler();
+            // Start observing for changes (like clicking the ellipsis)
+            try {
+                const b = iframe.contentDocument?.body;
+                if (b) {
+                    const observer = new MutationObserver(resizeHandler);
+                    observer.observe(b, { childList: true, subtree: true, attributes: true });
+                }
+            } catch { }
+
             // Also make links open in new tab
             try {
                 const links = iframe.contentDocument?.querySelectorAll('a');
