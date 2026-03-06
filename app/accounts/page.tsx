@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
+import { useGlobalFilter } from '../context/FilterContext';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import ComposeModal from '../components/ComposeModal';
@@ -38,6 +39,7 @@ function StatusBadge({ status }: { status: AccountStatus }) {
 }
 
 export default function AccountsPage() {
+    const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
     const [accounts, setAccounts] = useState<GmailAccount[]>(() => globalAccountsCache || []);
     const [isLoading, setIsLoading] = useState(() => !globalAccountsCache);
     const [isComposeOpen, setIsComposeOpen] = useState(false);

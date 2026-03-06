@@ -17,6 +17,7 @@ import {
 import { EmailRow, EmailDetail, PaginationControls, ToastStack } from '../components/InboxComponents';
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { useRealtimeInbox } from '../../src/hooks/useRealtimeInbox';
+import { useGlobalFilter } from '../context/FilterContext';
 import { avatarColor, formatDate, cleanBody } from '../utils/helpers';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -29,8 +30,8 @@ interface ToastItem { id: string; subject: string; to: string; }
 let globalSentCache: { emails: any[]; totalCount: number; totalPages: number; page: number } | null = null;
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-
 export default function SentPage() {
+    const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
     // ── List State ────────────────────────────────────────────────────────────
     const [emails, setEmails] = useState<any[]>(() => globalSentCache?.emails || []);
     const [totalCount, setTotalCount] = useState(() => globalSentCache?.totalCount || 0);
@@ -64,9 +65,9 @@ export default function SentPage() {
     // ─── Load Sent Emails (always fresh — no stale cache) ─────────────────────
 
     const loadEmails = useCallback(async (page: number) => {
-        if (!globalSentCache || globalSentCache.page !== page) setIsLoading(true);
+        setIsLoading(true);
         try {
-            const result = await getSentEmailsAction(ADMIN_USER_ID, page, PAGE_SIZE);
+            const result = await getSentEmailsAction(ADMIN_USER_ID, page, PAGE_SIZE, selectedAccountId);
             globalSentCache = { emails: result.emails, totalCount: result.totalCount, totalPages: result.totalPages, page: result.page };
             setEmails(result.emails);
             setTotalCount(result.totalCount);
@@ -77,7 +78,7 @@ export default function SentPage() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [selectedAccountId]);
 
     // Initial load + accounts
     useEffect(() => {
@@ -87,7 +88,7 @@ export default function SentPage() {
             .catch((err) => console.error('Failed to fetch accounts:', err));
         const t = setTimeout(() => setIsLive(true), 1500);
         return () => clearTimeout(t);
-    }, [loadEmails]);
+    }, [loadEmails, selectedAccountId]);
 
     // Keyboard shortcut — Escape closes detail
     useEffect(() => {

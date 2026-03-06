@@ -21,20 +21,25 @@ export type ProjectUpdatePayload = {
 };
 
 // Fetch all projects with client and manager details
-export async function getAllProjectsAction() {
-    const { data, error } = await supabase
+export async function getAllProjectsAction(gmailAccountId?: string) {
+    let query = supabase
         .from('projects')
         .select(`
             *,
             client:contacts(id, name, email),
             manager:users(id, name),
-            sourceEmail:email_messages(gmail_accounts(email))
-        `)
-        .order('created_at', { ascending: false });
+            sourceEmail:email_messages(gmail_account_id, gmail_accounts(email))
+        `);
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
         console.error('getAllProjectsAction error:', error);
         return [];
+    }
+
+    if (gmailAccountId && gmailAccountId !== 'ALL') {
+        return (data || []).filter((p: any) => p.sourceEmail?.gmail_account_id === gmailAccountId);
     }
 
     return data ?? [];

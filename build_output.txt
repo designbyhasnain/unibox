@@ -3,32 +3,21 @@
 > next build
 
 Γû▓ Next.js 16.1.6 (Turbopack)
-- Environments: .env
+- Environments: .env.local, .env
 
   Creating an optimized production build ...
-Γ£ô Compiled successfully in 4.0s
+Γ£ô Compiled successfully in 4.2s
   Running TypeScript ...
-  Collecting page data using 7 workers ...
-  Generating static pages using 7 workers (0/11) ...
-  Generating static pages using 7 workers (2/11) 
-  Generating static pages using 7 workers (5/11) 
-  Generating static pages using 7 workers (8/11) 
-Γ£ô Generating static pages using 7 workers (11/11) in 324.8ms
-  Finalizing page optimization ...
+Failed to compile.
 
-Route (app)
-Γöî Γùï /
-Γö£ Γùï /_not-found
-Γö£ Γùï /accounts
-Γö£ ╞Æ /api/auth/google/callback
-Γö£ ╞Æ /api/sync
-Γö£ ╞Æ /api/webhooks/gmail
-Γö£ Γùï /clients
-Γö£ Γùï /projects
-Γö£ Γùï /sent
-Γöö Γùï /settings
+./app/context/FilterContext.tsx:3:65
+Type error: 'ReactNode' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
 
-
-Γùï  (Static)   prerendered as static content
-╞Æ  (Dynamic)  server-rendered on demand
-
+  1 | 'use client';
+  2 |
+> 3 | import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+    |                                                                 ^
+  4 |
+  5 | interface FilterContextType {
+  6 |     selectedAccountId: string; // 'ALL' or a specific ID
+Next.js build worker exited with code: 1 and signal: null

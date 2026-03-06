@@ -155,6 +155,8 @@ interface EmailDetailProps {
     onNotInterested?: ((email: string) => void) | undefined;
     onNotSpam?: ((messageId: string) => void) | undefined;
     replySlot?: React.ReactNode;
+    onDelete?: () => void;
+    totalCount?: number;
 }
 
 const STAGE_OPTIONS = [
@@ -398,8 +400,12 @@ export function EmailDetail({
     onNotInterested,
     onNotSpam,
     replySlot,
+    onDelete,
+    totalCount = 0,
 }: EmailDetailProps) {
+    const [showAllIntermediate, setShowAllIntermediate] = React.useState(false);
     const [collapsedThreads, setCollapsedThreads] = React.useState<Set<string>>(new Set());
+    const [isAllExpanded, setIsAllExpanded] = React.useState(false);
     const [openDetailsId, setOpenDetailsId] = React.useState<string | null>(null);
     const [isAddProjectOpen, setIsAddProjectOpen] = React.useState(false);
     const [targetClient, setTargetClient] = React.useState<any>(null);
@@ -417,16 +423,29 @@ export function EmailDetail({
         return () => window.removeEventListener('click', handleClickOutside);
     }, [openDetailsId]);
 
-    // On new email, collapse all threads except the latest
+    // On new email, intelligently collapse threads, keeping unread inner messages expanded
     React.useEffect(() => {
+        let hasUnreadIntermediate = false;
         if (threadMessages.length > 1) {
             const toCollapse = new Set<string>();
-            threadMessages.slice(0, -1).forEach(m => toCollapse.add(m.id));
+            threadMessages.forEach((m, i) => {
+                const isLast = i === threadMessages.length - 1;
+                // Collapse read messages except the very last one
+                if (!isLast && !m.is_unread) {
+                    toCollapse.add(m.id);
+                }
+                // Mark if any intermediate msg is unread so we expand them out of the badge by default
+                if (i > 0 && i < threadMessages.length - 1 && m.is_unread) {
+                    hasUnreadIntermediate = true;
+                }
+            });
             setCollapsedThreads(toCollapse);
         } else {
             setCollapsedThreads(new Set());
         }
-    }, [email?.id]);
+        setIsAllExpanded(false);
+        setShowAllIntermediate(hasUnreadIntermediate);
+    }, [email?.id, threadMessages.length]);
 
     const toggleCollapse = (id: string) => {
         setCollapsedThreads(prev => {
@@ -465,6 +484,17 @@ export function EmailDetail({
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
                     </button>
 
+                    <button className="gmail-toolbar-btn" title="Delete" onClick={async () => {
+                        if (window.confirm('Delete this email?')) {
+                            const { deleteEmailAction } = await import('../../src/actions/emailActions');
+                            await deleteEmailAction(email.id);
+                            onBack();
+                        }
+                    }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
+                        </svg>
+                    </button>
 
                     {onNotSpam && email?.pipeline_stage === 'SPAM' && (
                         <button
@@ -508,7 +538,7 @@ export function EmailDetail({
                     </button>
                 </div>
 
-                <div className="gmail-toolbar-right">
+                <div className="gmail-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <div className="gmail-stage-selector">
                         <span className="gmail-stage-label">Stage</span>
                         <select
@@ -520,6 +550,20 @@ export function EmailDetail({
                                 <option key={t.id} value={t.id}>{t.label}</option>
                             ))}
                         </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '12px' }}>
+                        <span style={{ fontSize: '12px', color: '#5f6368', fontWeight: 500, minWidth: '40px', textAlign: 'right' }}>
+                            1 of {totalCount || 1}
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <button className="gmail-toolbar-btn" disabled style={{ opacity: 0.3 }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" /></svg>
+                            </button>
+                            <button className="gmail-toolbar-btn" disabled style={{ opacity: 0.3 }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -545,6 +589,22 @@ export function EmailDetail({
                     <div className="gmail-thread-list">
                         {threadMessages.map((msg, idx) => {
                             const isLast = idx === threadMessages.length - 1;
+                            const isIntermediate = idx > 0 && idx < threadMessages.length - 1;
+
+                            // Message Folding Badge
+                            const foldThreshold = 4;
+                            if (threadMessages.length > foldThreshold && !showAllIntermediate && isIntermediate) {
+                                if (idx === 1) return (
+                                    <div key="fold-badge" className="gmail-fold-badge-container" onClick={() => setShowAllIntermediate(true)}>
+                                        <div className="gmail-fold-line" />
+                                        <div className="gmail-fold-chip">
+                                            <span className="gmail-fold-count">{threadMessages.length - 2} older messages</span>
+                                        </div>
+                                    </div>
+                                );
+                                return null;
+                            }
+
                             const isCollapsed = collapsedThreads.has(msg.id) && !isLast;
                             const isSent = msg.direction === 'SENT';
 

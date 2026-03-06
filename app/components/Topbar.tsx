@@ -25,7 +25,7 @@ export default function Topbar({
     onResultClick,
     placeholder = "Search mail",
     leftContent,
-    rightContent
+    rightContent,
 }: TopbarProps) {
     const [focused, setFocused] = useState(false);
     const [isAdvSearchOpen, setIsAdvSearchOpen] = useState(false);
@@ -129,21 +129,6 @@ export default function Topbar({
                         <div className="adv-search-row">
                             <div className="adv-label">Doesn't have</div>
                             <input type="text" className="adv-input" />
-                        </div>
-                        <div className="adv-search-row" style={{ marginTop: '0.5rem' }}>
-                            <div className="adv-label">Size</div>
-                            <div style={{ display: 'flex', gap: '0.5rem', flex: 1, alignItems: 'center' }}>
-                                <select className="adv-select" style={{ width: '100px' }}>
-                                    <option>greater than</option>
-                                    <option>less than</option>
-                                </select>
-                                <input type="text" className="adv-input" style={{ width: '80px' }} placeholder="0" />
-                                <select className="adv-select" style={{ width: '60px' }}>
-                                    <option>MB</option>
-                                    <option>KB</option>
-                                    <option>Bytes</option>
-                                </select>
-                            </div>
                         </div>
 
                         <div className="adv-search-footer">
@@ -254,7 +239,7 @@ export default function Topbar({
 
             <div className="topbar-right">
                 {rightContent || (
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem' }}>
                         <div className="avatar-btn">A</div>
                     </div>
                 )}

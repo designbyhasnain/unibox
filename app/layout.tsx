@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import './globals.css'
 
+import { FilterProvider } from './context/FilterContext'
+
 export const metadata: Metadata = {
     title: 'VideoMail CRM',
     description: 'Gmail-inspired CRM for Video Production',
@@ -14,9 +16,11 @@ export default function RootLayout({
     return (
         <html lang="en" suppressHydrationWarning>
             <body suppressHydrationWarning>
-                <div className="layout-container">
-                    {children}
-                </div>
+                <FilterProvider>
+                    <div className="layout-container">
+                        {children}
+                    </div>
+                </FilterProvider>
             </body>
         </html>
     )

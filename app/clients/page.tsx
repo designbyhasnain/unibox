@@ -11,6 +11,8 @@ import { getManagersAction } from '../../src/actions/projectActions';
 import { EmailRow, EmailDetail } from '../components/InboxComponents';
 import InlineReply from '../components/InlineReply';
 import AddLeadModal from '../components/AddLeadModal';
+import { useGlobalFilter } from '../context/FilterContext';
+import { getAccountsAction } from '../../src/actions/accountActions';
 
 import { avatarColor, initials, formatDate, cleanPreview } from '../utils/helpers';
 import { Mail, Trash2 } from 'lucide-react';
@@ -23,6 +25,8 @@ let globalClientDetailsCache: Record<string, { emails: any[]; projects: any[] }>
 let globalThreadCache: Record<string, any[]> = {};
 
 export default function ClientsPage() {
+    const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
+    const [accounts, setAccounts] = useState<any[]>([]);
     const [clients, setClients] = useState<any[]>(() => globalClientsCache || []);
     const [managers, setManagers] = useState<{ id: string, name: string }[]>(() => globalManagersCache || []);
     const [selectedClient, setSelectedClient] = useState<any>(null);
@@ -47,22 +51,22 @@ export default function ClientsPage() {
 
 
     const loadClients = useCallback(async () => {
-        if (!globalClientsCache) setIsLoading(true);
+        setIsLoading(true);
         try {
-            const [data, mData] = await Promise.all([
-                getClientsAction(),
-                getManagersAction()
+            const [data, mData, accs] = await Promise.all([
+                getClientsAction(selectedAccountId),
+                getManagersAction(),
+                getAccountsAction(ADMIN_USER_ID)
             ]);
-            globalClientsCache = data;
-            globalManagersCache = mData;
             setClients(data);
             setManagers(mData);
+            setAccounts(accs || []);
         } catch (err) {
             console.error('Failed to load clients:', err);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [selectedAccountId]);
 
     useEffect(() => { loadClients(); }, [loadClients]);
 
@@ -178,10 +182,9 @@ export default function ClientsPage() {
 
         try {
             const [emails, projects] = await Promise.all([
-                getClientEmailsAction(ADMIN_USER_ID, client.email),
+                getClientEmailsAction(ADMIN_USER_ID, client.email, selectedAccountId),
                 getClientProjectsAction(client.id),
             ]);
-            globalClientDetailsCache[client.id] = { emails, projects };
             setClientEmails(emails);
             setClientProjects(projects);
         } catch (err) {
@@ -679,6 +682,7 @@ export default function ClientsPage() {
                                                     onStageChange={() => { }}
                                                     onReply={() => setIsReplyingInline(true)}
                                                     onForward={() => setIsComposeOpen(true)}
+                                                    totalCount={clientEmails.length}
                                                     replySlot={
                                                         <InlineReply
                                                             threadId={selectedEmail.thread_id}

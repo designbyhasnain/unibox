@@ -23,6 +23,7 @@ import {
 } from '../src/actions/emailActions';
 import { getAccountsAction } from '../src/actions/accountActions';
 import { useRealtimeInbox } from '../src/hooks/useRealtimeInbox';
+import { useGlobalFilter } from './context/FilterContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -45,9 +46,23 @@ let globalTabCountsCache: Record<string, number> = {};
 let globalActiveStage = 'COLD_LEAD';
 let globalThreadCache: Record<string, any[]> = {};
 
+// Helper to keep caches in sync
+const setStageCache = (stage: string, data: any) => {
+    globalStageCache[stage] = data;
+};
+
+const clearAllCachesExcept = (activeId?: string) => {
+    Object.keys(globalStageCache).forEach(k => {
+        if (k !== activeId) delete globalStageCache[k];
+    });
+    // We don't clear globalThreadCache here as it's less sensitive to stage changes, 
+    // but message-specific updates will handle it.
+};
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function InboxPage() {
+    const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
     // ── Email List State ───────────────────────────────────────────────────────
     const [emails, setEmails] = useState<any[]>(() => globalStageCache[globalActiveStage]?.emails || []);
     const [totalCount, setTotalCount] = useState(() => globalStageCache[globalActiveStage]?.totalCount || 0);
@@ -96,7 +111,8 @@ export default function InboxPage() {
     // ─── Load Emails (no stale cache — always fresh from DB) ──────────────────
     const loadEmails = useCallback(async (page: number, stage?: string) => {
         const targetStage = stage || activeStage;
-        const cached = globalStageCache[targetStage];
+        const cacheKey = `${targetStage}_${selectedAccountId}_${page}`;
+        const cached = globalStageCache[cacheKey];
 
         if (cached) {
             setEmails(cached.emails);
@@ -110,22 +126,33 @@ export default function InboxPage() {
 
         try {
             const [result, counts] = await Promise.all([
-                getInboxEmailsAction(ADMIN_USER_ID, page, PAGE_SIZE, targetStage),
-                getTabCountsAction(ADMIN_USER_ID)
+                getInboxEmailsAction(ADMIN_USER_ID, page, PAGE_SIZE, targetStage, selectedAccountId),
+                getTabCountsAction(ADMIN_USER_ID, selectedAccountId)
             ]);
 
-            globalStageCache[targetStage] = {
-                emails: result.emails,
-                totalCount: result.totalCount,
+            // Safety filter: ensure returned emails strictly match the requested stage if it's not a special tab
+            // This prevents the "seeing Cold in Lead tab" glitch if the backend returns stale/broad results.
+            const filteredEmails = (targetStage !== 'ALL' && targetStage !== 'SPAM' && result.emails)
+                ? result.emails.filter(e => {
+                    const emailStage = e.pipeline_stage || 'COLD_LEAD';
+                    return emailStage === targetStage;
+                })
+                : result.emails;
+
+            setStageCache(cacheKey, {
+                emails: filteredEmails,
+                totalCount: (targetStage !== 'ALL' && targetStage !== 'SPAM') ? filteredEmails.length : result.totalCount,
                 totalPages: result.totalPages,
                 page: result.page
-            };
+            });
             globalTabCountsCache = counts;
 
             // Only update local state if this is still the active stage and we aren't showing search results
-            if (targetStage === activeStage && !isSearchResults) {
-                setEmails(result.emails);
-                setTotalCount(result.totalCount);
+            // Note: targetStage is captured in wait, activeStage is the current state.
+            // When we switch tabs, a new loadEmails is created, but the old one might still be finishing.
+            if (targetStage === globalActiveStage && !isSearchResults) {
+                setEmails(filteredEmails);
+                setTotalCount((targetStage !== 'ALL' && targetStage !== 'SPAM') ? filteredEmails.length : result.totalCount);
                 setTotalPages(result.totalPages);
                 setCurrentPage(result.page);
                 setTabCounts(counts);
@@ -133,11 +160,17 @@ export default function InboxPage() {
         } catch (err) {
             console.error('loadEmails error:', err);
         } finally {
-            if (targetStage === activeStage) {
+            if (targetStage === globalActiveStage) {
                 setIsLoading(false);
             }
         }
-    }, [activeStage, isSearchResults]);
+    }, [activeStage, selectedAccountId, isSearchResults]);
+
+    // Re-load when account filter changes
+    useEffect(() => {
+        // Clear caches for this account if needed, or just let loadEmails handle it
+        loadEmails(1);
+    }, [selectedAccountId, loadEmails]);
 
     // Initial load
     useEffect(() => { loadEmails(1); }, [loadEmails]);
@@ -156,7 +189,7 @@ export default function InboxPage() {
         setSearchLoading(true);
         setIsSearchResults(true);
         try {
-            const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 100);
+            const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 100, selectedAccountId);
             setEmails(results);
             setTotalCount(results.length);
             setTotalPages(1);
@@ -180,7 +213,7 @@ export default function InboxPage() {
         const timer = setTimeout(async () => {
             setSearchLoading(true);
             try {
-                const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 8); // Top 8 suggestions
+                const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 8, selectedAccountId); // Top 8 suggestions
                 setSearchResults(results);
             } catch (err) {
                 console.error('Live search error:', err);
@@ -275,6 +308,9 @@ export default function InboxPage() {
             setTimeout(() => {
                 setIsSyncing(false);
                 setSyncMessage('');
+                // Clear caches on manual sync to ensure we get fresh data
+                clearAllCachesExcept();
+                globalThreadCache = {};
                 // Use explicit stage and current page to prevent jumps
                 loadEmails(currentPage, activeStage);
             }, 2000);
@@ -325,6 +361,8 @@ export default function InboxPage() {
 
         if (currentPage === 1) {
             const emailStage = newEmail.pipeline_stage || 'COLD_LEAD';
+
+            // 1. Update Current View if active
             if (emailStage === activeStage) {
                 const account = accounts.find((a) => a.id === newEmail.gmail_account_id);
                 const emailWithAccount = {
@@ -339,6 +377,29 @@ export default function InboxPage() {
                     return [emailWithAccount, ...filtered].slice(0, PAGE_SIZE);
                 });
                 setTotalCount((prev: number) => prev + 1);
+            }
+
+            // 2. Update Cache for that stage to prevent tab-switch flicker
+            const cached = globalStageCache[emailStage];
+            if (cached) {
+                const account = accounts.find((a) => a.id === newEmail.gmail_account_id);
+                const emailWithAccount = {
+                    ...newEmail,
+                    gmail_accounts: {
+                        email: account?.email || 'Unknown',
+                        user: { name: account?.manager_name || 'System' }
+                    },
+                };
+                const nextEmails = [
+                    emailWithAccount,
+                    ...cached.emails.filter(e => e.thread_id !== newEmail.thread_id)
+                ].slice(0, PAGE_SIZE);
+
+                setStageCache(emailStage, {
+                    ...cached,
+                    emails: nextEmails,
+                    totalCount: cached.totalCount + 1
+                });
             }
         }
     }, [currentPage, activeStage, accounts]);
@@ -368,10 +429,60 @@ export default function InboxPage() {
             return prev;
         });
 
+        // Update Cache synchronously if it exists, to avoid stale tab switching
+        const nextStage = updatedEmail.pipeline_stage || 'COLD_LEAD';
+        Object.keys(globalStageCache).forEach(stageId => {
+            const cached = globalStageCache[stageId];
+            if (!cached) return;
+
+            const shouldBeInThisCache = stageId === nextStage;
+            const isCurrentlyInThisCache = cached.emails.some(e => e.id === updatedEmail.id);
+
+            if (isCurrentlyInThisCache && !shouldBeInThisCache) {
+                // Remove from this cache
+                setStageCache(stageId, {
+                    ...cached,
+                    emails: cached.emails.filter(e => e.id !== updatedEmail.id),
+                    totalCount: Math.max(0, cached.totalCount - 1)
+                });
+            } else if (shouldBeInThisCache) {
+                // Add or Update in this cache
+                const account = accounts.find((a) => a.id === updatedEmail.gmail_account_id);
+                const withAccount = {
+                    ...updatedEmail,
+                    gmail_accounts: {
+                        email: account?.email || 'Unknown',
+                        user: { name: account?.manager_name || 'System' }
+                    }
+                };
+                const exists = cached.emails.some(e => e.id === updatedEmail.id);
+                let nextEmails;
+                if (exists) {
+                    nextEmails = cached.emails.map(e => e.id === updatedEmail.id ? { ...e, ...withAccount } : e);
+                } else {
+                    nextEmails = [withAccount, ...cached.emails.filter(e => e.thread_id !== updatedEmail.thread_id)].slice(0, PAGE_SIZE);
+                }
+                setStageCache(stageId, {
+                    ...cached,
+                    emails: nextEmails,
+                    totalCount: exists ? cached.totalCount : cached.totalCount + 1
+                });
+            }
+        });
+
         if (selectedEmail?.id === updatedEmail.id) {
             setSelectedEmail((prev: any) => ({ ...prev, ...updatedEmail }));
         }
 
+        // Also update thread cache if applicable
+        if (updatedEmail.thread_id) {
+            const thread = globalThreadCache[updatedEmail.thread_id];
+            if (thread) {
+                globalThreadCache[updatedEmail.thread_id] = thread.map(m =>
+                    m.id === updatedEmail.id ? { ...m, ...updatedEmail } : m
+                );
+            }
+        }
     }, [activeStage, selectedEmail, accounts]);
 
     const handleEmailDeleted = useCallback((messageId: string) => {
@@ -480,8 +591,14 @@ export default function InboxPage() {
                 setSelectedEmail((prev: any) => prev ? { ...prev, pipeline_stage: newStage } : null);
             }
         }
+
         await updateEmailStageAction(messageId, newStage);
-        loadEmails(currentPage, activeStage); // Refresh counts and sync
+
+        // Strategy: Clear other stage caches to force re-fetch on tab click, 
+        // preventing "seeing old Cold emails in Lead tab" glitch
+        clearAllCachesExcept(activeStage);
+
+        loadEmails(currentPage, activeStage); // Refresh current view
     };
 
     const handleNotInterested = async (email: string) => {
@@ -492,7 +609,7 @@ export default function InboxPage() {
             setSelectedEmail(null);
         }
         await markAsNotInterestedAction(email);
-        loadEmails(currentPage); // Refresh list
+        loadEmails(currentPage, activeStage); // Pass activeStage to be consistent
     };
 
     const handleNotSpam = async (messageId: string) => {
@@ -643,9 +760,12 @@ export default function InboxPage() {
                                     setIsSearchResults(false);
                                     setSearchTerm('');
                                     setSearchResults([]);
+                                    setSelectedEmail(null);
 
-                                    // Instantly update from cache if available
-                                    const cachedData = globalStageCache[tab.id];
+                                    // Instantly update from cache if available using the full key
+                                    const cacheKey = `${tab.id}_${selectedAccountId}_1`;
+                                    const cachedData = globalStageCache[cacheKey];
+
                                     if (cachedData) {
                                         setEmails(cachedData.emails);
                                         setTotalCount(cachedData.totalCount);
@@ -653,11 +773,13 @@ export default function InboxPage() {
                                         setCurrentPage(cachedData.page);
                                         setIsLoading(false);
                                     } else {
+                                        // CRITICAL: Clear list and show loader if no cache, 
+                                        // to prevent showing "Cold" emails under "Lead" tab while loading.
+                                        setEmails([]);
+                                        setTotalCount(0);
                                         setIsLoading(true);
                                     }
-
-                                    setSelectedEmail(null);
-                                    loadEmails(1, tab.id);
+                                    // loadEmails(1) will be triggered via useEffect on activeStage change
                                 }}
                                 id={`tab-${tab.id}`}
                             >
@@ -781,6 +903,7 @@ export default function InboxPage() {
                             }}
                             onNotInterested={handleNotInterested}
                             onNotSpam={activeStage === 'SPAM' ? handleNotSpam : undefined}
+                            totalCount={totalCount}
                             replySlot={
                                 <InlineReply
                                     threadId={selectedEmail.thread_id}

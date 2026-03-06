@@ -67,21 +67,22 @@ export default function AddProjectModal({ client, clients = [], onClose, onCreat
             zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
             <div style={{
-                background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-                borderRadius: '16px', width: '500px', maxWidth: '95vw', padding: '2rem',
-                boxShadow: '0 25px 60px rgba(0,0,0,0.5)', animation: 'modalPop 0.2s ease-out',
+                background: 'var(--bg-card)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-lg)', width: '520px', maxWidth: '95vw', padding: '2rem',
+                boxShadow: 'var(--shadow-xl)', animation: 'modalPop 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                position: 'relative',
             }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
                     <div>
-                        <h2 style={{ fontSize: '1.2rem', fontWeight: 700 }}>New Project</h2>
+                        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>New Project</h2>
                         {client && (
-                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.2rem' }}>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', marginTop: '0.25rem' }}>
                                 for {client.name || client.email}
                             </p>
                         )}
                     </div>
-                    <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', opacity: 0.7 }}>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <button onClick={onClose} style={{ background: 'var(--bg-hover)', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s', color: 'var(--text-muted)' }}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
                         </svg>
                     </button>
@@ -90,22 +91,23 @@ export default function AddProjectModal({ client, clients = [], onClose, onCreat
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {/* Client info */}
                     {client ? (
-                        <div style={{ background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '0.75rem 1rem', display: 'flex', gap: '1rem', fontSize: '0.85rem' }}>
-                            <span style={{ color: 'var(--text-secondary)' }}>Client:</span>
-                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{client.name || client.email}</span>
-                            <span style={{ color: 'var(--text-secondary)', marginLeft: 'auto' }}>{client.email}</span>
+                        <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', padding: '0.875rem 1.125rem', display: 'flex', gap: '1rem', fontSize: '0.875rem', border: '1px solid var(--border)' }}>
+                            <span style={{ color: 'var(--text-tertiary)', fontWeight: 600 }}>CLIENT</span>
+                            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{client.name || client.email}</span>
+                            <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>{client.email}</span>
                         </div>
                     ) : (
-                        <div>
-                            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.4rem', fontWeight: 500 }}>
-                                Client <span style={{ color: 'var(--accent-danger)' }}>*</span>
+                        <div className="input-field">
+                            <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-tertiary)', marginBottom: '0.5rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+                                CLIENT <span style={{ color: 'var(--danger)' }}>*</span>
                             </label>
                             <select
                                 value={selectedClientId}
                                 onChange={e => setSelectedClientId(e.target.value)}
                                 style={{
-                                    width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                                    borderRadius: '8px', padding: '0.6rem 0.9rem', color: 'var(--text-primary)', fontSize: '0.9rem', outline: 'none',
+                                    width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)',
+                                    borderRadius: 'var(--radius-sm)', padding: '0.75rem 1rem', color: 'var(--text-primary)', fontSize: '0.9375rem', outline: 'none',
+                                    transition: 'all 0.2s'
                                 }}
                             >
                                 <option value="">Select a client...</option>
@@ -118,8 +120,8 @@ export default function AddProjectModal({ client, clients = [], onClose, onCreat
 
                     {/* Project Name */}
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.4rem', fontWeight: 500 }}>
-                            Project Name <span style={{ color: 'var(--accent-danger)' }}>*</span>
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-tertiary)', marginBottom: '0.5rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+                            PROJECT NAME <span style={{ color: 'var(--danger)' }}>*</span>
                         </label>
                         <input
                             type="text"
@@ -127,12 +129,10 @@ export default function AddProjectModal({ client, clients = [], onClose, onCreat
                             onChange={e => setProjectName(e.target.value)}
                             placeholder="e.g. Brand Video Q1 2025"
                             style={{
-                                width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                                borderRadius: '8px', padding: '0.6rem 0.9rem', color: 'var(--text-primary)',
-                                fontSize: '0.95rem', outline: 'none', transition: 'border-color 0.2s',
+                                width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)',
+                                borderRadius: 'var(--radius-sm)', padding: '0.75rem 1rem', color: 'var(--text-primary)',
+                                fontSize: '0.9375rem', outline: 'none', transition: 'all 0.2s',
                             }}
-                            onFocus={e => e.target.style.borderColor = 'var(--accent-primary)'}
-                            onBlur={e => e.target.style.borderColor = 'var(--border-color)'}
                         />
                     </div>
 
@@ -239,8 +239,8 @@ export default function AddProjectModal({ client, clients = [], onClose, onCreat
 
                     {/* Brief */}
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.4rem', fontWeight: 500 }}>
-                            Brief (optional)
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-tertiary)', marginBottom: '0.5rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+                            BRIEF (OPTIONAL)
                         </label>
                         <textarea
                             value={brief}
@@ -248,12 +248,10 @@ export default function AddProjectModal({ client, clients = [], onClose, onCreat
                             placeholder="Describe the project scope, deliverables, or any notes..."
                             rows={3}
                             style={{
-                                width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                                borderRadius: '8px', padding: '0.6rem 0.9rem', color: 'var(--text-primary)', fontSize: '0.9rem',
-                                resize: 'vertical', outline: 'none', fontFamily: 'Inter, sans-serif',
+                                width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)',
+                                borderRadius: 'var(--radius-sm)', padding: '0.75rem 1rem', color: 'var(--text-primary)', fontSize: '0.9375rem',
+                                resize: 'vertical', outline: 'none', fontFamily: 'inherit',
                             }}
-                            onFocus={e => e.target.style.borderColor = 'var(--accent-primary)'}
-                            onBlur={e => e.target.style.borderColor = 'var(--border-color)'}
                         />
                     </div>
 

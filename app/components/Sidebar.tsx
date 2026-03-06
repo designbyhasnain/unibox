@@ -3,6 +3,8 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useGlobalFilter } from '../context/FilterContext';
+import { getAccountsAction } from '../../src/actions/accountActions';
 
 const Icons = {
     Inbox: () => (
@@ -58,12 +60,22 @@ const NAV_FOOTER = [
     { href: '/settings', label: 'Settings', icon: <Icons.Settings /> },
 ];
 
+const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
+
 interface SidebarProps {
     onOpenCompose: () => void;
 }
 
 export default function Sidebar({ onOpenCompose }: SidebarProps) {
     const pathname = usePathname();
+    const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
+    const [accounts, setAccounts] = React.useState<any[]>([]);
+
+    React.useEffect(() => {
+        getAccountsAction(ADMIN_USER_ID)
+            .then(setAccounts)
+            .catch(console.error);
+    }, []);
 
     return (
         <aside className="sidebar">
@@ -96,6 +108,26 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                         {label}
                     </Link>
                 ))}
+
+                {/* Account Filter Section */}
+                <div className="sidebar-section">
+                    <div className="sidebar-section-title">FILTER BY ACCOUNT</div>
+                    <div className="account-filter-container">
+                        <select
+                            className="sidebar-account-select"
+                            value={selectedAccountId}
+                            onChange={(e) => setSelectedAccountId(e.target.value)}
+                        >
+                            <option value="ALL">All Accounts</option>
+                            {accounts.map(acc => (
+                                <option key={acc.id} value={acc.id}>{acc.email}</option>
+                            ))}
+                        </select>
+                        <svg className="select-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                    </div>
+                </div>
             </div>
 
             {/* Footer Nav */}

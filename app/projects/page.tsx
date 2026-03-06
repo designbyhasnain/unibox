@@ -8,10 +8,12 @@ import { getAllProjectsAction, updateProjectAction, getManagersAction, createPro
 import { getClientsAction } from '../../src/actions/clientActions';
 import { getClientEmailsAction, deleteEmailAction, getThreadMessagesAction, markEmailAsReadAction, markEmailAsUnreadAction, bulkDeleteEmailsAction, bulkMarkAsReadAction } from '../../src/actions/emailActions';
 import { EmailRow, EmailDetail } from '../components/InboxComponents';
+import InlineReply from '../components/InlineReply';
 import AddProjectModal from '../components/AddProjectModal';
 import type { ProjectUpdatePayload } from '../../src/actions/projectActions';
 import { avatarColor, initials } from '../utils/helpers';
-import { syncAllUserAccountsAction } from '../../src/actions/accountActions';
+import { syncAllUserAccountsAction, getAccountsAction } from '../../src/actions/accountActions';
+import { useGlobalFilter } from '../context/FilterContext';
 
 const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
 
@@ -69,6 +71,8 @@ let globalProjectDetailsCache: Record<string, { emails: any[] }> = {};
 let globalThreadCache: Record<string, any[]> = {};
 
 export default function ProjectsPage() {
+    const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
+    const [accounts, setAccounts] = useState<any[]>([]);
     const [projects, setProjects] = useState<Project[]>(() => globalProjectsCache?.projects || []);
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
     const [managers, setManagers] = useState<{ id: string, name: string }[]>(() => globalProjectsCache?.managers || []);
@@ -96,7 +100,7 @@ export default function ProjectsPage() {
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [selectedAccountId]);
 
     useEffect(() => {
         if (typeof window !== 'undefined' && projects.length > 0 && !selectedProject) {
@@ -113,17 +117,23 @@ export default function ProjectsPage() {
     }, [projects]);
 
     const loadData = async () => {
-        if (!globalProjectsCache) setIsLoading(true);
-        const [pData, mData, cData] = await Promise.all([
-            getAllProjectsAction(),
-            getManagersAction(),
-            getClientsAction()
-        ]);
-        globalProjectsCache = { projects: pData as Project[], managers: mData, clients: cData as Client[] };
-        setProjects(pData as Project[]);
-        setManagers(mData);
-        setClients(cData as Client[]);
-        setIsLoading(false);
+        setIsLoading(true);
+        try {
+            const [pData, mData, cData, accs] = await Promise.all([
+                getAllProjectsAction(selectedAccountId),
+                getManagersAction(),
+                getClientsAction(selectedAccountId),
+                getAccountsAction(ADMIN_USER_ID)
+            ]);
+            setProjects(pData as Project[]);
+            setManagers(mData);
+            setClients(cData as Client[]);
+            setAccounts(accs || []);
+        } catch (err) {
+            console.error('Failed to load project data:', err);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleSync = async () => {
@@ -157,7 +167,7 @@ export default function ProjectsPage() {
 
         if (project.client?.email) {
             try {
-                const emails = await getClientEmailsAction(ADMIN_USER_ID, project.client.email);
+                const emails = await getClientEmailsAction(ADMIN_USER_ID, project.client.email, selectedAccountId);
                 globalProjectDetailsCache[project.id] = { emails };
                 setProjectEmails(emails);
             } catch (err) {
@@ -610,6 +620,19 @@ export default function ProjectsPage() {
                                         onStageChange={() => { }}
                                         onReply={() => setIsReplyingInline(true)}
                                         onForward={() => setIsComposeOpen(true)}
+                                        totalCount={projectEmails.length}
+                                        replySlot={
+                                            <InlineReply
+                                                threadId={selectedEmail.thread_id}
+                                                to={selectedEmail.direction === 'SENT'
+                                                    ? selectedEmail.to_email
+                                                    : selectedEmail.from_email}
+                                                subject={selectedEmail.subject}
+                                                accountId={selectedEmail.gmail_account_id}
+                                                onSuccess={() => setIsReplyingInline(false)}
+                                                onCancel={() => setIsReplyingInline(false)}
+                                            />
+                                        }
                                     />
                                 ) : activeTab === 'details' ? (
                                     <>

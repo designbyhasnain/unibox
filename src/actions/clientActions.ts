@@ -39,8 +39,8 @@ export async function ensureContactAction(email: string, name?: string) {
 }
 
 // 9.1 — Fetch all clients with email count and project count for list view
-export async function getClientsAction() {
-    const { data, error } = await supabase
+export async function getClientsAction(gmailAccountId?: string) {
+    let query = supabase
         .from('contacts')
         .select(`
             id,
@@ -54,20 +54,33 @@ export async function getClientsAction() {
                 id, 
                 is_unread, 
                 sent_at, 
+                gmail_account_id,
                 gmail_accounts ( email ) 
             ),
             projects ( id )
-        `)
-        .order('updated_at', { ascending: false });
+        `);
+
+    const { data, error } = await query.order('updated_at', { ascending: false });
 
     if (error) {
         console.error('getClientsAction error:', error);
         return [];
     }
 
-    return (data ?? []).map((c: any) => {
-        // Find latest interaction to show the "Gmail Account" handling this client
-        const sortedMessages = (c.email_messages ?? []).sort((a: any, b: any) =>
+    const filteredData = (data ?? []).map((c: any) => {
+        // Filter messages by account if specified
+        let messages = c.email_messages ?? [];
+        if (gmailAccountId && gmailAccountId !== 'ALL') {
+            messages = messages.filter((m: any) => m.gmail_account_id === gmailAccountId);
+        }
+
+        // If filtering by account and no messages exist for this account, we might skip this client
+        // But usually clients are shown if they have ANY interaction in that account.
+        if (gmailAccountId && gmailAccountId !== 'ALL' && messages.length === 0) {
+            return null;
+        }
+
+        const sortedMessages = messages.sort((a: any, b: any) =>
             new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime()
         );
         const lastAccount = sortedMessages[0]?.gmail_accounts?.email || 'No Recent Mail';
@@ -82,9 +95,12 @@ export async function getClientsAction() {
             manager_name: c.account_manager?.name || 'Unassigned',
             account_email: lastAccount,
             project_count: c.projects?.length ?? 0,
-            unread_count: (c.email_messages ?? []).filter((m: any) => m.is_unread).length,
+            unread_count: messages.filter((m: any) => m.is_unread).length,
+            message_count: messages.length
         };
-    });
+    }).filter(Boolean);
+
+    return filteredData;
 }
 
 // 9.x — Fetch a single contact by ID

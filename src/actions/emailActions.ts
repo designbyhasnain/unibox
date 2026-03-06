@@ -102,12 +102,19 @@ export async function getInboxEmailsAction(
     userId: string,
     page = 1,
     pageSize = PAGE_SIZE,
-    stage: string = 'ALL'
+    stage: string = 'ALL',
+    gmailAccountId?: string
 ): Promise<PaginatedEmailResult> {
     const empty: PaginatedEmailResult = { emails: [], totalCount: 0, page, pageSize, totalPages: 0 };
 
-    const accountIds = await getAccountIds(userId);
-    if (!accountIds) return empty;
+    let accountIds: string[] | null = null;
+    if (gmailAccountId && gmailAccountId !== 'ALL') {
+        accountIds = [gmailAccountId];
+    } else {
+        accountIds = await getAccountIds(userId);
+    }
+
+    if (!accountIds || accountIds.length === 0) return empty;
 
     const { data, error } = await supabase.rpc('get_inbox_threads', {
         p_account_ids: accountIds,
@@ -174,12 +181,19 @@ export async function getInboxEmailsAction(
 export async function getSentEmailsAction(
     userId: string,
     page = 1,
-    pageSize = PAGE_SIZE
+    pageSize = PAGE_SIZE,
+    gmailAccountId?: string
 ): Promise<PaginatedEmailResult> {
     const empty: PaginatedEmailResult = { emails: [], totalCount: 0, page, pageSize, totalPages: 0 };
 
-    const accountIds = await getAccountIds(userId);
-    if (!accountIds) return empty;
+    let accountIds: string[] | null = null;
+    if (gmailAccountId && gmailAccountId !== 'ALL') {
+        accountIds = [gmailAccountId];
+    } else {
+        accountIds = await getAccountIds(userId);
+    }
+
+    if (!accountIds || accountIds.length === 0) return empty;
 
     const { data, error } = await supabase.rpc('get_sent_threads', {
         p_account_ids: accountIds,
@@ -256,9 +270,18 @@ export async function markClientEmailsAsReadAction(clientEmail: string) {
     return { success: true };
 }
 
-export async function getClientEmailsAction(userId: string, targetEmail: string) {
-    const accountIds = await getAccountIds(userId);
-    if (!accountIds) return [];
+export async function getClientEmailsAction(
+    userId: string,
+    targetEmail: string,
+    gmailAccountId?: string
+) {
+    let accountIds: string[] | null = null;
+    if (gmailAccountId && gmailAccountId !== 'ALL') {
+        accountIds = [gmailAccountId];
+    } else {
+        accountIds = await getAccountIds(userId);
+    }
+    if (!accountIds || accountIds.length === 0) return [];
 
     const { data: messages, error } = await supabase
         .from('email_messages')
@@ -266,7 +289,7 @@ export async function getClientEmailsAction(userId: string, targetEmail: string)
             id, thread_id, from_email, to_email, subject,
             snippet, direction, sent_at, is_unread, pipeline_stage,
             gmail_account_id,
-            gmail_accounts!inner ( email, users ( name ) )
+            gmail_accounts ( email, users ( name ) )
         `)
         .in('gmail_account_id', accountIds)
         .or(`from_email.ilike.%${targetEmail}%,to_email.ilike.%${targetEmail}%`)
@@ -454,7 +477,7 @@ export async function getThreadMessagesAction(threadId: string) {
         .from('email_messages')
         .select(`
             id, thread_id, from_email, to_email, subject,
-            body, direction, sent_at, is_unread, pipeline_stage,
+            snippet, body, direction, sent_at, is_unread, pipeline_stage,
             gmail_account_id, is_tracked, opens_count, clicks_count, last_opened_at,
             gmail_accounts ( email, users ( name ) )
         `)
@@ -569,9 +592,15 @@ export async function markAsNotInterestedAction(email: string) {
     }
 }
 
-export async function getTabCountsAction(userId: string) {
-    const accountIds = await getAccountIds(userId);
-    if (!accountIds) return {};
+export async function getTabCountsAction(userId: string, gmailAccountId?: string) {
+    let accountIds: string[] | null = null;
+    if (gmailAccountId && gmailAccountId !== 'ALL') {
+        accountIds = [gmailAccountId];
+    } else {
+        accountIds = await getAccountIds(userId);
+    }
+
+    if (!accountIds || accountIds.length === 0) return {};
 
     try {
         const { data, error } = await supabase.rpc('get_all_tab_counts', {
@@ -624,11 +653,21 @@ export async function markAsNotSpamAction(messageId: string) {
 
 // ─── Search Emails ────────────────────────────────────────────────────────────
 
-export async function searchEmailsAction(userId: string, query: string, limit = 6) {
+export async function searchEmailsAction(
+    userId: string,
+    query: string,
+    limit = 6,
+    gmailAccountId?: string
+) {
     if (!query || query.trim().length < 1) return [];
 
-    const accountIds = await getAccountIds(userId);
-    if (!accountIds) return [];
+    let accountIds: string[] | null = null;
+    if (gmailAccountId && gmailAccountId !== 'ALL') {
+        accountIds = [gmailAccountId];
+    } else {
+        accountIds = await getAccountIds(userId);
+    }
+    if (!accountIds || accountIds.length === 0) return [];
 
     let q = query.trim();
     let rpcQuery = supabase.from('email_messages').select(`
