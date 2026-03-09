@@ -191,10 +191,10 @@ async function processSingleMessage(
         */
 
         const getHeader = (name: string) =>
-            headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
+            headers.find((h) => h.name && h.name.toLowerCase() === name.toLowerCase())?.value || '';
 
-        const from = getHeader('from');
-        const senderEmail = (from.match(/<([^>]+)>/)?.[1] || from).toLowerCase();
+        const from = getHeader('from') || '';
+        const senderEmail = (from.match(/<([^>]+)>/)?.[1] || from || '').toLowerCase();
         // const senderDomain = senderEmail.split('@')[1];
 
         /*
