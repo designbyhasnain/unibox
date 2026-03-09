@@ -23,6 +23,7 @@ interface GmailAccount {
     connection_method: ConnectionMethod;
     last_synced_at: string | Date | null;
     emails_count?: number;
+    sync_progress?: number;
 }
 
 let globalAccountsCache: GmailAccount[] | null = null;
@@ -74,7 +75,19 @@ export default function AccountsPage() {
         }
     };
 
-    useEffect(() => { fetchAccounts(); }, []);
+    useEffect(() => {
+        fetchAccounts();
+
+        // Auto-refresh every 5s if any account is SYNCING
+        const interval = setInterval(() => {
+            const hasSyncing = accounts.some(a => a.status === 'SYNCING');
+            if (hasSyncing || isSyncing) {
+                fetchAccounts();
+            }
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [accounts.length, isSyncing]);
 
     const handleOAuthFlow = async () => {
         try {
@@ -338,11 +351,23 @@ export default function AccountsPage() {
                                             </div>
 
                                             {/* Emails synced */}
-                                            {acc.emails_count != null && (
-                                                <div style={{ marginTop: '0.875rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                    <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{acc.emails_count.toLocaleString()}</span> emails synced
+                                            <div style={{
+                                                marginTop: '1.25rem',
+                                                padding: '0.875rem 1rem',
+                                                background: 'var(--bg-elevated)',
+                                                borderRadius: 'var(--radius-md)',
+                                                border: '1px solid var(--border)',
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center'
+                                            }}>
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                    Synchronization Status
                                                 </div>
-                                            )}
+                                                <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                                    {acc.emails_count != null ? `${acc.emails_count.toLocaleString()} emails synced` : 'Scanning...'}
+                                                </div>
+                                            </div>
 
                                             {/* Error state */}
                                             {acc.status === 'ERROR' && (
@@ -359,10 +384,10 @@ export default function AccountsPage() {
                                             {acc.status === 'SYNCING' && (
                                                 <div style={{ marginTop: '0.875rem' }}>
                                                     <div className="sync-bar">
-                                                        <div className="sync-bar-fill" style={{ width: '65%' }} />
+                                                        <div className="sync-bar-fill" style={{ width: `${acc.sync_progress || 0}%` }} />
                                                     </div>
                                                     <p style={{ fontSize: '0.72rem', color: 'var(--accent)', marginTop: '0.35rem', textAlign: 'center' }}>
-                                                        Initial sync in progress...
+                                                        Syncing... {acc.sync_progress || 0}%
                                                     </p>
                                                 </div>
                                             )}

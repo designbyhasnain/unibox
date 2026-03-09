@@ -175,12 +175,19 @@ export default function InboxPage() {
     // Initial load
     useEffect(() => { loadEmails(1); }, [loadEmails]);
 
-    // Load accounts once
     useEffect(() => {
         getAccountsAction(ADMIN_USER_ID)
-            .then(setAccounts)
+            .then(data => {
+                setAccounts(data);
+                if (selectedAccountId !== 'ALL') {
+                    const exists = data.some(a => a.id === selectedAccountId);
+                    if (!exists) {
+                        setSelectedAccountId('ALL');
+                    }
+                }
+            })
             .catch((err) => console.error('Failed to fetch accounts:', err));
-    }, []);
+    }, [selectedAccountId, setSelectedAccountId]);
 
     const handleSearchSubmit = useCallback(async (e?: React.FormEvent | React.KeyboardEvent) => {
         if (e) e.preventDefault();

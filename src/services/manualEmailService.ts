@@ -158,15 +158,23 @@ export async function syncManualEmails(accountId: string) {
                 name === 'INBOX' ||
                 specialUse.includes('\\Spam') ||
                 specialUse.includes('\\Junk') ||
+                specialUse.includes('\\Sent') ||
+                specialUse.includes('\\Trash') ||
+                specialUse.includes('\\Drafts') ||
                 lower.includes('spam') ||
                 lower.includes('junk') ||
-                lower.includes('bulk')
+                lower.includes('bulk') ||
+                lower.includes('sent') ||
+                lower.includes('trash') ||
+                lower.includes('draft')
             );
         });
 
         console.log(`[Sync] Targeting folders for ${account.email}:`, targetFolders);
 
-        for (const folder of targetFolders) {
+        for (let i = 0; i < targetFolders.length; i++) {
+            const folder = targetFolders[i];
+            if (!folder) continue;
             try {
                 const lock = await imap.getMailboxLock(folder);
                 try {
@@ -196,6 +204,14 @@ export async function syncManualEmails(accountId: string) {
                             isSpam: folder !== 'INBOX',
                         });
                     }
+
+                    // Update progress based on folders completed
+                    const progress = Math.min(Math.round(((i + 1) / targetFolders.length) * 100), 99);
+                    await supabase
+                        .from('gmail_accounts')
+                        .update({ sync_progress: progress })
+                        .eq('id', accountId);
+
                 } finally {
                     lock.release();
                 }
@@ -212,7 +228,7 @@ export async function syncManualEmails(accountId: string) {
 
     await supabase
         .from('gmail_accounts')
-        .update({ last_synced_at: new Date().toISOString(), status: 'ACTIVE' })
+        .update({ last_synced_at: new Date().toISOString(), status: 'ACTIVE', sync_progress: 100 })
         .eq('id', accountId);
 }
 

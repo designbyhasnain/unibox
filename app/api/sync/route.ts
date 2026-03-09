@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
         const { data: account } = await supabase
             .from('gmail_accounts')
-            .select('history_id, connection_method')
+            .select('history_id, connection_method, last_synced_at')
             .eq('id', accountId)
             .single();
 
@@ -32,8 +32,8 @@ export async function POST(req: NextRequest) {
             syncManualEmails(accountId).catch((err) => {
                 console.error(`[Sync API] Background manual sync error for ${accountId}:`, err?.message);
             });
-        } else if (account?.history_id) {
-            // Fast partial sync (awaits completion so UI can immediately show new emails)
+        } else if (account?.history_id && account?.last_synced_at) {
+            // Fast partial sync
             console.log(`[Sync API] Running fast partial sync for ${accountId}`);
             await syncAccountHistory(accountId);
         } else {

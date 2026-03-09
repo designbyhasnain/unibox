@@ -5,6 +5,15 @@ import { decrypt } from '../utils/encryption';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isAuthError(error: any) {
+    const msg = error?.message?.toLowerCase() || '';
+    return msg.includes('invalid_grant') ||
+        msg.includes('invalid_token') ||
+        error.code === 401 ||
+        error.status === 401 ||
+        (error.code === 403 && msg.includes('unauthorized'));
+}
+
 // ─── OAuth Client ─────────────────────────────────────────────────────────────
 
 function getOAuthClient(account: any) {
@@ -104,7 +113,7 @@ async function fetchAllMessageIds(
     gmail: any,
     labelIds: string[],
     query?: string,
-    maxMessages = 500
+    maxMessages = 100000
 ): Promise<Array<{ id: string; threadId?: string }>> {
     const allIds: Array<{ id: string; threadId?: string }> = [];
     let pageToken: string | undefined = undefined;
@@ -142,7 +151,8 @@ async function processSingleMessage(
     account: any,
     messageId: string,
     knownDirection?: 'SENT' | 'RECEIVED',
-    sentThreadIds?: Set<string>
+    sentThreadIds?: Set<string>,
+    ignoredSenders?: Set<string>
 ) {
     // Deduplication check
     const { data: existing } = await supabase
@@ -169,22 +179,26 @@ async function processSingleMessage(
         const headers: Array<{ name: string; value: string }> = detail.payload?.headers || [];
         const labelIds: string[] = detail.labelIds || [];
 
-        // ─── Smart Filtering ───
-        // Skip Socia, Promotions, Updates, and Forums automatically
+        // ─── Filtering (Optional/Relaxed for "All Mail") ───
+        // We now sync everything as requested, but we still skip basic promotional categories if they are very noisy.
+        // If the user wants ABSOLUTUTELY EVERYTHING, we could even remove these category checks.
+        /* 
         const skipLabels = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'];
         if (labelIds.some(l => skipLabels.includes(l))) {
             console.log(`[Sync] Skipping message ${messageId} due to category label.`);
             return;
         }
+        */
 
         const getHeader = (name: string) =>
             headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
 
         const from = getHeader('from');
         const senderEmail = (from.match(/<([^>]+)>/)?.[1] || from).toLowerCase();
-        const senderDomain = senderEmail.split('@')[1];
+        // const senderDomain = senderEmail.split('@')[1];
 
-        // ─── Aggressive Keyword Filtering ───
+        /*
+        // Aggressive Keyword Filtering (Disabled per user request for "all mail")
         const junkKeywords = [
             'noreply', 'no-reply', 'support', 'alert', 'notification',
             'statement', 'security', 'billing', 'invoice', 'newsletter',
@@ -196,16 +210,11 @@ async function processSingleMessage(
             console.log(`[Sync] Skipping message ${messageId} due to junk keyword in from: ${from}`);
             return;
         }
+        */
 
-        // Check if specific sender or a manually ignored item exists
-        // We only check for specific email exact matches now to avoid blocking entire client domains
-        const { data: isIgnored } = await supabase
-            .from('ignored_senders')
-            .select('id')
-            .eq('email', senderEmail)
-            .maybeSingle();
-
-        if (isIgnored) {
+        // Check if specific sender is in our ignored list
+        // NEVER skip if it's from the account user themselves (otherwise SENT mail is lost)
+        if (ignoredSenders?.has(senderEmail) && senderEmail !== account.email.toLowerCase()) {
             console.log(`[Sync] Skipping ignored sender: ${senderEmail}`);
             return;
         }
@@ -270,17 +279,35 @@ async function processBatch(
     account: any,
     messageIds: Array<{ id: string }>,
     direction?: 'SENT' | 'RECEIVED',
-    concurrency = 2,
-    sentThreadIds?: Set<string>
+    concurrency = 5,
+    sentThreadIds?: Set<string>,
+    ignoredSenders?: Set<string>,
+    totalMessages?: number,
+    processedCount = 0
 ) {
     for (let i = 0; i < messageIds.length; i += concurrency) {
         const batch = messageIds.slice(i, i + concurrency);
         await Promise.allSettled(
-            batch.map((msg) => processSingleMessage(gmail, account, msg.id, direction, sentThreadIds))
+            batch.map((msg) => processSingleMessage(gmail, account, msg.id, direction, sentThreadIds, ignoredSenders))
         );
-        // Add a small delay between batches to throttle database load
+
+        // Update progress in DB every batch or two
+        if (totalMessages && totalMessages > 0) {
+            const currentTotalProcessed = processedCount + i + batch.length;
+            const progress = Math.min(Math.round((currentTotalProcessed / totalMessages) * 100), 99);
+
+            // Update DB every 5 batches to avoid over-pressure
+            if (i % (concurrency * 5) === 0 || i + concurrency >= messageIds.length) {
+                await supabase
+                    .from('gmail_accounts')
+                    .update({ sync_progress: progress })
+                    .eq('id', account.id);
+            }
+        }
+
+        // Throttle to avoid rate limits
         if (i + concurrency < messageIds.length) {
-            await sleep(500);
+            await sleep(100);
         }
     }
 }
@@ -387,9 +414,13 @@ export async function syncAccountHistory(accountId: string, newHistoryId?: strin
                 .select('thread_id')
                 .eq('gmail_account_id', accountId)
                 .eq('direction', 'SENT');
-            const sentThreadIds = new Set((sentThreads || []).map(t => t.thread_id));
+            const sentThreadIds = new Set((sentThreads || []).map((t: any) => t.thread_id));
 
-            await processBatch(gmail2, account, addedMessageIds, undefined, 2, sentThreadIds);
+            // OPTIMIZATION: pre-fetch ignored senders
+            const { data: ignoredData } = await supabase.from('ignored_senders').select('email');
+            const ignoredSenders = new Set((ignoredData || []).map((i: any) => i.email.toLowerCase()));
+
+            await processBatch(gmail2, account, addedMessageIds, undefined, 5, sentThreadIds, ignoredSenders, addedMessageIds.length);
         }
 
         // Advance stored historyId to the new one from the webhook or google's response
@@ -399,6 +430,7 @@ export async function syncAccountHistory(accountId: string, newHistoryId?: strin
             .update({
                 history_id: newIdToStore?.toString(),
                 last_synced_at: new Date().toISOString(),
+                sync_progress: 100
             })
             .eq('id', accountId);
 
@@ -441,62 +473,42 @@ export async function syncGmailEmails(accountId: string) {
 
     const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
 
-    await supabase.from('gmail_accounts').update({ status: 'SYNCING' }).eq('id', accountId);
+    await supabase.from('gmail_accounts').update({ status: 'SYNCING', sync_progress: 0 }).eq('id', accountId);
 
     try {
         // Per Gmail docs: using multiple labelIds in messages.list acts as an AND filter.
         // To get messages from ANY of these, we should use the 'q' parameter.
-        const combinedQuery = `(label:INBOX OR label:SPAM OR label:TRASH)`;
-        console.log(`[Full Sync] Starting for ${account.email}, query: ${combinedQuery}`);
+        const combinedQuery = `in:anywhere`;
+        const fs = require('fs');
+        fs.appendFileSync('sync_debug.log', `[Full Sync] Starting for ${account.email} at ${new Date().toISOString()}\n`);
+        const labelsToFetch = ['INBOX', 'SENT', 'SPAM', 'TRASH'];
+        const allFetchedIds = new Map<string, { id: string }>();
 
-        // ── Step 1: Fetch all INBOX/SPAM/TRASH message IDs ──────────
-        console.log(`[Full Sync] Fetching received message IDs...`);
-        const inboxIds = await fetchAllMessageIds(
-            gmail,
-            [], // No specific labelIds, use query instead
-            combinedQuery,
-            500 // Search depth
-        );
-        console.log(`[Full Sync] Found ${inboxIds.length} received messages`);
-
-        // ── Step 2: Fetch all SENT message IDs ─────────────────────────────────
-        console.log(`[Full Sync] Fetching SENT message IDs...`);
-        const sentIds = await fetchAllMessageIds(
-            gmail,
-            ['SENT'],
-            '', // No query needed for sent
-            200
-        );
-        console.log(`[Full Sync] Found ${sentIds.length} SENT messages`);
-
-        // ── Step 3: Store historyId from the most recent message ────────────────
-        // Per docs: "store the historyId of the most recent message (first in list)"
-        if (inboxIds.length > 0 || sentIds.length > 0) {
-            // Fetch historyId by getting the first (most recent) message metadata
-            const firstId = inboxIds[0]?.id || sentIds[0]?.id;
-            if (firstId) {
-                try {
-                    const firstMsg = await gmail.users.messages.get({
-                        userId: 'me',
-                        id: firstId,
-                        format: 'minimal', // Only need metadata for historyId
-                    });
-                    const historyId = firstMsg.data.historyId;
-                    if (historyId) {
-                        await supabase
-                            .from('gmail_accounts')
-                            .update({ history_id: historyId.toString() })
-                            .eq('id', accountId);
-                        console.log(`[Full Sync] Stored historyId: ${historyId}`);
-                    }
-                } catch {
-                    // Non-critical — continue
-                }
-            }
+        for (const label of labelsToFetch) {
+            const ids = await fetchAllMessageIds(gmail, [label], undefined, 100000);
+            ids.forEach(m => allFetchedIds.set(m.id, m));
         }
 
-        // ── Step 4: Batch process INBOX messages in parallel ────────────────────
-        console.log(`[Full Sync] Processing INBOX messages in batches...`);
+        // Also run a broad search for anything else
+        const broadIds = await fetchAllMessageIds(gmail, [], 'in:anywhere', 100000);
+        broadIds.forEach(m => allFetchedIds.set(m.id, m));
+
+        const allMessageIds = Array.from(allFetchedIds.values());
+        fs.appendFileSync('sync_debug.log', `[Full Sync] Found ${allMessageIds.length} unique messages total at ${new Date().toISOString()}\n`);
+        console.log(`[Full Sync] Found ${allMessageIds.length} unique messages total`);
+
+        // ── Step 3: Fetch current historyId from user profile ─────────────────
+        let latestHistoryId: string | undefined = undefined;
+        try {
+            const profile = await gmail.users.getProfile({ userId: 'me' });
+            latestHistoryId = profile.data.historyId || undefined;
+            console.log(`[Full Sync] Current profile historyId: ${latestHistoryId}`);
+        } catch (e) {
+            console.warn('[Full Sync] Failed to get latest historyId from profile, partial sync might be delayed.');
+        }
+
+        // ── Step 4: Batch process all messages in parallel ────────────────────
+        console.log(`[Full Sync] Processing messages in batches...`);
 
         // OPTIMIZATION: pre-fetch threads that have SENT messages to avoid N+1 queries in handleEmailReceived
         const { data: sentThreads } = await supabase
@@ -505,27 +517,45 @@ export async function syncGmailEmails(accountId: string) {
             .eq('gmail_account_id', accountId)
             .eq('direction', 'SENT');
 
-        const sentThreadIds = new Set((sentThreads || []).map(t => t.thread_id));
+        const sentThreadIds = new Set((sentThreads || []).map((t: any) => t.thread_id));
 
-        await processBatch(gmail, account, inboxIds, undefined, 2, sentThreadIds);
+        // OPTIMIZATION: pre-fetch ignored senders to avoid N queries
+        const { data: ignoredData } = await supabase.from('ignored_senders').select('email');
+        const ignoredSenders = new Set((ignoredData || [])
+            .map((i: any) => i.email?.toLowerCase())
+            .filter(Boolean));
 
-        // ── Step 5: Batch process SENT messages in parallel ─────────────────────
-        console.log(`[Full Sync] Processing SENT messages in batches...`);
-        await processBatch(gmail, account, sentIds, 'SENT', 2);
+        await processBatch(gmail, account, allMessageIds, undefined, 5, sentThreadIds, ignoredSenders, allMessageIds.length);
 
         await supabase
             .from('gmail_accounts')
-            .update({ status: 'ACTIVE', last_synced_at: new Date().toISOString() })
+            .update({
+                status: 'ACTIVE',
+                last_synced_at: new Date().toISOString(),
+                history_id: latestHistoryId?.toString(), // Only set history_id after successful sync
+                sync_progress: 100
+            })
             .eq('id', accountId);
 
-        console.log(`[Full Sync] Complete for ${account.email}. Inbox: ${inboxIds.length}, Sent: ${sentIds.length}`);
+        fs.appendFileSync('sync_debug.log', `[Full Sync] Finished processing ${allMessageIds.length} messages at ${new Date().toISOString()}\n`);
+        console.log(`[Full Sync] Complete for ${account.email}. Total messages: ${allMessageIds.length}. historyId: ${latestHistoryId}`);
 
         // ── Step 6: Register Pub/Sub watch for real-time push ──────────────────
         await startGmailWatch(accountId);
 
     } catch (error: any) {
+        const fs = require('fs');
+        const logMsg = `[SYNC ERROR] ${new Date().toISOString()}: ${error?.message || error}\n${error?.stack}\n`;
+        fs.appendFileSync('sync_debug.log', logMsg);
         console.error('[Full Sync] Error:', error?.message || error);
-        await supabase.from('gmail_accounts').update({ status: 'ERROR' }).eq('id', accountId);
+
+        // Only set status to ERROR if it's a permanent auth failure
+        if (isAuthError(error)) {
+            await supabase.from('gmail_accounts').update({ status: 'ERROR' }).eq('id', accountId);
+        } else {
+            // Revert to ACTIVE so they can retry without re-authenticating
+            await supabase.from('gmail_accounts').update({ status: 'ACTIVE' }).eq('id', accountId);
+        }
         throw error;
     }
 }

@@ -69,7 +69,8 @@ export async function getAccountsAction(userId: string) {
         .select(`
             *,
             users ( name ),
-            email_messages (count)
+            email_messages (count),
+            sync_progress
         `)
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
@@ -163,33 +164,23 @@ export async function removeAccountAction(accountId: string): Promise<{ success:
         }
     }
 
-    // Fetch all messages for this account to find related projects and contacts
-    const { data: messages } = await supabase
+    // ── Protect CRM Data ──────────────────────────────────────────────────────
+    // We want to keep Projects and Contacts even if the account is removed.
+    // We also want to keep the "mail history" for these clients.
+
+    // 1. Identify and "protect" emails linked to contacts or projects 
+    // by nullifying their gmail_account_id so they aren't deleted by cascade.
+    await supabase
         .from('email_messages')
-        .select('id, contact_id')
-        .eq('gmail_account_id', accountId);
+        .update({ gmail_account_id: null })
+        .eq('gmail_account_id', accountId)
+        .or('contact_id.not.is.null');
+    // Note: Projects reference messages by ID, so as long as the message exists, 
+    // the project link remains valid.
 
-    if (messages && messages.length > 0) {
-        const messageIds = messages.map(m => m.id);
-        const contactIds = Array.from(new Set(messages.map(m => m.contact_id).filter(Boolean)));
-
-        // Delete projects linked to these messages
-        await supabase.from('projects').delete().in('source_email_id', messageIds);
-
-        // Also delete projects linked to these contacts and then the contacts themselves
-        if (contactIds.length > 0) {
-            await supabase.from('projects').delete().in('client_id', contactIds);
-            await supabase.from('contacts').delete().in('id', contactIds);
-        }
-    }
-
-    // Explicitly cascade delete all associated data
-    await supabase.from('email_messages').delete().eq('gmail_account_id', accountId);
-
-    // Cleanup orphaned threads (those with no messages left)
-    // We use a raw RPC call if available, or just proceed since threads are lightweight.
-    // However, to satisfy the "hard delete" requirement, we should ideally have a trigger or a periodically run cleanup.
-    // For now, we ensure the primary account and its messages are gone.
+    // ── Final Account Deletion ────────────────────────────────────────────────
+    // This will delete the account and CASCADE delete all general sync emails 
+    // (the ones we didn't nullify above).
 
     const { error } = await supabase
         .from('gmail_accounts')

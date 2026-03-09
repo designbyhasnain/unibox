@@ -73,9 +73,15 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
 
     React.useEffect(() => {
         getAccountsAction(ADMIN_USER_ID)
-            .then(setAccounts)
+            .then(data => {
+                setAccounts(data);
+                // If the selected ID is no longer in the list, reset to 'ALL'
+                if (selectedAccountId !== 'ALL' && data.length > 0 && !data.some(a => a.id === selectedAccountId)) {
+                    setSelectedAccountId('ALL');
+                }
+            })
             .catch(console.error);
-    }, []);
+    }, [selectedAccountId, setSelectedAccountId]);
 
     return (
         <aside className="sidebar">
