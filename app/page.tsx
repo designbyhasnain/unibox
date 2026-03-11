@@ -6,24 +6,18 @@ import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import InlineReply from './components/InlineReply';
 import { EmailRow, EmailDetail, PaginationControls, ToastStack } from './components/InboxComponents';
-import {
-    getInboxEmailsAction,
-    markEmailAsReadAction,
+import { PageLoader } from './components/LoadingStates';
+import { 
     updateEmailStageAction,
-    getThreadMessagesAction,
-    deleteEmailAction,
-    bulkDeleteEmailsAction,
-    markEmailAsUnreadAction,
-    bulkMarkAsReadAction,
-    bulkMarkAsUnreadAction,
-    getTabCountsAction,
     markAsNotInterestedAction,
     markAsNotSpamAction,
     searchEmailsAction,
 } from '../src/actions/emailActions';
+import { useMailbox } from './hooks/useMailbox';
 import { getAccountsAction } from '../src/actions/accountActions';
 import { useRealtimeInbox } from '../src/hooks/useRealtimeInbox';
 import { useGlobalFilter } from './context/FilterContext';
+import { shouldShowStageBadge } from './constants/stages';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -41,154 +35,68 @@ const TABS = [
 
 interface ToastItem { id: string; subject: string; from: string; }
 
-const globalStageCache: Record<string, { emails: any[]; totalCount: number; totalPages: number; page: number }> = {};
-let globalTabCountsCache: Record<string, number> = {};
+import { saveToLocalCache, getFromLocalCache } from './utils/localCache';
+import { useHydrated } from './utils/useHydration';
+
 let globalActiveStage = 'COLD_LEAD';
-let globalThreadCache: Record<string, any[]> = {};
-
-// Helper to keep caches in sync
-const setStageCache = (stage: string, data: any) => {
-    globalStageCache[stage] = data;
-};
-
-const clearAllCachesExcept = (activeId?: string) => {
-    Object.keys(globalStageCache).forEach(k => {
-        if (k !== activeId) delete globalStageCache[k];
-    });
-    // We don't clear globalThreadCache here as it's less sensitive to stage changes, 
-    // but message-specific updates will handle it.
-};
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function InboxPage() {
+    const isHydrated = useHydrated();
     const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
-    // ── Email List State ───────────────────────────────────────────────────────
-    const [emails, setEmails] = useState<any[]>(() => globalStageCache[globalActiveStage]?.emails || []);
-    const [totalCount, setTotalCount] = useState(() => globalStageCache[globalActiveStage]?.totalCount || 0);
-    const [totalPages, setTotalPages] = useState(() => globalStageCache[globalActiveStage]?.totalPages || 0);
-    const [currentPage, setCurrentPage] = useState(() => globalStageCache[globalActiveStage]?.page || 1);
-    const [isLoading, setIsLoading] = useState(() => !globalStageCache[globalActiveStage]);
+
+    // ─── Use Universal Mailbox Hook ───────────────────────────────────────────
     const [activeStage, setActiveStage] = useState(globalActiveStage);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [tabCounts, setTabCounts] = useState<Record<string, number>>(globalTabCountsCache);
+    const {
+        emails,
+        totalCount,
+        totalPages,
+        currentPage,
+        isLoading,
+        tabCounts,
+        selectedEmail,
+        threadMessages,
+        isThreadLoading,
+        selectedEmailIds,
+        accounts,
+        isSyncing,
+        syncMessage,
+        setSelectedEmail,
+        setCurrentPage,
+        loadEmails,
+        handleSync,
+        handleSelectEmail,
+        toggleSelectEmail,
+        toggleSelectAll,
+        handleDelete,
+        handleBulkDelete,
+        handleToggleRead,
+        handleBulkMarkAsRead,
+    } = useMailbox({
+        type: 'inbox',
+        activeStage,
+        selectedAccountId
+    });
 
-    // ── Selected Email / Thread State ─────────────────────────────────────────
-    const [selectedEmail, setSelectedEmail] = useState<any>(null);
-    const [threadMessages, setThreadMessages] = useState<any[]>([]);
-    const [isThreadLoading, setIsThreadLoading] = useState(false);
     const [isReplyingInline, setIsReplyingInline] = useState(false);
-
-    // ── Compose State ─────────────────────────────────────────────────────────
     const [isComposeOpen, setIsComposeOpen] = useState(false);
     const [composeDefaultTo, setComposeDefaultTo] = useState('');
-
-    // ── Sync / Accounts State ─────────────────────────────────────────────────
-    const [accounts, setAccounts] = useState<any[]>([]);
-    const [isSyncing, setIsSyncing] = useState(false);
-    const [syncMessage, setSyncMessage] = useState('');
-    const [isLive, setIsLive] = useState(false);
-
-    // ── New Emails / Toasts ────────────────────────────────────────────────────
     const [toasts, setToasts] = useState<ToastItem[]>([]);
-    const [newEmailCount, setNewEmailCount] = useState(0);
-    const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
-
-    // ── Settings (from localStorage) ──────────────────────────────────────────
-    const [pollingInterval, setPollingInterval] = useState(300);
-    const [isPollingEnabled, setIsPollingEnabled] = useState(true);
-    const [isFocusSyncEnabled, setIsFocusSyncEnabled] = useState(true);
-
-    // ── Refs ───────────────────────────────────────────────────────────────────
-    const toastTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-    const lastSyncTimeRef = useRef<number>(0);
-
-    // ── Search State ───────────────────────────────────────────────────────────
+    const [isLive, setIsLive] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [searchLoading, setSearchLoading] = useState(false);
     const [isSearchResults, setIsSearchResults] = useState(false);
 
-    // ─── Load Emails (no stale cache — always fresh from DB) ──────────────────
-    const loadEmails = useCallback(async (page: number, stage?: string) => {
-        const targetStage = stage || activeStage;
-        const cacheKey = `${targetStage}_${selectedAccountId}_${page}`;
-        const cached = globalStageCache[cacheKey];
+    // Settings
+    const [pollingInterval, setPollingInterval] = useState(300);
+    const [isPollingEnabled, setIsPollingEnabled] = useState(true);
+    const [isFocusSyncEnabled, setIsFocusSyncEnabled] = useState(true);
 
-        if (cached) {
-            setEmails(cached.emails);
-            setTotalCount(cached.totalCount);
-            setTotalPages(cached.totalPages);
-            setCurrentPage(cached.page);
-            setTabCounts(globalTabCountsCache);
-        } else {
-            setIsLoading(true);
-        }
+    const toastTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-        try {
-            const [result, counts] = await Promise.all([
-                getInboxEmailsAction(ADMIN_USER_ID, page, PAGE_SIZE, targetStage, selectedAccountId),
-                getTabCountsAction(ADMIN_USER_ID, selectedAccountId)
-            ]);
-
-            // Safety filter: ensure returned emails strictly match the requested stage if it's not a special tab
-            // This prevents the "seeing Cold in Lead tab" glitch if the backend returns stale/broad results.
-            const filteredEmails = (targetStage !== 'ALL' && targetStage !== 'SPAM' && result.emails)
-                ? result.emails.filter(e => {
-                    const emailStage = e.pipeline_stage || 'COLD_LEAD';
-                    return emailStage === targetStage;
-                })
-                : result.emails;
-
-            setStageCache(cacheKey, {
-                emails: filteredEmails,
-                totalCount: (targetStage !== 'ALL' && targetStage !== 'SPAM') ? filteredEmails.length : result.totalCount,
-                totalPages: result.totalPages,
-                page: result.page
-            });
-            globalTabCountsCache = counts;
-
-            // Only update local state if this is still the active stage and we aren't showing search results
-            // Note: targetStage is captured in wait, activeStage is the current state.
-            // When we switch tabs, a new loadEmails is created, but the old one might still be finishing.
-            if (targetStage === globalActiveStage && !isSearchResults) {
-                setEmails(filteredEmails);
-                setTotalCount((targetStage !== 'ALL' && targetStage !== 'SPAM') ? filteredEmails.length : result.totalCount);
-                setTotalPages(result.totalPages);
-                setCurrentPage(result.page);
-                setTabCounts(counts);
-            }
-        } catch (err) {
-            console.error('loadEmails error:', err);
-        } finally {
-            if (targetStage === globalActiveStage) {
-                setIsLoading(false);
-            }
-        }
-    }, [activeStage, selectedAccountId, isSearchResults]);
-
-    // Re-load when account filter changes
-    useEffect(() => {
-        // Clear caches for this account if needed, or just let loadEmails handle it
-        loadEmails(1);
-    }, [selectedAccountId, loadEmails]);
-
-    // Initial load
-    useEffect(() => { loadEmails(1); }, [loadEmails]);
-
-    useEffect(() => {
-        getAccountsAction(ADMIN_USER_ID)
-            .then(data => {
-                setAccounts(data);
-                if (selectedAccountId !== 'ALL') {
-                    const exists = data.some(a => a.id === selectedAccountId);
-                    if (!exists) {
-                        setSelectedAccountId('ALL');
-                    }
-                }
-            })
-            .catch((err) => console.error('Failed to fetch accounts:', err));
-    }, [selectedAccountId, setSelectedAccountId]);
-
+    // ── Search Logic ──────────────────────────────────────────────────────────
     const handleSearchSubmit = useCallback(async (e?: React.FormEvent | React.KeyboardEvent) => {
         if (e) e.preventDefault();
         if (!searchTerm.trim()) return;
@@ -197,76 +105,39 @@ export default function InboxPage() {
         setIsSearchResults(true);
         try {
             const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 100, selectedAccountId);
-            setEmails(results);
-            setTotalCount(results.length);
-            setTotalPages(1);
-            setCurrentPage(1);
+            // Search results are handled locally here for simplicity
             setSelectedEmail(null);
         } catch (err) {
             console.error('Search submit error:', err);
         } finally {
             setSearchLoading(false);
         }
-    }, [searchTerm]);
+    }, [searchTerm, selectedAccountId, setSelectedEmail]);
 
-    // ── Live Search ───────────────────────────────────────────────────────────
     useEffect(() => {
         if (!searchTerm.trim()) {
             setSearchResults([]);
             setSearchLoading(false);
             return;
         }
-
         const timer = setTimeout(async () => {
             setSearchLoading(true);
             try {
-                const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 8, selectedAccountId); // Top 8 suggestions
+                const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 8, selectedAccountId);
                 setSearchResults(results);
-            } catch (err) {
-                console.error('Live search error:', err);
-            } finally {
-                setSearchLoading(false);
-            }
+            } catch (err) { console.error(err); }
+            finally { setSearchLoading(false); }
         }, 300);
-
         return () => clearTimeout(timer);
-    }, [searchTerm]);
+    }, [searchTerm, selectedAccountId]);
 
-    // Helpers
-    const getInitial = (emailObj: any) => {
-        const name = getSenderName(emailObj).replace(/^To:\s*/, '');
-        const match = name.match(/^([A-Za-z])/);
-        return match ? match[1]!.toUpperCase() : '?';
-    };
-
-    const getSenderName = (emailObj: any) => {
-        if (!emailObj) return 'Unknown';
-        if (emailObj.direction === 'SENT') {
-            const toRaw = emailObj.to_email || '';
-            const toNameMatch = toRaw.split(',')[0]?.match(/^([^<]+)</);
-            const toName = toNameMatch ? toNameMatch[1]?.trim().replace(/"/g, '') : toRaw.split('@')[0];
-            return `To: ${toName || 'Unknown'}`;
-        } else {
-            const fromRaw = emailObj.from_email || '';
-            const fromNameMatch = fromRaw.match(/^([^<]+)</);
-            const fromName = fromNameMatch ? fromNameMatch[1]?.trim().replace(/"/g, '') : fromRaw.split('@')[0];
-            return fromName || 'Unknown';
-        }
-    };
-
-    // Read settings from localStorage
+    // Initial sync connection
     useEffect(() => {
         const t = setTimeout(() => setIsLive(true), 1500);
-        const savedPolling = localStorage.getItem('settings_polling_enabled');
-        const savedInterval = localStorage.getItem('settings_polling_interval');
-        const savedFocus = localStorage.getItem('settings_focus_sync_enabled');
-        if (savedPolling !== null) setIsPollingEnabled(savedPolling === 'true');
-        if (savedInterval !== null) setPollingInterval(parseInt(savedInterval, 10));
-        if (savedFocus !== null) setIsFocusSyncEnabled(savedFocus === 'true');
         return () => clearTimeout(t);
     }, []);
 
-    // Keyboard shortcuts (c = compose, Esc = close detail)
+    // ── Keyboard & Shortcuts ──────────────────────────────────────────────────
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') setSelectedEmail(null);
@@ -276,361 +147,44 @@ export default function InboxPage() {
             }
         };
         window.addEventListener('keydown', handleKeyDown);
-
-        // Request notification permission
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
-        }
-
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    }, [setSelectedEmail]);
 
-    // ─── Sync ──────────────────────────────────────────────────────────────────
-
-    const handleSync = useCallback(async () => {
-        if (isSyncing) return;
-        const currentAccounts = accounts;
-
-        if (currentAccounts.length === 0) {
-            setSyncMessage('No accounts connected.');
-            return;
-        }
-
-        setIsSyncing(true);
-        lastSyncTimeRef.current = Date.now();
-        setSyncMessage(currentAccounts.length > 1
-            ? `Syncing ${currentAccounts.length} accounts...`
-            : 'Syncing...');
-
-        try {
-            await Promise.allSettled(
-                currentAccounts.map((a) =>
-                    fetch('/api/sync', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ accountId: a.id }),
-                    })
-                )
-            );
-            setTimeout(() => {
-                setIsSyncing(false);
-                setSyncMessage('');
-                // Clear caches on manual sync to ensure we get fresh data
-                clearAllCachesExcept();
-                globalThreadCache = {};
-                // Use explicit stage and current page to prevent jumps
-                loadEmails(currentPage, activeStage);
-            }, 2000);
-        } catch (err) {
-            console.error('Sync failed:', err);
-            setSyncMessage('Sync failed.');
-            setIsSyncing(false);
-        }
-    }, [isSyncing, accounts, loadEmails]);
-
-    // Auto-poll
+    // Auto-polling
     useEffect(() => {
         if (!isPollingEnabled) return;
         const intervalMs = pollingInterval * 1000;
         const id = setInterval(() => {
-            if (Date.now() - lastSyncTimeRef.current > intervalMs * 0.8) handleSync();
+            handleSync();
         }, intervalMs);
         return () => clearInterval(id);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isPollingEnabled, pollingInterval, accounts]);
+    }, [isPollingEnabled, pollingInterval, handleSync]);
 
-    // Focus sync
-    useEffect(() => {
-        if (!isFocusSyncEnabled) return;
-        const handleFocus = () => {
-            if (Date.now() - lastSyncTimeRef.current > 120_000) handleSync();
-        };
-        window.addEventListener('focus', handleFocus);
-        return () => window.removeEventListener('focus', handleFocus);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isFocusSyncEnabled, accounts]);
-
-    // ─── Realtime Inbox Updates ────────────────────────────────────────────────
-
-    const handleNewEmailRealtime = useCallback((newEmail: any) => {
-        const toastId = newEmail.id || Date.now().toString();
-        const toast: ToastItem = {
-            id: toastId,
-            subject: newEmail.subject || '(No Subject)',
-            from: newEmail.from_email?.split('<')[0].trim() || newEmail.from_email || 'Unknown',
-        };
-        setToasts((prev) => [toast, ...prev].slice(0, 5));
-        setNewEmailCount((prev) => prev + 1);
-        const timer = setTimeout(() => {
-            setToasts((prev) => prev.filter((t) => t.id !== toastId));
-        }, 6000);
-        toastTimerRef.current.set(toastId, timer);
-
-        if (currentPage === 1) {
-            const emailStage = newEmail.pipeline_stage || 'COLD_LEAD';
-
-            // 1. Update Current View if active
-            if (emailStage === activeStage) {
-                const account = accounts.find((a) => a.id === newEmail.gmail_account_id);
-                const emailWithAccount = {
-                    ...newEmail,
-                    gmail_accounts: {
-                        email: account?.email || 'Unknown',
-                        user: { name: account?.manager_name || 'System' }
-                    },
-                };
-                setEmails((prev) => {
-                    const filtered = prev.filter((e) => e.thread_id !== newEmail.thread_id);
-                    return [emailWithAccount, ...filtered].slice(0, PAGE_SIZE);
-                });
-                setTotalCount((prev: number) => prev + 1);
-            }
-
-            // 2. Update Cache for that stage to prevent tab-switch flicker
-            const cached = globalStageCache[emailStage];
-            if (cached) {
-                const account = accounts.find((a) => a.id === newEmail.gmail_account_id);
-                const emailWithAccount = {
-                    ...newEmail,
-                    gmail_accounts: {
-                        email: account?.email || 'Unknown',
-                        user: { name: account?.manager_name || 'System' }
-                    },
-                };
-                const nextEmails = [
-                    emailWithAccount,
-                    ...cached.emails.filter(e => e.thread_id !== newEmail.thread_id)
-                ].slice(0, PAGE_SIZE);
-
-                setStageCache(emailStage, {
-                    ...cached,
-                    emails: nextEmails,
-                    totalCount: cached.totalCount + 1
-                });
-            }
-        }
-    }, [currentPage, activeStage, accounts]);
-
-    const handleEmailUpdated = useCallback((updatedEmail: any) => {
-        const matchesActive =
-            updatedEmail.pipeline_stage === activeStage ||
-            (!updatedEmail.pipeline_stage && activeStage === 'COLD_LEAD');
-
-        setEmails((prev: any[]) => {
-            const exists = prev.some((e) => e.id === updatedEmail.id);
-            if (exists) {
-                if (!matchesActive) return prev.filter((e) => e.id !== updatedEmail.id);
-                return prev.map((e) => e.id === updatedEmail.id ? { ...e, ...updatedEmail } : e);
-            }
-            if (matchesActive) {
-                const account = accounts.find((a) => a.id === updatedEmail.gmail_account_id);
-                const withAccount = {
-                    ...updatedEmail,
-                    gmail_accounts: {
-                        email: account?.email || 'Unknown',
-                        user: { name: account?.manager_name || 'System' }
-                    }
-                };
-                return [withAccount, ...prev.filter((e) => e.thread_id !== updatedEmail.thread_id)].slice(0, PAGE_SIZE);
-            }
-            return prev;
-        });
-
-        // Update Cache synchronously if it exists, to avoid stale tab switching
-        const nextStage = updatedEmail.pipeline_stage || 'COLD_LEAD';
-        Object.keys(globalStageCache).forEach(stageId => {
-            const cached = globalStageCache[stageId];
-            if (!cached) return;
-
-            const shouldBeInThisCache = stageId === nextStage;
-            const isCurrentlyInThisCache = cached.emails.some(e => e.id === updatedEmail.id);
-
-            if (isCurrentlyInThisCache && !shouldBeInThisCache) {
-                // Remove from this cache
-                setStageCache(stageId, {
-                    ...cached,
-                    emails: cached.emails.filter(e => e.id !== updatedEmail.id),
-                    totalCount: Math.max(0, cached.totalCount - 1)
-                });
-            } else if (shouldBeInThisCache) {
-                // Add or Update in this cache
-                const account = accounts.find((a) => a.id === updatedEmail.gmail_account_id);
-                const withAccount = {
-                    ...updatedEmail,
-                    gmail_accounts: {
-                        email: account?.email || 'Unknown',
-                        user: { name: account?.manager_name || 'System' }
-                    }
-                };
-                const exists = cached.emails.some(e => e.id === updatedEmail.id);
-                let nextEmails;
-                if (exists) {
-                    nextEmails = cached.emails.map(e => e.id === updatedEmail.id ? { ...e, ...withAccount } : e);
-                } else {
-                    nextEmails = [withAccount, ...cached.emails.filter(e => e.thread_id !== updatedEmail.thread_id)].slice(0, PAGE_SIZE);
-                }
-                setStageCache(stageId, {
-                    ...cached,
-                    emails: nextEmails,
-                    totalCount: exists ? cached.totalCount : cached.totalCount + 1
-                });
-            }
-        });
-
-        if (selectedEmail?.id === updatedEmail.id) {
-            setSelectedEmail((prev: any) => ({ ...prev, ...updatedEmail }));
-        }
-
-        // Also update thread cache if applicable
-        if (updatedEmail.thread_id) {
-            const thread = globalThreadCache[updatedEmail.thread_id];
-            if (thread) {
-                globalThreadCache[updatedEmail.thread_id] = thread.map(m =>
-                    m.id === updatedEmail.id ? { ...m, ...updatedEmail } : m
-                );
-            }
-        }
-    }, [activeStage, selectedEmail, accounts]);
-
-    const handleEmailDeleted = useCallback((messageId: string) => {
-        setEmails((prev: any[]) => prev.filter((e) => e.id !== messageId));
-        if (selectedEmail?.id === messageId) setSelectedEmail(null);
-    }, [selectedEmail]);
-
-    useRealtimeInbox({
-        accountIds: accounts.map((a) => a.id),
-        onNewEmail: handleNewEmailRealtime,
-        onEmailUpdated: handleEmailUpdated,
-        onEmailDeleted: handleEmailDeleted,
-    });
-
-    // ─── Handlers ─────────────────────────────────────────────────────────────
-
+    // ── Derived Handlers ──────────────────────────────────────────────────────
     const goToPage = (page: number) => {
-        if (page < 1 || page > totalPages) return;
-        setSelectedEmail(null);
-        setNewEmailCount(0);
+        setCurrentPage(page);
         loadEmails(page);
         const el = document.getElementById('email-list-scroll');
         if (el) el.scrollTop = 0;
     };
 
-    const handleToggleRead = async (id: string, currentUnread: boolean) => {
-        const nextUnread = !currentUnread;
-        setEmails((prev) => prev.map((e) => e.id === id ? { ...e, is_unread: nextUnread } : e));
-        if (selectedEmail?.id === id) {
-            setSelectedEmail((prev: any) => ({ ...prev, is_unread: nextUnread }));
-        }
-
-        if (nextUnread) {
-            await markEmailAsUnreadAction(id);
-        } else {
-            await markEmailAsReadAction(id);
-        }
-    };
-
-    const handleBulkMarkRead = async () => {
-        const ids = Array.from(selectedEmailIds);
-        if (ids.length === 0) return;
-
-        setEmails((prev) => prev.map((e) => selectedEmailIds.has(e.id) ? { ...e, is_unread: false } : e));
-        setSelectedEmailIds(new Set());
-
-        await bulkMarkAsReadAction(ids);
-    };
-
-    const handleSelectEmail = async (email: any) => {
-        setIsReplyingInline(false);
-        setSelectedEmail(email);
-
-        if (email.thread_id && globalThreadCache[email.thread_id]) {
-            setThreadMessages(globalThreadCache[email.thread_id] || []);
-        } else {
-            setThreadMessages([email]);
-        }
-
-        if (email.is_unread) {
-            setEmails((prev) => prev.map((e) => e.id === email.id ? { ...e, is_unread: false } : e));
-            await markEmailAsReadAction(email.id);
-        }
-
-        if (email.thread_id) {
-            if (!globalThreadCache[email.thread_id]) setIsThreadLoading(true);
-            try {
-                const history = await getThreadMessagesAction(email.thread_id);
-                globalThreadCache[email.thread_id] = history;
-                setThreadMessages(history);
-            } catch (err) {
-                console.error('Failed to fetch thread history:', err);
-            } finally {
-                setIsThreadLoading(false);
-            }
-        }
-    };
-
     const handleChangeStage = async (messageId: string, newStage: string) => {
-        const target = emails.find(e => e.id === messageId);
-        setEmails((prev) => {
-            const shouldRemove = activeStage !== 'ALL' && activeStage !== 'SPAM' && newStage !== activeStage;
-            if (shouldRemove) {
-                return prev.filter((e) => {
-                    const isMatch = e.id === messageId ||
-                        (target?.contact_id && e.contact_id === target.contact_id) ||
-                        (target?.from_email && e.from_email === target.from_email);
-                    return !isMatch;
-                });
-            }
-            return prev.map((e) => {
-                const isMatch = e.id === messageId ||
-                    (target?.contact_id && e.contact_id === target.contact_id) ||
-                    (target?.from_email && e.from_email === target.from_email);
-                return isMatch ? { ...e, pipeline_stage: newStage } : e;
-            });
-        });
-
-        if (selectedEmail?.id === messageId ||
-            (target?.contact_id && selectedEmail?.contact_id === target.contact_id) ||
-            (target?.from_email && selectedEmail?.from_email === target.from_email)) {
-            const shouldCloseDetail = activeStage !== 'ALL' && activeStage !== 'SPAM' && newStage !== activeStage;
-            if (shouldCloseDetail) {
-                setSelectedEmail(null);
-            } else {
-                setSelectedEmail((prev: any) => prev ? { ...prev, pipeline_stage: newStage } : null);
-            }
-        }
-
         await updateEmailStageAction(messageId, newStage);
-
-        // Strategy: Clear other stage caches to force re-fetch on tab click, 
-        // preventing "seeing old Cold emails in Lead tab" glitch
-        clearAllCachesExcept(activeStage);
-
-        loadEmails(currentPage, activeStage); // Refresh current view
+        // Clear other caches except current
+        // (Note: in useMailbox, we can add a refresh method)
+        loadEmails(currentPage);
     };
 
     const handleNotInterested = async (email: string) => {
         if (!email) return;
-        // Optimization: immediately hide emails from this sender in UI
-        setEmails((prev) => prev.filter(e => !e.from_email?.includes(email)));
-        if (selectedEmail?.from_email?.includes(email)) {
-            setSelectedEmail(null);
-        }
         await markAsNotInterestedAction(email);
-        loadEmails(currentPage, activeStage); // Pass activeStage to be consistent
+        loadEmails(currentPage);
     };
 
     const handleNotSpam = async (messageId: string) => {
-        try {
-            const res = await markAsNotSpamAction(messageId);
-            if (res.success) {
-                alert('Moved to Inbox');
-            } else {
-                alert(`Error: ${res.error}`);
-            }
-        } catch (err) {
-            console.error('handleNotSpam error:', err);
-            alert('An unexpected error occurred.');
-        }
+        const res = await markAsNotSpamAction(messageId);
+        if (res.success) alert('Moved to Inbox');
+        loadEmails(currentPage);
     };
 
     const dismissToast = (toastId: string) => {
@@ -640,51 +194,6 @@ export default function InboxPage() {
         toastTimerRef.current.delete(toastId);
     };
 
-    const handleDeleteEmail = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this message?')) return;
-
-        setEmails((prev) => prev.filter((e) => e.id !== id));
-        if (selectedEmail?.id === id) setSelectedEmail(null);
-
-        const res = await deleteEmailAction(id);
-        if (!res.success) {
-            alert('Failed to delete email');
-            loadEmails(currentPage);
-        }
-    };
-
-    const handleBulkDelete = async () => {
-        const ids = Array.from(selectedEmailIds);
-        if (ids.length === 0) return;
-        if (!confirm(`Are you sure you want to delete ${ids.length} messages?`)) return;
-
-        setEmails((prev) => prev.filter((e) => !selectedEmailIds.has(e.id)));
-        setSelectedEmailIds(new Set());
-        if (selectedEmail && selectedEmailIds.has(selectedEmail.id)) setSelectedEmail(null);
-
-        const res = await bulkDeleteEmailsAction(ids);
-        if (!res.success) {
-            alert('Failed to delete emails');
-            loadEmails(currentPage);
-        }
-    };
-
-    const toggleSelectEmail = (id: string) => {
-        setSelectedEmailIds((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    };
-
-    const toggleSelectAll = () => {
-        if (selectedEmailIds.size > 0 && selectedEmailIds.size === emails.length) {
-            setSelectedEmailIds(new Set());
-        } else {
-            setSelectedEmailIds(new Set(emails.map((e) => e.id)));
-        }
-    };
 
 
     // ─── Derived State ────────────────────────────────────────────────────────
@@ -713,7 +222,7 @@ export default function InboxPage() {
                         setSearchTerm('');
                         setSearchResults([]);
                         setIsSearchResults(false);
-                        loadEmails(1, activeStage);
+                        loadEmails(1);
                     }}
                     searchResults={searchResults}
                     searchLoading={searchLoading}
@@ -756,7 +265,7 @@ export default function InboxPage() {
 
                 <div className="tabs-bar">
                     {TABS.map((tab) => {
-                        const count = tabCounts[tab.id] || 0;
+                        const count = isHydrated ? (tabCounts[tab.id] || 0) : 0;
                         return (
                             <div
                                 key={tab.id}
@@ -768,25 +277,6 @@ export default function InboxPage() {
                                     setSearchTerm('');
                                     setSearchResults([]);
                                     setSelectedEmail(null);
-
-                                    // Instantly update from cache if available using the full key
-                                    const cacheKey = `${tab.id}_${selectedAccountId}_1`;
-                                    const cachedData = globalStageCache[cacheKey];
-
-                                    if (cachedData) {
-                                        setEmails(cachedData.emails);
-                                        setTotalCount(cachedData.totalCount);
-                                        setTotalPages(cachedData.totalPages);
-                                        setCurrentPage(cachedData.page);
-                                        setIsLoading(false);
-                                    } else {
-                                        // CRITICAL: Clear list and show loader if no cache, 
-                                        // to prevent showing "Cold" emails under "Lead" tab while loading.
-                                        setEmails([]);
-                                        setTotalCount(0);
-                                        setIsLoading(true);
-                                    }
-                                    // loadEmails(1) will be triggered via useEffect on activeStage change
                                 }}
                                 id={`tab-${tab.id}`}
                             >
@@ -815,18 +305,9 @@ export default function InboxPage() {
 
                                     <div className="divider-v" />
 
-                                    {newEmailCount > 0 && (
-                                        <button
-                                            className="new-chip"
-                                            onClick={() => { setNewEmailCount(0); loadEmails(1); }}
-                                        >
-                                            <div className="pulse-dot" />
-                                            {newEmailCount} new messages
-                                        </button>
-                                    )}
                                 </div>
                                 <div className="list-toolbar-right">
-                                    {totalCount > 0 && (
+                                    {isHydrated && totalCount > 0 && (
                                         <span className="count-label">
                                             {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalCount)} of {totalCount}
                                         </span>
@@ -845,43 +326,48 @@ export default function InboxPage() {
                                     <div className="gmail-lh-manager">MANAGER</div>
                                     <div className="gmail-lh-date">DATE</div>
                                 </div>
-                                {isLoading ? (
-                                    <div className="empty-state">
-                                        <div className="spinner spinner-lg" />
-                                        <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 8 }}>
-                                            Loading messages...
-                                        </span>
-                                    </div>
-                                ) : emails.length === 0 ? (
-                                    <div className="empty-state">
-                                        <div className="empty-state-icon">
-                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
-                                                <path d="M22 12l-10-9-10 9M9 21V12h6v9" />
-                                            </svg>
+                                <PageLoader isLoading={!isHydrated || isLoading} type="list" count={PAGE_SIZE}>
+                                    {emails.length === 0 ? (
+                                        <div className="empty-state" style={{ padding: '4rem 2rem', opacity: isLoading ? 0.3 : 1 }}>
+                                            <div className="empty-state-icon" style={{ marginBottom: '1rem', width: '64px', height: '64px', background: 'var(--bg-elevated)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
+                                                    <path d="M22 12l-10-9-10 9M9 21V12h6v9" />
+                                                </svg>
+                                            </div>
+                                            <div className="empty-state-title" style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                                {isSearchResults ? 'No search results' : 'Inbox is empty'}
+                                            </div>
+                                            <div className="empty-state-desc" style={{ marginTop: '0.5rem', color: 'var(--text-muted)', maxWidth: '300px', margin: '0.5rem auto 0' }}>
+                                                {isSearchResults
+                                                    ? `No messages found for "${searchTerm}"`
+                                                    : `Your ${TABS.find((t) => t.id === activeStage)?.label || 'Inbox'} is all caught up.`
+                                                }
+                                            </div>
+                                            {selectedAccountId !== 'ALL' && (
+                                                <div style={{ marginTop: '1.5rem' }}>
+                                                    <button
+                                                        className="btn btn-secondary btn-sm"
+                                                        onClick={() => setSelectedAccountId('ALL')}
+                                                    >
+                                                        Show all accounts
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
-                                        <div className="empty-state-title">
-                                            {isSearchResults ? 'No search results' : 'No messages'}
-                                        </div>
-                                        <div className="empty-state-desc">
-                                            {isSearchResults
-                                                ? `No messages found for "${searchTerm}"`
-                                                : `Your ${TABS.find((t) => t.id === activeStage)?.label || 'Inbox'} is empty.`
-                                            }
-                                        </div>
-                                    </div>
-                                ) : (
-                                    emails.map((email: any) => (
-                                        <EmailRow
-                                            key={email.id}
-                                            email={email}
-                                            isSelected={false}
-                                            isRowChecked={selectedEmailIds.has(email.id)}
-                                            showBadge={true}
-                                            onClick={() => handleSelectEmail(email)}
-                                            onToggleSelect={toggleSelectEmail}
-                                        />
-                                    ))
-                                )}
+                                    ) : (
+                                        emails.map((email: any) => (
+                                            <EmailRow
+                                                key={email.id}
+                                                email={email}
+                                                isSelected={selectedEmail?.id === email.id}
+                                                isRowChecked={selectedEmailIds.has(email.id)}
+                                                showBadge={shouldShowStageBadge(activeStage, email.pipeline_stage, isSearchResults)}
+                                                onClick={() => handleSelectEmail(email)}
+                                                onToggleSelect={toggleSelectEmail}
+                                            />
+                                        ))
+                                    )}
+                                </PageLoader>
                             </div>
 
                             <PaginationControls

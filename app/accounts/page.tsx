@@ -10,10 +10,13 @@ import {
     connectManualAccountAction,
     getAccountsAction,
     removeAccountAction,
-    reSyncAccountAction
+    reSyncAccountAction,
+    toggleSyncStatusAction,
+    stopSyncingAction
 } from '../../src/actions/accountActions';
+import { PageLoader } from '../components/LoadingStates';
 
-type AccountStatus = 'ACTIVE' | 'ERROR' | 'DISCONNECTED' | 'SYNCING';
+type AccountStatus = 'ACTIVE' | 'ERROR' | 'DISCONNECTED' | 'SYNCING' | 'PAUSED';
 type ConnectionMethod = 'OAUTH' | 'MANUAL';
 
 interface GmailAccount {
@@ -26,7 +29,15 @@ interface GmailAccount {
     sync_progress?: number;
 }
 
+import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
+import { useHydrated } from '../utils/useHydration';
+
 let globalAccountsCache: GmailAccount[] | null = null;
+
+if (typeof window !== 'undefined') {
+    const savedAccounts = getFromLocalCache('accounts_data');
+    if (savedAccounts) globalAccountsCache = savedAccounts;
+}
 
 function StatusBadge({ status }: { status: AccountStatus }) {
     const map: Record<AccountStatus, { label: string; cls: string }> = {
@@ -34,12 +45,14 @@ function StatusBadge({ status }: { status: AccountStatus }) {
         ERROR: { label: 'Error', cls: 'badge-red' },
         DISCONNECTED: { label: 'Disconnected', cls: 'badge-gray' },
         SYNCING: { label: 'Syncing...', cls: 'badge-blue' },
+        PAUSED: { label: 'Paused', cls: 'badge-orange' },
     };
     const { label, cls } = map[status] || { label: status, cls: 'badge-gray' };
     return <span className={`badge ${cls}`}>{label}</span>;
 }
 
 export default function AccountsPage() {
+    const isHydrated = useHydrated();
     const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
     const [accounts, setAccounts] = useState<GmailAccount[]>(() => globalAccountsCache || []);
     const [isLoading, setIsLoading] = useState(() => !globalAccountsCache);
@@ -64,9 +77,25 @@ export default function AccountsPage() {
         if (!globalAccountsCache) setIsLoading(true);
         try {
             const userId = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
-            const data = await getAccountsAction(userId);
-            globalAccountsCache = data as unknown as GmailAccount[];
-            setAccounts(data as unknown as GmailAccount[]);
+
+            // Safety timeout
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Request timed out')), 15000)
+            );
+
+            const result = await Promise.race([
+                getAccountsAction(userId),
+                timeoutPromise
+            ]) as any;
+
+            if (result.success) {
+                const accts = result.accounts as unknown as GmailAccount[];
+                globalAccountsCache = accts;
+                saveToLocalCache('accounts_data', accts);
+                setAccounts(accts);
+            } else {
+                setError(result.error || 'Failed to load accounts');
+            }
         } catch (err) {
             console.error('Failed to fetch accounts:', err);
             setError('Failed to load accounts. Please try again.');
@@ -75,19 +104,36 @@ export default function AccountsPage() {
         }
     };
 
+    // Separated background refresh for better handling
+    const refreshAccountsSilently = async () => {
+        try {
+            const userId = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
+            const result = await getAccountsAction(userId);
+            if (result.success) {
+                const accts = result.accounts as unknown as GmailAccount[];
+                globalAccountsCache = accts;
+                saveToLocalCache('accounts_data', accts);
+                setAccounts(accts);
+            }
+        } catch (err) {
+            console.warn('Background account refresh failed (ignoring):', err);
+        }
+    };
+
     useEffect(() => {
         fetchAccounts();
+    }, []);
 
-        // Auto-refresh every 5s if any account is SYNCING
+    useEffect(() => {
+        const hasSyncing = accounts.some(a => a.status === 'SYNCING');
+        if (!hasSyncing && !isSyncing) return;
+
         const interval = setInterval(() => {
-            const hasSyncing = accounts.some(a => a.status === 'SYNCING');
-            if (hasSyncing || isSyncing) {
-                fetchAccounts();
-            }
+            refreshAccountsSilently();
         }, 5000);
 
         return () => clearInterval(interval);
-    }, [accounts.length, isSyncing]);
+    }, [accounts, isSyncing]);
 
     const handleOAuthFlow = async () => {
         try {
@@ -127,6 +173,45 @@ export default function AccountsPage() {
     };
 
 
+    const handleReSync = async (account: GmailAccount) => {
+        setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: 'SYNCING' } : a));
+        try {
+            const result = await reSyncAccountAction(account.id, account.connection_method);
+            if (result.success) {
+                fetchAccounts();
+            } else {
+                alert('Failed to sync: ' + result.error);
+                setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
+            }
+        } catch (err: any) {
+            console.error('Re-sync failed:', err);
+            setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
+        }
+    };
+
+    const handleToggleSync = async (account: GmailAccount) => {
+        try {
+            const result = await toggleSyncStatusAction(account.id, account.status);
+            if (result.success) {
+                fetchAccounts();
+            }
+        } catch (err) {
+            console.error('Toggle sync failed:', err);
+        }
+    };
+
+    const handleStopSync = async (account: GmailAccount) => {
+        if (!confirm('Are you sure you want to stop syncing? Progress will be saved but the process will end.')) return;
+        try {
+            const result = await stopSyncingAction(account.id);
+            if (result.success) {
+                fetchAccounts();
+            }
+        } catch (err) {
+            console.error('Stop sync failed:', err);
+        }
+    };
+
     const handleRemove = async (accountId: string) => {
         try {
             const result = await removeAccountAction(accountId);
@@ -140,19 +225,6 @@ export default function AccountsPage() {
         } finally {
             setAccountToRemove(null);
             setRemoveConfirmText('');
-        }
-    };
-
-    const handleReSync = async (account: GmailAccount) => {
-        setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: 'SYNCING' } : a));
-        try {
-            const result = await reSyncAccountAction(account.id, account.connection_method);
-            if (!result.success) {
-                alert('Failed to sync: ' + result.error);
-                setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
-            }
-        } catch (err: any) {
-            console.error(err);
         }
     };
 
@@ -257,7 +329,7 @@ export default function AccountsPage() {
                         {/* Toolbar */}
                         <div className="list-toolbar">
                             <div className="list-toolbar-left">
-                                <span className="count-label">{accounts.length} linked accounts</span>
+                                <span className="count-label">{isHydrated ? accounts.length : 0} linked accounts</span>
                             </div>
                             <div className="list-toolbar-right">
                                 <button className="icon-btn" onClick={handleSync} disabled={isSyncing} title="Sync All">
@@ -276,6 +348,25 @@ export default function AccountsPage() {
                         </div>
 
                         <div className="list-area" style={{ padding: '0' }}>
+                            {/* Global Error Banner */}
+                            {error && (
+                                <div style={{
+                                    margin: '1rem 1.5rem',
+                                    padding: '0.75rem 1rem',
+                                    background: 'rgba(239,68,68,0.08)',
+                                    border: '1px solid rgba(239,68,68,0.2)',
+                                    borderRadius: 'var(--radius-md)',
+                                    color: 'var(--danger)',
+                                    fontSize: '0.8125rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.75rem'
+                                }}>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                                    <span>{error}</span>
+                                </div>
+                            )}
+
                             {/* Error banners */}
                             {needsReauth.length > 0 && (
                                 <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)', background: 'rgba(239,68,68,0.03)' }}>
@@ -294,128 +385,134 @@ export default function AccountsPage() {
                                 </div>
                             )}
 
-                            {isLoading ? (
-                                <div className="empty-state">
-                                    <div className="spinner spinner-lg" />
-                                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 8 }}>Loading accounts...</span>
-                                </div>
-                            ) : filteredAccounts.length === 0 ? (
-                                <div className="empty-state">
-                                    <div className="empty-state-icon">
-                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
-                                            <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                                        </svg>
-                                    </div>
-                                    <div className="empty-state-title">No accounts yet</div>
-                                    <div className="empty-state-desc">Connect a Gmail account to start sending and receiving emails.</div>
-                                </div>
-                            ) : (
-                                <div className="accounts-grid" style={{ padding: '1.5rem' }}>
-                                    {filteredAccounts.map(acc => (
-                                        <div
-                                            key={acc.id}
-                                            className={`account-item-card${acc.status === 'ERROR' ? ' account-error' : acc.status === 'SYNCING' ? ' account-syncing' : ''}`}
-                                        >
-                                            {/* Card header */}
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-                                                <div style={{
-                                                    width: 44, height: 44, borderRadius: 'var(--radius-md)',
-                                                    background: 'var(--bg-elevated)',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                    flexShrink: 0,
-                                                }}>
-                                                    {acc.connection_method === 'OAUTH' ? <GoogleIcon /> : (
-                                                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                                                            <polyline points="22,6 12,13 2,6" />
-                                                        </svg>
-                                                    )}
-                                                </div>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontWeight: 600, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                        {acc.email}
-                                                    </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
-                                                        <StatusBadge status={acc.status} />
-                                                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                                            {acc.connection_method === 'MANUAL' ? 'Manual/IMAP' : 'Google OAuth'}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Last synced</div>
-                                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500, marginTop: 1 }}>
-                                                        {formatLastSynced(acc.last_synced_at)}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Emails synced */}
-                                            <div style={{
-                                                marginTop: '1.25rem',
-                                                padding: '0.875rem 1rem',
-                                                background: 'var(--bg-elevated)',
-                                                borderRadius: 'var(--radius-md)',
-                                                border: '1px solid var(--border)',
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center'
-                                            }}>
-                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                    Synchronization Status
-                                                </div>
-                                                <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                                                    {acc.emails_count != null ? `${acc.emails_count.toLocaleString()} emails synced` : 'Scanning...'}
-                                                </div>
-                                            </div>
-
-                                            {/* Error state */}
-                                            {acc.status === 'ERROR' && (
-                                                <div style={{
-                                                    marginTop: '0.875rem', background: 'rgba(239,68,68,0.08)',
-                                                    border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius-sm)',
-                                                    padding: '0.6rem 0.75rem', fontSize: '0.775rem', color: 'var(--danger)'
-                                                }}>
-                                                    Authentication failed. Please re-authenticate to continue receiving emails.
-                                                </div>
-                                            )}
-
-                                            {/* Sync progress */}
-                                            {acc.status === 'SYNCING' && (
-                                                <div style={{ marginTop: '0.875rem' }}>
-                                                    <div className="sync-bar">
-                                                        <div className="sync-bar-fill" style={{ width: `${acc.sync_progress || 0}%` }} />
-                                                    </div>
-                                                    <p style={{ fontSize: '0.72rem', color: 'var(--accent)', marginTop: '0.35rem', textAlign: 'center' }}>
-                                                        Syncing... {acc.sync_progress || 0}%
-                                                    </p>
-                                                </div>
-                                            )}
-
-                                            <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                    {acc.status === 'ERROR' ? (
-                                                        <button className="btn btn-sm btn-primary" onClick={() => handleOAuthFlow()}>
-                                                            Re-connect
-                                                        </button>
-                                                    ) : acc.status !== 'SYNCING' && (
-                                                        <button className="btn btn-sm btn-secondary" onClick={() => handleReSync(acc)}>
-                                                            Re-sync
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        className="btn btn-sm btn-danger"
-                                                        onClick={() => setAccountToRemove(acc)}
-                                                    >
-                                                        Remove
-                                                    </button>
-                                                </div>
-                                            </div>
-
+                            <PageLoader isLoading={!isHydrated || isLoading} type="grid" count={6}>
+                                {filteredAccounts.length === 0 ? (
+                                    <div className="empty-state">
+                                        <div className="empty-state-icon">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
+                                                <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                            </svg>
                                         </div>
-                                    ))}
-                                </div>
-                            )}
+                                        <div className="empty-state-title">No accounts yet</div>
+                                        <div className="empty-state-desc">Connect a Gmail account to start sending and receiving emails.</div>
+                                    </div>
+                                ) : (
+                                    <div className="accounts-grid" style={{ padding: '1.5rem' }}>
+                                        {filteredAccounts.map(acc => (
+                                            <div
+                                                key={acc.id}
+                                                className={`account-item-card${acc.status === 'ERROR' ? ' account-error' : acc.status === 'SYNCING' ? ' account-syncing' : ''}`}
+                                            >
+                                                {/* Card Content ... */}
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+                                                    <div style={{
+                                                        width: 44, height: 44, borderRadius: 'var(--radius-md)',
+                                                        background: 'var(--bg-elevated)',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        flexShrink: 0,
+                                                    }}>
+                                                        {acc.connection_method === 'OAUTH' ? <GoogleIcon /> : (
+                                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                                                                <polyline points="22,6 12,13 2,6" />
+                                                            </svg>
+                                                        )}
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 600, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {acc.email}
+                                                        </div>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                                                            <StatusBadge status={acc.status} />
+                                                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                                                {acc.connection_method === 'MANUAL' ? 'Manual/IMAP' : 'Google OAuth'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Last synced</div>
+                                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500, marginTop: 1 }}>
+                                                            {formatLastSynced(acc.last_synced_at)}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div style={{
+                                                    marginTop: '1.25rem',
+                                                    padding: '0.875rem 1rem',
+                                                    background: 'var(--bg-elevated)',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    border: '1px solid var(--border)',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center'
+                                                }}>
+                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                        Synchronization Status
+                                                    </div>
+                                                    <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                                        {acc.emails_count != null ? `${acc.emails_count.toLocaleString()} emails synced` : 'Scanning...'}
+                                                    </div>
+                                                </div>
+
+                                                {acc.status === 'ERROR' && (
+                                                    <div style={{
+                                                        marginTop: '0.875rem', background: 'rgba(239,68,68,0.08)',
+                                                        border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius-sm)',
+                                                        padding: '0.6rem 0.75rem', fontSize: '0.775rem', color: 'var(--danger)'
+                                                    }}>
+                                                        Authentication failed.
+                                                    </div>
+                                                )}
+
+                                                {acc.status === 'SYNCING' && (
+                                                    <div style={{ marginTop: '0.875rem' }}>
+                                                        <div className="sync-bar">
+                                                            <div className="sync-bar-fill" style={{ width: `${acc.sync_progress || 0}%` }} />
+                                                        </div>
+                                                        <p style={{ fontSize: '0.72rem', color: 'var(--accent)', marginTop: '0.35rem', textAlign: 'center' }}>
+                                                            Syncing... {acc.sync_progress || 0}%
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                        {acc.status === 'ERROR' ? (
+                                                            <button className="btn btn-sm btn-primary" onClick={() => handleOAuthFlow()}>
+                                                                Re-connect
+                                                            </button>
+                                                        ) : acc.status === 'SYNCING' ? (
+                                                            <button className="btn btn-sm btn-secondary" onClick={() => handleStopSync(acc)}>
+                                                                Stop Sync
+                                                            </button>
+                                                        ) : (
+                                                            <button className="btn btn-sm btn-secondary" onClick={() => handleReSync(acc)}>
+                                                                Re-sync
+                                                            </button>
+                                                        )}
+
+                                                        {acc.status !== 'ERROR' && acc.status !== 'SYNCING' && (
+                                                            <button
+                                                                className={`btn btn-sm ${acc.status === 'PAUSED' ? 'btn-primary' : 'btn-secondary'}`}
+                                                                onClick={() => handleToggleSync(acc)}
+                                                            >
+                                                                {acc.status === 'PAUSED' ? 'Resume Sync' : 'Pause Sync'}
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            className="btn btn-sm btn-danger"
+                                                            onClick={() => setAccountToRemove(acc)}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </PageLoader>
                         </div>
                     </div>
                 </div>

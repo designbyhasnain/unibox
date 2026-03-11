@@ -157,13 +157,16 @@ async function processSingleMessage(
     // Deduplication check
     const { data: existing } = await supabase
         .from('email_messages')
-        .select('id, body')
+        .select('id, body, gmail_account_id')
         .eq('id', messageId)
         .maybeSingle();
 
-    // If it exists and already has HTML tags, we can safely skip it to save API calls.
-    // Otherwise, we re-fetch to upgrade plain text to rich HTML.
-    if (existing?.body && (existing.body.includes('<div') || existing.body.includes('<p') || existing.body.includes('<br'))) {
+    // If it exists and already has the CORRECT account ID and rich body, we skip.
+    // Optimization: we only skip if it's already linked to THIS account.
+    // If gmail_account_id is NULL (orphaned email from a delete), we MUST continue to re-link it.
+    if (existing?.gmail_account_id === account.id &&
+        existing?.body &&
+        (existing.body.includes('<div') || existing.body.includes('<p') || existing.body.includes('<br'))) {
         return;
     }
 
@@ -279,13 +282,27 @@ async function processBatch(
     account: any,
     messageIds: Array<{ id: string }>,
     direction?: 'SENT' | 'RECEIVED',
-    concurrency = 5,
+    concurrency = 20,
     sentThreadIds?: Set<string>,
     ignoredSenders?: Set<string>,
     totalMessages?: number,
     processedCount = 0
 ) {
     for (let i = 0; i < messageIds.length; i += concurrency) {
+        // 1. Periodic Status Check for Cancellation
+        if (i % (concurrency * 5) === 0) {
+            const { data: currentAcc } = await supabase
+                .from('gmail_accounts')
+                .select('status')
+                .eq('id', account.id)
+                .single();
+
+            if (currentAcc && currentAcc.status !== 'SYNCING') {
+                console.log(`[Sync] Aborting background sync for ${account.email} because status is ${currentAcc.status}`);
+                return; // Graceful stop
+            }
+        }
+
         const batch = messageIds.slice(i, i + concurrency);
         await Promise.allSettled(
             batch.map((msg) => processSingleMessage(gmail, account, msg.id, direction, sentThreadIds, ignoredSenders))
@@ -294,14 +311,15 @@ async function processBatch(
         // Update progress in DB every batch or two
         if (totalMessages && totalMessages > 0) {
             const currentTotalProcessed = processedCount + i + batch.length;
-            const progress = Math.min(Math.round((currentTotalProcessed / totalMessages) * 100), 99);
+            const progress = Math.min(Math.round((currentTotalProcessed / totalMessages) * 100), 100);
 
-            // Update DB every 5 batches to avoid over-pressure
-            if (i % (concurrency * 5) === 0 || i + concurrency >= messageIds.length) {
+            // Update DB every 10 batches to avoid over-pressure, or at 100%
+            if (i % (concurrency * 10) === 0 || progress === 100) {
                 await supabase
                     .from('gmail_accounts')
                     .update({ sync_progress: progress })
-                    .eq('id', account.id);
+                    .eq('id', account.id)
+                    .eq('status', 'SYNCING'); // Only update if still in syncing mode
             }
         }
 
@@ -471,8 +489,15 @@ export async function syncGmailEmails(accountId: string) {
         throw new Error('Invalid account for Gmail API sync');
     }
 
+    // CONCURRENCY GUARD: If already syncing, don't start another one
+    if (account.status === 'SYNCING') {
+        console.log(`[Sync] Sync already in progress for ${account.email}. Skipping redundant trigger.`);
+        return;
+    }
+
     const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
 
+    // Mark as SYNCING immediately to lock others out
     await supabase.from('gmail_accounts').update({ status: 'SYNCING', sync_progress: 0 }).eq('id', accountId);
 
     try {
@@ -481,21 +506,12 @@ export async function syncGmailEmails(accountId: string) {
         const combinedQuery = `in:anywhere`;
         const fs = require('fs');
         fs.appendFileSync('sync_debug.log', `[Full Sync] Starting for ${account.email} at ${new Date().toISOString()}\n`);
-        const labelsToFetch = ['INBOX', 'SENT', 'SPAM', 'TRASH'];
-        const allFetchedIds = new Map<string, { id: string }>();
+        // One broad fetch is much more efficient than separate label fetches
+        // 'in:anywhere' includes Inbox, Sent, Drafts, Trash, Spam
+        const allMessageIds = await fetchAllMessageIds(gmail, [], 'in:anywhere', 100000);
 
-        for (const label of labelsToFetch) {
-            const ids = await fetchAllMessageIds(gmail, [label], undefined, 100000);
-            ids.forEach(m => allFetchedIds.set(m.id, m));
-        }
-
-        // Also run a broad search for anything else
-        const broadIds = await fetchAllMessageIds(gmail, [], 'in:anywhere', 100000);
-        broadIds.forEach(m => allFetchedIds.set(m.id, m));
-
-        const allMessageIds = Array.from(allFetchedIds.values());
-        fs.appendFileSync('sync_debug.log', `[Full Sync] Found ${allMessageIds.length} unique messages total at ${new Date().toISOString()}\n`);
-        console.log(`[Full Sync] Found ${allMessageIds.length} unique messages total`);
+        fs.appendFileSync('sync_debug.log', `[Full Sync] Found ${allMessageIds.length} total messages for ${account.email} at ${new Date().toISOString()}\n`);
+        console.log(`[Full Sync] Found ${allMessageIds.length} total messages for ${account.email}`);
 
         // ── Step 3: Fetch current historyId from user profile ─────────────────
         let latestHistoryId: string | undefined = undefined;
@@ -525,7 +541,7 @@ export async function syncGmailEmails(accountId: string) {
             .map((i: any) => i.email?.toLowerCase())
             .filter(Boolean));
 
-        await processBatch(gmail, account, allMessageIds, undefined, 5, sentThreadIds, ignoredSenders, allMessageIds.length);
+        await processBatch(gmail, account, allMessageIds, undefined, 20, sentThreadIds, ignoredSenders, allMessageIds.length);
 
         await supabase
             .from('gmail_accounts')

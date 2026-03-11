@@ -68,9 +68,12 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     useEffect(() => {
         const fetchAccounts = async () => {
             try {
-                const data = await getAccountsAction('1ca1464d-1009-426e-96d5-8c5e8c84faac');
-                setAccounts(data);
-                if (data.length > 0) setFromAccount(data[0].id);
+                const result = await getAccountsAction('1ca1464d-1009-426e-96d5-8c5e8c84faac');
+                if (result.success) {
+                    const data = result.accounts;
+                    setAccounts(data);
+                    if (data.length > 0) setFromAccount(data[0].id);
+                }
             } catch (err) { console.error('Failed to fetch accounts:', err); }
         };
         fetchAccounts();

@@ -129,6 +129,15 @@ export async function syncManualEmails(accountId: string) {
         throw new Error('Invalid account for manual sync');
     }
 
+    // CONCURRENCY GUARD: If already syncing, don't start another one
+    if (account.status === 'SYNCING') {
+        console.log(`[Manual Sync] Sync already in progress for ${account.email}. Skipping.`);
+        return;
+    }
+
+    // Mark as SYNCING immediately to lock others out
+    await supabase.from('gmail_accounts').update({ status: 'SYNCING', sync_progress: 0 }).eq('id', accountId);
+
     const password = decrypt(account.app_password);
     const imapHost = account.imap_host || 'imap.gmail.com';
     const imapPort = account.imap_port || 993;
@@ -175,6 +184,19 @@ export async function syncManualEmails(accountId: string) {
         for (let i = 0; i < targetFolders.length; i++) {
             const folder = targetFolders[i];
             if (!folder) continue;
+
+            // Periodic Cancellation Check
+            const { data: currentAcc } = await supabase
+                .from('gmail_accounts')
+                .select('status')
+                .eq('id', accountId)
+                .single();
+
+            if (currentAcc && currentAcc.status !== 'SYNCING') {
+                console.log(`[Manual Sync] Aborting for ${account.email} - status changed to ${currentAcc.status}`);
+                return;
+            }
+
             try {
                 const lock = await imap.getMailboxLock(folder);
                 try {
@@ -188,6 +210,12 @@ export async function syncManualEmails(accountId: string) {
                     });
 
                     for await (const message of messages) {
+                        // Batch cancellation check within folder
+                        if (Math.random() < 0.05) { // Check occasionally to avoid DB spam
+                            const { data: checkAcc } = await supabase.from('gmail_accounts').select('status').eq('id', accountId).single();
+                            if (checkAcc && checkAcc.status !== 'SYNCING') return;
+                        }
+
                         if (!message.source || !message.envelope) continue;
 
                         const parsed = await simpleParser(message.source);

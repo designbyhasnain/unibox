@@ -4,23 +4,10 @@ import React from 'react';
 import { CheckCheck, Check } from 'lucide-react';
 import { avatarColor, formatDate, cleanPreview } from '../utils/helpers';
 import AddProjectModal from './AddProjectModal';
+import { useHydrated } from '../utils/useHydration';
 import { ensureContactAction } from '../../src/actions/clientActions';
 
-const STAGE_COLORS: Record<string, string> = {
-    COLD_LEAD: 'badge-blue',
-    LEAD: 'badge-yellow',
-    OFFER_ACCEPTED: 'badge-green',
-    CLOSED: 'badge-purple',
-    NOT_INTERESTED: 'badge-red',
-};
-
-const STAGE_LABELS: Record<string, string> = {
-    COLD_LEAD: 'Cold',
-    LEAD: 'Lead',
-    OFFER_ACCEPTED: 'Offer Accepted',
-    CLOSED: 'Closed',
-    NOT_INTERESTED: 'Not Interested',
-};
+import { STAGE_COLORS, STAGE_LABELS, STAGE_OPTIONS } from '../constants/stages';
 
 
 interface EmailRowProps {
@@ -32,7 +19,7 @@ interface EmailRowProps {
     onToggleSelect: (id: string) => void;
 }
 
-export function EmailRow({ email, isSelected, isRowChecked, showBadge, onClick, onToggleSelect }: EmailRowProps) {
+export const EmailRow = React.memo(function EmailRow({ email, isSelected, isRowChecked, showBadge, onClick, onToggleSelect }: EmailRowProps) {
     let senderName = 'Unknown';
     if (email.direction === 'SENT') {
         const toRaw = email.to_email || '';
@@ -139,7 +126,20 @@ export function EmailRow({ email, isSelected, isRowChecked, showBadge, onClick, 
             </div>
         </div>
     );
-}
+}, (prev, next) => {
+    return (
+        prev.email.id === next.email.id &&
+        prev.email.is_unread === next.email.is_unread &&
+        prev.email.pipeline_stage === next.email.pipeline_stage &&
+        prev.email.opens_count === next.email.opens_count &&
+        prev.email.has_reply === next.email.has_reply &&
+        prev.isSelected === next.isSelected &&
+        prev.isRowChecked === next.isRowChecked &&
+        prev.showBadge === next.showBadge
+    );
+});
+
+/* SkeletonRow removed - moved to LoadingStates.tsx for universal use */
 
 // ─── Email Detail Panel ────────────────────────────────────────────────────────
 
@@ -159,13 +159,7 @@ interface EmailDetailProps {
     totalCount?: number;
 }
 
-const STAGE_OPTIONS = [
-    { id: 'COLD_LEAD', label: 'Cold' },
-    { id: 'LEAD', label: 'Lead' },
-    { id: 'OFFER_ACCEPTED', label: 'Offer Accepted' },
-    { id: 'CLOSED', label: 'Closed' },
-    { id: 'NOT_INTERESTED', label: 'Not Interested' },
-];
+// Moved to app/constants/stages.ts for universal architecture
 
 /** Safely render HTML email body inside a sandboxed iframe for Gmail-like fidelity */
 function EmailBodyFrame({ html }: { html: string }) {
@@ -999,7 +993,8 @@ interface PaginationProps {
 }
 
 export function PaginationControls({ currentPage, totalPages, totalCount, pageSize, onGoToPage }: PaginationProps) {
-    if (totalPages <= 1) return null;
+    const isHydrated = useHydrated();
+    if (!isHydrated || totalPages <= 1) return null;
 
     const getPageNumbers = (): (number | '...')[] => {
         const pages: (number | '...')[] = [];

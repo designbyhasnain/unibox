@@ -16,6 +16,7 @@ export type PaginatedEmailResult = {
     page: number;
     pageSize: number;
     totalPages: number;
+    error?: boolean;
 };
 
 // ─── Send Email ───────────────────────────────────────────────────────────────
@@ -126,7 +127,7 @@ export async function getInboxEmailsAction(
 
     if (error) {
         console.error('[getInboxEmailsAction] RPC error:', error);
-        return empty;
+        return { ...empty, error: true }; 
     }
 
 
@@ -203,7 +204,7 @@ export async function getSentEmailsAction(
 
     if (error) {
         console.error('getSentEmailsAction RPC error:', error);
-        return empty;
+        return { ...empty, error: true };
     }
 
     const rows = data as any[];
@@ -501,18 +502,10 @@ export async function getThreadMessagesAction(threadId: string) {
 // ─── Delete Email ─────────────────────────────────────────────────────────────
 
 export async function deleteEmailAction(messageId: string) {
-    const { data: message } = await supabase
-        .from('email_messages')
-        .select('contact_id')
-        .eq('id', messageId)
-        .maybeSingle();
-
-    if (message?.contact_id) {
-        await supabase.from('projects').delete().eq('client_id', message.contact_id);
-        await supabase.from('contacts').delete().eq('id', message.contact_id);
-    }
+    // Only delete the specific project linked to this email (if any)
     await supabase.from('projects').delete().eq('source_email_id', messageId);
 
+    // Delete the message itself
     const { error } = await supabase
         .from('email_messages')
         .delete()
@@ -528,22 +521,10 @@ export async function deleteEmailAction(messageId: string) {
 export async function bulkDeleteEmailsAction(messageIds: string[]) {
     if (!messageIds || messageIds.length === 0) return { success: true };
 
-    const { data: messages } = await supabase
-        .from('email_messages')
-        .select('contact_id')
-        .in('id', messageIds);
+    // Delete projects specifically linked to these emails
+    await supabase.from('projects').delete().in('source_email_id', messageIds);
 
-    if (messages && messages.length > 0) {
-        const contactIds = Array.from(new Set(messages.map(m => m.contact_id).filter(Boolean)));
-
-        await supabase.from('projects').delete().in('source_email_id', messageIds);
-
-        if (contactIds.length > 0) {
-            await supabase.from('projects').delete().in('client_id', contactIds);
-            await supabase.from('contacts').delete().in('id', contactIds);
-        }
-    }
-
+    // Delete the messages
     const { error } = await supabase
         .from('email_messages')
         .delete()

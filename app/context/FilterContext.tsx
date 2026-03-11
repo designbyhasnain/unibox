@@ -1,32 +1,54 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, type ReactNode } from 'react';
+import { flushAllMailboxCaches } from '../hooks/useMailbox';
 
 interface FilterContextType {
     selectedAccountId: string; // 'ALL' or a specific ID
     setSelectedAccountId: (id: string) => void;
+    startDate: string; // YYYY-MM-DD
+    setStartDate: (date: string) => void;
+    endDate: string; // YYYY-MM-DD
+    setEndDate: (date: string) => void;
 }
 
 const FilterContext = createContext<FilterContextType | undefined>(undefined);
 
 export function FilterProvider({ children }: { children: ReactNode }) {
-    const [selectedAccountId, setSelectedAccountIdState] = useState<string>('ALL');
-
-    // Load from localStorage on mount
-    useEffect(() => {
-        const saved = localStorage.getItem('unibox_selected_account_id');
-        if (saved) {
-            setSelectedAccountIdState(saved);
+    // Synchronous initialization from localStorage to prevent flash of wrong account data
+    const [selectedAccountId, setSelectedAccountIdState] = useState<string>(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('unibox_selected_account_id') || 'ALL';
         }
-    }, []);
+        return 'ALL';
+    });
+
+    // Date range filter
+    const [startDate, setStartDate] = useState<string>(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return d.toISOString().split('T')[0] as string;
+    });
+    const [endDate, setEndDate] = useState<string>(() => {
+        return new Date().toISOString().split('T')[0] as string;
+    });
 
     const setSelectedAccountId = (id: string) => {
+        // Flush ALL mailbox caches BEFORE updating state — no stale data survives
+        flushAllMailboxCaches();
         setSelectedAccountIdState(id);
         localStorage.setItem('unibox_selected_account_id', id);
     };
 
     return (
-        <FilterContext.Provider value={{ selectedAccountId, setSelectedAccountId }}>
+        <FilterContext.Provider value={{ 
+            selectedAccountId, 
+            setSelectedAccountId,
+            startDate,
+            setStartDate,
+            endDate,
+            setEndDate
+        }}>
             {children}
         </FilterContext.Provider>
     );

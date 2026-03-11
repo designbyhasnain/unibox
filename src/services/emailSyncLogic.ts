@@ -103,11 +103,37 @@ export async function handleEmailReceived(data: {
     // Removed auto-creation of contact. Random incoming emails will no longer populate the Clients page.
     // They will only be processed into the Inbox without creating a CRM Client entry unless they already were one.
 
-    // 2. Keyword detection for possible offer acceptance
+    // 2. Identify the current stage of this thread (if it exists)
+    const { data: threadStatus } = await supabase
+        .from('email_messages')
+        .select('pipeline_stage, direction')
+        .eq('thread_id', threadId)
+        .order('sent_at', { ascending: false });
+
+    // Check if we have ever sent an email in this thread
+    const hasOutgoing = (threadStatus || []).some(m => m.direction === 'SENT');
+    const existingStage = threadStatus?.[0]?.pipeline_stage || null;
+
+    // Promotion Logic:
+    // 1. If we have sent an email in this thread, it's a conversation -> LEAD
+    // 2. If the contact is already an advanced lead/client, keep that stage
+    // 3. Otherwise, it stays in COLD_LEAD (to appear in the main inbox tab)
+    let newEmailStage = 'COLD_LEAD';
+
+    if (hasOutgoing || (contact && !['COLD_LEAD', null].includes(contact.pipeline_stage))) {
+        newEmailStage = 'LEAD';
+    }
+
+    // Preserve existing stage if it's already higher than LEAD (e.g. OFFER_ACCEPTED)
+    if (existingStage && !['COLD_LEAD', 'LEAD'].includes(existingStage)) {
+        newEmailStage = existingStage;
+    }
+
+    // 3. Keyword detection for possible offer acceptance (Activity log only)
     const bodyText = data.body.toLowerCase();
     const mightBeAccepted = ACCEPTANCE_KEYWORDS.some((k) => bodyText.includes(k));
 
-    if (mightBeAccepted && contact?.is_lead && contact?.pipeline_stage === 'COLD_LEAD') {
+    if (mightBeAccepted && contact?.pipeline_stage === 'LEAD' && contact.id) {
         await supabase.from('activity_logs').insert({
             action: "System flagged 'Possible Acceptance?' due to keyword detection in reply.",
             performed_by: 'System',
@@ -115,43 +141,39 @@ export async function handleEmailReceived(data: {
         });
     }
 
-    // Promoted stage for incoming interest
-    const newEmailStage = 'LEAD';
-
-    // 2. Auto-Update Status for Contact & Backfill Thread
-    if (contact) {
+    // 4. Auto-Update Status for Contact & Backfill Thread if it's a genuine lead
+    if (newEmailStage === 'LEAD' && contact && contact.pipeline_stage === 'COLD_LEAD') {
         await supabase
             .from('contacts')
             .update({ pipeline_stage: 'LEAD' })
-            .eq('id', contact.id)
-            .neq('pipeline_stage', 'LEAD');
+            .eq('id', contact.id);
+
+        // Move all messages in THIS THREAD to LEAD
+        await supabase
+            .from('email_messages')
+            .update({ pipeline_stage: 'LEAD' })
+            .eq('thread_id', threadId)
+            .eq('pipeline_stage', 'COLD_LEAD');
+
+        if (contact.id) {
+            await supabase.from('activity_logs').insert({
+                action: 'Lead promoted: Message received (Reply identified).',
+                performed_by: 'System',
+                contact_id: contact.id,
+            });
+        }
     }
 
-    // Move all messages in THIS THREAD to LEAD so they appear in the Leads tab
-    await supabase
-        .from('email_messages')
-        .update({ pipeline_stage: 'LEAD' })
-        .eq('thread_id', threadId)
-        .neq('pipeline_stage', 'LEAD');
-
-    if (contact) {
-        await supabase.from('activity_logs').insert({
-            action: 'Lead promoted: Message received (Reply or New Outreach).',
-            performed_by: 'System',
-            contact_id: contact.id,
-        });
-    }
-
-    // 6. Force Unread Flag for replies (Notification)
+    // 5. Force Unread Flag for replies (Notification)
     const finalIsUnread = data.isUnread ?? true;
 
-    // 3. Upsert thread
+    // 6. Upsert thread
     await supabase.from('email_threads').upsert(
         { id: threadId, subject: data.subject },
         { onConflict: 'id' }
     );
 
-    // 4. Insert message
+    // 7. Insert message
     const { data: emailMsg, error } = await supabase
         .from('email_messages')
         .upsert({

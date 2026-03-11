@@ -6,31 +6,40 @@ import Topbar from '../components/Topbar';
 import ComposeModal from '../components/ComposeModal';
 import AddProjectModal from '../components/AddProjectModal';
 import { getClientsAction, getClientProjectsAction, updateClientAction } from '../../src/actions/clientActions';
-import { getClientEmailsAction, markClientEmailsAsReadAction, deleteEmailAction, getThreadMessagesAction, markEmailAsReadAction, markEmailAsUnreadAction, bulkDeleteEmailsAction, bulkMarkAsReadAction } from '../../src/actions/emailActions';
+
+const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
+
 import { getManagersAction } from '../../src/actions/projectActions';
 import { EmailRow, EmailDetail } from '../components/InboxComponents';
 import InlineReply from '../components/InlineReply';
 import AddLeadModal from '../components/AddLeadModal';
 import { useGlobalFilter } from '../context/FilterContext';
-import { getAccountsAction } from '../../src/actions/accountActions';
-
-import { avatarColor, initials, formatDate, cleanPreview } from '../utils/helpers';
-import { Mail, Trash2 } from 'lucide-react';
-
-const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
+import { PageLoader } from '../components/LoadingStates';
+import { useHydrated } from '../utils/useHydration';
+import { avatarColor, initials, cleanPreview } from '../utils/helpers';
+import { STAGE_COLORS, STAGE_LABELS } from '../constants/stages';
+import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
+import { markClientEmailsAsReadAction } from '../../src/actions/emailActions';
+import { useMailbox } from '../hooks/useMailbox';
 
 let globalClientsCache: any[] | null = null;
 let globalManagersCache: any[] | null = null;
 let globalClientDetailsCache: Record<string, { emails: any[]; projects: any[] }> = {};
-let globalThreadCache: Record<string, any[]> = {};
+
+if (typeof window !== 'undefined') {
+    const savedClients = getFromLocalCache('clients_data');
+    if (savedClients) {
+        globalClientsCache = savedClients.clients;
+        globalManagersCache = savedClients.managers;
+    }
+}
 
 export default function ClientsPage() {
+    const isHydrated = useHydrated();
     const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
-    const [accounts, setAccounts] = useState<any[]>([]);
     const [clients, setClients] = useState<any[]>(() => globalClientsCache || []);
     const [managers, setManagers] = useState<{ id: string, name: string }[]>(() => globalManagersCache || []);
     const [selectedClient, setSelectedClient] = useState<any>(null);
-    const [clientEmails, setClientEmails] = useState<any[]>([]);
     const [clientProjects, setClientProjects] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState<'emails' | 'projects'>('emails');
     const [isLoading, setIsLoading] = useState(() => !globalClientsCache);
@@ -40,27 +49,49 @@ export default function ClientsPage() {
     const [composeDefaultTo, setComposeDefaultTo] = useState('');
     const [isAddProjectOpen, setIsAddProjectOpen] = useState(false);
     const [projectDefaultName, setProjectDefaultName] = useState('');
-    const [selectedEmail, setSelectedEmail] = useState<any>(null);
-    const [threadMessages, setThreadMessages] = useState<any[]>([]);
-    const [isThreadLoading, setIsThreadLoading] = useState(false);
     const [isReplyingInline, setIsReplyingInline] = useState(false);
-    const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     const [viewMode, setViewMode] = useState<'list' | 'grid' | 'board'>('list');
     const [filterType, setFilterType] = useState<'ALL' | 'LEADS' | 'CLIENTS'>('ALL');
 
+    // ── Use Universal Mailbox Hook ───────────────────────────────────────────
+    const {
+        emails: clientEmails,
+        selectedEmail,
+        threadMessages,
+        isThreadLoading,
+        selectedEmailIds,
+        accounts,
+        handleSelectEmail,
+        handleToggleRead,
+        handleDelete: handleDeleteEmail,
+        toggleSelectEmail,
+        toggleSelectAll,
+        handleBulkMarkAsRead: handleBulkMarkRead,
+        handleBulkDelete,
+        setSelectedEmail,
+        loadEmails
+    } = useMailbox({
+        type: 'client',
+        clientEmail: selectedClient?.email,
+        selectedAccountId,
+        enabled: !!selectedClient
+    });
 
     const loadClients = useCallback(async () => {
-        setIsLoading(true);
+        if (!globalClientsCache) setIsLoading(true);
         try {
-            const [data, mData, accs] = await Promise.all([
+            const [data, mData] = await Promise.all([
                 getClientsAction(selectedAccountId),
-                getManagersAction(),
-                getAccountsAction(ADMIN_USER_ID)
+                getManagersAction()
             ]);
+
+            globalClientsCache = data;
+            globalManagersCache = mData;
+            saveToLocalCache('clients_data', { clients: data, managers: mData });
+
             setClients(data);
             setManagers(mData);
-            setAccounts(accs || []);
         } catch (err) {
             console.error('Failed to load clients:', err);
         } finally {
@@ -70,105 +101,15 @@ export default function ClientsPage() {
 
     useEffect(() => { loadClients(); }, [loadClients]);
 
-    const handleSelectEmail = async (email: any) => {
-        setSelectedEmail(email);
-
-        if (email.thread_id && globalThreadCache[email.thread_id]) {
-            setThreadMessages(globalThreadCache[email.thread_id] || []);
-        } else {
-            setThreadMessages([email]);
-        }
-
-        if (email.is_unread) {
-            setClientEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_unread: false } : e));
-            await markEmailAsReadAction(email.id);
-        }
-
-        if (email.thread_id) {
-            if (!globalThreadCache[email.thread_id]) setIsThreadLoading(true);
-            try {
-                const messages = await getThreadMessagesAction(email.thread_id);
-                if (messages && messages.length > 0) {
-                    globalThreadCache[email.thread_id] = messages;
-                    setThreadMessages(messages);
-                }
-            } catch (err) {
-                console.error('Failed to load thread:', err);
-            } finally {
-                setIsThreadLoading(false);
-            }
-        }
-    };
-
-    const handleToggleRead = async (id: string, currentUnread: boolean) => {
-        const nextUnread = !currentUnread;
-        setClientEmails(prev => prev.map(e => e.id === id ? { ...e, is_unread: nextUnread } : e));
-        if (selectedEmail?.id === id) {
-            setSelectedEmail((prev: any) => ({ ...prev, is_unread: nextUnread }));
-        }
-
-        if (nextUnread) {
-            await markEmailAsUnreadAction(id);
-        } else {
-            await markEmailAsReadAction(id);
-        }
-    };
-
-
-    const handleDeleteEmail = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this message?')) return;
-        setClientEmails(prev => prev.filter(e => e.id !== id));
-        if (selectedEmail?.id === id) setSelectedEmail(null);
-        await deleteEmailAction(id);
-    };
-
-    const toggleSelectEmail = (id: string) => {
-        setSelectedEmailIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    };
-
-    const toggleSelectAll = () => {
-        if (selectedEmailIds.size > 0 && selectedEmailIds.size === clientEmails.length) {
-            setSelectedEmailIds(new Set());
-        } else {
-            setSelectedEmailIds(new Set(clientEmails.map((e) => e.id)));
-        }
-    };
-
-    const handleBulkMarkRead = async () => {
-        const ids = Array.from(selectedEmailIds);
-        if (ids.length === 0) return;
-        setClientEmails((prev) => prev.map((e) => selectedEmailIds.has(e.id) ? { ...e, is_unread: false } : e));
-        setSelectedEmailIds(new Set());
-        await bulkMarkAsReadAction(ids);
-    };
-
-    const handleBulkDelete = async () => {
-        const ids = Array.from(selectedEmailIds);
-        if (ids.length === 0) return;
-        if (!confirm(`Are you sure you want to delete ${ids.length} messages?`)) return;
-        setClientEmails((prev) => prev.filter((e) => !selectedEmailIds.has(e.id)));
-        setSelectedEmailIds(new Set());
-        if (selectedEmail && selectedEmailIds.has(selectedEmail.id)) setSelectedEmail(null);
-        await bulkDeleteEmailsAction(ids);
-    };
-
-
-
     const handleSelectClient = async (client: any) => {
         setSelectedClient(client);
-
+        setSelectedEmail(null); // Reset email view
+        
         const cached = globalClientDetailsCache[client.id];
         if (cached) {
-            setClientEmails(cached.emails);
             setClientProjects(cached.projects);
             setIsDetailLoading(false);
         } else {
-            setClientEmails([]);
             setClientProjects([]);
             setIsDetailLoading(true);
         }
@@ -181,12 +122,9 @@ export default function ClientsPage() {
         }
 
         try {
-            const [emails, projects] = await Promise.all([
-                getClientEmailsAction(ADMIN_USER_ID, client.email, selectedAccountId),
-                getClientProjectsAction(client.id),
-            ]);
-            setClientEmails(emails);
+            const projects = await getClientProjectsAction(client.id);
             setClientProjects(projects);
+            // Emails are automatically loaded by useMailbox hook due to clientEmail dependency
         } catch (err) {
             console.error('Failed to load client details:', err);
         } finally {
@@ -267,16 +205,25 @@ export default function ClientsPage() {
                 {/* Filter Tabs & Toolbar */}
                 <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
                     <div className="tabs-bar" style={{ padding: '0 1.5rem', borderBottom: 'none' }}>
-                        <div className={`tab ${filterType === 'ALL' ? 'active' : ''}`} onClick={() => setFilterType('ALL')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div
+                            className={`tab ${filterType === 'ALL' ? 'active' : ''}`}
+                            onClick={() => setFilterType('ALL')}
+                        >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
                             All Contacts
                             <span style={{ fontSize: '0.75rem', opacity: 0.5, marginLeft: 2 }}>{clients.length}</span>
                         </div>
-                        <div className={`tab ${filterType === 'LEADS' ? 'active' : ''}`} onClick={() => setFilterType('LEADS')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div
+                            className={`tab ${filterType === 'LEADS' ? 'active' : ''}`}
+                            onClick={() => setFilterType('LEADS')}
+                        >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                             Leads
                         </div>
-                        <div className={`tab ${filterType === 'CLIENTS' ? 'active' : ''}`} onClick={() => setFilterType('CLIENTS')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div
+                            className={`tab ${filterType === 'CLIENTS' ? 'active' : ''}`}
+                            onClick={() => setFilterType('CLIENTS')}
+                        >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
                             Active Clients
                         </div>
@@ -327,159 +274,158 @@ export default function ClientsPage() {
                     {/* Client List */}
                     {!selectedClient ? (
                         <div className="list-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-                            {isLoading ? (
-                                <div className="empty-state">
-                                    <div className="spinner spinner-lg" />
-                                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 8 }}>Loading contacts...</span>
-                                </div>
-                            ) : filteredClients.length === 0 ? (
-                                <div className="empty-state">
-                                    <div className="empty-state-icon">
-                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
-                                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-                                        </svg>
+                            <PageLoader isLoading={!isHydrated || isLoading} type="list" count={12}>
+                                {filteredClients.length === 0 ? (
+                                    <div className="empty-state">
+                                        <div className="empty-state-icon">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
+                                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+                                            </svg>
+                                        </div>
+                                        <div className="empty-state-title">No contacts found</div>
+                                        <div className="empty-state-desc">Try a different search term or filter.</div>
                                     </div>
-                                    <div className="empty-state-title">No contacts found</div>
-                                    <div className="empty-state-desc">Try a different search term or filter.</div>
-                                </div>
-                            ) : viewMode === 'list' ? (
-                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                                    <div className="universal-grid grid-table grid-header" style={{ padding: '0.75rem 1.5rem', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: 'var(--text-muted)' }}>
-                                        <div className="grid-col col-client">Client / Contact</div>
-                                        <div className="grid-col col-account">Latest Gmail Account</div>
-                                        <div className="grid-col col-manager">Account Manager</div>
-                                        <div className="grid-col col-metrics right">Projects & Activity</div>
+                                ) : viewMode === 'list' ? (
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                                        <div className="universal-grid grid-table grid-header" style={{ padding: '0.75rem 1.5rem', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: 'var(--text-muted)' }}>
+                                            <div className="grid-col col-client">Client / Contact</div>
+                                            <div className="grid-col col-account">Latest Gmail Account</div>
+                                            <div className="grid-col col-manager">Account Manager</div>
+                                            <div className="grid-col col-metrics right">Projects & Activity</div>
+                                        </div>
+                                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                                            {filteredClients.map((client: any) => (
+                                                <div
+                                                    key={client.id}
+                                                    className={`universal-grid grid-table grid-row ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
+                                                    onClick={() => handleSelectClient(client)}
+                                                >
+                                                    <div className="grid-col col-client">
+                                                        <div className="avatar" style={{ background: avatarColor(client.email || client.name || 'x'), width: 34, height: 34, fontSize: '0.86rem' }}>
+                                                            {initials(client.name || client.email || '?')}
+                                                        </div>
+                                                        <div className="sender-info">
+                                                            <div className="sender-name" style={{ fontWeight: 600 }}>{client.name || client.email}</div>
+                                                            <div className="sender-email" style={{ fontSize: '0.75rem', opacity: 0.6 }}>{client.email}</div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid-col col-account" style={{ fontSize: '0.8125rem' }}>
+                                                        {client.account_email && client.account_email !== 'No Recent Mail' ? (
+                                                            <span style={{ color: 'var(--text-secondary)' }}>{client.account_email}</span>
+                                                        ) : (
+                                                            <span style={{ opacity: 0.3 }}>—</span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="grid-col col-manager">
+                                                        <span className="badge badge-gray" style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '6px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+                                                            {client.manager_name || 'Unassigned'}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="grid-col col-metrics right">
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'flex-end' }}>
+                                                            {client.project_count > 0 && (
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
+                                                                    <span>{client.project_count}</span>
+                                                                </div>
+                                                            )}
+                                                            {client.unread_count > 0 && (
+                                                                <span className="nav-badge" style={{ margin: 0 }}>{client.unread_count}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
-                                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                                ) : viewMode === 'grid' ? (
+                                    <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem', overflowY: 'auto' }}>
                                         {filteredClients.map((client: any) => (
                                             <div
                                                 key={client.id}
-                                                className={`universal-grid grid-table grid-row ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
+                                                className={`client-tile-card ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
                                                 onClick={() => handleSelectClient(client)}
                                             >
-                                                <div className="grid-col col-client">
-                                                    <div className="avatar" style={{ background: avatarColor(client.email || client.name || 'x'), width: 34, height: 34, fontSize: '0.86rem' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                                    <div className="avatar" style={{ background: avatarColor(client.email || client.name || 'x'), width: 44, height: 44, fontSize: '1rem' }}>
                                                         {initials(client.name || client.email || '?')}
                                                     </div>
-                                                    <div className="sender-info">
-                                                        <div className="sender-name" style={{ fontWeight: 600 }}>{client.name || client.email}</div>
-                                                        <div className="sender-email" style={{ fontSize: '0.75rem', opacity: 0.6 }}>{client.email}</div>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 700, fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.name}</div>
+                                                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.email}</div>
                                                     </div>
                                                 </div>
-
-                                                <div className="grid-col col-account" style={{ fontSize: '0.8125rem' }}>
-                                                    {client.account_email && client.account_email !== 'No Recent Mail' ? (
-                                                        <span style={{ color: 'var(--text-secondary)' }}>{client.account_email}</span>
-                                                    ) : (
-                                                        <span style={{ opacity: 0.3 }}>—</span>
+                                                <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                    <span className="badge badge-gray" style={{ fontSize: '0.7rem', fontWeight: 600 }}>{client.manager_name}</span>
+                                                    {client.account_email && client.account_email !== 'No Recent Mail' && (
+                                                        <span className="badge badge-gray" style={{ fontSize: '0.7rem', opacity: 0.7 }}>{client.account_email}</span>
+                                                    )}
+                                                     {client.pipeline_stage && (
+                                                         <span className={`badge ${STAGE_COLORS[client.pipeline_stage] || 'badge-blue'}`} style={{ fontSize: '0.7rem' }}>
+                                                             {STAGE_LABELS[client.pipeline_stage] || client.pipeline_stage}
+                                                         </span>
+                                                     )}
+                                                    {client.project_count > 0 && (
+                                                        <span className="badge badge-purple" style={{ fontSize: '0.7rem' }}>{client.project_count} Projects</span>
                                                     )}
                                                 </div>
-
-                                                <div className="grid-col col-manager">
-                                                    <span className="badge badge-gray" style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '6px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-                                                        {client.manager_name || 'Unassigned'}
-                                                    </span>
-                                                </div>
-
-                                                <div className="grid-col col-metrics right">
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'flex-end' }}>
-                                                        {client.project_count > 0 && (
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
-                                                                <span>{client.project_count}</span>
-                                                            </div>
-                                                        )}
-                                                        {client.unread_count > 0 && (
-                                                            <span className="nav-badge" style={{ margin: 0 }}>{client.unread_count}</span>
-                                                        )}
+                                                {client.unread_count > 0 && (
+                                                    <div style={{ position: 'absolute', top: 12, right: 12 }}>
+                                                        <span className="nav-badge">{client.unread_count}</span>
                                                     </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="board-view" style={{ display: 'flex', gap: '1.5rem', padding: '1.5rem', overflowX: 'auto', flex: 1, minHeight: 0 }}>
+                                        {(['COLD_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'WON', 'CLOSED'] as const).map(stage => (
+                                            <div key={stage} className="board-column">
+                                                <div className="column-header">
+                                                    <div className="column-title">
+                                                         {STAGE_LABELS[stage] || stage.replace('_', ' ')}
+                                                        <span className="column-count">
+                                                            {filteredClients.filter((c: any) => (c.pipeline_stage === stage) || (stage === 'WON' && !c.pipeline_stage && c.project_count > 0)).length}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="column-content">
+                                                    {filteredClients.filter((c: any) => (c.pipeline_stage === stage) || (stage === 'WON' && !c.pipeline_stage && c.project_count > 0)).map((client: any) => (
+                                                        <div
+                                                            key={client.id}
+                                                            className={`board-card ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
+                                                            onClick={() => handleSelectClient(client)}
+                                                        >
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                                                <div className="avatar" style={{ background: avatarColor(client.email || client.name || 'x'), width: 28, height: 28, fontSize: '0.75rem' }}>
+                                                                    {initials(client.name || client.email || '?')}
+                                                                </div>
+                                                                <div style={{ minWidth: 0 }}>
+                                                                    <div style={{ fontWeight: 600, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.name}</div>
+                                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.email}</div>
+                                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-accent)', marginTop: 2, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                        {client.manager_name}
+                                                                        {client.account_email && client.account_email !== 'No Recent Mail' && ` • ${client.account_email}`}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            {client.project_count > 0 && (
+                                                                <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
+                                                                    <span>Projects</span>
+                                                                    <span style={{ fontWeight: 700 }}>{client.project_count}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
-                                </div>
-                            ) : viewMode === 'grid' ? (
-                                <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem', overflowY: 'auto' }}>
-                                    {filteredClients.map((client: any) => (
-                                        <div
-                                            key={client.id}
-                                            className={`client-tile-card ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
-                                            onClick={() => handleSelectClient(client)}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                                <div className="avatar" style={{ background: avatarColor(client.email || client.name || 'x'), width: 44, height: 44, fontSize: '1rem' }}>
-                                                    {initials(client.name || client.email || '?')}
-                                                </div>
-                                                <div style={{ minWidth: 0 }}>
-                                                    <div style={{ fontWeight: 700, fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.name}</div>
-                                                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.email}</div>
-                                                </div>
-                                            </div>
-                                            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                                <span className="badge badge-gray" style={{ fontSize: '0.7rem', fontWeight: 600 }}>{client.manager_name}</span>
-                                                {client.account_email && client.account_email !== 'No Recent Mail' && (
-                                                    <span className="badge badge-gray" style={{ fontSize: '0.7rem', opacity: 0.7 }}>{client.account_email}</span>
-                                                )}
-                                                {client.pipeline_stage && (
-                                                    <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>{client.pipeline_stage}</span>
-                                                )}
-                                                {client.project_count > 0 && (
-                                                    <span className="badge badge-purple" style={{ fontSize: '0.7rem' }}>{client.project_count} Projects</span>
-                                                )}
-                                            </div>
-                                            {client.unread_count > 0 && (
-                                                <div style={{ position: 'absolute', top: 12, right: 12 }}>
-                                                    <span className="nav-badge">{client.unread_count}</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="board-view" style={{ display: 'flex', gap: '1.5rem', padding: '1.5rem', overflowX: 'auto', flex: 1, minHeight: 0 }}>
-                                    {(['COLD_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'WON', 'CLOSED'] as const).map(stage => (
-                                        <div key={stage} className="board-column">
-                                            <div className="column-header">
-                                                <div className="column-title">
-                                                    {stage.replace('_', ' ')}
-                                                    <span className="column-count">
-                                                        {filteredClients.filter((c: any) => (c.pipeline_stage === stage) || (stage === 'WON' && !c.pipeline_stage && c.project_count > 0)).length}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div className="column-content">
-                                                {filteredClients.filter((c: any) => (c.pipeline_stage === stage) || (stage === 'WON' && !c.pipeline_stage && c.project_count > 0)).map((client: any) => (
-                                                    <div
-                                                        key={client.id}
-                                                        className={`board-card ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
-                                                        onClick={() => handleSelectClient(client)}
-                                                    >
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                                            <div className="avatar" style={{ background: avatarColor(client.email || client.name || 'x'), width: 28, height: 28, fontSize: '0.75rem' }}>
-                                                                {initials(client.name || client.email || '?')}
-                                                            </div>
-                                                            <div style={{ minWidth: 0 }}>
-                                                                <div style={{ fontWeight: 600, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.name}</div>
-                                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.email}</div>
-                                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-accent)', marginTop: 2, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                    {client.manager_name}
-                                                                    {client.account_email && client.account_email !== 'No Recent Mail' && ` • ${client.account_email}`}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        {client.project_count > 0 && (
-                                                            <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span>Projects</span>
-                                                                <span style={{ fontWeight: 700 }}>{client.project_count}</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                                )}
+                            </PageLoader>
                         </div>
                     ) : (
 
@@ -575,24 +521,22 @@ export default function ClientsPage() {
                             </div>
 
                             {/* Tabs Bar */}
-                            <div className="tabs-bar" style={{ padding: '0 2rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                            <div className="tabs-bar">
                                 <div
                                     className={`tab ${activeTab === 'emails' ? 'active' : ''}`}
                                     onClick={() => setActiveTab('emails')}
-                                    style={{ padding: '0.875rem 0', display: 'flex', alignItems: 'center', gap: '0.625rem' }}
                                 >
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-                                    <span style={{ fontWeight: 600 }}>Emails</span>
-                                    {clientEmails.length > 0 && <span className="tab-count" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)', fontSize: '0.7rem' }}>{clientEmails.length}</span>}
+                                    <span>Emails</span>
+                                    {isHydrated && clientEmails.length > 0 && <span className="tab-count">{clientEmails.length}</span>}
                                 </div>
                                 <div
                                     className={`tab ${activeTab === 'projects' ? 'active' : ''}`}
                                     onClick={() => setActiveTab('projects')}
-                                    style={{ padding: '0.875rem 0', display: 'flex', alignItems: 'center', gap: '0.625rem' }}
                                 >
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
-                                    <span style={{ fontWeight: 600 }}>Projects</span>
-                                    {clientProjects.length > 0 && <span className="tab-count" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)', fontSize: '0.7rem' }}>{clientProjects.length}</span>}
+                                    <span>Projects</span>
+                                    {isHydrated && clientProjects.length > 0 && <span className="tab-count">{clientProjects.length}</span>}
                                 </div>
                             </div>
 

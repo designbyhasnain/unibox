@@ -37,7 +37,9 @@ export default function SettingsPage() {
 
         const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
         getAccountsAction(ADMIN_USER_ID)
-            .then(setAccounts)
+            .then(result => {
+                if (result.success) setAccounts(result.accounts);
+            })
             .catch(console.error);
     }, []);
 

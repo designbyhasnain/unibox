@@ -60,60 +60,89 @@ export async function connectManualAccountAction(
 
 
 export async function getAccountsAction(userId: string) {
-    // Lazy reset for daily sent count
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    try {
+        console.log('[getAccountsAction] Fetching for:', userId);
 
-    const { data: rawData, error } = await supabase
-        .from('gmail_accounts')
-        .select(`
-            *,
-            users ( name ),
-            email_messages (count),
-            sync_progress
-        `)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-    if (error) {
-        console.error('getAccountsAction error:', error);
-        return [];
-    }
-
-    const accounts = (rawData ?? []).map((acc: any) => {
-        // Check if we need to reset the count (if last update was before today)
-        const lastUpdate = new Date(acc.updated_at);
-        const lastUpdateDate = new Date(lastUpdate.getFullYear(), lastUpdate.getMonth(), lastUpdate.getDate()).toISOString();
-
-        const needsReset = lastUpdateDate < today;
-
-        return {
-            ...acc,
-            sent_count_today: needsReset ? 0 : (acc.sent_count_today || 0),
-            manager_name: acc.users?.name,
-            emails_count: acc.email_messages?.[0]?.count ?? 0
-        };
-    });
-
-    // If any needed reset, update them in background
-    const accountsToReset = accounts.filter((a, i) => {
-        const raw = rawData[i];
-        const lu = new Date(raw.updated_at);
-        const lud = new Date(lu.getFullYear(), lu.getMonth(), lu.getDate()).toISOString();
-        return lud < today && raw.sent_count_today > 0;
-    });
-
-    if (accountsToReset.length > 0) {
-        supabase
+        // 1. Fetch basic account data first
+        const { data: rawData, error } = await supabase
             .from('gmail_accounts')
-            .update({ sent_count_today: 0 })
-            .in('id', accountsToReset.map(a => a.id))
-            .then(({ error }) => {
-                if (error) console.error('Failed to reset daily counts:', error);
-            });
-    }
+            .select(`
+                *,
+                users ( name )
+            `)
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
 
-    return accounts;
+        if (error) {
+            console.error('[getAccountsAction] Database error:', error);
+            return { success: false, accounts: [], error: error.message };
+        }
+
+        // 2. Fetch counts separately for each account to avoid slow joins/timeouts
+        const accountIds = (rawData ?? []).map(a => a.id);
+        const accountsWithCounts = await Promise.all((rawData ?? []).map(async (acc) => {
+            try {
+                // Single targeted count query per account is often faster and less prone to timeouts
+                const { count, error: countErr } = await supabase
+                    .from('email_messages')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('gmail_account_id', acc.id);
+
+                if (countErr) {
+                    console.warn(`[getAccountsAction] Could not get count for ${acc.email}:`, countErr.message);
+                }
+
+                return {
+                    ...acc,
+                    sent_count_today: acc.sent_count_today || 0,
+                    manager_name: acc.users?.name,
+                    emails_count: count ?? 0
+                };
+            } catch (e) {
+                return { ...acc, emails_count: 0 };
+            }
+        }));
+
+        // 3. Auto-fix stuck syncs (more than 15 mins or 100% progress)
+        const now = new Date();
+        const stuckAccounts = accountsWithCounts.filter(acc => {
+            if (acc.status !== 'SYNCING') return false;
+            if (acc.sync_progress === 100) return true;
+            const lastUpdate = new Date(acc.updated_at);
+            const minsSinceUpdate = (now.getTime() - lastUpdate.getTime()) / (1000 * 60);
+            return minsSinceUpdate > 15; // Stuck for 15+ mins
+        });
+
+        if (stuckAccounts.length > 0) {
+            console.log('[getAccountsAction] Fixing stuck syncs:', stuckAccounts.length);
+            // Fire and forget update
+            (async () => {
+                try {
+                    await supabase
+                        .from('gmail_accounts')
+                        .update({ status: 'ACTIVE', sync_progress: 100 })
+                        .in('id', stuckAccounts.map(a => a.id));
+                } catch (err) {
+                    console.error('[getAccountsAction] Failed to fix stuck syncs:', err);
+                }
+            })();
+
+            // Reflect in the returned objects
+            stuckAccounts.forEach(sa => {
+                const local = accountsWithCounts.find(a => a.id === sa.id);
+                if (local) {
+                    local.status = 'ACTIVE';
+                    local.sync_progress = 100;
+                }
+            });
+        }
+
+        console.log('[getAccountsAction] Found accounts:', accountsWithCounts.length);
+        return { success: true, accounts: accountsWithCounts };
+    } catch (err: any) {
+        console.error('[getAccountsAction] Unexpected error:', err);
+        return { success: false, accounts: [], error: err.message || 'Unexpected server error' };
+    }
 }
 
 
@@ -144,6 +173,40 @@ export async function syncAllUserAccountsAction(userId: string): Promise<{ succe
         }
     }
     return { success: true, accountsSynced: accounts.length };
+}
+
+export async function toggleSyncStatusAction(accountId: string, currentStatus: string) {
+    const newStatus = currentStatus === 'PAUSED' ? 'ACTIVE' : 'PAUSED';
+    try {
+        const { error } = await supabase
+            .from('gmail_accounts')
+            .update({ status: newStatus })
+            .eq('id', accountId);
+
+        if (error) throw error;
+        return { success: true, status: newStatus };
+    } catch (err: any) {
+        console.error('toggleSyncStatusAction error:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+export async function stopSyncingAction(accountId: string) {
+    try {
+        const { error } = await supabase
+            .from('gmail_accounts')
+            .update({
+                status: 'ACTIVE',
+                sync_progress: 100
+            })
+            .eq('id', accountId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (err: any) {
+        console.error('stopSyncingAction error:', err);
+        return { success: false, error: err.message };
+    }
 }
 
 export async function removeAccountAction(accountId: string): Promise<{ success: boolean; error?: string }> {

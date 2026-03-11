@@ -35,5 +35,17 @@ typescript-errors.txt
 gen_output.txt
 lint/
 
+# Temporary planning/debug/documentation files
+all_diff.txt
+old_diff.txt
+log.txt
+build_output*.txt
+debug_action.ts
+*_plan.md
+*_doc.md
+*_roadmap.md
+analytics_design_doc.md
+tmp/
+
 .vercel
 .env*.local

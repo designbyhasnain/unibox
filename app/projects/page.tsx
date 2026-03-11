@@ -6,14 +6,15 @@ import ComposeModal from '../components/ComposeModal';
 import Topbar from '../components/Topbar';
 import { getAllProjectsAction, updateProjectAction, getManagersAction, createProjectAction } from '../../src/actions/projectActions';
 import { getClientsAction } from '../../src/actions/clientActions';
-import { getClientEmailsAction, deleteEmailAction, getThreadMessagesAction, markEmailAsReadAction, markEmailAsUnreadAction, bulkDeleteEmailsAction, bulkMarkAsReadAction } from '../../src/actions/emailActions';
+import { useHydrated } from '../utils/useHydration';
+import { useMailbox } from '../hooks/useMailbox';
 import { EmailRow, EmailDetail } from '../components/InboxComponents';
 import InlineReply from '../components/InlineReply';
 import AddProjectModal from '../components/AddProjectModal';
-import type { ProjectUpdatePayload } from '../../src/actions/projectActions';
 import { avatarColor, initials } from '../utils/helpers';
 import { syncAllUserAccountsAction, getAccountsAction } from '../../src/actions/accountActions';
 import { useGlobalFilter } from '../context/FilterContext';
+import { PageLoader } from '../components/LoadingStates';
 
 const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
 
@@ -66,11 +67,19 @@ const reviewColors: Record<string, string> = {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
+import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
+
 let globalProjectsCache: { projects: Project[], managers: any[], clients: Client[] } | null = null;
 let globalProjectDetailsCache: Record<string, { emails: any[] }> = {};
 let globalThreadCache: Record<string, any[]> = {};
 
+if (typeof window !== 'undefined') {
+    const savedProjects = getFromLocalCache('projects_data');
+    if (savedProjects) globalProjectsCache = savedProjects;
+}
+
 export default function ProjectsPage() {
+    const isHydrated = useHydrated();
     const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
     const [accounts, setAccounts] = useState<any[]>([]);
     const [projects, setProjects] = useState<Project[]>(() => globalProjectsCache?.projects || []);
@@ -87,13 +96,30 @@ export default function ProjectsPage() {
 
     // Email state
     const [activeTab, setActiveTab] = useState<'details' | 'emails'>('details');
-    const [projectEmails, setProjectEmails] = useState<any[]>([]);
-    const [selectedEmail, setSelectedEmail] = useState<any>(null);
-    const [threadMessages, setThreadMessages] = useState<any[]>([]);
-    const [isThreadLoading, setIsThreadLoading] = useState(false);
     const [isReplyingInline, setIsReplyingInline] = useState(false);
-    const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
     const [isDetailLoading, setIsDetailLoading] = useState(false);
+
+    const {
+        emails: projectEmails,
+        selectedEmail,
+        threadMessages,
+        isThreadLoading,
+        selectedEmailIds,
+        accounts: mailboxAccounts,
+        handleSelectEmail,
+        handleToggleRead,
+        handleDelete: handleDeleteEmail,
+        toggleSelectEmail,
+        toggleSelectAll,
+        handleBulkMarkAsRead: handleBulkMarkRead,
+        handleBulkDelete,
+        setSelectedEmail
+    } = useMailbox({
+        type: 'client',
+        clientEmail: selectedProject?.client?.email,
+        selectedAccountId,
+        enabled: !!selectedProject?.client?.email
+    });
 
     // Edit mode state
     const [isSaving, setIsSaving] = useState(false);
@@ -103,9 +129,9 @@ export default function ProjectsPage() {
     }, [selectedAccountId]);
 
     useEffect(() => {
-        if (typeof window !== 'undefined' && projects.length > 0 && !selectedProject) {
-            const params = new URLSearchParams(window.location.search);
-            const projectId = params.get('project_id');
+        if (typeof window !== 'undefined') {
+            const urlParams = new URLSearchParams(window.location.search);
+            const projectId = urlParams.get('projectId');
             if (projectId) {
                 const found = projects.find(p => p.id === projectId);
                 if (found) {
@@ -117,18 +143,25 @@ export default function ProjectsPage() {
     }, [projects]);
 
     const loadData = async () => {
-        setIsLoading(true);
+        if (!globalProjectsCache) setIsLoading(true);
         try {
-            const [pData, mData, cData, accs] = await Promise.all([
+            const [pData, mData, cData, accResult] = await Promise.all([
                 getAllProjectsAction(selectedAccountId),
                 getManagersAction(),
                 getClientsAction(selectedAccountId),
                 getAccountsAction(ADMIN_USER_ID)
             ]);
-            setProjects(pData as Project[]);
-            setManagers(mData);
-            setClients(cData as Client[]);
-            setAccounts(accs || []);
+
+            globalProjectsCache = { projects: pData as Project[], managers: mData, clients: cData as Client[] };
+            saveToLocalCache('projects_data', globalProjectsCache);
+
+            setProjects(globalProjectsCache.projects);
+            setManagers(globalProjectsCache.managers);
+            setClients(globalProjectsCache.clients);
+
+            if (accResult.success) {
+                setAccounts(accResult.accounts);
+            }
         } catch (err) {
             console.error('Failed to load project data:', err);
         } finally {
@@ -153,118 +186,10 @@ export default function ProjectsPage() {
     const handleSelectProject = async (project: Project) => {
         setSelectedProject(project);
         setSelectedEmail(null);
-
-        const cached = globalProjectDetailsCache[project.id];
-        if (cached) {
-            setProjectEmails(cached.emails);
-            setIsDetailLoading(false);
-        } else {
-            setProjectEmails([]);
-            setIsDetailLoading(true);
-        }
-
         setActiveTab('details');
-
-        if (project.client?.email) {
-            try {
-                const emails = await getClientEmailsAction(ADMIN_USER_ID, project.client.email, selectedAccountId);
-                globalProjectDetailsCache[project.id] = { emails };
-                setProjectEmails(emails);
-            } catch (err) {
-                console.error('Failed to load project emails:', err);
-            }
-        }
-        setIsDetailLoading(false);
     };
 
-    const handleSelectEmail = async (email: any) => {
-        setSelectedEmail(email);
-
-        if (email.thread_id && globalThreadCache[email.thread_id]) {
-            setThreadMessages(globalThreadCache[email.thread_id] || []);
-        } else {
-            setThreadMessages([email]);
-        }
-
-        if (email.is_unread) {
-            setProjectEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_unread: false } : e));
-            await markEmailAsReadAction(email.id);
-        }
-
-        if (email.thread_id) {
-            if (!globalThreadCache[email.thread_id]) setIsThreadLoading(true);
-            try {
-                const messages = await getThreadMessagesAction(email.thread_id);
-                if (messages && messages.length > 0) {
-                    globalThreadCache[email.thread_id] = messages;
-                    setThreadMessages(messages);
-                }
-            } catch (err) {
-                console.error('Failed to load thread:', err);
-            } finally {
-                setIsThreadLoading(false);
-            }
-        }
-    };
-
-    const handleToggleRead = async (id: string, currentUnread: boolean) => {
-        const nextUnread = !currentUnread;
-        setProjectEmails(prev => prev.map(e => e.id === id ? { ...e, is_unread: nextUnread } : e));
-        if (selectedEmail?.id === id) {
-            setSelectedEmail((prev: any) => ({ ...prev, is_unread: nextUnread }));
-        }
-
-        if (nextUnread) {
-            await markEmailAsUnreadAction(id);
-        } else {
-            await markEmailAsReadAction(id);
-        }
-    };
-
-
-    const handleDeleteEmail = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this message?')) return;
-        setProjectEmails(prev => prev.filter(e => e.id !== id));
-        if (selectedEmail?.id === id) setSelectedEmail(null);
-        await deleteEmailAction(id);
-    };
-
-    const toggleSelectEmail = (id: string) => {
-        setSelectedEmailIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    };
-
-    const toggleSelectAll = () => {
-        if (selectedEmailIds.size > 0 && selectedEmailIds.size === projectEmails.length) {
-            setSelectedEmailIds(new Set());
-        } else {
-            setSelectedEmailIds(new Set(projectEmails.map((e) => e.id)));
-        }
-    };
-
-    const handleBulkMarkRead = async () => {
-        const ids = Array.from(selectedEmailIds);
-        if (ids.length === 0) return;
-        setProjectEmails((prev) => prev.map((e) => selectedEmailIds.has(e.id) ? { ...e, is_unread: false } : e));
-        setSelectedEmailIds(new Set());
-        await bulkMarkAsReadAction(ids);
-    };
-
-    const handleBulkDelete = async () => {
-        const ids = Array.from(selectedEmailIds);
-        if (ids.length === 0) return;
-        if (!confirm(`Are you sure you want to delete ${ids.length} messages?`)) return;
-        setProjectEmails((prev) => prev.filter((e) => !selectedEmailIds.has(e.id)));
-        setSelectedEmailIds(new Set());
-        if (selectedEmail && selectedEmailIds.has(selectedEmail.id)) setSelectedEmail(null);
-        await bulkDeleteEmailsAction(ids);
-    };
-
-    const handleUpdateProject = async (updates: ProjectUpdatePayload) => {
+    const handleUpdateProject = async (updates: any) => {
         if (!selectedProject) return;
         setIsSaving(true);
         const res = await updateProjectAction(selectedProject.id, updates);
@@ -327,64 +252,74 @@ export default function ProjectsPage() {
                 />
 
                 {/* Filter Tabs & Toolbar */}
-                <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
-                    <div className="tabs-bar" style={{ padding: '0 1.5rem', borderBottom: 'none' }}>
-                        <div className={`tab ${filterStatus === 'ALL' ? 'active' : ''}`} onClick={() => setFilterStatus('ALL')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /></svg>
-                            All Projects
-                            <span style={{ fontSize: '0.75rem', opacity: 0.5, marginLeft: 2 }}>{projects.length}</span>
-                        </div>
-                        <div className={`tab ${filterStatus === 'UNPAID' ? 'active' : ''}`} onClick={() => setFilterStatus('UNPAID')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            Unpaid
-                        </div>
-                        <div className={`tab ${filterStatus === 'PARTIALLY_PAID' ? 'active' : ''}`} onClick={() => setFilterStatus('PARTIALLY_PAID')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            Partially Paid
-                        </div>
-                        <div className={`tab ${filterStatus === 'PAID' ? 'active' : ''}`} onClick={() => setFilterStatus('PAID')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            Paid
-                        </div>
+                <div className="tabs-bar">
+                    <div
+                        className={`tab ${filterStatus === 'ALL' ? 'active' : ''}`}
+                        onClick={() => setFilterStatus('ALL')}
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /></svg>
+                        All Projects
+                        <span className="tab-count">{isHydrated ? projects.length : 0}</span>
                     </div>
+                    <div
+                        className={`tab ${filterStatus === 'UNPAID' ? 'active' : ''}`}
+                        onClick={() => setFilterStatus('UNPAID')}
+                    >
+                        Unpaid
+                    </div>
+                    <div
+                        className={`tab ${filterStatus === 'PARTIALLY_PAID' ? 'active' : ''}`}
+                        onClick={() => setFilterStatus('PARTIALLY_PAID')}
+                    >
+                        Partially Paid
+                    </div>
+                    <div
+                        className={`tab ${filterStatus === 'PAID' ? 'active' : ''}`}
+                        onClick={() => setFilterStatus('PAID')}
+                    >
+                        Paid
+                    </div>
+                </div>
 
-                    <div className="list-toolbar" style={{ borderTop: '1px solid var(--border-subtle)', padding: '0.6rem 1.5rem' }}>
-                        <div className="list-toolbar-left">
-                            <span className="count-label" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontWeight: 500 }}>
-                                Showing {filteredProjects.length} results
-                            </span>
-                        </div>
-                        <div className="list-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                            <div style={{ display: 'flex', background: 'var(--bg-elevated)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                                <button
-                                    className={`icon-btn sm ${viewMode === 'list' ? 'active' : ''}`}
-                                    onClick={() => setViewMode('list')}
-                                    title="List View"
-                                    style={{ width: 32, height: 32 }}
-                                >
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>
-                                </button>
-                                <button
-                                    className={`icon-btn sm ${viewMode === 'grid' ? 'active' : ''}`}
-                                    onClick={() => setViewMode('grid')}
-                                    title="Grid View"
-                                    style={{ width: 32, height: 32 }}
-                                >
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
-                                </button>
-                                <button
-                                    className={`icon-btn sm ${viewMode === 'board' ? 'active' : ''}`}
-                                    onClick={() => setViewMode('board')}
-                                    title="Board View"
-                                    style={{ width: 32, height: 32 }}
-                                >
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
-                                </button>
-                            </div>
-                            <div className="divider-v" />
-                            <button className="icon-btn sm" onClick={loadData} title="Refresh">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
-                                    <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-                                </svg>
+                <div className="list-toolbar" style={{ borderTop: '1px solid var(--border-subtle)', padding: '0.6rem 1.5rem' }}>
+                    <div className="list-toolbar-left">
+                        <span className="count-label" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                            Showing {filteredProjects.length} results
+                        </span>
+                    </div>
+                    <div className="list-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', background: 'var(--bg-elevated)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                            <button
+                                className={`icon-btn sm ${viewMode === 'list' ? 'active' : ''}`}
+                                onClick={() => setViewMode('list')}
+                                title="List View"
+                                style={{ width: 32, height: 32 }}
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>
+                            </button>
+                            <button
+                                className={`icon-btn sm ${viewMode === 'grid' ? 'active' : ''}`}
+                                onClick={() => setViewMode('grid')}
+                                title="Grid View"
+                                style={{ width: 32, height: 32 }}
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
+                            </button>
+                            <button
+                                className={`icon-btn sm ${viewMode === 'board' ? 'active' : ''}`}
+                                onClick={() => setViewMode('board')}
+                                title="Board View"
+                                style={{ width: 32, height: 32 }}
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
                             </button>
                         </div>
+                        <div className="divider-v" />
+                        <button className="icon-btn sm" onClick={loadData} title="Refresh">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
+                                <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                            </svg>
+                        </button>
                     </div>
                 </div>
 
@@ -392,170 +327,167 @@ export default function ProjectsPage() {
                     {/* Project List */}
                     {!selectedProject ? (
                         <div className="list-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-                            {isLoading ? (
-                                <div className="empty-state">
-                                    <div className="spinner" />
-                                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 8 }}>Loading projects...</span>
-                                </div>
-                            ) : filteredProjects.length === 0 ? (
-                                <div className="empty-state">
-                                    <div className="empty-state-icon">
-                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
-                                            <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" />
-                                        </svg>
-                                    </div>
-                                    <div className="empty-state-title">No projects</div>
-                                    <div className="empty-state-desc">Start by creating a new delivery workflow.</div>
-                                </div>
-                            ) : viewMode === 'list' ? (
-                                <div className="list-area" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                                    {!selectedProject && (
-                                        <div className="universal-grid grid-table grid-header">
-                                            <div className="grid-col col-main">Project Name</div>
-                                            <div className="grid-col">Client Account</div>
-                                            <div className="grid-col">Account Manager</div>
-                                            <div className="grid-col right">Status & Due Date</div>
+                            <PageLoader isLoading={!isHydrated || isLoading} type="list" count={12}>
+                                {filteredProjects.length === 0 ? (
+                                    <div className="empty-state">
+                                        <div className="empty-state-icon">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
+                                                <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" />
+                                            </svg>
                                         </div>
-                                    )}
-                                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                                        <div className="empty-state-title">No projects</div>
+                                        <div className="empty-state-desc">Start by creating a new delivery workflow.</div>
+                                    </div>
+                                ) : viewMode === 'list' ? (
+                                    <div className="list-area" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                                        {!selectedProject && (
+                                            <div className="universal-grid grid-table grid-header">
+                                                <div className="grid-col col-main">Project Name</div>
+                                                <div className="grid-col">Client Account</div>
+                                                <div className="grid-col">Account Manager</div>
+                                                <div className="grid-col right">Status & Due Date</div>
+                                            </div>
+                                        )}
+                                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                                            {filteredProjects.map((p: Project) => (
+                                                <div
+                                                    key={p.id}
+                                                    className="universal-grid grid-table grid-row"
+                                                    onClick={() => handleSelectProject(p)}
+                                                >
+                                                    <div className="grid-col col-main">
+                                                        <div className="avatar" style={{ background: avatarColor(p.project_name || p.id), width: 34, height: 34, fontSize: '0.86rem' }}>
+                                                            {initials(p.project_name)}
+                                                        </div>
+                                                        <div className="sender-info">
+                                                            <div className="sender-name">{p.project_name}</div>
+                                                            <div className="sender-email">{p.client?.name || 'Unknown'}</div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid-col secondary">
+                                                        {p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}
+                                                    </div>
+
+                                                    <div className="grid-col muted">
+                                                        <span className="badge badge-gray" style={{ fontSize: '11px' }}>{p.manager?.name || 'Unassigned'}</span>
+                                                    </div>
+
+                                                    <div className="grid-col right">
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                                <span className={`badge ${p.paid_status === 'PAID' ? 'badge-green' : p.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`} style={{ fontSize: '10px' }}>
+                                                                    {p.paid_status.replace('_', ' ')}
+                                                                </span>
+                                                                {!selectedProject && (
+                                                                    <span className={`badge ${p.priority === 'URGENT' ? 'badge-red' : p.priority === 'HIGH' ? 'badge-yellow' : p.priority === 'MEDIUM' ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '10px' }}>
+                                                                        {p.priority}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="muted" style={{ width: 80, fontSize: '0.72rem', textAlign: 'right' }}>
+                                                                {formatDate(p.due_date)}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : viewMode === 'grid' ? (
+                                    <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem', overflowY: 'auto' }}>
                                         {filteredProjects.map((p: Project) => (
                                             <div
                                                 key={p.id}
-                                                className="universal-grid grid-table grid-row"
+                                                className="project-card-premium"
                                                 onClick={() => handleSelectProject(p)}
+                                                style={{
+                                                    background: 'var(--bg-surface)',
+                                                    border: '1px solid var(--border)',
+                                                    borderRadius: '16px',
+                                                    padding: '1.5rem',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    boxShadow: 'var(--shadow-sm)'
+                                                }}
                                             >
-                                                <div className="grid-col col-main">
-                                                    <div className="avatar" style={{ background: avatarColor(p.project_name || p.id), width: 34, height: 34, fontSize: '0.86rem' }}>
-                                                        {initials(p.project_name)}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                                                    <h3 style={{ fontSize: '1.125rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        {p.project_name}
+                                                    </h3>
+                                                    <span className={`badge priority-${(p.priority || 'MEDIUM').toLowerCase()}`} style={{ fontSize: '10px', fontWeight: 700 }}>
+                                                        {p.priority || 'MEDIUM'}
+                                                    </span>
+                                                </div>
+
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                                                        Manager: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{p.manager?.name || 'Unassigned'}</span>
                                                     </div>
-                                                    <div className="sender-info">
-                                                        <div className="sender-name">{p.project_name}</div>
-                                                        <div className="sender-email">{p.client?.name || 'Unknown'}</div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+                                                        Account: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+                                                        Due Date: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatDate(p.due_date)}</span>
                                                     </div>
                                                 </div>
 
-                                                <div className="grid-col secondary">
-                                                    {p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}
-                                                </div>
-
-                                                <div className="grid-col muted">
-                                                    <span className="badge badge-gray" style={{ fontSize: '11px' }}>{p.manager?.name || 'Unassigned'}</span>
-                                                </div>
-
-                                                <div className="grid-col right">
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                        <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                                            <span className={`badge ${p.paid_status === 'PAID' ? 'badge-green' : p.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`} style={{ fontSize: '10px' }}>
-                                                                {p.paid_status.replace('_', ' ')}
-                                                            </span>
-                                                            {!selectedProject && (
-                                                                <span className={`badge ${p.priority === 'URGENT' ? 'badge-red' : p.priority === 'HIGH' ? 'badge-yellow' : p.priority === 'MEDIUM' ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '10px' }}>
-                                                                    {p.priority}
-                                                                </span>
-                                                            )}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)' }}>
+                                                    <span className={`badge ${p.paid_status === 'PAID' ? 'badge-green' : p.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`} style={{ fontSize: '10px', fontWeight: 800 }}>
+                                                        {p.paid_status?.replace('_', ' ') || 'UNPAID'}
+                                                    </span>
+                                                    {p.client?.name && (
+                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.client.name}>
+                                                            {p.client.name}
                                                         </div>
-                                                        <div className="muted" style={{ width: 80, fontSize: '0.72rem', textAlign: 'right' }}>
-                                                            {formatDate(p.due_date)}
-                                                        </div>
-                                                    </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
-                                </div>
-                            ) : viewMode === 'grid' ? (
-                                <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem', overflowY: 'auto' }}>
-                                    {filteredProjects.map((p: Project) => (
-                                        <div
-                                            key={p.id}
-                                            className="project-card-premium"
-                                            onClick={() => handleSelectProject(p)}
-                                            style={{
-                                                background: 'var(--bg-surface)',
-                                                border: '1px solid var(--border)',
-                                                borderRadius: '16px',
-                                                padding: '1.5rem',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s',
-                                                boxShadow: 'var(--shadow-sm)'
-                                            }}
-                                        >
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                                                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                    {p.project_name}
-                                                </h3>
-                                                <span className={`badge priority-${(p.priority || 'MEDIUM').toLowerCase()}`} style={{ fontSize: '10px', fontWeight: 700 }}>
-                                                    {p.priority || 'MEDIUM'}
-                                                </span>
-                                            </div>
-
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-                                                    Manager: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{p.manager?.name || 'Unassigned'}</span>
-                                                </div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-                                                    Account: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}</span>
-                                                </div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-                                                    Due Date: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatDate(p.due_date)}</span>
-                                                </div>
-                                            </div>
-
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)' }}>
-                                                <span className={`badge ${p.paid_status === 'PAID' ? 'badge-green' : p.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`} style={{ fontSize: '10px', fontWeight: 800 }}>
-                                                    {p.paid_status?.replace('_', ' ') || 'UNPAID'}
-                                                </span>
-                                                {p.client?.name && (
-                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.client.name}>
-                                                        {p.client.name}
+                                ) : (
+                                    <div className="board-view" style={{ display: 'flex', gap: '1.5rem', padding: '1.5rem', overflowX: 'auto', flex: 1, minHeight: 0 }}>
+                                        {(['UNPAID', 'PARTIALLY_PAID', 'PAID'] as const).map(status => (
+                                            <div key={status} className="board-column">
+                                                <div className="column-header">
+                                                    <div className="column-title">
+                                                        {status.replace('_', ' ')}
+                                                        <span className="column-count">
+                                                            {filteredProjects.filter((p: Project) => p.paid_status === status).length}
+                                                        </span>
                                                     </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="board-view" style={{ display: 'flex', gap: '1.5rem', padding: '1.5rem', overflowX: 'auto', flex: 1, minHeight: 0 }}>
-                                    {(['UNPAID', 'PARTIALLY_PAID', 'PAID'] as const).map(status => (
-                                        <div key={status} className="board-column">
-                                            <div className="column-header">
-                                                <div className="column-title">
-                                                    {status.replace('_', ' ')}
-                                                    <span className="column-count">
-                                                        {filteredProjects.filter((p: Project) => p.paid_status === status).length}
-                                                    </span>
                                                 </div>
-                                            </div>
-                                            <div className="column-content">
-                                                {filteredProjects.filter((p: Project) => p.paid_status === status).map((p: Project) => (
-                                                    <div
-                                                        key={p.id}
-                                                        className="board-card"
-                                                        onClick={() => handleSelectProject(p)}
-                                                    >
-                                                        <div className={`card-priority priority-${p.priority.toLowerCase()}`} />
-                                                        <div className="card-title">{p.project_name}</div>
-                                                        <div className="card-client">{p.client?.name}</div>
-                                                        <div style={{ fontSize: '0.65rem', color: 'var(--text-accent)', marginBottom: '0.5rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                            {p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}
-                                                        </div>
-                                                        <div className="card-footer">
-                                                            <div className="card-date">
-                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v4M8 2v4M3 10h18" /><rect x="3" y="4" width="18" height="18" rx="2" /></svg>
-                                                                {formatDate(p.due_date)}
+                                                <div className="column-content">
+                                                    {filteredProjects.filter((p: Project) => p.paid_status === status).map((p: Project) => (
+                                                        <div
+                                                            key={p.id}
+                                                            className="board-card"
+                                                            onClick={() => handleSelectProject(p)}
+                                                        >
+                                                            <div className={`card-priority priority-${p.priority.toLowerCase()}`} />
+                                                            <div className="card-title">{p.project_name}</div>
+                                                            <div className="card-client">{p.client?.name}</div>
+                                                            <div style={{ fontSize: '0.65rem', color: 'var(--text-accent)', marginBottom: '0.5rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                {p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}
                                                             </div>
-                                                            <div className="card-avatar">{(p.manager?.name?.[0] || '?').toUpperCase()}</div>
+                                                            <div className="card-footer">
+                                                                <div className="card-date">
+                                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v4M8 2v4M3 10h18" /><rect x="3" y="4" width="18" height="18" rx="2" /></svg>
+                                                                    {formatDate(p.due_date)}
+                                                                </div>
+                                                                <div className="card-avatar">{(p.manager?.name?.[0] || '?').toUpperCase()}</div>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    ))}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                                        ))}
+                                    </div>
+                                )}
+                            </PageLoader>
                         </div>
                     ) : (
                         /* Detail Panel */
@@ -828,21 +760,18 @@ export default function ProjectsPage() {
                         </div>
                     )}
                 </div>
-            </main >
+            </main>
 
-            {/* Create Project Modal */}
-            {
-                isCreateModalOpen && (
-                    <AddProjectModal
-                        clients={clients}
-                        onClose={() => setIsCreateModalOpen(false)}
-                        onCreated={() => {
-                            setIsCreateModalOpen(false);
-                            loadData();
-                        }}
-                    />
-                )
-            }
+            {isCreateModalOpen && (
+                <AddProjectModal
+                    clients={clients}
+                    onClose={() => setIsCreateModalOpen(false)}
+                    onCreated={() => {
+                        setIsCreateModalOpen(false);
+                        loadData();
+                    }}
+                />
+            )}
 
             {isComposeOpen && <ComposeModal onClose={() => setIsComposeOpen(false)} />}
 

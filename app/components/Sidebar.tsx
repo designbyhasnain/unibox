@@ -36,6 +36,13 @@ const Icons = {
             <rect x="3" y="14" width="7" height="7" rx="1" />
         </svg>
     ),
+    BarChart: () => (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+    ),
     Settings: () => (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
@@ -54,6 +61,7 @@ const NAV_MAIN = [
     { href: '/clients', label: 'Clients', icon: <Icons.Clients /> },
     { href: '/accounts', label: 'Accounts', icon: <Icons.Accounts /> },
     { href: '/projects', label: 'Projects', icon: <Icons.Projects /> },
+    { href: '/analytics', label: 'Analytics', icon: <Icons.BarChart /> },
 ];
 
 const NAV_FOOTER = [
@@ -73,11 +81,14 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
 
     React.useEffect(() => {
         getAccountsAction(ADMIN_USER_ID)
-            .then(data => {
-                setAccounts(data);
-                // If the selected ID is no longer in the list, reset to 'ALL'
-                if (selectedAccountId !== 'ALL' && data.length > 0 && !data.some(a => a.id === selectedAccountId)) {
-                    setSelectedAccountId('ALL');
+            .then(result => {
+                if (result.success) {
+                    const data = result.accounts;
+                    setAccounts(data);
+                    // If the selected ID is no longer in the list, reset to 'ALL'
+                    if (selectedAccountId !== 'ALL' && data.length > 0 && !data.some(a => a.id === selectedAccountId)) {
+                        setSelectedAccountId('ALL');
+                    }
                 }
             })
             .catch(console.error);

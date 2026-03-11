@@ -38,11 +38,14 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
     useEffect(() => {
         const fetchAccounts = async () => {
             try {
-                const data = await getAccountsAction('1ca1464d-1009-426e-96d5-8c5e8c84faac');
-                setAccounts(data);
-                // If initial accountId is not in the list (rare), we still keep it or pick first
-                if (!data.find((a: any) => a.id === accountId) && data.length > 0) {
-                    // We keep current accountId if passed, but make sure it's selectable
+                const result = await getAccountsAction('1ca1464d-1009-426e-96d5-8c5e8c84faac');
+                if (result.success) {
+                    const data = result.accounts;
+                    setAccounts(data);
+                    // If initial accountId is not in the list (rare), we still keep it or pick first
+                    if (!data.find((a: any) => a.id === accountId) && data.length > 0) {
+                        // We keep current accountId if passed, but make sure it's selectable
+                    }
                 }
             } catch (err) { console.error('Failed to fetch accounts:', err); }
         };

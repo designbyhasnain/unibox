@@ -28,6 +28,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/uuid": "^10.0.0",
+    "framer-motion": "^12.35.2",
     "googleapis": "^171.4.0",
     "imapflow": "^1.2.10",
     "lucide-react": "^0.575.0",
@@ -36,6 +37,7 @@
     "nodemailer": "^8.0.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "recharts": "^3.8.0",
     "uuid": "^13.0.0"
   }
 }
