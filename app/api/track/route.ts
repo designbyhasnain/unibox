@@ -27,7 +27,10 @@ export async function GET(request: NextRequest) {
     const referer = request.headers.get('referer') || '';
 
     if (trackingId) {
-        processTrackingEvent(trackingId, ip, userAgent, referer).catch(err => {
+        // Await to ensure Vercel doesn't kill the lambda before recording
+        // We still return the pixel, but this ensures the DB write happens.
+        const clientIp = ip.split(',')[0].trim();
+        await processTrackingEvent(trackingId, clientIp, userAgent, referer).catch(err => {
             console.error('[Track] Background Error:', err);
         });
     }
@@ -37,36 +40,36 @@ export async function GET(request: NextRequest) {
 
 async function processTrackingEvent(trackingId: string, ip: string, userAgent: string, referer: string) {
     try {
-        let appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-        if (appUrl.endsWith('/')) appUrl = appUrl.slice(0, -1);
+        if (!trackingId || trackingId === 'null') return;
 
-        const isLocalhost = ip === '::1' || ip === '127.0.0.1';
+        // 1. Google Proxy check: ALWAYS ALLOW these
+        const isGoogleProxy = /GoogleImageProxy|via ggpht\.com/i.test(userAgent);
 
-        // 1. Referer Check: Skip if opening from within the CRM UI
-        if (referer && referer.startsWith(appUrl)) {
-            console.log(`[Track] SKIP (Referer: CRM UI) | ID: ${trackingId} | IP: ${ip}`);
-            return;
+        if (!isGoogleProxy) {
+            // Referer Check: Skip if opening from within the CRM UI
+            if (referer && (referer.includes('localhost') || referer.includes('vercel.app'))) {
+                console.log(`[Track] SKIP (Referer: CRM UI) | ID: ${trackingId}`);
+                return;
+            }
+
+            // Owner Session Check: Skip if this IP is a registered owner
+            const { data: ownerSession } = await supabase
+                .from('email_tracking_events')
+                .select('id')
+                .eq('ip_address', ip)
+                .eq('event_type', 'owner_session')
+                .gte('created_at', new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString())
+                .limit(1)
+                .maybeSingle();
+
+            if (ownerSession) {
+                console.log(`[Track] SKIP (Direct Owner Open) | ID: ${trackingId} | IP: ${ip}`);
+                return;
+            }
         }
 
-        // 2. Owner Session Check: Skip if this IP is a registered owner
-        const { data: ownerSession } = await supabase
-            .from('email_tracking_events')
-            .select('id')
-            .eq('ip_address', ip)
-            .eq('event_type', 'owner_session')
-            .gte('created_at', new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString())
-            .limit(1)
-            .maybeSingle();
-
-        const isGoogleProxy = userAgent.includes('GoogleImageProxy') || userAgent.includes('via ggpht.com');
-
-        if (ownerSession && !isGoogleProxy) {
-            console.log(`[Track] SKIP (Direct Owner Open) | ID: ${trackingId} | IP: ${ip} | UA: ${userAgent}`);
-            return;
-        }
-
-        // 3. Record the Open
-        console.log(`[Track] RECORDING OPEN | ID: ${trackingId} | IP: ${ip}`);
+        // 2. Record the Open
+        console.log(`[Track] RECORDING OPEN | ID: ${trackingId} | IP: ${ip} | Proxy: ${isGoogleProxy}`);
         
         await Promise.all([
             // Log the event
@@ -76,7 +79,7 @@ async function processTrackingEvent(trackingId: string, ip: string, userAgent: s
                 ip_address: ip,
                 user_agent: userAgent,
             }),
-            // Increment the counter (triggers Realtime)
+            // Increment the counter
             supabase.rpc('increment_email_opens', { p_tracking_id: trackingId })
         ]);
     } catch (err) {
