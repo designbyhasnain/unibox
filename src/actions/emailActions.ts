@@ -79,7 +79,7 @@ export async function sendEmailAction(params: {
                         from_email: acc?.email || 'me',
                         to_email: params.to,
                         subject: params.subject,
-                        body: params.body, // Use original body or trackedBody? trackedBody has pixel.
+                        body: trackedBody, // Use trackedBody with pixel.
                         snippet: params.body.substring(0, 200),
                         direction: 'SENT',
                         sent_at: new Date().toISOString(),

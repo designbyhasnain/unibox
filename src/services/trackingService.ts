@@ -13,13 +13,17 @@ export function generateTrackingId(): string {
  * In development, this is localhost.
  */
 function getBaseUrl(): string {
+    let url = '';
     if (process.env.NEXT_PUBLIC_APP_URL) {
-        return process.env.NEXT_PUBLIC_APP_URL;
+        url = process.env.NEXT_PUBLIC_APP_URL;
+    } else if (process.env.VERCEL_URL) {
+        url = `https://${process.env.VERCEL_URL}`;
+    } else {
+        url = 'http://localhost:3000';
     }
-    if (process.env.VERCEL_URL) {
-        return `https://${process.env.VERCEL_URL}`;
-    }
-    return 'http://localhost:3000';
+    
+    // Remove trailing slash if present
+    return url.endsWith('/') ? url.slice(0, -1) : url;
 }
 
 /**

@@ -37,7 +37,9 @@ export async function GET(request: NextRequest) {
 
 async function processTrackingEvent(trackingId: string, ip: string, userAgent: string, referer: string) {
     try {
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        let appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        if (appUrl.endsWith('/')) appUrl = appUrl.slice(0, -1);
+
         const isLocalhost = ip === '::1' || ip === '127.0.0.1';
 
         // 1. Referer Check: Skip if opening from within the CRM UI
@@ -56,12 +58,10 @@ async function processTrackingEvent(trackingId: string, ip: string, userAgent: s
             .limit(1)
             .maybeSingle();
 
-        const isGoogleProxy = userAgent.includes('via ggpht.com GoogleImageProxy');
+        const isGoogleProxy = userAgent.includes('GoogleImageProxy') || userAgent.includes('via ggpht.com');
 
         if (ownerSession && !isGoogleProxy) {
-            // Only skip if it's explicitly the owner and NOT through a proxy (like Gmail)
-            // This allows the owner to test by opening in Gmail.
-            console.log(`[Track] SKIP (Direct Owner Open) | ID: ${trackingId} | IP: ${ip}`);
+            console.log(`[Track] SKIP (Direct Owner Open) | ID: ${trackingId} | IP: ${ip} | UA: ${userAgent}`);
             return;
         }
 
