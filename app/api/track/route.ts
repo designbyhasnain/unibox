@@ -40,19 +40,23 @@ export async function GET(request: NextRequest) {
 
 async function processTrackingEvent(trackingId: string, ip: string, userAgent: string, referer: string) {
     try {
-        if (!trackingId || trackingId === 'null') return;
+        if (!trackingId || trackingId === 'null') {
+             console.log('[Track] ABORT: No tracking ID');
+             return;
+        }
 
-        // 1. Google Proxy check: ALWAYS ALLOW these
+        // --- DEBUG: Temporarily allowing ALL hits to see if it works at all ---
+        console.log(`[Track] DEBUG HIT | ID: ${trackingId} | IP: ${ip} | UA: ${userAgent} | Ref: ${referer}`);
+
+        /*
         const isGoogleProxy = /GoogleImageProxy|via ggpht\.com/i.test(userAgent);
 
         if (!isGoogleProxy) {
-            // Referer Check: Skip if opening from within the CRM UI
             if (referer && (referer.includes('localhost') || referer.includes('vercel.app'))) {
                 console.log(`[Track] SKIP (Referer: CRM UI) | ID: ${trackingId}`);
                 return;
             }
 
-            // Owner Session Check: Skip if this IP is a registered owner
             const { data: ownerSession } = await supabase
                 .from('email_tracking_events')
                 .select('id')
@@ -67,9 +71,10 @@ async function processTrackingEvent(trackingId: string, ip: string, userAgent: s
                 return;
             }
         }
+        */
 
-        // 2. Record the Open
-        console.log(`[Track] RECORDING OPEN | ID: ${trackingId} | IP: ${ip} | Proxy: ${isGoogleProxy}`);
+        // Record the Open for EVERY hit during debugging
+        console.log(`[Track] FORCING RECORD | ID: ${trackingId}`);
         
         await Promise.all([
             // Log the event
@@ -83,6 +88,6 @@ async function processTrackingEvent(trackingId: string, ip: string, userAgent: s
             supabase.rpc('increment_email_opens', { p_tracking_id: trackingId })
         ]);
     } catch (err) {
-        console.error('[Track] Fatal Error:', err);
+        console.error('[Track] Fatal Error in processTrackingEvent:', err);
     }
 }
