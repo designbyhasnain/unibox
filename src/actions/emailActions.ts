@@ -45,7 +45,7 @@ export async function sendEmailAction(params: {
         const { body: trackedBody, trackingId } = prepareTrackedEmail(params.body, isTracked);
         const sendParams = { ...params, body: trackedBody };
 
-        let result;
+        let result: { success: boolean; messageId?: string | null | undefined; threadId?: string | null | undefined; error?: string };
         if (account.connection_method === 'MANUAL') {
             result = await sendManualEmail(sendParams);
         } else {
@@ -59,16 +59,35 @@ export async function sendEmailAction(params: {
                 .update({ sent_count_today: (account.sent_count_today || 0) + 1 })
                 .eq('id', params.accountId);
 
-            // Save tracking_id to the sent message
-            if (isTracked && result.messageId) {
+            // Save tracking_id and message details to the database immediately
+            if (result.messageId) {
                 const cleanMsgId = result.messageId.replace(/[<>]/g, '');
+                
+                // Get account email for the 'from_email' field
+                const { data: acc } = await supabase
+                    .from('gmail_accounts')
+                    .select('email')
+                    .eq('id', params.accountId)
+                    .single();
+
                 await supabase
                     .from('email_messages')
-                    .update({
-                        tracking_id: trackingId,
-                        is_tracked: true,
-                    })
-                    .eq('id', cleanMsgId);
+                    .upsert({
+                        id: cleanMsgId,
+                        thread_id: result.threadId || params.threadId,
+                        gmail_account_id: params.accountId,
+                        from_email: acc?.email || 'me',
+                        to_email: params.to,
+                        subject: params.subject,
+                        body: params.body, // Use original body or trackedBody? trackedBody has pixel.
+                        snippet: params.body.substring(0, 200),
+                        direction: 'SENT',
+                        sent_at: new Date().toISOString(),
+                        is_unread: false,
+                        is_tracked: isTracked,
+                        tracking_id: isTracked ? trackingId : null,
+                        opens_count: 0
+                    }, { onConflict: 'id' });
             }
         }
 

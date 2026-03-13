@@ -110,7 +110,7 @@ export async function sendManualEmail(params: {
         sentAt: new Date(),
     });
 
-    return { success: true, messageId: info.messageId };
+    return { success: true, messageId: info.messageId, threadId: finalThreadId };
 }
 
 

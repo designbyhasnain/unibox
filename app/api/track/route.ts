@@ -56,24 +56,13 @@ async function processTrackingEvent(trackingId: string, ip: string, userAgent: s
             .limit(1)
             .maybeSingle();
 
-        if (ownerSession) {
-            // Testing Exception: Allow the first ever open from localhost even if it's the owner
-            if (isLocalhost && !referer) {
-                const { count } = await supabase
-                    .from('email_tracking_events')
-                    .select('id', { count: 'exact', head: true })
-                    .eq('tracking_id', trackingId)
-                    .eq('event_type', 'open');
-                
-                if ((count || 0) > 0) {
-                    console.log(`[Track] SKIP (Owner Session) | ID: ${trackingId} | IP: ${ip}`);
-                    return;
-                }
-                console.log(`[Track] TEST ALLOW (First Open) | ID: ${trackingId} | IP: ${ip}`);
-            } else {
-                console.log(`[Track] SKIP (Owner Session) | ID: ${trackingId} | IP: ${ip}`);
-                return;
-            }
+        const isGoogleProxy = userAgent.includes('via ggpht.com GoogleImageProxy');
+
+        if (ownerSession && !isGoogleProxy) {
+            // Only skip if it's explicitly the owner and NOT through a proxy (like Gmail)
+            // This allows the owner to test by opening in Gmail.
+            console.log(`[Track] SKIP (Direct Owner Open) | ID: ${trackingId} | IP: ${ip}`);
+            return;
         }
 
         // 3. Record the Open

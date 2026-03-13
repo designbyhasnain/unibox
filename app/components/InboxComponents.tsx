@@ -93,21 +93,18 @@ export const EmailRow = React.memo(function EmailRow({ email, isSelected, isRowC
                 
                 if (!shouldShowTicks) return null;
 
-                // Proxy for 'Delivered' (Double Grey): Tracked OR older than 2 minutes
-                // Hydration Note: Date.now() is non-deterministic, so on server we assume false or use a stable check
+                // Ticks Logic:
+                // 1 Tick (Grey): Immediately on send.
+                // 2 Ticks (Grey): After 15 seconds (assumed delivered).
+                // 2 Ticks (Blue): When opened.
                 const sentTime = email.sent_at ? new Date(email.sent_at).getTime() : 0;
-                const isDelivered = isTracked || (isHydrated && email.direction === 'SENT' && (Date.now() - sentTime > 120000));
+                const isDelivered = (isHydrated && email.direction === 'SENT' && (Date.now() - sentTime > 15000));
                 
                 return (
                     <div className="gmail-row-tracking" style={{ minWidth: '40px', gap: '4px' }}>
                         {wasOpened ? (
                             <div className="tracking-tick-blue" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                                 <CheckCheck size={16} color="#1a73e8" strokeWidth={3} />
-                                {email.opens_count > 0 && (
-                                    <span className="open-count-badge">
-                                        {email.opens_count}
-                                    </span>
-                                )}
                             </div>
                         ) : (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -494,6 +491,7 @@ export function EmailDetail({
     onDelete,
     totalCount = 0,
 }: EmailDetailProps) {
+    const isHydrated = useHydrated();
     const [showAllIntermediate, setShowAllIntermediate] = React.useState(false);
     const [collapsedThreads, setCollapsedThreads] = React.useState<Set<string>>(new Set());
     const [isAllExpanded, setIsAllExpanded] = React.useState(false);
@@ -689,7 +687,7 @@ export function EmailDetail({
                                     <div key="fold-badge" className="gmail-fold-badge-container" onClick={() => setShowAllIntermediate(true)}>
                                         <div className="gmail-fold-line" />
                                         <div className="gmail-fold-chip">
-                                            <span className="gmail-fold-count">{threadMessages.length - 2} older messages</span>
+                                            <span className="gmail-fold-count">{threadMessages.length - 2} messages</span>
                                         </div>
                                     </div>
                                 );
@@ -777,18 +775,13 @@ export function EmailDetail({
                                                 const msgOpened = (msg.opens_count || 0) > 0 || msg.has_reply;
                                                 const isTracked = msg.is_tracked;
                                                 const sentTime = msg.sent_at ? new Date(msg.sent_at).getTime() : 0;
-                                                const isDelivered = isTracked || (Date.now() - sentTime > 120000);
+                                                const isDelivered = (isHydrated && Date.now() - sentTime > 15000);
                                                 
                                                 return (
                                                     <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '8px', gap: '4px' }}>
                                                         {msgOpened ? (
                                                             <div className="tracking-tick-blue" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                                                                 <CheckCheck size={14} color="#1a73e8" strokeWidth={3} />
-                                                                {msg.opens_count > 0 && (
-                                                                    <span className="open-count-badge">
-                                                                        {msg.opens_count}
-                                                                    </span>
-                                                                )}
                                                             </div>
                                                         ) : isDelivered ? (
                                                             <CheckCheck size={14} color="#9aa0a6" strokeWidth={2.5} />

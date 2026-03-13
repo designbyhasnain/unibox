@@ -91,7 +91,7 @@ export async function sendGmailEmail(params: {
             sentAt: new Date(),
         });
 
-        return { success: true, messageId: sentData.id };
+        return { success: true, messageId: sentData.id, threadId: sentData.threadId };
     } catch (error: any) {
         // Requirement: Error Handling (handle expired token)
         const isAuthError = error.code === 401 ||
@@ -115,7 +115,7 @@ export async function sendGmailEmail(params: {
                     sentAt: new Date(),
                 });
 
-                return { success: true, messageId: sentData.id };
+                return { success: true, messageId: sentData.id, threadId: sentData.threadId };
             } catch (refreshError: any) {
                 console.error('[Gmail Send] Token refresh failed:', refreshError.message);
                 throw new Error('AUTH_REQUIRED');
