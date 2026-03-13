@@ -19,25 +19,6 @@ const PIXEL_HEADERS = {
     'Expires': '0',
 };
 
-export async function GET(request: NextRequest) {
-    const trackingId = request.nextUrl.searchParams.get('t');
-    
-    const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
-    const userAgent = request.headers.get('user-agent') || 'unknown';
-    const referer = request.headers.get('referer') || '';
-
-    if (trackingId) {
-        // Await to ensure Vercel doesn't kill the lambda before recording
-        // We still return the pixel, but this ensures the DB write happens.
-        const clientIp = ip.split(',')[0].trim();
-        await processTrackingEvent(trackingId, clientIp, userAgent, referer).catch(err => {
-            console.error('[Track] Background Error:', err);
-        });
-    }
-
-    return new NextResponse(PIXEL, { status: 200, headers: PIXEL_HEADERS });
-}
-
 async function processTrackingEvent(trackingId: string, ip: string, userAgent: string, referer: string) {
     try {
         if (!trackingId || trackingId === 'null') {
@@ -87,7 +68,26 @@ async function processTrackingEvent(trackingId: string, ip: string, userAgent: s
             // Increment the counter
             supabase.rpc('increment_email_opens', { p_tracking_id: trackingId })
         ]);
-    } catch (err) {
-        console.error('[Track] Fatal Error in processTrackingEvent:', err);
+    } catch (err: any) {
+        console.error('[Track] Fatal Error in processTrackingEvent:', err?.message || err);
     }
+}
+
+export async function GET(request: NextRequest) {
+    const trackingId = request.nextUrl.searchParams.get('t');
+    
+    // Safety check for headers
+    const ipHeader = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
+    const userAgent = request.headers.get('user-agent') || 'unknown';
+    const referer = request.headers.get('referer') || '';
+
+    if (trackingId) {
+        // Await to ensure Vercel doesn't kill the lambda before recording
+        const clientIp = ipHeader.split(',')[0].trim();
+        await processTrackingEvent(trackingId, clientIp, userAgent, referer).catch((err: any) => {
+            console.error('[Track] Background Error:', err?.message || err);
+        });
+    }
+
+    return new NextResponse(PIXEL, { status: 200, headers: PIXEL_HEADERS });
 }
