@@ -79,27 +79,37 @@ export async function getAccountsAction(userId: string) {
         }
 
         // 2. Fetch counts separately for each account to avoid slow joins/timeouts
-        const accountIds = (rawData ?? []).map(a => a.id);
         const accountsWithCounts = await Promise.all((rawData ?? []).map(async (acc) => {
             try {
-                // Single targeted count query per account is often faster and less prone to timeouts
-                const { count, error: countErr } = await supabase
-                    .from('email_messages')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('gmail_account_id', acc.id);
+                // Per-account timeout of 5s for the count query specifically
+                const countTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
+                
+                const fetchCount = (async () => {
+                    const { count, error: countErr } = await supabase
+                        .from('email_messages')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('gmail_account_id', acc.id);
+                    
+                    if (countErr) throw countErr;
+                    return count;
+                })();
 
-                if (countErr) {
-                    console.warn(`[getAccountsAction] Could not get count for ${acc.email}:`, countErr.message);
-                }
+                const countResult = await Promise.race([fetchCount, countTimeout]) as number;
 
                 return {
                     ...acc,
                     sent_count_today: acc.sent_count_today || 0,
                     manager_name: acc.users?.name,
-                    emails_count: count ?? 0
+                    emails_count: countResult ?? 0
                 };
             } catch (e) {
-                return { ...acc, emails_count: 0 };
+                console.warn(`[getAccountsAction] Skipping count for ${acc.email} due to error or timeout:`, e);
+                return { 
+                    ...acc, 
+                    sent_count_today: acc.sent_count_today || 0,
+                    manager_name: acc.users?.name,
+                    emails_count: acc.emails_count ?? 0 
+                };
             }
         }));
 

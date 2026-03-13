@@ -35,7 +35,7 @@ export function useRealtimeInbox({
     onNewEmail,
     onEmailUpdated,
     onEmailDeleted,
-    pollingIntervalMs = 300_000,
+    pollingIntervalMs = 15_000, // Reduced from 30s to 15s for "instant" feel
 }: RealtimeInboxOptions) {
     const channelRef = useRef<ReturnType<typeof supabaseClient.channel> | null>(null);
     const pollingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -61,34 +61,48 @@ export function useRealtimeInbox({
         if (!accountIds || accountIds.length === 0) return;
 
         try {
+            // Priority 1: New Received Emails
             const { data: newEmails } = await supabaseClient
                 .from('email_messages')
                 .select(`
                     id, thread_id, from_email, to_email, subject, snippet,
                     direction, sent_at, is_unread, pipeline_stage,
-                    gmail_account_id,
+                    gmail_account_id, is_tracked, opens_count, clicks_count,
                     gmail_accounts ( email )
                 `)
                 .in('gmail_account_id', accountIds)
                 .eq('direction', 'RECEIVED')
-                .gt('sent_at', latestTimestampRef.current) // Only NEW emails
+                .gt('sent_at', latestTimestampRef.current) 
                 .order('sent_at', { ascending: true });
 
             if (newEmails && newEmails.length > 0) {
-                // Update the timestamp watermark to the newest email we just found
                 const newestTimestamp = newEmails[newEmails.length - 1]?.sent_at;
-                if (newestTimestamp) {
-                    latestTimestampRef.current = newestTimestamp;
-                }
+                if (newestTimestamp) latestTimestampRef.current = newestTimestamp;
 
-                // Fire callback for each new email
                 for (const email of newEmails) {
-                    console.log('[Polling] New email found:', email.subject);
                     onNewEmailRef.current(email);
                 }
             }
+
+            // Priority 2: Check for tracking updates on RECENTLY sent emails
+            // Increase to 50 items and check last 12 hours for higher frequency
+            const halfDayAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+            const { data: updatedSent } = await supabaseClient
+                .from('email_messages')
+                .select('id, thread_id, is_tracked, opens_count, clicks_count, last_opened_at, gmail_account_id')
+                .in('gmail_account_id', accountIds)
+                .eq('direction', 'SENT')
+                .gt('sent_at', halfDayAgo)
+                .gt('opens_count', 0)
+                .order('sent_at', { ascending: false })
+                .limit(50);
+
+            if (updatedSent) {
+                updatedSent.forEach(msg => onEmailUpdatedRef.current?.(msg));
+            }
+
         } catch (err) {
-            console.warn('[Polling] Error checking for new emails:', err);
+            console.warn('[Polling] Error:', err);
         }
     }, [accountIds]);
 
@@ -102,16 +116,15 @@ export function useRealtimeInbox({
             channelRef.current = null;
         }
 
+        const channelName = `realtime:email_messages:${accountIdsKey.slice(0, 16)}`;
         const channel = supabaseClient
-            .channel('realtime:email_messages:inbox')
+            .channel(channelName)
             .on(
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'email_messages' },
                 (payload) => {
                     const newEmail = payload.new as any;
                     if (accountIds.includes(newEmail.gmail_account_id)) {
-                        console.log('[Realtime] INSERT:', newEmail.subject);
-                        // Update watermark so polling doesn't re-fire this email
                         if (newEmail.sent_at && newEmail.sent_at > latestTimestampRef.current) {
                             latestTimestampRef.current = newEmail.sent_at;
                         }
@@ -140,7 +153,10 @@ export function useRealtimeInbox({
                 }
             )
             .subscribe((status) => {
-                console.log('[Realtime] Status:', status);
+                console.log(`[Realtime] Tracking status for ${accountIdsKey.slice(0,8)}...: ${status}`);
+                if (status === 'SUBSCRIBED') {
+                    console.log('[Realtime] Successfully connected to email_messages');
+                }
             });
 
         channelRef.current = channel;
@@ -154,23 +170,25 @@ export function useRealtimeInbox({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [accountIdsKey]);
 
-    // ───── Polling fallback ──────────────────────────────────────────────────
+    // ───── Polling fallback & Tab Focus ──────────────────────────────────────
     useEffect(() => {
         if (!pollingIntervalMs || pollingIntervalMs <= 0) return;
         if (!accountIds || accountIds.length === 0) return;
 
-        // First poll after 5s so we catch anything loaded while page was initialising
-        const initialTimer = setTimeout(pollForNewEmails, 5_000);
-
-        // Then poll on the interval
+        const initialTimer = setTimeout(pollForNewEmails, 1_500);
         pollingTimerRef.current = setInterval(pollForNewEmails, pollingIntervalMs);
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                pollForNewEmails();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
 
         return () => {
             clearTimeout(initialTimer);
-            if (pollingTimerRef.current) {
-                clearInterval(pollingTimerRef.current);
-                pollingTimerRef.current = null;
-            }
+            if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, [pollForNewEmails, pollingIntervalMs, accountIdsKey]);
 }

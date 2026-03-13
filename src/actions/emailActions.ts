@@ -148,8 +148,27 @@ export async function getInboxEmailsAction(
         manager_name: a.users?.name
     }]));
 
+    // 5. BACKFILL: Ensure has_reply is accurate for all threads in the result
+    // This handles old emails that might not have tracking pixels but DO have replies.
+    const threadIds = Array.from(new Set(rows.map(r => r.thread_id).filter(Boolean)));
+    let threadRepliesMap = new Set<string>();
+    
+    if (threadIds.length > 0) {
+        const { data: replyData } = await supabase
+            .from('email_messages')
+            .select('thread_id')
+            .in('thread_id', threadIds)
+            .eq('direction', 'RECEIVED');
+            
+        if (replyData) {
+            threadRepliesMap = new Set(replyData.map(r => r.thread_id));
+        }
+    }
+
     const emails = rows.map((r) => {
         const accInfo = accountMap.get(r.gmail_account_id);
+        const hasActualReply = r.has_reply || threadRepliesMap.has(r.thread_id);
+        
         return {
             id: r.id,
             thread_id: r.thread_id,
@@ -166,7 +185,7 @@ export async function getInboxEmailsAction(
             is_tracked: r.is_tracked,
             opens_count: r.opens_count || 0,
             clicks_count: r.clicks_count || 0,
-            has_reply: r.has_reply || false,
+            has_reply: hasActualReply,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
@@ -223,8 +242,26 @@ export async function getSentEmailsAction(
         manager_name: a.users?.name
     }]));
 
+    // 5. BACKFILL: Ensure has_reply is accurate for all threads in the result
+    const threadIds = Array.from(new Set(rows.map(r => r.thread_id).filter(Boolean)));
+    let threadRepliesMap = new Set<string>();
+    
+    if (threadIds.length > 0) {
+        const { data: replyData } = await supabase
+            .from('email_messages')
+            .select('thread_id')
+            .in('thread_id', threadIds)
+            .eq('direction', 'RECEIVED');
+            
+        if (replyData) {
+            threadRepliesMap = new Set(replyData.map(r => r.thread_id));
+        }
+    }
+
     const emails = rows.map((r) => {
         const accInfo = accountMap.get(r.gmail_account_id);
+        const hasActualReply = r.has_reply || threadRepliesMap.has(r.thread_id);
+
         return {
             id: r.id,
             thread_id: r.thread_id,
@@ -241,7 +278,7 @@ export async function getSentEmailsAction(
             is_tracked: r.is_tracked,
             opens_count: r.opens_count || 0,
             clicks_count: r.clicks_count || 0,
-            has_reply: r.has_reply || false,
+            has_reply: hasActualReply,
             gmail_accounts: {
                 email: accInfo?.email || r.account_email,
                 user: { name: accInfo?.manager_name || 'System' }
@@ -490,8 +527,15 @@ export async function getThreadMessagesAction(threadId: string) {
         return [];
     }
 
+    // Since has_reply might not be a column, we compute it: 
+    // a thread "has_reply" if at least one message is RECEIVED.
+    const threadHasReply = (messages || []).some((m: any) => m.direction === 'RECEIVED');
+
     return (messages || []).map((m: any) => ({
         ...m,
+        has_reply: threadHasReply,
+        account_email: m.gmail_accounts?.email,
+        manager_name: m.gmail_accounts?.users?.name || 'System',
         gmail_accounts: {
             email: m.gmail_accounts?.email,
             user: { name: m.gmail_accounts?.users?.name || 'System' }

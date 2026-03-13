@@ -4740,4 +4740,56 @@ input[type="date"] {
 
 .chart-container {
     filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.02));
-}
+}
+
+/* ─── Email Tracking Styles ─── */
+.tracking-tick-blue {
+    animation: tick-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.tracking-tick-grey {
+    transition: color 0.3s ease;
+}
+
+@keyframes tick-pop {
+    0% {
+        transform: scale(0.6);
+        filter: brightness(2);
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+        filter: brightness(1);
+    }
+}
+
+.open-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    color: #1a73e8;
+    background: #e8f0fe;
+    padding: 2px 6px;
+    border-radius: 6px;
+    line-height: 1;
+    border: 1px solid rgba(26, 115, 232, 0.1);
+    box-shadow: 0 1px 2px rgba(26, 115, 232, 0.1);
+    transition: all 0.2s ease;
+    animation: badge-slide-in 0.3s ease-out;
+}
+
+@keyframes badge-slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+

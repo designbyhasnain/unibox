@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 import { FilterProvider } from './context/FilterContext'
+import { OwnerSessionTracker } from './components/OwnerSessionTracker'
 
 export const metadata: Metadata = {
     title: 'VideoMail CRM',
@@ -17,6 +18,7 @@ export default function RootLayout({
         <html lang="en" suppressHydrationWarning>
             <body suppressHydrationWarning>
                 <FilterProvider>
+                    <OwnerSessionTracker />
                     <div className="layout-container">
                         {children}
                     </div>
@@ -25,3 +27,4 @@ export default function RootLayout({
         </html>
     )
 }
+

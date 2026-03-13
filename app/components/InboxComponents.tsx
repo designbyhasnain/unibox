@@ -36,6 +36,8 @@ export const EmailRow = React.memo(function EmailRow({ email, isSelected, isRowC
     const preview = cleanPreview(email.snippet || email.body || '');
     const isUnread = email.is_unread;
 
+    const isHydrated = useHydrated();
+
     return (
         <div
             className={`gmail-email-row ${isUnread ? 'unread' : 'read'} ${isSelected ? 'selected' : ''}`}
@@ -82,29 +84,39 @@ export const EmailRow = React.memo(function EmailRow({ email, isSelected, isRowC
             </div>
 
             {/* Tracking Status — Smart ticks with real data */}
-            {email.direction === 'SENT' && (() => {
+            {(() => {
                 const wasOpened = (email.opens_count > 0) || email.has_reply;
-                const tickColor = wasOpened ? '#34a853' : '#9aa0a6';
-                const tooltipText = email.opens_count > 0
-                    ? `Opened ${email.opens_count} time${email.opens_count > 1 ? 's' : ''}${email.clicks_count > 0 ? `, ${email.clicks_count} click${email.clicks_count > 1 ? 's' : ''}` : ''}`
-                    : (wasOpened ? 'Opened (replied)' : 'Sent, not opened yet');
+                const isTracked = email.is_tracked;
+                
+                // Show ticks if we sent it OR if it's a lead thread with tracking data
+                const shouldShowTicks = (email.direction === 'SENT') || wasOpened;
+                
+                if (!shouldShowTicks) return null;
 
+                // Proxy for 'Delivered' (Double Grey): Tracked OR older than 2 minutes
+                // Hydration Note: Date.now() is non-deterministic, so on server we assume false or use a stable check
+                const sentTime = email.sent_at ? new Date(email.sent_at).getTime() : 0;
+                const isDelivered = isTracked || (isHydrated && email.direction === 'SENT' && (Date.now() - sentTime > 120000));
+                
                 return (
-                    <div className="gmail-row-tracking" title={tooltipText}>
+                    <div className="gmail-row-tracking" style={{ minWidth: '40px', gap: '4px' }}>
                         {wasOpened ? (
-                            /* 2 green ticks = opened/read */
-                            <>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                                    <path d="M1 12l5 5L18 5" stroke={tickColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d="M7 12l5 5L24 5" stroke={tickColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                                {email.opens_count > 1 && (
-                                    <span style={{ fontSize: '10px', color: '#34a853', fontWeight: 700, marginLeft: '2px' }}>{email.opens_count}</span>
+                            <div className="tracking-tick-blue" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <CheckCheck size={16} color="#1a73e8" strokeWidth={3} />
+                                {email.opens_count > 0 && (
+                                    <span className="open-count-badge">
+                                        {email.opens_count}
+                                    </span>
                                 )}
-                            </>
+                            </div>
                         ) : (
-                            /* 1 grey tick = sent, not opened */
-                            <Check size={14} style={{ color: '#9aa0a6' }} />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                {isDelivered ? (
+                                    <CheckCheck size={16} color="#9aa0a6" strokeWidth={2.5} />
+                                ) : (
+                                    <Check size={16} color="#9aa0a6" strokeWidth={2.5} />
+                                )}
+                            </div>
                         )}
                     </div>
                 );
@@ -762,27 +774,26 @@ export function EmailDetail({
                                         <div className="gmail-msg-date">
                                             {/* Tracking Ticks for Sent Messages */}
                                             {isSent && (() => {
-                                                const msgOpened = (msg.opens_count || 0) > 0;
-                                                const tickColor = msgOpened ? '#34a853' : '#9aa0a6';
-                                                const tipText = msgOpened
-                                                    ? `Opened ${msg.opens_count}x${(msg.clicks_count || 0) > 0 ? `, ${msg.clicks_count} clicks` : ''}`
-                                                    : 'Sent';
+                                                const msgOpened = (msg.opens_count || 0) > 0 || msg.has_reply;
+                                                const isTracked = msg.is_tracked;
+                                                const sentTime = msg.sent_at ? new Date(msg.sent_at).getTime() : 0;
+                                                const isDelivered = isTracked || (Date.now() - sentTime > 120000);
+                                                
                                                 return (
-                                                    <span title={tipText} style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}>
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '8px', gap: '4px' }}>
                                                         {msgOpened ? (
-                                                            <>
-                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                                                    <path d="M1 12l5 5L18 5" stroke={tickColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                                                    <path d="M7 12l5 5L24 5" stroke={tickColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                                                </svg>
-                                                                {msg.opens_count > 1 && (
-                                                                    <span style={{ fontSize: '11px', color: '#34a853', fontWeight: 600, marginLeft: '3px' }}>{msg.opens_count}</span>
+                                                            <div className="tracking-tick-blue" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                                <CheckCheck size={14} color="#1a73e8" strokeWidth={3} />
+                                                                {msg.opens_count > 0 && (
+                                                                    <span className="open-count-badge">
+                                                                        {msg.opens_count}
+                                                                    </span>
                                                                 )}
-                                                            </>
+                                                            </div>
+                                                        ) : isDelivered ? (
+                                                            <CheckCheck size={14} color="#9aa0a6" strokeWidth={2.5} />
                                                         ) : (
-                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                                <path d="M20 6L9 17L4 12" />
-                                                            </svg>
+                                                            <Check size={14} color="#9aa0a6" strokeWidth={2.5} />
                                                         )}
                                                     </span>
                                                 );
@@ -846,26 +857,26 @@ export function EmailDetail({
 
 
                                     {/* ─── Tracking Analytics Bar ─── */}
-                                    {!isCollapsed && isSent && ((msg.opens_count || 0) > 0 || (msg.clicks_count || 0) > 0) && (
+                                    {!isCollapsed && isSent && (msg.is_tracked || (msg.opens_count || 0) > 0 || (msg.clicks_count || 0) > 0 || msg.has_reply) && (
                                         <div style={{
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: '16px',
-                                            padding: '8px 16px',
-                                            margin: '0 16px 4px',
-                                            background: 'rgba(52, 168, 83, 0.06)',
-                                            borderRadius: '8px',
-                                            border: '1px solid rgba(52, 168, 83, 0.15)',
+                                            padding: '10px 16px',
+                                            margin: '0 16px 8px',
+                                            background: 'rgba(26, 115, 232, 0.05)',
+                                            borderRadius: '12px',
+                                            border: '1px solid rgba(26, 115, 232, 0.12)',
                                             fontSize: '12px',
                                             color: '#5f6368',
                                         }}>
                                             {/* Opens */}
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34a853" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                                     <circle cx="12" cy="12" r="3" />
                                                 </svg>
-                                                <span style={{ color: '#34a853', fontWeight: 600 }}>
+                                                <span style={{ color: '#1a73e8', fontWeight: 700, fontSize: '13px' }}>
                                                     Opened {msg.opens_count || 0} time{(msg.opens_count || 0) !== 1 ? 's' : ''}
                                                 </span>
                                             </div>

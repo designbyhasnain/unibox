@@ -80,7 +80,7 @@ export default function AccountsPage() {
 
             // Safety timeout
             const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Request timed out')), 15000)
+                setTimeout(() => reject(new Error('Request timed out')), 30000)
             );
 
             const result = await Promise.race([
