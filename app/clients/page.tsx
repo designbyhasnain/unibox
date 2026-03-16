@@ -6,10 +6,8 @@ import Topbar from '../components/Topbar';
 import ComposeModal from '../components/ComposeModal';
 import AddProjectModal from '../components/AddProjectModal';
 import { getClientsAction, getClientProjectsAction, updateClientAction } from '../../src/actions/clientActions';
-
-const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
-
 import { getManagersAction } from '../../src/actions/projectActions';
+import { DEFAULT_USER_ID } from '../constants/config';
 import { EmailRow, EmailDetail } from '../components/InboxComponents';
 import InlineReply from '../components/InlineReply';
 import AddLeadModal from '../components/AddLeadModal';
@@ -22,16 +20,37 @@ import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import { markClientEmailsAsReadAction } from '../../src/actions/emailActions';
 import { useMailbox } from '../hooks/useMailbox';
 
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes for module-level caches
+const CACHE_MAX_SIZE = 100; // Max entries before clearing
+
 let globalClientsCache: any[] | null = null;
 let globalManagersCache: any[] | null = null;
-let globalClientDetailsCache: Record<string, { emails: any[]; projects: any[] }> = {};
+let globalClientsCacheTimestamp = 0;
+let globalClientDetailsCache: Record<string, { emails: any[]; projects: any[]; timestamp: number }> = {};
 
 if (typeof window !== 'undefined') {
     const savedClients = getFromLocalCache('clients_data');
     if (savedClients) {
         globalClientsCache = savedClients.clients;
         globalManagersCache = savedClients.managers;
+        globalClientsCacheTimestamp = 0; // Treat restored cache as stale
     }
+}
+
+function isClientsCacheValid(): boolean {
+    if (!globalClientsCache) return false;
+    if (Date.now() - globalClientsCacheTimestamp > CACHE_TTL_MS) return false;
+    if (globalClientsCache.length > CACHE_MAX_SIZE) {
+        globalClientsCache = null;
+        globalClientsCacheTimestamp = 0;
+        return false;
+    }
+    // Also prune details cache if it grows too large
+    const detailKeys = Object.keys(globalClientDetailsCache);
+    if (detailKeys.length > CACHE_MAX_SIZE) {
+        globalClientDetailsCache = {};
+    }
+    return true;
 }
 
 export default function ClientsPage() {
@@ -79,7 +98,7 @@ export default function ClientsPage() {
     });
 
     const loadClients = useCallback(async () => {
-        if (!globalClientsCache) setIsLoading(true);
+        if (!isClientsCacheValid()) setIsLoading(true);
         try {
             const [data, mData] = await Promise.all([
                 getClientsAction(selectedAccountId),
@@ -88,6 +107,7 @@ export default function ClientsPage() {
 
             globalClientsCache = data;
             globalManagersCache = mData;
+            globalClientsCacheTimestamp = Date.now();
             saveToLocalCache('clients_data', { clients: data, managers: mData });
 
             setClients(data);
@@ -104,9 +124,10 @@ export default function ClientsPage() {
     const handleSelectClient = async (client: any) => {
         setSelectedClient(client);
         setSelectedEmail(null); // Reset email view
-        
+
         const cached = globalClientDetailsCache[client.id];
-        if (cached) {
+        const isCachedValid = cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS;
+        if (isCachedValid) {
             setClientProjects(cached.projects);
             setIsDetailLoading(false);
         } else {
@@ -189,33 +210,37 @@ export default function ClientsPage() {
                     onSearch={() => { }}
                     onClearSearch={() => setSearchTerm('')}
                     leftContent={
-                        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Clients</h1>
+                        <h1 className="page-title">Clients</h1>
                     }
                     rightContent={
                         <div className="topbar-actions">
-                            <button className="btn btn-primary sm" onClick={() => setIsAddClientOpen(true)}>
+                            <button className="btn btn-primary sm" onClick={() => setIsAddClientOpen(true)} aria-label="Add new client">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 6 }}><path d="M12 5v14M5 12h14" /></svg>
                                 New Client
                             </button>
-                            <div className="avatar-btn">A</div>
+                            <div className="avatar-btn" title="Admin">A</div>
                         </div>
                     }
                 />
 
                 {/* Filter Tabs & Toolbar */}
-                <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
-                    <div className="tabs-bar" style={{ padding: '0 1.5rem', borderBottom: 'none' }}>
+                <div className="filter-toolbar-wrapper">
+                    <div className="tabs-bar tabs-bar-inner" role="tablist" aria-label="Client filter tabs">
                         <div
                             className={`tab ${filterType === 'ALL' ? 'active' : ''}`}
                             onClick={() => setFilterType('ALL')}
+                            role="tab"
+                            aria-selected={filterType === 'ALL'}
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
                             All Contacts
-                            <span style={{ fontSize: '0.75rem', opacity: 0.5, marginLeft: 2 }}>{clients.length}</span>
+                            <span className="tab-count-inline">{clients.length}</span>
                         </div>
                         <div
                             className={`tab ${filterType === 'LEADS' ? 'active' : ''}`}
                             onClick={() => setFilterType('LEADS')}
+                            role="tab"
+                            aria-selected={filterType === 'LEADS'}
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                             Leads
@@ -223,24 +248,27 @@ export default function ClientsPage() {
                         <div
                             className={`tab ${filterType === 'CLIENTS' ? 'active' : ''}`}
                             onClick={() => setFilterType('CLIENTS')}
+                            role="tab"
+                            aria-selected={filterType === 'CLIENTS'}
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
                             Active Clients
                         </div>
                     </div>
 
-                    <div className="list-toolbar" style={{ borderTop: '1px solid var(--border-subtle)', padding: '0.6rem 1.5rem' }}>
-                        <div className="list-toolbar-left" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <span className="count-label" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                    <div className="list-toolbar toolbar-sub">
+                        <div className="list-toolbar-left toolbar-left-flex">
+                            <span className="count-label toolbar-count">
                                 Showing {filteredClients.length} results
                             </span>
                         </div>
-                        <div className="list-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                            <div style={{ display: 'flex', background: 'var(--bg-elevated)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div className="list-toolbar-right toolbar-right-flex">
+                            <div className="view-mode-switcher">
                                 <button
                                     className={`icon-btn sm ${viewMode === 'list' ? 'active' : ''}`}
                                     onClick={() => setViewMode('list')}
                                     title="List View"
+                                    aria-label="List view"
                                     style={{ width: 32, height: 32 }}
                                 >
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>
@@ -249,6 +277,7 @@ export default function ClientsPage() {
                                     className={`icon-btn sm ${viewMode === 'grid' ? 'active' : ''}`}
                                     onClick={() => setViewMode('grid')}
                                     title="Grid View"
+                                    aria-label="Grid view"
                                     style={{ width: 32, height: 32 }}
                                 >
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
@@ -257,23 +286,24 @@ export default function ClientsPage() {
                                     className={`icon-btn sm ${viewMode === 'board' ? 'active' : ''}`}
                                     onClick={() => setViewMode('board')}
                                     title="Board View"
+                                    aria-label="Board view"
                                     style={{ width: 32, height: 32 }}
                                 >
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
                                 </button>
                             </div>
                             <div className="divider-v" />
-                            <button className="icon-btn sm" onClick={loadClients} title="Refresh">
+                            <button className="icon-btn sm" onClick={loadClients} title="Refresh" aria-label="Refresh clients">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <div className="content-split" style={{ background: 'var(--bg-base)' }}>
+                <div className="content-split content-split-bg">
                     {/* Client List */}
                     {!selectedClient ? (
-                        <div className="list-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div className="list-panel list-panel-flex">
                             <PageLoader isLoading={!isHydrated || isLoading} type="list" count={12}>
                                 {filteredClients.length === 0 ? (
                                     <div className="empty-state">
@@ -286,14 +316,14 @@ export default function ClientsPage() {
                                         <div className="empty-state-desc">Try a different search term or filter.</div>
                                     </div>
                                 ) : viewMode === 'list' ? (
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                                        <div className="universal-grid grid-table grid-header" style={{ padding: '0.75rem 1.5rem', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: 'var(--text-muted)' }}>
+                                    <div className="list-view-container">
+                                        <div className="universal-grid grid-table grid-header list-grid-header">
                                             <div className="grid-col col-client">Client / Contact</div>
                                             <div className="grid-col col-account">Latest Gmail Account</div>
                                             <div className="grid-col col-manager">Account Manager</div>
                                             <div className="grid-col col-metrics right">Projects & Activity</div>
                                         </div>
-                                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                                        <div className="list-scroll-area">
                                             {filteredClients.map((client: any) => (
                                                 <div
                                                     key={client.id}
@@ -301,33 +331,33 @@ export default function ClientsPage() {
                                                     onClick={() => handleSelectClient(client)}
                                                 >
                                                     <div className="grid-col col-client">
-                                                        <div className="avatar" style={{ background: avatarColor(client.email || client.name || 'x'), width: 34, height: 34, fontSize: '0.86rem' }}>
+                                                        <div className="avatar avatar-list" style={{ background: avatarColor(client.email || client.name || 'x') }} title={client.name || client.email}>
                                                             {initials(client.name || client.email || '?')}
                                                         </div>
                                                         <div className="sender-info">
-                                                            <div className="sender-name" style={{ fontWeight: 600 }}>{client.name || client.email}</div>
-                                                            <div className="sender-email" style={{ fontSize: '0.75rem', opacity: 0.6 }}>{client.email}</div>
+                                                            <div className="sender-name" title={client.name || client.email}>{client.name || client.email}</div>
+                                                            <div className="sender-email" title={client.email}>{client.email}</div>
                                                         </div>
                                                     </div>
 
-                                                    <div className="grid-col col-account" style={{ fontSize: '0.8125rem' }}>
+                                                    <div className="grid-col col-account account-col-text">
                                                         {client.account_email && client.account_email !== 'No Recent Mail' ? (
-                                                            <span style={{ color: 'var(--text-secondary)' }}>{client.account_email}</span>
+                                                            <span className="text-secondary" title={client.account_email}>{client.account_email}</span>
                                                         ) : (
-                                                            <span style={{ opacity: 0.3 }}>—</span>
+                                                            <span className="text-faded">&mdash;</span>
                                                         )}
                                                     </div>
 
                                                     <div className="grid-col col-manager">
-                                                        <span className="badge badge-gray" style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '6px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+                                                        <span className="badge badge-gray">
                                                             {client.manager_name || 'Unassigned'}
                                                         </span>
                                                     </div>
 
                                                     <div className="grid-col col-metrics right">
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'flex-end' }}>
+                                                        <div className="metrics-row">
                                                             {client.project_count > 0 && (
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                                <div className="metric-item">
                                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
                                                                     <span>{client.project_count}</span>
                                                                 </div>
@@ -342,38 +372,38 @@ export default function ClientsPage() {
                                         </div>
                                     </div>
                                 ) : viewMode === 'grid' ? (
-                                    <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem', overflowY: 'auto' }}>
+                                    <div className="grid-view-container">
                                         {filteredClients.map((client: any) => (
                                             <div
                                                 key={client.id}
                                                 className={`client-tile-card ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
                                                 onClick={() => handleSelectClient(client)}
                                             >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                                    <div className="avatar" style={{ background: avatarColor(client.email || client.name || 'x'), width: 44, height: 44, fontSize: '1rem' }}>
+                                                <div className="tile-header-row">
+                                                    <div className="avatar avatar-grid" style={{ background: avatarColor(client.email || client.name || 'x') }} title={client.name || client.email}>
                                                         {initials(client.name || client.email || '?')}
                                                     </div>
-                                                    <div style={{ minWidth: 0 }}>
-                                                        <div style={{ fontWeight: 700, fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.name}</div>
-                                                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.email}</div>
+                                                    <div className="tile-info">
+                                                        <div className="tile-name" title={client.name}>{client.name}</div>
+                                                        <div className="tile-email" title={client.email}>{client.email}</div>
                                                     </div>
                                                 </div>
-                                                <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                                    <span className="badge badge-gray" style={{ fontSize: '0.7rem', fontWeight: 600 }}>{client.manager_name}</span>
+                                                <div className="tile-badges">
+                                                    <span className="badge badge-gray">{client.manager_name}</span>
                                                     {client.account_email && client.account_email !== 'No Recent Mail' && (
-                                                        <span className="badge badge-gray" style={{ fontSize: '0.7rem', opacity: 0.7 }}>{client.account_email}</span>
+                                                        <span className="badge badge-gray" title={client.account_email}>{client.account_email}</span>
                                                     )}
                                                      {client.pipeline_stage && (
-                                                         <span className={`badge ${STAGE_COLORS[client.pipeline_stage] || 'badge-blue'}`} style={{ fontSize: '0.7rem' }}>
+                                                         <span className={`badge ${STAGE_COLORS[client.pipeline_stage] || 'badge-blue'}`}>
                                                              {STAGE_LABELS[client.pipeline_stage] || client.pipeline_stage}
                                                          </span>
                                                      )}
                                                     {client.project_count > 0 && (
-                                                        <span className="badge badge-purple" style={{ fontSize: '0.7rem' }}>{client.project_count} Projects</span>
+                                                        <span className="badge badge-purple">{client.project_count} Projects</span>
                                                     )}
                                                 </div>
                                                 {client.unread_count > 0 && (
-                                                    <div style={{ position: 'absolute', top: 12, right: 12 }}>
+                                                    <div className="tile-unread-badge">
                                                         <span className="nav-badge">{client.unread_count}</span>
                                                     </div>
                                                 )}
@@ -381,7 +411,7 @@ export default function ClientsPage() {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="board-view" style={{ display: 'flex', gap: '1.5rem', padding: '1.5rem', overflowX: 'auto', flex: 1, minHeight: 0 }}>
+                                    <div className="board-view">
                                         {(['COLD_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'WON', 'CLOSED'] as const).map(stage => (
                                             <div key={stage} className="board-column">
                                                 <div className="column-header">
@@ -399,23 +429,23 @@ export default function ClientsPage() {
                                                             className={`board-card ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
                                                             onClick={() => handleSelectClient(client)}
                                                         >
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                                                <div className="avatar" style={{ background: avatarColor(client.email || client.name || 'x'), width: 28, height: 28, fontSize: '0.75rem' }}>
+                                                            <div className="board-card-header">
+                                                                <div className="avatar avatar-board" style={{ background: avatarColor(client.email || client.name || 'x') }} title={client.name || client.email}>
                                                                     {initials(client.name || client.email || '?')}
                                                                 </div>
-                                                                <div style={{ minWidth: 0 }}>
-                                                                    <div style={{ fontWeight: 600, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.name}</div>
-                                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.email}</div>
-                                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-accent)', marginTop: 2, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                <div className="board-card-info">
+                                                                    <div className="board-card-name" title={client.name}>{client.name}</div>
+                                                                    <div className="board-card-email" title={client.email}>{client.email}</div>
+                                                                    <div className="board-card-manager" title={`${client.manager_name}${client.account_email && client.account_email !== 'No Recent Mail' ? ` - ${client.account_email}` : ''}`}>
                                                                         {client.manager_name}
-                                                                        {client.account_email && client.account_email !== 'No Recent Mail' && ` • ${client.account_email}`}
+                                                                        {client.account_email && client.account_email !== 'No Recent Mail' && ` \u2022 ${client.account_email}`}
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                             {client.project_count > 0 && (
-                                                                <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
+                                                                <div className="board-card-footer">
                                                                     <span>Projects</span>
-                                                                    <span style={{ fontWeight: 700 }}>{client.project_count}</span>
+                                                                    <span className="board-card-count">{client.project_count}</span>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -432,21 +462,22 @@ export default function ClientsPage() {
                         /* Client Detail */
                         <div className="detail-panel">
                             {/* Detail Header */}
-                            <div className="detail-header" style={{ padding: '1.25rem 2rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                                <div className="detail-actions" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div className="detail-actions-left" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-                                        <button className="icon-btn sm" onClick={() => setSelectedClient(null)} title="Back" style={{ width: 32, height: 32, borderRadius: '8px' }}>
+                            <div className="detail-header detail-header-styled">
+                                <div className="detail-actions detail-actions-layout">
+                                    <div className="detail-actions-left detail-actions-left-flex">
+                                        <button className="icon-btn sm" onClick={() => setSelectedClient(null)} title="Back" aria-label="Back to client list" style={{ width: 32, height: 32, borderRadius: '8px' }}>
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                                 <path d="M19 12H5M12 19l-7-7 7-7" />
                                             </svg>
                                         </button>
                                         <div className="divider-v" style={{ height: 20 }} />
-                                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Client Profile</span>
+                                        <span className="detail-section-label">Client Profile</span>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                    <div className="detail-actions-buttons">
                                         <button
                                             className="btn btn-secondary sm"
                                             onClick={() => { setProjectDefaultName(''); setIsAddProjectOpen(true); }}
+                                            aria-label="Add project"
                                             style={{ height: 34, padding: '0 1rem', borderRadius: '8px' }}
                                         >
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 6 }}><path d="M12 5v14M5 12h14" /></svg>
@@ -455,6 +486,7 @@ export default function ClientsPage() {
                                         <button
                                             className="btn btn-primary sm"
                                             onClick={() => { setComposeDefaultTo(selectedClient.email); setIsComposeOpen(true); }}
+                                            aria-label="Send message"
                                             style={{ height: 34, padding: '0 1rem', borderRadius: '8px' }}
                                         >
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 6 }}><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
@@ -463,40 +495,37 @@ export default function ClientsPage() {
                                     </div>
                                 </div>
 
-                                <div className="detail-client-hero" style={{ display: 'flex', alignItems: 'center', gap: '2rem', marginBottom: '0.5rem' }}>
+                                <div className="detail-client-hero hero-layout">
                                     <div className="avatar-hero" style={{
                                         background: avatarColor(selectedClient.email || selectedClient.name || 'x'),
-                                        width: 72, height: 72, fontSize: '1.75rem', borderRadius: '20px',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700,
-                                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                                    }}>
+                                    }} title={selectedClient.name || selectedClient.email}>
                                         {initials(selectedClient.name || selectedClient.email || '?')}
                                     </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                                            <h1 style={{ fontSize: '2rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.04em', lineHeight: 1 }}>
+                                    <div className="hero-info">
+                                        <div className="hero-name-row">
+                                            <h1 className="hero-name">
                                                 {selectedClient.name || selectedClient.email}
                                             </h1>
-                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                <span className={`badge ${selectedClient.status === 'ACTIVE' ? 'badge-green' : 'badge-gray'}`} style={{ borderRadius: '6px', fontWeight: 700, fontSize: '10px' }}>
+                                            <div className="hero-badges">
+                                                <span className={`badge ${selectedClient.status === 'ACTIVE' ? 'badge-green' : 'badge-gray'}`}>
                                                     {selectedClient.pipeline_stage || 'CLIENT'}
                                                 </span>
                                                 {selectedClient.project_count > 0 && (
-                                                    <span className="badge badge-purple" style={{ borderRadius: '6px', fontWeight: 700, fontSize: '10px' }}>{selectedClient.project_count} PROJECTS</span>
+                                                    <span className="badge badge-purple">{selectedClient.project_count} PROJECTS</span>
                                                 )}
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', marginTop: '0.75rem' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                                        <div className="hero-meta-row">
+                                            <div className="hero-meta-item">
                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
                                                 {selectedClient.email}
                                             </div>
                                             <div className="divider-v" style={{ height: 12, background: 'var(--border-subtle)' }} />
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <div className="hero-meta-item">
                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                                                 <select
                                                     className="manager-select-modern"
-                                                    style={{ background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', padding: 0, outline: 'none' }}
+                                                    aria-label="Assign account manager"
                                                     value={selectedClient.account_manager_id || ''}
                                                     onChange={(e) => handleUpdateClient({ account_manager_id: e.target.value || null })}
                                                 >
@@ -509,7 +538,7 @@ export default function ClientsPage() {
                                             {selectedClient.account_email && selectedClient.account_email !== 'No Recent Mail' && (
                                                 <>
                                                     <div className="divider-v" style={{ height: 12, background: 'var(--border-subtle)' }} />
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                                                    <div className="hero-meta-item text-muted">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 000 20 14.5 14.5 0 000-20z" /><path d="M2 12h20" /></svg>
                                                         {selectedClient.account_email}
                                                     </div>
@@ -521,10 +550,12 @@ export default function ClientsPage() {
                             </div>
 
                             {/* Tabs Bar */}
-                            <div className="tabs-bar">
+                            <div className="tabs-bar" role="tablist" aria-label="Client detail tabs">
                                 <div
                                     className={`tab ${activeTab === 'emails' ? 'active' : ''}`}
                                     onClick={() => setActiveTab('emails')}
+                                    role="tab"
+                                    aria-selected={activeTab === 'emails'}
                                 >
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
                                     <span>Emails</span>
@@ -533,6 +564,8 @@ export default function ClientsPage() {
                                 <div
                                     className={`tab ${activeTab === 'projects' ? 'active' : ''}`}
                                     onClick={() => setActiveTab('projects')}
+                                    role="tab"
+                                    aria-selected={activeTab === 'projects'}
                                 >
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
                                     <span>Projects</span>
@@ -541,16 +574,16 @@ export default function ClientsPage() {
                             </div>
 
                             {/* Tab Content */}
-                            <div style={{ flex: 1, overflowY: 'auto', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                            <div className="tab-content-area">
                                 {isDetailLoading ? (
-                                    <div className="empty-state" style={{ paddingTop: '3rem' }}>
+                                    <div className="empty-state loading-state">
                                         <div className="spinner spinner-lg" />
-                                        <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 8 }}>Loading details...</span>
+                                        <span className="loading-text">Loading details...</span>
                                     </div>
                                 ) : activeTab === 'emails' ? (
-                                    <div className="inner-split" style={{ flex: 1, minHeight: 0, display: 'flex', position: 'relative', overflow: 'hidden' }}>
+                                    <div className="inner-split inner-split-flex">
                                         {!selectedEmail ? (
-                                            <div className="inner-list-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+                                            <div className="inner-list-panel inner-list-full">
                                                 <div className="list-toolbar">
                                                     <div className="list-toolbar-left">
                                                         <label className="check-container">
@@ -562,12 +595,12 @@ export default function ClientsPage() {
                                                             <span className="checkmark" />
                                                         </label>
                                                         {selectedEmailIds.size > 0 && (
-                                                            <button className="icon-btn sm danger" title="Delete selected" onClick={handleBulkDelete}>
+                                                            <button className="icon-btn sm danger" title="Delete selected" aria-label="Delete selected emails" onClick={handleBulkDelete}>
                                                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
                                                             </button>
                                                         )}
                                                         <div className="divider-v" />
-                                                        <button className="icon-btn sm" title="Mark Read" onClick={handleBulkMarkRead} disabled={selectedEmailIds.size === 0}>
+                                                        <button className="icon-btn sm" title="Mark Read" aria-label="Mark as read" onClick={handleBulkMarkRead} disabled={selectedEmailIds.size === 0}>
                                                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                                                 <circle cx="12" cy="12" r="3" />
@@ -577,12 +610,12 @@ export default function ClientsPage() {
                                                     <div className="list-toolbar-right">
                                                         {clientEmails.length > 0 && (
                                                             <span className="count-label">
-                                                                1–{clientEmails.length} of {clientEmails.length}
+                                                                1&ndash;{clientEmails.length} of {clientEmails.length}
                                                             </span>
                                                         )}
                                                     </div>
                                                 </div>
-                                                <div id="client-email-list-scroll" style={{ flex: 1, overflowY: 'auto' }}>
+                                                <div id="client-email-list-scroll" className="email-list-scroll">
                                                     <div className="gmail-list-header">
                                                         <div className="gmail-lh-check" />
                                                         <div className="gmail-lh-star" />
@@ -593,7 +626,7 @@ export default function ClientsPage() {
                                                         <div className="gmail-lh-date">Date</div>
                                                     </div>
                                                     {clientEmails.length === 0 ? (
-                                                        <div className="empty-state" style={{ paddingTop: '3rem' }}>
+                                                        <div className="empty-state loading-state">
                                                             <div className="empty-state-icon">
                                                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                                                             </div>
@@ -616,7 +649,7 @@ export default function ClientsPage() {
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className="inner-detail-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                            <div className="inner-detail-panel inner-detail-flex">
                                                 <EmailDetail
                                                     email={selectedEmail}
                                                     threadMessages={threadMessages}
@@ -642,10 +675,10 @@ export default function ClientsPage() {
                                         )}
                                     </div>
                                 ) : (
-                                    <div className="inner-projects" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-base)' }}>
+                                    <div className="inner-projects inner-projects-styled">
                                         {clientProjects.length === 0 ? (
-                                            <div className="empty-state" style={{ paddingTop: '5rem' }}>
-                                                <div className="empty-state-icon" style={{ background: 'var(--bg-elevated)', padding: '1.5rem', borderRadius: '50%' }}>
+                                            <div className="empty-state empty-state-padded">
+                                                <div className="empty-state-icon empty-state-icon-large">
                                                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
                                                 </div>
                                                 <div className="empty-state-title" style={{ marginTop: '1.5rem' }}>No projects found</div>
@@ -659,52 +692,43 @@ export default function ClientsPage() {
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem', overflowY: 'auto' }}>
+                                            <div className="projects-grid">
                                                 {clientProjects.map((project: any) => (
                                                     <div
                                                         key={project.id}
                                                         className="project-card-premium"
                                                         onClick={() => window.location.href = `/projects?project_id=${project.id}`}
-                                                        style={{
-                                                            background: 'var(--bg-surface)',
-                                                            border: '1px solid var(--border)',
-                                                            borderRadius: '16px',
-                                                            padding: '1.5rem',
-                                                            cursor: 'pointer',
-                                                            transition: 'all 0.2s',
-                                                            boxShadow: 'var(--shadow-sm)'
-                                                        }}
                                                     >
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                                                            <h3 style={{ fontSize: '1.125rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+                                                        <div className="project-card-top">
+                                                            <h3 className="project-card-title" title={project.project_name}>
                                                                 {project.project_name}
                                                             </h3>
-                                                            <span className={`badge priority-${(project.priority || 'MEDIUM').toLowerCase()}`} style={{ fontSize: '10px', fontWeight: 700 }}>
+                                                            <span className={`badge ${priorityColors[project.priority] || 'badge-yellow'}`}>
                                                                 {project.priority || 'MEDIUM'}
                                                             </span>
                                                         </div>
 
-                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                                                        <div className="project-card-meta">
+                                                            <div className="project-meta-item">
                                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-                                                                Manager: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{selectedClient?.manager_name || 'Unassigned'}</span>
+                                                                Manager: <span className="meta-value">{selectedClient?.manager_name || 'Unassigned'}</span>
                                                             </div>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                                                            <div className="project-meta-item">
                                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-                                                                Account: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{selectedClient?.account_email || 'No Account'}</span>
+                                                                Account: <span className="meta-value">{selectedClient?.account_email || 'No Account'}</span>
                                                             </div>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                                                            <div className="project-meta-item">
                                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-                                                                Due Date: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatDate(project.due_date)}</span>
+                                                                Due Date: <span className="meta-value">{formatDate(project.due_date)}</span>
                                                             </div>
                                                         </div>
 
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)' }}>
-                                                            <span className={`badge ${project.paid_status === 'PAID' ? 'badge-green' : project.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`} style={{ fontSize: '10px', fontWeight: 800 }}>
+                                                        <div className="project-card-bottom">
+                                                            <span className={`badge ${project.paid_status === 'PAID' ? 'badge-green' : project.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`}>
                                                                 {project.paid_status?.replace('_', ' ') || 'UNPAID'}
                                                             </span>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Details</span>
+                                                            <div className="project-card-link">
+                                                                <span className="link-text">Details</span>
                                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M9 18l6-6-6-6" /></svg>
                                                             </div>
                                                         </div>
@@ -752,21 +776,433 @@ export default function ClientsPage() {
                 />
             )}
 
-            <style>{`
+            <style jsx>{`
+                .page-title {
+                    font-size: 1.25rem;
+                    font-weight: 700;
+                    color: var(--text-primary);
+                    margin: 0;
+                }
+                .filter-toolbar-wrapper {
+                    background: var(--bg-surface);
+                    border-bottom: 1px solid var(--border);
+                }
+                .tabs-bar-inner {
+                    padding: 0 1.5rem;
+                    border-bottom: none;
+                }
+                .tab-count-inline {
+                    font-size: 0.75rem;
+                    opacity: 0.5;
+                    margin-left: 2px;
+                }
+                .toolbar-sub {
+                    border-top: 1px solid var(--border-subtle);
+                    padding: 0.6rem 1.5rem;
+                }
+                .toolbar-left-flex {
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                }
+                .toolbar-count {
+                    font-size: 0.8125rem;
+                    color: var(--text-muted);
+                    font-weight: 500;
+                }
+                .toolbar-right-flex {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                }
+                .view-mode-switcher {
+                    display: flex;
+                    background: var(--bg-elevated);
+                    padding: 3px;
+                    border-radius: 8px;
+                    border: 1px solid var(--border);
+                }
+                .content-split-bg {
+                    background: var(--bg-base);
+                }
+                .list-panel-flex {
+                    display: flex;
+                    flex-direction: column;
+                }
+                .list-view-container {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    min-height: 0;
+                }
+                .list-grid-header {
+                    padding: 0.75rem 1.5rem;
+                    background: var(--bg-surface);
+                    border-bottom: 1px solid var(--border);
+                    font-size: 0.75rem;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                    font-weight: 700;
+                    color: var(--text-muted);
+                }
+                .list-scroll-area {
+                    flex: 1;
+                    overflow-y: auto;
+                }
+                .avatar-list {
+                    width: 34px;
+                    height: 34px;
+                    font-size: 0.86rem;
+                }
+                .avatar-grid {
+                    width: 44px;
+                    height: 44px;
+                    font-size: 1rem;
+                }
+                .avatar-board {
+                    width: 28px;
+                    height: 28px;
+                    font-size: 0.75rem;
+                }
+                .account-col-text {
+                    font-size: 0.8125rem;
+                }
+                .text-secondary {
+                    color: var(--text-secondary);
+                }
+                .text-faded {
+                    opacity: 0.3;
+                }
+                .text-muted {
+                    color: var(--text-muted);
+                }
+                .metrics-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    justify-content: flex-end;
+                }
+                .metric-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    font-size: 0.75rem;
+                    color: var(--text-muted);
+                }
+                .grid-view-container {
+                    padding: 1.5rem;
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                    gap: 1.25rem;
+                    overflow-y: auto;
+                }
+                .tile-header-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                }
+                .tile-info {
+                    min-width: 0;
+                }
+                .tile-name {
+                    font-weight: 700;
+                    font-size: 1rem;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .tile-email {
+                    font-size: 0.8125rem;
+                    color: var(--text-muted);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .tile-badges {
+                    margin-top: 0.5rem;
+                    display: flex;
+                    gap: 0.5rem;
+                    flex-wrap: wrap;
+                }
+                .tile-unread-badge {
+                    position: absolute;
+                    top: 12px;
+                    right: 12px;
+                }
+                .board-card-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                }
+                .board-card-info {
+                    min-width: 0;
+                }
+                .board-card-name {
+                    font-weight: 600;
+                    font-size: 0.85rem;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .board-card-email {
+                    font-size: 0.75rem;
+                    color: var(--text-muted);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .board-card-manager {
+                    font-size: 0.7rem;
+                    color: var(--text-accent);
+                    margin-top: 2px;
+                    font-weight: 500;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .board-card-footer {
+                    margin-top: 0.75rem;
+                    padding-top: 0.5rem;
+                    border-top: 1px solid var(--border);
+                    font-size: 0.7rem;
+                    color: var(--text-secondary);
+                    display: flex;
+                    justify-content: space-between;
+                }
+                .board-card-count {
+                    font-weight: 700;
+                }
+                .detail-header-styled {
+                    padding: 1.25rem 2rem;
+                    border-bottom: 1px solid var(--border);
+                    background: var(--bg-surface);
+                }
+                .detail-actions-layout {
+                    margin-bottom: 1.5rem;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .detail-actions-left-flex {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.875rem;
+                }
+                .detail-section-label {
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    color: var(--text-muted);
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                }
+                .detail-actions-buttons {
+                    display: flex;
+                    gap: 0.75rem;
+                }
+                .hero-layout {
+                    display: flex;
+                    align-items: center;
+                    gap: 2rem;
+                    margin-bottom: 0.5rem;
+                }
+                .avatar-hero {
+                    width: 72px;
+                    height: 72px;
+                    font-size: 1.75rem;
+                    border-radius: 20px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    font-weight: 700;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                .avatar-hero:hover {
+                    transform: scale(1.05) rotate(2deg);
+                }
+                .hero-info {
+                    flex: 1;
+                    min-width: 0;
+                }
+                .hero-name-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                    flex-wrap: wrap;
+                }
+                .hero-name {
+                    font-size: 2rem;
+                    font-weight: 800;
+                    margin: 0;
+                    color: var(--text-primary);
+                    letter-spacing: -0.04em;
+                    line-height: 1;
+                }
+                .hero-badges {
+                    display: flex;
+                    gap: 0.5rem;
+                }
+                .hero-meta-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 1.25rem;
+                    margin-top: 0.75rem;
+                }
+                .hero-meta-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    color: var(--text-secondary);
+                    font-size: 0.875rem;
+                }
+                .manager-select-modern {
+                    background: none;
+                    border: none;
+                    color: var(--text-primary);
+                    font-size: 0.875rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    padding: 0;
+                    outline: none;
+                }
+                .manager-select-modern:hover {
+                    color: var(--accent);
+                }
+                .manager-select-modern option {
+                    background: var(--bg-surface);
+                    color: var(--text-primary);
+                }
+                .tab-content-area {
+                    flex: 1;
+                    overflow-y: auto;
+                    position: relative;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .loading-state {
+                    padding-top: 3rem;
+                }
+                .loading-text {
+                    font-size: 0.8125rem;
+                    color: var(--text-muted);
+                    margin-top: 8px;
+                }
+                .inner-split-flex {
+                    flex: 1;
+                    min-height: 0;
+                    display: flex;
+                    position: relative;
+                    overflow: hidden;
+                }
+                .inner-list-full {
+                    display: flex;
+                    flex-direction: column;
+                    height: 100%;
+                    width: 100%;
+                }
+                .email-list-scroll {
+                    flex: 1;
+                    overflow-y: auto;
+                }
+                .inner-detail-flex {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .inner-projects-styled {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    background: var(--bg-base);
+                }
+                .empty-state-padded {
+                    padding-top: 5rem;
+                }
+                .empty-state-icon-large {
+                    background: var(--bg-elevated);
+                    padding: 1.5rem;
+                    border-radius: 50%;
+                }
+                .projects-grid {
+                    padding: 2rem;
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                    gap: 1.5rem;
+                    overflow-y: auto;
+                }
+                .project-card-premium {
+                    background: var(--bg-surface);
+                    border: 1px solid var(--border);
+                    border-radius: 16px;
+                    padding: 1.5rem;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    box-shadow: var(--shadow-sm);
+                }
+                .project-card-premium:hover {
+                    border-color: var(--accent);
+                    transform: translateY(-4px);
+                    box-shadow: 0 12px 24px -10px rgba(0,0,0,0.15);
+                }
+                .project-card-top {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    margin-bottom: 1rem;
+                }
+                .project-card-title {
+                    font-size: 1.125rem;
+                    font-weight: 700;
+                    margin: 0;
+                    color: var(--text-primary);
+                    letter-spacing: -0.02em;
+                }
+                .project-card-meta {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.75rem;
+                    margin-bottom: 1.5rem;
+                }
+                .project-meta-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.625rem;
+                    font-size: 0.8125rem;
+                    color: var(--text-secondary);
+                }
+                .meta-value {
+                    color: var(--text-primary);
+                    font-weight: 600;
+                }
+                .project-card-bottom {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding-top: 1rem;
+                    border-top: 1px solid var(--border-subtle);
+                }
+                .project-card-link {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+                .link-text {
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    color: var(--text-muted);
+                }
+
+                /* ── Layout helpers ── */
                 .list-toolbar { padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--bg-surface); display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
                 .list-toolbar-right { display: flex; align-items: center; gap: 1rem; }
                 .filter-tabs { display: flex; gap: 0.5rem; }
                 .filter-tab { padding: 0.5rem 1rem; font-size: 0.875rem; font-weight: 500; color: var(--text-muted); cursor: pointer; border-radius: var(--radius-md); transition: all 0.2s; border: 1px solid transparent; }
                 .filter-tab:hover { background: var(--bg-hover); color: var(--text-secondary); }
                 .filter-tab.active { background: var(--accent-light); color: var(--accent); }
-                
+
                 .search-input { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.625rem 1rem; color: var(--text-primary); font-size: 0.875rem; width: 280px; transition: all 0.2s; outline: none; }
                 .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
-                
-                .view-mode-switcher { display: flex; background: var(--bg-tertiary); padding: 3px; border-radius: var(--radius-md); gap: 2px; }
-                .view-btn { padding: 0.5rem; display: flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--text-muted); cursor: pointer; transition: all 0.2s; border: none; background: transparent; }
-                .view-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
-                .view-btn.active { color: var(--accent); background: var(--bg-surface); box-shadow: var(--shadow-sm); }
 
                 .client-tile-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; transition: all 0.2s; cursor: pointer; position: relative; display: flex; flex-direction: column; gap: 0.75rem; }
                 .client-tile-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
@@ -778,12 +1214,12 @@ export default function ClientsPage() {
                 .column-title { font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); }
                 .column-count { background: var(--bg-tertiary); padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; color: var(--text-secondary); }
                 .column-content { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
-                
+
                 .board-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; cursor: pointer; transition: all 0.2s; box-shadow: var(--shadow-sm); }
                 .board-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
                 .board-card.selected { border-color: var(--accent); background: var(--bg-selected); }
                 .client-tile-card.unread, .board-card.unread { background: rgba(59, 130, 246, 0.12); border-left: 4px solid var(--accent) !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.15); }
-                
+
                 .avatar { display: flex; align-items: center; justify-content: center; border-radius: 50%; color: white; font-weight: 700; border: 2px solid var(--bg-main); flex-shrink: 0; }
                 .avatar-lg { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: white; font-weight: 700; border: 3px solid var(--bg-main); }
                 .avatar-md { width: 40px; height: 40px; }
@@ -793,35 +1229,15 @@ export default function ClientsPage() {
                 .is-split .list-toolbar { padding: 0.5rem 0.75rem; }
                 .is-split .list-toolbar-right .icon-btn.sm { display: none; }
 
-                .project-card-premium:hover {
-                    border-color: var(--accent) !important;
-                    transform: translateY(-4px);
-                    box-shadow: 0 12px 24px -10px rgba(0,0,0,0.15);
-                }
-                .manager-select-modern:hover {
-                    color: var(--accent) !important;
-                }
-                .manager-select-modern option {
-                    background: var(--bg-surface);
-                    color: var(--text-primary);
-                }
-                
                 .detail-header .divider-v {
                     background: var(--border-subtle);
                     width: 1px;
                 }
-                
+
                 .inner-list-panel .list-toolbar {
                     background: var(--bg-surface);
                     border-top: none;
                     padding: 0.75rem 1.75rem;
-                }
-                
-                .avatar-hero {
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                }
-                .avatar-hero:hover {
-                    transform: scale(1.05) rotate(2deg);
                 }
 
                 /* ── Universal Grid Definitions ── */
@@ -845,7 +1261,7 @@ export default function ClientsPage() {
                     background: var(--bg-selected);
                     border-left: 3px solid var(--accent);
                 }
-                
+
                 .grid-col { display: flex; align-items: center; gap: 0.75rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
                 .grid-col.right { justify-content: flex-end; }
                 .col-client { min-width: 0; }

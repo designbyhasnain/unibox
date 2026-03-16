@@ -1,52 +1,76 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { supabase } from '../../../../src/lib/supabase';
+import {
+    extractTrackingContext,
+    validateTrackingId,
+    checkRateLimit,
+    shouldSkipAsOwner,
+} from '../../../../src/lib/trackingHelpers';
 
 export async function GET(request: NextRequest) {
-    const trackingId = request.nextUrl.searchParams.get('t');
     const url = request.nextUrl.searchParams.get('url');
 
     if (!url) {
         return NextResponse.redirect(new URL('/', request.url));
     }
 
-    const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
-    const userAgent = request.headers.get('user-agent') || 'unknown';
-    const referer = request.headers.get('referer') || '';
-
-    if (trackingId) {
-        // Fire-and-forget processing
-        processClickEvent(trackingId, ip, userAgent, referer, url).catch(err => {
-            console.error('[Link Tracking] Background Error:', err);
-        });
+    // Validate URL scheme to prevent open redirect via javascript:, data:, or other dangerous URIs
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(url);
+    } catch {
+        return NextResponse.redirect(new URL('/', request.url));
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        return NextResponse.redirect(new URL('/', request.url));
     }
 
-    // Redirect user to the actual URL immediately — zero lag
+    const ctx = extractTrackingContext(request);
+
+    if (validateTrackingId(ctx.trackingId)) {
+        try {
+            await processClickEvent(ctx, url);
+        } catch (err) {
+            console.error('[Link Tracking] Error:', err);
+        }
+    }
+
+    // Redirect user to the actual URL
     return NextResponse.redirect(url);
 }
 
-async function processClickEvent(trackingId: string, ip: string, userAgent: string, referer: string, linkUrl: string) {
+async function processClickEvent(ctx: ReturnType<typeof extractTrackingContext>, linkUrl: string) {
     try {
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-        if (referer && referer.startsWith(appUrl)) {
+        const { trackingId, ip, userAgent } = ctx;
+        if (!validateTrackingId(trackingId)) return;
+
+        // Owner / self-open filtering (uses NEXT_PUBLIC_APP_URL, cookie, and DB session)
+        const owner = await shouldSkipAsOwner(ctx);
+        if (owner.skip) {
+            console.log(`[Click Tracking] Skipped: ${owner.reason} (${ip})`);
             return;
         }
 
-        const { data: ownerSessions } = await supabase
+        // Rate limiting
+        if (await checkRateLimit(ip)) {
+            console.log(`[Click Tracking] Rate limited: ${ip}`);
+            return;
+        }
+
+        // Deduplication: existing click on same link from same IP within 1 hour
+        const { data: existingClick } = await supabase
             .from('email_tracking_events')
             .select('id')
+            .eq('tracking_id', trackingId)
             .eq('ip_address', ip)
-            .eq('event_type', 'owner_session')
-            .gte('created_at', new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString())
+            .eq('event_type', 'click')
+            .eq('link_url', linkUrl)
+            .gte('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
             .limit(1)
             .maybeSingle();
 
-        if (ownerSessions) {
-            console.log(`[Click Tracking] Skipped: Owner Click (${ip})`);
+        if (existingClick) {
+            console.log(`[Click Tracking] Skipped: Duplicate click within 1h (${ip})`);
             return;
         }
 

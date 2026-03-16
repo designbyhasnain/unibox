@@ -1,6 +1,7 @@
 'use server';
 
 import { supabase } from '../lib/supabase';
+import { parseUserAgent } from '../../app/utils/parseUserAgent';
 
 export async function getAnalyticsDataAction(params: {
     startDate: string;
@@ -11,8 +12,19 @@ export async function getAnalyticsDataAction(params: {
     try {
         const { startDate, endDate, managerId, accountId } = params;
 
+        if (!startDate || !endDate || !managerId || !accountId) {
+            return { success: false, error: 'startDate, endDate, managerId, and accountId are required' };
+        }
+
+        // ─── Consolidated email_messages query ──────────────────────────
+        // Instead of 4+ separate queries to email_messages (fetchDailyData,
+        // fetchHourlyEngagement, fetchDeliverability, fetchTopSubjects),
+        // we fetch all messages once with all needed fields and derive
+        // each dataset in-memory.
+        const allMessages = await fetchAllMessages(startDate, endDate, accountId, managerId);
+
         // ─── 1. Core KPIs ──────────────────────────────────────────────
-        const stats = await fetchCoreStats(startDate, endDate, managerId, accountId);
+        const stats = await fetchCoreStats(startDate, endDate, managerId, accountId, allMessages);
 
         // ─── 2. Conversion Funnel ──────────────────────────────────────
         const funnelData = [
@@ -23,11 +35,15 @@ export async function getAnalyticsDataAction(params: {
             { name: 'Leads', value: stats.leadsGenerated, fill: '#06b6d4' },
         ];
 
-        // ─── 3. Manager Leaderboard ───────────────────────────────────
-        const leaderboard = await fetchManagerLeaderboard(startDate, endDate);
+        // ─── 3. Manager Leaderboard (uses separate tables, run in parallel) ─
+        // ─── 7. Account Performance (uses separate account-scoped queries) ──
+        const [leaderboard, accountPerformance] = await Promise.all([
+            fetchManagerLeaderboard(startDate, endDate),
+            fetchAccountPerformance(startDate, endDate),
+        ]);
 
-        // ─── 4. Deliverability Monitor ────────────────────────────────
-        const deliverability = await fetchDeliverability(startDate, endDate, accountId);
+        // ─── 4. Deliverability Monitor (derived from allMessages) ───────
+        const deliverability = deriveDeliverability(allMessages);
 
         // ─── 5. AI Sentiment Analysis (Inferred from pipeline/spam) ────
         const sentimentData = [
@@ -36,11 +52,10 @@ export async function getAnalyticsDataAction(params: {
             { name: 'Negative', value: stats.spamCount || 0, color: '#ea4335' },
         ];
 
-        // ─── 6. Performance Trends ────────────────────────────────────
-        const dailyData = await fetchDailyData(startDate, endDate, accountId);
-        const hourlyEngagement = await fetchHourlyEngagement(startDate, endDate, accountId);
-        const topSubjects = await fetchTopSubjects(startDate, endDate, accountId);
-        const accountPerformance = await fetchAccountPerformance(startDate, endDate);
+        // ─── 6. Performance Trends (all derived from allMessages) ───────
+        const dailyData = deriveDailyData(allMessages, startDate, endDate);
+        const hourlyEngagement = deriveHourlyEngagement(allMessages);
+        const topSubjects = deriveTopSubjects(allMessages);
 
         return {
             success: true,
@@ -56,52 +71,104 @@ export async function getAnalyticsDataAction(params: {
         };
     } catch (error: any) {
         console.error('getAnalyticsDataAction error:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: 'An unexpected error occurred' };
     }
 }
 
-async function fetchCoreStats(startDate: string, endDate: string, managerId: string, accountId: string) {
-    let sentQ = supabase.from('email_messages').select('id, opens_count, clicks_count', { count: 'exact' }).eq('direction', 'SENT').gte('sent_at', startDate).lte('sent_at', endDate);
-    let recvQ = supabase.from('email_messages').select('id', { count: 'exact', head: true }).eq('direction', 'RECEIVED').gte('sent_at', startDate).lte('sent_at', endDate);
-    let leadQ = supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('is_lead', true).gte('created_at', startDate).lte('created_at', endDate);
-    let projQ = supabase.from('projects').select('project_value, paid_status').gte('created_at', startDate).lte('created_at', endDate);
-    let spamQ = supabase.from('email_messages').select('id', { count: 'exact', head: true }).eq('is_spam', true).gte('sent_at', startDate).lte('sent_at', endDate);
+// ─── Consolidated email_messages fetch ──────────────────────────────────────
+// Replaces 4 separate queries (fetchDailyData, fetchHourlyEngagement,
+// fetchDeliverability, fetchTopSubjects) with a single query.
+// Fields fetched: sent_at, direction, is_spam, subject, opens_count, clicks_count
+type EmailMessageRow = {
+    sent_at: string;
+    direction: string;
+    is_spam: boolean;
+    subject: string | null;
+    opens_count: number | null;
+    clicks_count: number | null;
+};
 
+async function fetchAllMessages(
+    startDate: string,
+    endDate: string,
+    accountId: string,
+    managerId: string
+): Promise<EmailMessageRow[]> {
+    // Resolve manager account IDs if needed (reused by fetchCoreStats too)
+    let filterAccountIds: string[] | null = null;
     if (accountId !== 'ALL') {
-        sentQ = sentQ.eq('gmail_account_id', accountId);
-        recvQ = recvQ.eq('gmail_account_id', accountId);
-        spamQ = spamQ.eq('gmail_account_id', accountId);
+        filterAccountIds = [accountId];
+    } else if (managerId !== 'ALL') {
+        const { data: managerAccounts } = await supabase
+            .from('gmail_accounts')
+            .select('id')
+            .eq('user_id', managerId);
+        filterAccountIds = managerAccounts?.map(a => a.id) || [];
     }
+
+    let query = supabase
+        .from('email_messages')
+        .select('sent_at, direction, is_spam, subject, opens_count, clicks_count')
+        .gte('sent_at', startDate)
+        .lte('sent_at', endDate)
+        .limit(10000);
+
+    if (filterAccountIds && filterAccountIds.length > 0) {
+        if (filterAccountIds.length === 1) {
+            query = query.eq('gmail_account_id', filterAccountIds[0]);
+        } else {
+            query = query.in('gmail_account_id', filterAccountIds);
+        }
+    }
+
+    const { data } = await query;
+    return (data || []) as EmailMessageRow[];
+}
+
+async function fetchCoreStats(
+    startDate: string,
+    endDate: string,
+    managerId: string,
+    accountId: string,
+    allMessages: EmailMessageRow[]
+) {
+    // Derive email stats from pre-fetched messages instead of separate queries
+    const sentMessages = allMessages.filter(m => m.direction === 'SENT');
+    const receivedMessages = allMessages.filter(m => m.direction === 'RECEIVED');
+    const spamMessages = allMessages.filter(m => m.is_spam);
+
+    const totalOutreach = sentMessages.length;
+    const totalReceived = receivedMessages.length;
+    const spamCount = spamMessages.length;
+    const openedEmails = sentMessages.filter(m => (m.opens_count || 0) > 0).length;
+    const clickedEmails = sentMessages.filter(m => (m.clicks_count || 0) > 0).length;
+
+    // Leads and projects still need their own queries (different tables)
+    let leadQ = supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('is_lead', true).gte('created_at', startDate).lte('created_at', endDate);
+    let projQ = supabase.from('projects').select('project_value, paid_status').gte('created_at', startDate).lte('created_at', endDate).limit(5000);
+
     if (managerId !== 'ALL') {
         leadQ = leadQ.eq('account_manager_id', managerId);
         projQ = projQ.eq('account_manager_id', managerId);
     }
 
-    const [sent, recv, lead, proj, spam] = await Promise.all([sentQ, recvQ, leadQ, projQ, spamQ]);
-    
-    const projects = proj.data || [];
-    const sentMessages = sent.data || [];
-    
-    const totalRevenue = projects.reduce((acc, p) => acc + (p.project_value || 0), 0);
-    const paidRevenue = projects.filter(p => p.paid_status === 'PAID').reduce((acc, p) => acc + (p.project_value || 0), 0);
+    const [lead, proj] = await Promise.all([leadQ, projQ]);
 
-    // Calculate REAL tracking stats
-    const totalOutreach = sent.count || 0;
-    const openedEmails = sentMessages.filter(m => (m.opens_count || 0) > 0).length;
-    const clickedEmails = sentMessages.filter(m => (m.clicks_count || 0) > 0).length;
+    const projects = proj.data || [];
+    const totalRevenue = projects.reduce((acc, p) => acc + (p.project_value || 0), 0);
 
     const openRateNum = totalOutreach > 0 ? (openedEmails / totalOutreach) * 100 : 0;
     const clickRateNum = totalOutreach > 0 ? (clickedEmails / totalOutreach) * 100 : 0;
 
     return {
         totalOutreach,
-        totalReceived: recv.count || 0,
+        totalReceived,
         leadsGenerated: lead.count || 0,
-        avgReplyRate: totalOutreach > 0 ? ((recv.count || 0) / totalOutreach * 100).toFixed(1) + '%' : '0%',
+        avgReplyRate: totalOutreach > 0 ? (totalReceived / totalOutreach * 100).toFixed(1) + '%' : '0%',
         totalRevenue,
-        paidRevenue,
+        paidRevenue: projects.filter(p => p.paid_status === 'PAID').reduce((acc, p) => acc + (p.project_value || 0), 0),
         closedDeals: projects.filter(p => p.paid_status === 'PAID').length,
-        spamCount: spam.count || 0,
+        spamCount,
         openRate: openRateNum.toFixed(1) + '%',
         clickRate: clickRateNum.toFixed(1) + '%',
         openedEmails,
@@ -109,40 +176,64 @@ async function fetchCoreStats(startDate: string, endDate: string, managerId: str
     };
 }
 
+// Fix 1: Batch query instead of N+1 per manager
 async function fetchManagerLeaderboard(startDate: string, endDate: string) {
     const { data: managers } = await supabase.from('users').select('id, name, avatar_url').eq('role', 'ACCOUNT_MANAGER');
-    if (!managers) return [];
+    if (!managers || managers.length === 0) return [];
 
-    const leaderboard = await Promise.all(managers.map(async (m) => {
-        const { data: projs } = await supabase.from('projects').select('project_value, paid_status').eq('account_manager_id', m.id).gte('created_at', startDate).lte('created_at', endDate);
-        const { count: leads } = await supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('account_manager_id', m.id).eq('is_lead', true);
-        
-        const rev = projs?.reduce((acc, p) => acc + (p.project_value || 0), 0) || 0;
-        const closed = projs?.filter(p => p.paid_status === 'PAID').length || 0;
+    const managerIds = managers.map(m => m.id);
+
+    // Batch: get all projects and leads for these managers in TWO queries total (instead of 2*N)
+    const [projResult, leadResult] = await Promise.all([
+        supabase
+            .from('projects')
+            .select('account_manager_id, project_value, paid_status')
+            .in('account_manager_id', managerIds)
+            .gte('created_at', startDate)
+            .lte('created_at', endDate)
+            .limit(5000),
+        supabase
+            .from('contacts')
+            .select('account_manager_id')
+            .in('account_manager_id', managerIds)
+            .eq('is_lead', true)
+            .gte('created_at', startDate)
+            .lte('created_at', endDate)
+            .limit(5000),
+    ]);
+
+    const allProjects = projResult.data || [];
+    const allLeads = leadResult.data || [];
+
+    // Aggregate in JS
+    const leaderboard = managers.map(m => {
+        const projs = allProjects.filter(p => p.account_manager_id === m.id);
+        const leads = allLeads.filter(l => l.account_manager_id === m.id).length;
+        const rev = projs.reduce((acc, p) => acc + (p.project_value || 0), 0);
+        const closed = projs.filter(p => p.paid_status === 'PAID').length;
 
         return {
             name: m.name,
             avatar: m.avatar_url,
-            leads: leads || 0,
+            leads,
             revenue: rev,
             closedDeals: closed,
             conversion: leads ? ((closed / leads) * 100).toFixed(1) + '%' : '0%'
         };
-    }));
+    });
 
     return leaderboard.sort((a, b) => b.revenue - a.revenue);
 }
 
-async function fetchDeliverability(startDate: string, endDate: string, accountId: string) {
-    let q = supabase.from('email_messages').select('is_spam, direction').eq('direction', 'SENT').gte('sent_at', startDate).lte('sent_at', endDate);
-    if (accountId !== 'ALL') q = q.eq('gmail_account_id', accountId);
-    
-    const { data } = await q;
-    const total = data?.length || 0;
-    const spam = data?.filter(m => m.is_spam).length || 0;
-    
+// ─── Derived analytics functions (no DB queries, operate on pre-fetched data) ─
+
+function deriveDeliverability(allMessages: EmailMessageRow[]) {
+    const sentMessages = allMessages.filter(m => m.direction === 'SENT');
+    const total = sentMessages.length;
+    const spam = sentMessages.filter(m => m.is_spam).length;
+
     const inboxRate = total ? (((total - spam) / total) * 100).toFixed(1) : '100';
-    
+
     return {
         inboxRate: inboxRate + '%',
         spamRate: total ? ((spam / total) * 100).toFixed(1) + '%' : '0%',
@@ -150,24 +241,20 @@ async function fetchDeliverability(startDate: string, endDate: string, accountId
     };
 }
 
-async function fetchTopSubjects(startDate: string, endDate: string, accountId: string) {
-    let query = supabase.from('email_messages').select('subject').eq('direction', 'RECEIVED').gte('sent_at', startDate).lte('sent_at', endDate);
-    if (accountId !== 'ALL') query = query.eq('gmail_account_id', accountId);
-    const { data } = await query;
-    const map: any = {};
-    data?.forEach(m => {
+function deriveTopSubjects(allMessages: EmailMessageRow[]) {
+    const receivedMessages = allMessages.filter(m => m.direction === 'RECEIVED');
+    const map: Record<string, number> = {};
+    receivedMessages.forEach(m => {
         const s = (m.subject || 'No Subject').replace(/Re: |re: |Fwd: /g, '').trim();
         if (s) map[s] = (map[s] || 0) + 1;
     });
-    return Object.keys(map).map(k => ({ name: k, replies: map[k] })).sort((a,b) => b.replies - a.replies).slice(0, 5);
+    return Object.keys(map).map(k => ({ name: k, replies: map[k] ?? 0 })).sort((a, b) => b.replies - a.replies).slice(0, 5);
 }
 
-async function fetchHourlyEngagement(startDate: string, endDate: string, accountId: string) {
-    let query = supabase.from('email_messages').select('sent_at').eq('direction', 'RECEIVED').gte('sent_at', startDate).lte('sent_at', endDate);
-    if (accountId !== 'ALL') query = query.eq('gmail_account_id', accountId);
-    const { data } = await query;
-    const hours = Array.from({length: 24}, (_, i) => ({ name: `${i}:00`, replies: 0 }));
-    data?.forEach(m => {
+function deriveHourlyEngagement(allMessages: EmailMessageRow[]) {
+    const receivedMessages = allMessages.filter(m => m.direction === 'RECEIVED');
+    const hours = Array.from({ length: 24 }, (_, i) => ({ name: `${i}:00`, replies: 0 }));
+    receivedMessages.forEach(m => {
         const h = new Date(m.sent_at).getHours();
         if (hours[h]) {
             hours[h].replies++;
@@ -176,31 +263,143 @@ async function fetchHourlyEngagement(startDate: string, endDate: string, account
     return hours;
 }
 
+function deriveDailyData(allMessages: EmailMessageRow[], startDate: string, endDate: string) {
+    // Build a map of date -> { sent, received }
+    const dayMap: Record<string, { sent: number; received: number }> = {};
+    allMessages.forEach(m => {
+        if (m.direction !== 'SENT' && m.direction !== 'RECEIVED') return;
+        const dateStr = m.sent_at ? m.sent_at.split('T')[0] : null;
+        if (!dateStr) return;
+        if (!dayMap[dateStr]) dayMap[dateStr] = { sent: 0, received: 0 };
+        if (m.direction === 'SENT') dayMap[dateStr].sent++;
+        else if (m.direction === 'RECEIVED') dayMap[dateStr].received++;
+    });
 
-async function fetchDailyData(startDate: string, endDate: string, accountId: string) {
+    // Build the result array for every day in the range
     const start = new Date(startDate);
     const end = new Date(endDate);
     const days = [];
     let curr = new Date(start);
     while (curr <= end) {
         const dStr = curr.toISOString().split('T')[0] || '';
-        let sentQ = supabase.from('email_messages').select('id', { count: 'exact', head: true }).eq('direction', 'SENT').gte('sent_at', dStr + 'T00:00:00').lte('sent_at', dStr + 'T23:59:59');
-        let recvQ = supabase.from('email_messages').select('id', { count: 'exact', head: true }).eq('direction', 'RECEIVED').gte('sent_at', dStr + 'T00:00:00').lte('sent_at', dStr + 'T23:59:59');
-        if (accountId !== 'ALL') { sentQ = sentQ.eq('gmail_account_id', accountId); recvQ = recvQ.eq('gmail_account_id', accountId); }
-        const [s, r] = await Promise.all([sentQ, recvQ]);
-        days.push({ name: (dStr || '').split('-').slice(1).join('/'), sent: s?.count || 0, received: r?.count || 0 });
+        const counts = dayMap[dStr] || { sent: 0, received: 0 };
+        days.push({ name: (dStr || '').split('-').slice(1).join('/'), sent: counts.sent, received: counts.received });
         curr.setDate(curr.getDate() + 1);
     }
     return days;
 }
 
+// Fix 2: Batch query instead of N+1 per account
 async function fetchAccountPerformance(startDate: string, endDate: string) {
     const { data: accs } = await supabase.from('gmail_accounts').select('id, email, status').eq('status', 'ACTIVE');
-    if (!accs) return [];
-    return Promise.all(accs.map(async (a) => {
-        const { count: s } = await supabase.from('email_messages').select('id', { count: 'exact', head: true }).eq('gmail_account_id', a.id).eq('direction', 'SENT').gte('sent_at', startDate).lte('sent_at', endDate);
-        const { count: r } = await supabase.from('email_messages').select('id', { count: 'exact', head: true }).eq('gmail_account_id', a.id).eq('direction', 'RECEIVED').gte('sent_at', startDate).lte('sent_at', endDate);
-        return { name: a.email.split('@')[0], email: a.email, sent: s || 0, received: r || 0, replyRate: s ? ((r || 0) / s * 100).toFixed(1) + '%' : '0%', status: a.status };
-    }));
+    if (!accs || accs.length === 0) return [];
+
+    const accIds = accs.map(a => a.id);
+
+    // Batch: get all sent/received counts in TWO queries total (instead of 2*N)
+    const [sentResult, recvResult] = await Promise.all([
+        supabase
+            .from('email_messages')
+            .select('gmail_account_id')
+            .in('gmail_account_id', accIds)
+            .eq('direction', 'SENT')
+            .gte('sent_at', startDate)
+            .lte('sent_at', endDate)
+            .limit(50000),
+        supabase
+            .from('email_messages')
+            .select('gmail_account_id')
+            .in('gmail_account_id', accIds)
+            .eq('direction', 'RECEIVED')
+            .gte('sent_at', startDate)
+            .lte('sent_at', endDate)
+            .limit(50000),
+    ]);
+
+    // Count in JS
+    const sentCounts: Record<string, number> = {};
+    const recvCounts: Record<string, number> = {};
+    (sentResult.data || []).forEach(r => { sentCounts[r.gmail_account_id] = (sentCounts[r.gmail_account_id] || 0) + 1; });
+    (recvResult.data || []).forEach(r => { recvCounts[r.gmail_account_id] = (recvCounts[r.gmail_account_id] || 0) + 1; });
+
+    return accs.map(a => {
+        const s = sentCounts[a.id] || 0;
+        const r = recvCounts[a.id] || 0;
+        return {
+            name: a.email.split('@')[0],
+            email: a.email,
+            sent: s,
+            received: r,
+            replyRate: s ? ((r / s) * 100).toFixed(1) + '%' : '0%',
+            status: a.status
+        };
+    });
 }
 
+export async function getDeviceAnalyticsAction(params: {
+    accountId: string;
+    startDate: string;
+    endDate: string;
+}) {
+    try {
+        const { accountId, startDate, endDate } = params;
+
+        let query = supabase
+            .from('email_tracking_events')
+            .select('user_agent')
+            .in('event_type', ['open', 'click'])
+            .gte('created_at', startDate)
+            .lte('created_at', endDate)
+            .limit(5000);
+
+        // If a specific account is selected, filter by tracking IDs belonging to that account's messages
+        if (accountId !== 'ALL') {
+            const { data: trackingIds } = await supabase
+                .from('email_messages')
+                .select('tracking_id')
+                .eq('gmail_account_id', accountId)
+                .not('tracking_id', 'is', null)
+                .limit(5000);
+
+            if (trackingIds && trackingIds.length > 0) {
+                const ids = trackingIds.map(t => t.tracking_id).filter(Boolean);
+                if (ids.length > 0) {
+                    query = query.in('tracking_id', ids);
+                } else {
+                    return { success: true, devices: [], browsers: [], os: [] };
+                }
+            } else {
+                return { success: true, devices: [], browsers: [], os: [] };
+            }
+        }
+
+        const { data: events, error } = await query;
+        if (error || !events) return { success: true, devices: [], browsers: [], os: [] };
+
+        const deviceCounts: Record<string, number> = {};
+        const browserCounts: Record<string, number> = {};
+        const osCounts: Record<string, number> = {};
+
+        for (const event of events) {
+            const parsed = parseUserAgent(event.user_agent || '');
+            deviceCounts[parsed.deviceType] = (deviceCounts[parsed.deviceType] || 0) + 1;
+            browserCounts[parsed.browser] = (browserCounts[parsed.browser] || 0) + 1;
+            osCounts[parsed.os] = (osCounts[parsed.os] || 0) + 1;
+        }
+
+        const toSorted = (counts: Record<string, number>) =>
+            Object.entries(counts)
+                .map(([name, count]) => ({ name, count }))
+                .sort((a, b) => b.count - a.count);
+
+        return {
+            success: true,
+            devices: toSorted(deviceCounts),
+            browsers: toSorted(browserCounts),
+            os: toSorted(osCounts),
+        };
+    } catch (error: any) {
+        console.error('getDeviceAnalyticsAction error:', error);
+        return { success: false, devices: [], browsers: [], os: [], error: 'An unexpected error occurred' };
+    }
+}

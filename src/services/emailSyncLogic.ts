@@ -1,6 +1,22 @@
+// TODO: Add `import 'server-only';` after running `npm install` to install the server-only package.
+// This prevents accidental client-side imports that could leak secrets.
 import { supabase } from '../lib/supabase';
 
 const ACCEPTANCE_KEYWORDS = ['yes', "let's proceed", 'agreed', 'sounds good', 'deal', 'approve', 'accepted'];
+
+// Pre-compiled word-boundary regexes for acceptance keywords to avoid false positives
+// e.g. "yes" should not match "yesterday", "deal" should not match "ideal"
+const ACCEPTANCE_REGEXES = ACCEPTANCE_KEYWORDS.map(k => new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'));
+
+/**
+ * Extracts a clean email address from an RFC 2822 formatted string.
+ * e.g. "John Doe <john@example.com>" -> "john@example.com"
+ * e.g. "john@example.com" -> "john@example.com"
+ */
+function extractEmail(raw: string): string {
+    const match = raw.match(/<([^>]+)>/);
+    return match?.[1] ? match[1].toLowerCase() : raw.toLowerCase().trim();
+}
 
 export async function handleEmailSent(data: {
     gmailAccountId: string;
@@ -15,12 +31,13 @@ export async function handleEmailSent(data: {
     isSpam?: boolean;
 }) {
     const { toEmail, messageId, threadId } = data;
+    const cleanToEmail = extractEmail(toEmail);
 
     // 1. Find or create contact
     let { data: contact } = await supabase
         .from('contacts')
         .select('id, email, is_lead, is_client, pipeline_stage')
-        .eq('email', toEmail)
+        .eq('email', cleanToEmail)
         .maybeSingle();
 
     // Removed automatic contact creation for random outbound emails
@@ -92,12 +109,13 @@ export async function handleEmailReceived(data: {
     isSpam?: boolean;
 }, sentThreadIds?: Set<string>) {
     const { fromEmail, messageId, threadId } = data;
+    const cleanFromEmail = extractEmail(fromEmail);
 
     // 1. Find or create contact from sender
     let { data: contact } = await supabase
         .from('contacts')
         .select('id, email, is_lead, is_client, pipeline_stage')
-        .eq('email', fromEmail)
+        .eq('email', cleanFromEmail)
         .maybeSingle();
 
     // Removed auto-creation of contact. Random incoming emails will no longer populate the Clients page.
@@ -120,18 +138,24 @@ export async function handleEmailReceived(data: {
     // 3. Otherwise, it stays in COLD_LEAD (to appear in the main inbox tab)
     let newEmailStage = 'COLD_LEAD';
 
-    if (hasOutgoing || (contact && !['COLD_LEAD', null].includes(contact.pipeline_stage))) {
+    if (hasOutgoing || (contact && !['COLD_LEAD', 'NOT_INTERESTED', null].includes(contact.pipeline_stage))) {
         newEmailStage = 'LEAD';
     }
 
-    // Preserve existing stage if it's already higher than LEAD (e.g. OFFER_ACCEPTED)
+    // Preserve existing stage if it's already higher than LEAD (e.g. OFFER_ACCEPTED, NOT_INTERESTED)
+    // This prevents stage regression — higher stages should never be downgraded
     if (existingStage && !['COLD_LEAD', 'LEAD'].includes(existingStage)) {
         newEmailStage = existingStage;
     }
 
+    // If the contact is NOT_INTERESTED, never promote them to LEAD automatically
+    if (contact?.pipeline_stage === 'NOT_INTERESTED') {
+        newEmailStage = existingStage || 'NOT_INTERESTED';
+    }
+
     // 3. Keyword detection for possible offer acceptance (Activity log only)
     const bodyText = data.body.toLowerCase();
-    const mightBeAccepted = ACCEPTANCE_KEYWORDS.some((k) => bodyText.includes(k));
+    const mightBeAccepted = ACCEPTANCE_REGEXES.some((regex) => regex.test(bodyText));
 
     if (mightBeAccepted && contact?.pipeline_stage === 'LEAD' && contact.id) {
         await supabase.from('activity_logs').insert({

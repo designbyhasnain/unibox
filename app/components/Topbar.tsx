@@ -66,14 +66,16 @@ export default function Topbar({
 
             <div className="search-bar-wrap" ref={containerRef}>
                 <div className={`search-bar ${focused ? 'focused' : ''}`}>
-                    <button className="icon-btn search-icon-main" onClick={() => onSearch(searchTerm)}>
+                    <button className="icon-btn search-icon-main" onClick={() => onSearch(searchTerm)} aria-label="Search">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
                         </svg>
                     </button>
 
+                    <label htmlFor="topbar-search" className="sr-only">Search emails</label>
                     <input
-                        type="text"
+                        id="topbar-search"
+                        type="search"
                         placeholder={placeholder}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
@@ -82,10 +84,11 @@ export default function Topbar({
                             setIsAdvSearchOpen(false);
                         }}
                         onKeyDown={handleKeyDown}
+                        aria-label="Search mail"
                     />
 
                     {searchTerm && (
-                        <button className="icon-btn" onClick={() => { onClearSearch(); setFocused(false); }}>
+                        <button className="icon-btn" onClick={() => { onClearSearch(); setFocused(false); }} aria-label="Clear search">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                 <path d="M18 6L6 18M6 6l12 12" />
                             </svg>
@@ -100,6 +103,7 @@ export default function Topbar({
                             setFocused(false);
                         }}
                         title="Show search options"
+                        aria-label="Search filter options"
                     >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 14V3M1 14h6M9 8h6M17 14h6" />
@@ -107,32 +111,14 @@ export default function Topbar({
                     </button>
                 </div>
 
-                {/* Advanced Search Popup */}
+                {/* Advanced Search Popup - simplified since fields were not functional (FE-019) */}
                 {isAdvSearchOpen && (
                     <div className="adv-search-popup show" ref={advSearchRef} onClick={(e) => e.stopPropagation()}>
-                        <div className="adv-search-row">
-                            <div className="adv-label">From</div>
-                            <input type="text" className="adv-input" placeholder="" />
+                        <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                            <p style={{ fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Search Tips</p>
+                            <p>Use keywords like <code>has:attachment</code>, <code>from:me</code>, or <code>newer_than:7d</code> in the search bar.</p>
                         </div>
-                        <div className="adv-search-row">
-                            <div className="adv-label">To</div>
-                            <input type="text" className="adv-input" />
-                        </div>
-                        <div className="adv-search-row">
-                            <div className="adv-label">Subject</div>
-                            <input type="text" className="adv-input" />
-                        </div>
-                        <div className="adv-search-row">
-                            <div className="adv-label">Has the words</div>
-                            <input type="text" className="adv-input" />
-                        </div>
-                        <div className="adv-search-row">
-                            <div className="adv-label">Doesn't have</div>
-                            <input type="text" className="adv-input" />
-                        </div>
-
                         <div className="adv-search-footer">
-                            <button className="adv-footer-btn" onClick={() => setIsAdvSearchOpen(false)}>Create filter</button>
                             <button className="btn btn-primary" onClick={() => { onSearch(searchTerm); setIsAdvSearchOpen(false); }}>Search</button>
                         </div>
                     </div>
@@ -150,7 +136,7 @@ export default function Topbar({
                                     }
                                 }}
                             >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}>
+                                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}>
                                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                                 </svg>
                                 Has attachment
@@ -187,7 +173,7 @@ export default function Topbar({
                                     {searchResults.map((res, i) => (
                                         <div key={i} className="search-item" onClick={() => { onResultClick?.(res); setFocused(false); }}>
                                             <div className="search-item-icon">
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                     <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                                                     <polyline points="22,6 12,13 2,6" />
                                                 </svg>
@@ -210,7 +196,7 @@ export default function Topbar({
                         ) : searchTerm && (
                             <div className="search-item" onClick={() => { onSearch(searchTerm); setFocused(false); }}>
                                 <div className="search-item-icon">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
                                     </svg>
                                 </div>
@@ -223,7 +209,7 @@ export default function Topbar({
                         {searchTerm && !searchLoading && (
                             <div className="search-all-btn" onClick={() => { onSearch(searchTerm); setFocused(false); }}>
                                 <div className="search-item-icon" style={{ opacity: 0.7 }}>
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
                                     </svg>
                                 </div>
@@ -239,11 +225,20 @@ export default function Topbar({
 
             <div className="topbar-right">
                 {rightContent || (
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem' }}>
+                    <div className="topbar-right-default">
                         <div className="avatar-btn">A</div>
                     </div>
                 )}
             </div>
+
+            <style jsx>{`
+                .topbar-right-default {
+                    display: flex;
+                    justify-content: flex-end;
+                    align-items: center;
+                    gap: 1rem;
+                }
+            `}</style>
         </header>
     );
 }

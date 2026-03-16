@@ -15,12 +15,15 @@ interface FilterContextType {
 const FilterContext = createContext<FilterContextType | undefined>(undefined);
 
 export function FilterProvider({ children }: { children: ReactNode }) {
-    // Synchronous initialization from localStorage to prevent flash of wrong account data
+    // Initialize directly from localStorage to eliminate double-render on mount
     const [selectedAccountId, setSelectedAccountIdState] = useState<string>(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('unibox_selected_account_id') || 'ALL';
+        if (typeof window === 'undefined') return 'ALL';
+        try {
+            const saved = localStorage.getItem('unibox_selected_account_id');
+            return (saved && saved !== 'ALL') ? saved : 'ALL';
+        } catch {
+            return 'ALL';
         }
-        return 'ALL';
     });
 
     // Date range filter

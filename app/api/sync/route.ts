@@ -15,17 +15,32 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const { accountId } = body;
 
-        if (!accountId) {
+        if (!accountId || typeof accountId !== 'string') {
             return NextResponse.json({ error: 'accountId is required' }, { status: 400 });
+        }
+
+        // Basic UUID format validation
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(accountId)) {
+            return NextResponse.json({ error: 'Invalid accountId format' }, { status: 400 });
         }
 
         console.log(`[Sync API] Manual sync triggered for account ${accountId}`);
 
-        const { data: account } = await supabase
+        // Basic validation: verify the account exists and belongs to a valid user
+        const { data: account, error: accountError } = await supabase
             .from('gmail_accounts')
-            .select('history_id, connection_method, last_synced_at')
+            .select('history_id, connection_method, last_synced_at, user_id')
             .eq('id', accountId)
             .single();
+
+        if (accountError || !account) {
+            return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+        }
+
+        if (!account.user_id) {
+            return NextResponse.json({ error: 'Account has no associated user' }, { status: 403 });
+        }
 
         if (account?.connection_method === 'MANUAL') {
             console.log(`[Sync API] Running manual IMAP sync for ${accountId}`);

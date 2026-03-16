@@ -15,8 +15,8 @@ import { avatarColor, initials } from '../utils/helpers';
 import { syncAllUserAccountsAction, getAccountsAction } from '../../src/actions/accountActions';
 import { useGlobalFilter } from '../context/FilterContext';
 import { PageLoader } from '../components/LoadingStates';
+import { DEFAULT_USER_ID } from '../constants/config';
 
-const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
 
 type Project = {
     id: string;
@@ -47,9 +47,9 @@ type Client = {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatDate(dateStr: string) {
-    if (!dateStr) return '—';
+    if (!dateStr) return '\u2014';
     const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return '—';
+    if (isNaN(d.getTime())) return '\u2014';
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
@@ -69,13 +69,31 @@ const reviewColors: Record<string, string> = {
 
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_MAX_SIZE = 100;
+
 let globalProjectsCache: { projects: Project[], managers: any[], clients: Client[] } | null = null;
+let globalProjectsCacheTimestamp = 0;
 let globalProjectDetailsCache: Record<string, { emails: any[] }> = {};
 let globalThreadCache: Record<string, any[]> = {};
 
 if (typeof window !== 'undefined') {
     const savedProjects = getFromLocalCache('projects_data');
-    if (savedProjects) globalProjectsCache = savedProjects;
+    if (savedProjects) {
+        globalProjectsCache = savedProjects;
+        globalProjectsCacheTimestamp = 0; // Treat restored cache as stale
+    }
+}
+
+function isProjectsCacheValid(): boolean {
+    if (!globalProjectsCache) return false;
+    if (Date.now() - globalProjectsCacheTimestamp > CACHE_TTL_MS) return false;
+    if (globalProjectsCache.projects.length > CACHE_MAX_SIZE) {
+        globalProjectsCache = null;
+        globalProjectsCacheTimestamp = 0;
+        return false;
+    }
+    return true;
 }
 
 export default function ProjectsPage() {
@@ -143,16 +161,17 @@ export default function ProjectsPage() {
     }, [projects]);
 
     const loadData = async () => {
-        if (!globalProjectsCache) setIsLoading(true);
+        if (!isProjectsCacheValid()) setIsLoading(true);
         try {
             const [pData, mData, cData, accResult] = await Promise.all([
                 getAllProjectsAction(selectedAccountId),
                 getManagersAction(),
                 getClientsAction(selectedAccountId),
-                getAccountsAction(ADMIN_USER_ID)
+                getAccountsAction(DEFAULT_USER_ID)
             ]);
 
             globalProjectsCache = { projects: pData as Project[], managers: mData, clients: cData as Client[] };
+            globalProjectsCacheTimestamp = Date.now();
             saveToLocalCache('projects_data', globalProjectsCache);
 
             setProjects(globalProjectsCache.projects);
@@ -172,7 +191,7 @@ export default function ProjectsPage() {
     const handleSync = async () => {
         setIsSyncing(true);
         try {
-            await syncAllUserAccountsAction(ADMIN_USER_ID);
+            await syncAllUserAccountsAction(DEFAULT_USER_ID);
         } catch {
             console.error('Failed to sync accounts.');
         } finally {
@@ -236,26 +255,28 @@ export default function ProjectsPage() {
                     }}
                     placeholder="Search by name or client..."
                     leftContent={
-                        <div style={{ width: '280px', display: 'flex', alignItems: 'center', gap: '1rem', paddingLeft: '2.5rem' }}>
-                            <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Projects</h1>
+                        <div className="topbar-left-wrapper">
+                            <h1 className="page-title">Projects</h1>
                         </div>
                     }
                     rightContent={
-                        <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', paddingRight: '1rem', alignItems: 'center', gap: '0.75rem' }}>
-                            <button className="btn btn-primary sm" onClick={() => setIsCreateModalOpen(true)}>
+                        <div className="topbar-right-wrapper">
+                            <button className="btn btn-primary sm" onClick={() => setIsCreateModalOpen(true)} aria-label="Create new project">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 6 }}><path d="M12 5v14M5 12h14" /></svg>
                                 New Project
                             </button>
-                            <div className="avatar-btn">A</div>
+                            <div className="avatar-btn" title="Admin">A</div>
                         </div>
                     }
                 />
 
                 {/* Filter Tabs & Toolbar */}
-                <div className="tabs-bar">
+                <div className="tabs-bar" role="tablist" aria-label="Project filter tabs">
                     <div
                         className={`tab ${filterStatus === 'ALL' ? 'active' : ''}`}
                         onClick={() => setFilterStatus('ALL')}
+                        role="tab"
+                        aria-selected={filterStatus === 'ALL'}
                     >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /></svg>
                         All Projects
@@ -264,35 +285,42 @@ export default function ProjectsPage() {
                     <div
                         className={`tab ${filterStatus === 'UNPAID' ? 'active' : ''}`}
                         onClick={() => setFilterStatus('UNPAID')}
+                        role="tab"
+                        aria-selected={filterStatus === 'UNPAID'}
                     >
                         Unpaid
                     </div>
                     <div
                         className={`tab ${filterStatus === 'PARTIALLY_PAID' ? 'active' : ''}`}
                         onClick={() => setFilterStatus('PARTIALLY_PAID')}
+                        role="tab"
+                        aria-selected={filterStatus === 'PARTIALLY_PAID'}
                     >
                         Partially Paid
                     </div>
                     <div
                         className={`tab ${filterStatus === 'PAID' ? 'active' : ''}`}
                         onClick={() => setFilterStatus('PAID')}
+                        role="tab"
+                        aria-selected={filterStatus === 'PAID'}
                     >
                         Paid
                     </div>
                 </div>
 
-                <div className="list-toolbar" style={{ borderTop: '1px solid var(--border-subtle)', padding: '0.6rem 1.5rem' }}>
+                <div className="list-toolbar toolbar-sub">
                     <div className="list-toolbar-left">
-                        <span className="count-label" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                        <span className="count-label toolbar-count">
                             Showing {filteredProjects.length} results
                         </span>
                     </div>
-                    <div className="list-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{ display: 'flex', background: 'var(--bg-elevated)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <div className="list-toolbar-right toolbar-right-flex">
+                        <div className="view-mode-switcher">
                             <button
                                 className={`icon-btn sm ${viewMode === 'list' ? 'active' : ''}`}
                                 onClick={() => setViewMode('list')}
                                 title="List View"
+                                aria-label="List view"
                                 style={{ width: 32, height: 32 }}
                             >
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>
@@ -301,6 +329,7 @@ export default function ProjectsPage() {
                                 className={`icon-btn sm ${viewMode === 'grid' ? 'active' : ''}`}
                                 onClick={() => setViewMode('grid')}
                                 title="Grid View"
+                                aria-label="Grid view"
                                 style={{ width: 32, height: 32 }}
                             >
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
@@ -309,13 +338,14 @@ export default function ProjectsPage() {
                                 className={`icon-btn sm ${viewMode === 'board' ? 'active' : ''}`}
                                 onClick={() => setViewMode('board')}
                                 title="Board View"
+                                aria-label="Board view"
                                 style={{ width: 32, height: 32 }}
                             >
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
                             </button>
                         </div>
                         <div className="divider-v" />
-                        <button className="icon-btn sm" onClick={loadData} title="Refresh">
+                        <button className="icon-btn sm" onClick={loadData} title="Refresh" aria-label="Refresh projects">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
                                 <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
                             </svg>
@@ -323,10 +353,10 @@ export default function ProjectsPage() {
                     </div>
                 </div>
 
-                <div className="content-split" style={{ background: 'var(--bg-base)' }}>
+                <div className="content-split content-split-bg">
                     {/* Project List */}
                     {!selectedProject ? (
-                        <div className="list-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div className="list-panel list-panel-flex">
                             <PageLoader isLoading={!isHydrated || isLoading} type="list" count={12}>
                                 {filteredProjects.length === 0 ? (
                                     <div className="empty-state">
@@ -339,7 +369,7 @@ export default function ProjectsPage() {
                                         <div className="empty-state-desc">Start by creating a new delivery workflow.</div>
                                     </div>
                                 ) : viewMode === 'list' ? (
-                                    <div className="list-area" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                                    <div className="list-area list-area-flex">
                                         {!selectedProject && (
                                             <div className="universal-grid grid-table grid-header">
                                                 <div className="grid-col col-main">Project Name</div>
@@ -348,7 +378,7 @@ export default function ProjectsPage() {
                                                 <div className="grid-col right">Status & Due Date</div>
                                             </div>
                                         )}
-                                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                                        <div className="list-scroll-area">
                                             {filteredProjects.map((p: Project) => (
                                                 <div
                                                     key={p.id}
@@ -356,36 +386,36 @@ export default function ProjectsPage() {
                                                     onClick={() => handleSelectProject(p)}
                                                 >
                                                     <div className="grid-col col-main">
-                                                        <div className="avatar" style={{ background: avatarColor(p.project_name || p.id), width: 34, height: 34, fontSize: '0.86rem' }}>
+                                                        <div className="avatar avatar-list" style={{ background: avatarColor(p.project_name || p.id) }} title={p.project_name}>
                                                             {initials(p.project_name)}
                                                         </div>
                                                         <div className="sender-info">
-                                                            <div className="sender-name">{p.project_name}</div>
-                                                            <div className="sender-email">{p.client?.name || 'Unknown'}</div>
+                                                            <div className="sender-name" title={p.project_name}>{p.project_name}</div>
+                                                            <div className="sender-email" title={p.client?.name || 'Unknown'}>{p.client?.name || 'Unknown'}</div>
                                                         </div>
                                                     </div>
 
-                                                    <div className="grid-col secondary">
+                                                    <div className="grid-col secondary" title={p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}>
                                                         {p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}
                                                     </div>
 
                                                     <div className="grid-col muted">
-                                                        <span className="badge badge-gray" style={{ fontSize: '11px' }}>{p.manager?.name || 'Unassigned'}</span>
+                                                        <span className="badge badge-gray">{p.manager?.name || 'Unassigned'}</span>
                                                     </div>
 
                                                     <div className="grid-col right">
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                            <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                                                <span className={`badge ${p.paid_status === 'PAID' ? 'badge-green' : p.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`} style={{ fontSize: '10px' }}>
+                                                        <div className="status-due-row">
+                                                            <div className="status-badges">
+                                                                <span className={`badge ${p.paid_status === 'PAID' ? 'badge-green' : p.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`}>
                                                                     {p.paid_status.replace('_', ' ')}
                                                                 </span>
                                                                 {!selectedProject && (
-                                                                    <span className={`badge ${p.priority === 'URGENT' ? 'badge-red' : p.priority === 'HIGH' ? 'badge-yellow' : p.priority === 'MEDIUM' ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '10px' }}>
+                                                                    <span className={`badge ${p.priority === 'URGENT' ? 'badge-red' : p.priority === 'HIGH' ? 'badge-yellow' : p.priority === 'MEDIUM' ? 'badge-blue' : 'badge-green'}`}>
                                                                         {p.priority}
                                                                     </span>
                                                                 )}
                                                             </div>
-                                                            <div className="muted" style={{ width: 80, fontSize: '0.72rem', textAlign: 'right' }}>
+                                                            <div className="due-date-text">
                                                                 {formatDate(p.due_date)}
                                                             </div>
                                                         </div>
@@ -395,52 +425,43 @@ export default function ProjectsPage() {
                                         </div>
                                     </div>
                                 ) : viewMode === 'grid' ? (
-                                    <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem', overflowY: 'auto' }}>
+                                    <div className="grid-view-container">
                                         {filteredProjects.map((p: Project) => (
                                             <div
                                                 key={p.id}
                                                 className="project-card-premium"
                                                 onClick={() => handleSelectProject(p)}
-                                                style={{
-                                                    background: 'var(--bg-surface)',
-                                                    border: '1px solid var(--border)',
-                                                    borderRadius: '16px',
-                                                    padding: '1.5rem',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s',
-                                                    boxShadow: 'var(--shadow-sm)'
-                                                }}
                                             >
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                                                    <h3 style={{ fontSize: '1.125rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                <div className="project-card-top">
+                                                    <h3 className="project-card-title" title={p.project_name}>
                                                         {p.project_name}
                                                     </h3>
-                                                    <span className={`badge priority-${(p.priority || 'MEDIUM').toLowerCase()}`} style={{ fontSize: '10px', fontWeight: 700 }}>
+                                                    <span className={`badge ${p.priority === 'URGENT' ? 'badge-red' : p.priority === 'HIGH' ? 'badge-yellow' : p.priority === 'MEDIUM' ? 'badge-blue' : 'badge-green'}`}>
                                                         {p.priority || 'MEDIUM'}
                                                     </span>
                                                 </div>
 
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                                                <div className="project-card-meta">
+                                                    <div className="project-meta-item">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-                                                        Manager: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{p.manager?.name || 'Unassigned'}</span>
+                                                        Manager: <span className="meta-value">{p.manager?.name || 'Unassigned'}</span>
                                                     </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                                                    <div className="project-meta-item">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-                                                        Account: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}</span>
+                                                        Account: <span className="meta-value">{p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}</span>
                                                     </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                                                    <div className="project-meta-item">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-                                                        Due Date: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatDate(p.due_date)}</span>
+                                                        Due Date: <span className="meta-value">{formatDate(p.due_date)}</span>
                                                     </div>
                                                 </div>
 
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)' }}>
-                                                    <span className={`badge ${p.paid_status === 'PAID' ? 'badge-green' : p.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`} style={{ fontSize: '10px', fontWeight: 800 }}>
+                                                <div className="project-card-bottom">
+                                                    <span className={`badge ${p.paid_status === 'PAID' ? 'badge-green' : p.paid_status === 'PARTIALLY_PAID' ? 'badge-yellow' : 'badge-red'}`}>
                                                         {p.paid_status?.replace('_', ' ') || 'UNPAID'}
                                                     </span>
                                                     {p.client?.name && (
-                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.client.name}>
+                                                        <div className="project-client-name" title={p.client.name}>
                                                             {p.client.name}
                                                         </div>
                                                     )}
@@ -449,7 +470,7 @@ export default function ProjectsPage() {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="board-view" style={{ display: 'flex', gap: '1.5rem', padding: '1.5rem', overflowX: 'auto', flex: 1, minHeight: 0 }}>
+                                    <div className="board-view">
                                         {(['UNPAID', 'PARTIALLY_PAID', 'PAID'] as const).map(status => (
                                             <div key={status} className="board-column">
                                                 <div className="column-header">
@@ -468,9 +489,9 @@ export default function ProjectsPage() {
                                                             onClick={() => handleSelectProject(p)}
                                                         >
                                                             <div className={`card-priority priority-${p.priority.toLowerCase()}`} />
-                                                            <div className="card-title">{p.project_name}</div>
-                                                            <div className="card-client">{p.client?.name}</div>
-                                                            <div style={{ fontSize: '0.65rem', color: 'var(--text-accent)', marginBottom: '0.5rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            <div className="card-title" title={p.project_name}>{p.project_name}</div>
+                                                            <div className="card-client" title={p.client?.name}>{p.client?.name}</div>
+                                                            <div className="card-account" title={p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}>
                                                                 {p.sourceEmail?.gmail_accounts?.email || 'No Linked Account'}
                                                             </div>
                                                             <div className="card-footer">
@@ -478,7 +499,7 @@ export default function ProjectsPage() {
                                                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v4M8 2v4M3 10h18" /><rect x="3" y="4" width="18" height="18" rx="2" /></svg>
                                                                     {formatDate(p.due_date)}
                                                                 </div>
-                                                                <div className="card-avatar">{(p.manager?.name?.[0] || '?').toUpperCase()}</div>
+                                                                <div className="card-avatar" title={p.manager?.name || 'Unknown'}>{(p.manager?.name?.[0] || '?').toUpperCase()}</div>
                                                             </div>
                                                         </div>
                                                     ))}
@@ -491,49 +512,53 @@ export default function ProjectsPage() {
                         </div>
                     ) : (
                         /* Detail Panel */
-                        <div className="detail-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', minWidth: 0, overflow: 'hidden' }}>
+                        <div className="detail-panel detail-panel-styled">
                             {/* Detail Header */}
                             <div className="detail-header">
                                 <div className="detail-actions">
                                     <div className="detail-actions-left">
-                                        <button className="icon-btn" onClick={() => { setSelectedProject(null); setSelectedEmail(null); }} title="Back to list">
+                                        <button className="icon-btn" onClick={() => { setSelectedProject(null); setSelectedEmail(null); }} title="Back to list" aria-label="Back to project list">
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                                 <path d="M19 12H5M12 19l-7-7 7-7" />
                                             </svg>
                                         </button>
                                         <div className="divider-v" />
-                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <h2 style={{ fontSize: '0.9375rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                                        <div className="detail-title-block">
+                                            <h2 className="detail-project-name" title={selectedProject.project_name}>
                                                 {selectedProject.project_name}
                                             </h2>
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                            <span className="detail-client-name" title={selectedProject.client?.name || 'Loading client...'}>
                                                 {selectedProject.client?.name || 'Loading client...'}
                                             </span>
                                         </div>
                                     </div>
                                     <div className="detail-actions-right">
                                         {selectedProject.project_link && (
-                                            <button className="icon-btn" title="Open Project Link" onClick={() => window.open(selectedProject.project_link, '_blank')}>
+                                            <button className="icon-btn" title="Open Project Link" aria-label="Open project link" onClick={() => window.open(selectedProject.project_link, '_blank')}>
                                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" /></svg>
                                             </button>
                                         )}
                                         <div className="divider-v" />
-                                        <button className="btn btn-secondary btn-sm" onClick={() => handleSync()}>Refresh</button>
+                                        <button className="btn btn-secondary btn-sm" onClick={() => handleSync()} aria-label="Refresh project data">Refresh</button>
                                     </div>
                                 </div>
                             </div>
 
                             {!selectedEmail && (
-                                <div className="tabs-bar">
+                                <div className="tabs-bar" role="tablist" aria-label="Project detail tabs">
                                     <div
                                         className={`tab ${activeTab === 'details' ? 'active' : ''}`}
                                         onClick={() => setActiveTab('details')}
+                                        role="tab"
+                                        aria-selected={activeTab === 'details'}
                                     >
                                         Overview
                                     </div>
                                     <div
                                         className={`tab ${activeTab === 'emails' ? 'active' : ''}`}
                                         onClick={() => setActiveTab('emails')}
+                                        role="tab"
+                                        aria-selected={activeTab === 'emails'}
                                     >
                                         Email Logs
                                         {projectEmails.length > 0 && <span className="tab-badge">{projectEmails.length}</span>}
@@ -684,7 +709,7 @@ export default function ProjectsPage() {
                                         </div>
                                     </>
                                 ) : (
-                                    <div className="inner-list-panel" style={{ display: 'flex', flexDirection: 'column', margin: '-1.5rem', width: 'calc(100% + 3rem)', minHeight: '500px' }}>
+                                    <div className="inner-list-panel email-list-panel">
                                         <div className="list-toolbar">
                                             <div className="list-toolbar-left">
                                                 <label className="check-container">
@@ -696,12 +721,12 @@ export default function ProjectsPage() {
                                                     <span className="checkmark" />
                                                 </label>
                                                 {selectedEmailIds.size > 0 && (
-                                                    <button className="icon-btn sm danger" title="Delete selected" onClick={handleBulkDelete}>
+                                                    <button className="icon-btn sm danger" title="Delete selected" aria-label="Delete selected emails" onClick={handleBulkDelete}>
                                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
                                                     </button>
                                                 )}
                                                 <div className="divider-v" />
-                                                <button className="icon-btn sm" title="Mark Read" onClick={handleBulkMarkRead} disabled={selectedEmailIds.size === 0}>
+                                                <button className="icon-btn sm" title="Mark Read" aria-label="Mark as read" onClick={handleBulkMarkRead} disabled={selectedEmailIds.size === 0}>
                                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                                         <circle cx="12" cy="12" r="3" />
@@ -711,12 +736,12 @@ export default function ProjectsPage() {
                                             <div className="list-toolbar-right">
                                                 {projectEmails.length > 0 && (
                                                     <span className="count-label">
-                                                        1–{projectEmails.length} of {projectEmails.length}
+                                                        1&ndash;{projectEmails.length} of {projectEmails.length}
                                                     </span>
                                                 )}
                                             </div>
                                         </div>
-                                        <div id="project-email-list-scroll" style={{ flex: 1, overflowY: 'auto' }}>
+                                        <div id="project-email-list-scroll" className="email-list-scroll">
                                             <div className="gmail-list-header">
                                                 <div className="gmail-lh-check" />
                                                 <div className="gmail-lh-star" />
@@ -727,12 +752,12 @@ export default function ProjectsPage() {
                                                 <div className="gmail-lh-date">Date</div>
                                             </div>
                                             {isDetailLoading ? (
-                                                <div className="empty-state" style={{ paddingTop: '3rem' }}>
+                                                <div className="empty-state loading-state">
                                                     <div className="spinner" />
-                                                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 8 }}>Loading emails...</span>
+                                                    <span className="loading-text">Loading emails...</span>
                                                 </div>
                                             ) : projectEmails.length === 0 ? (
-                                                <div className="empty-state" style={{ paddingTop: '3rem' }}>
+                                                <div className="empty-state loading-state">
                                                     <div className="empty-state-icon">
                                                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                                                     </div>
@@ -775,7 +800,205 @@ export default function ProjectsPage() {
 
             {isComposeOpen && <ComposeModal onClose={() => setIsComposeOpen(false)} />}
 
-            <style>{`
+            <style jsx>{`
+                .page-title {
+                    font-size: 1.25rem;
+                    font-weight: 700;
+                    color: var(--text-primary);
+                    margin: 0;
+                }
+                .topbar-left-wrapper {
+                    width: 280px;
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                    padding-left: 2.5rem;
+                }
+                .topbar-right-wrapper {
+                    flex: 1;
+                    display: flex;
+                    justify-content: flex-end;
+                    padding-right: 1rem;
+                    align-items: center;
+                    gap: 0.75rem;
+                }
+                .toolbar-sub {
+                    border-top: 1px solid var(--border-subtle);
+                    padding: 0.6rem 1.5rem;
+                }
+                .toolbar-count {
+                    font-size: 0.8125rem;
+                    color: var(--text-muted);
+                    font-weight: 500;
+                }
+                .toolbar-right-flex {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                }
+                .view-mode-switcher {
+                    display: flex;
+                    background: var(--bg-elevated);
+                    padding: 3px;
+                    border-radius: 8px;
+                    border: 1px solid var(--border);
+                }
+                .content-split-bg {
+                    background: var(--bg-base);
+                }
+                .list-panel-flex {
+                    display: flex;
+                    flex-direction: column;
+                }
+                .list-area-flex {
+                    display: flex;
+                    flex-direction: column;
+                    min-height: 0;
+                }
+                .list-scroll-area {
+                    flex: 1;
+                    overflow-y: auto;
+                }
+                .avatar-list {
+                    width: 34px;
+                    height: 34px;
+                    font-size: 0.86rem;
+                }
+                .status-due-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                .status-badges {
+                    display: flex;
+                    gap: 0.4rem;
+                }
+                .due-date-text {
+                    width: 80px;
+                    font-size: 0.72rem;
+                    text-align: right;
+                    color: var(--text-muted);
+                }
+                .grid-view-container {
+                    padding: 1.5rem;
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                    gap: 1.5rem;
+                    overflow-y: auto;
+                }
+                .project-card-premium {
+                    background: var(--bg-surface);
+                    border: 1px solid var(--border);
+                    border-radius: 16px;
+                    padding: 1.5rem;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    box-shadow: var(--shadow-sm);
+                }
+                .project-card-premium:hover {
+                    border-color: var(--accent);
+                    transform: translateY(-4px);
+                    box-shadow: 0 12px 24px -10px rgba(0,0,0,0.15);
+                }
+                .project-card-top {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    margin-bottom: 1rem;
+                }
+                .project-card-title {
+                    font-size: 1.125rem;
+                    font-weight: 700;
+                    margin: 0;
+                    color: var(--text-primary);
+                    letter-spacing: -0.02em;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .project-card-meta {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.75rem;
+                    margin-bottom: 1.5rem;
+                }
+                .project-meta-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.625rem;
+                    font-size: 0.8125rem;
+                    color: var(--text-secondary);
+                }
+                .meta-value {
+                    color: var(--text-primary);
+                    font-weight: 600;
+                }
+                .project-card-bottom {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding-top: 1rem;
+                    border-top: 1px solid var(--border-subtle);
+                }
+                .project-client-name {
+                    font-size: 0.75rem;
+                    color: var(--text-muted);
+                    font-weight: 600;
+                    max-width: 120px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .card-account {
+                    font-size: 0.65rem;
+                    color: var(--text-accent);
+                    margin-bottom: 0.5rem;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .detail-panel-styled {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    background: var(--bg-card);
+                    min-width: 0;
+                    overflow: hidden;
+                }
+                .detail-title-block {
+                    display: flex;
+                    flex-direction: column;
+                }
+                .detail-project-name {
+                    font-size: 0.9375rem;
+                    font-weight: 700;
+                    margin: 0;
+                    color: var(--text-primary);
+                }
+                .detail-client-name {
+                    font-size: 0.75rem;
+                    color: var(--text-muted);
+                }
+                .email-list-panel {
+                    display: flex;
+                    flex-direction: column;
+                    margin: -1.5rem;
+                    width: calc(100% + 3rem);
+                    min-height: 500px;
+                }
+                .email-list-scroll {
+                    flex: 1;
+                    overflow-y: auto;
+                }
+                .loading-state {
+                    padding-top: 3rem;
+                }
+                .loading-text {
+                    font-size: 0.8125rem;
+                    color: var(--text-muted);
+                    margin-top: 8px;
+                }
+
                 /* ── Project Specific ── */
                 .date-col { width: 100px; text-align: right; font-size: 0.75rem; color: var(--text-tertiary); margin-left: auto; }
 
@@ -787,7 +1010,7 @@ export default function ProjectsPage() {
                 .project-tile-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; transition: all 0.2s var(--ease); cursor: pointer; display: flex; flex-direction: column; gap: 1rem; position: relative; }
                 .project-tile-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
                 .project-tile-card.selected { border-color: var(--accent); background: var(--bg-selected); }
-                
+
                 .tile-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
                 .tile-title { font-weight: 700; font-size: 0.9375rem; color: var(--text-primary); line-height: 1.3; }
                 .tile-priority { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
@@ -795,27 +1018,21 @@ export default function ProjectsPage() {
                 .priority-high { background: var(--warning); }
                 .priority-medium { background: var(--accent); }
                 .priority-low { background: var(--success); }
-                
+
                 .tile-meta { display: flex; flex-direction: column; gap: 0.5rem; }
-                .tile-client, .tile-date { display: flex; alignItems: center; gap: 0.5rem; font-size: 0.775rem; color: var(--text-muted); }
+                .tile-client, .tile-date { display: flex; align-items: center; gap: 0.5rem; font-size: 0.775rem; color: var(--text-muted); }
                 .tile-client svg, .tile-date svg { color: var(--text-tertiary); }
-                
+
                 .tile-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 0.75rem; border-top: 1px solid var(--border); }
                 .tile-avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; border: 1px solid var(--border); }
 
-                .board-view { background: var(--bg-base); flex: 1; display: flex; overflow-x: auto; }
+                .board-view { background: var(--bg-base); flex: 1; display: flex; overflow-x: auto; padding: 1.5rem; gap: 1.5rem; min-height: 0; }
                 .board-column { flex: 0 0 280px; display: flex; flex-direction: column; background: var(--bg-elevated); border-radius: var(--radius-lg); border: 1px solid var(--border); max-height: 100%; }
                 .column-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); background: var(--bg-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
                 .column-title { font-weight: 700; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.05em; display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); }
-                .column-count { background: var(--bg-tertiary); padding: 2px 8px; borderRadius: 10px; font-size: 0.7rem; color: var(--text-secondary); }
+                .column-count { background: var(--bg-tertiary); padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; color: var(--text-secondary); }
                 .column-content { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
 
-                .project-card-premium:hover {
-                    border-color: var(--accent) !important;
-                    transform: translateY(-4px);
-                    box-shadow: 0 12px 24px -10px rgba(0,0,0,0.15) !important;
-                }
-                
                 .board-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden; box-shadow: var(--shadow-sm); }
                 .board-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
                 .board-card.selected { border-color: var(--accent); background: var(--bg-selected); }
@@ -878,7 +1095,7 @@ export default function ProjectsPage() {
                     background: var(--bg-selected);
                     border-left: 3px solid var(--accent);
                 }
-                
+
                 .grid-col { display: flex; align-items: center; gap: 0.75rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
                 .grid-col.right { justify-content: flex-end; }
                 .col-main { min-width: 0; }

@@ -1,3 +1,4 @@
+import 'server-only';
 import { google } from 'googleapis';
 import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
@@ -395,6 +396,12 @@ export async function syncAccountHistory(accountId: string, newHistoryId?: strin
 
     if (!account) return;
 
+    // Don't sync if account is paused, disconnected, or in error state
+    if (['PAUSED', 'DISCONNECTED', 'ERROR'].includes(account.status)) {
+        console.log(`[History Sync] Skipping sync for ${account.email} — status is ${account.status}`);
+        return;
+    }
+
     // No stored historyId → must do full sync first
     if (!account.history_id) {
         return syncGmailEmails(accountId);
@@ -424,8 +431,7 @@ export async function syncAccountHistory(accountId: string, newHistoryId?: strin
 
         // Process in parallel batches
         if (addedMessageIds.length > 0) {
-            const gmail2 = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
-
+            // Reuse the existing gmail client to avoid creating a redundant OAuth client
             // OPTIMIZATION: pre-fetch threads that have SENT messages
             const { data: sentThreads } = await supabase
                 .from('email_messages')
@@ -438,18 +444,26 @@ export async function syncAccountHistory(accountId: string, newHistoryId?: strin
             const { data: ignoredData } = await supabase.from('ignored_senders').select('email');
             const ignoredSenders = new Set((ignoredData || []).map((i: any) => i.email.toLowerCase()));
 
-            await processBatch(gmail2, account, addedMessageIds, undefined, 5, sentThreadIds, ignoredSenders, addedMessageIds.length);
+            await processBatch(gmail, account, addedMessageIds, undefined, 5, sentThreadIds, ignoredSenders, addedMessageIds.length);
         }
 
-        // Advance stored historyId to the new one from the webhook or google's response
+        // Advance stored historyId — only if the new value is greater (prevent regression)
         const newIdToStore = newHistoryId || historyRes.data.historyId || account.history_id;
+        const newIdNum = parseInt(newIdToStore?.toString() || '0', 10);
+        const currentIdNum = parseInt(account.history_id?.toString() || '0', 10);
+
+        const updateData: any = {
+            last_synced_at: new Date().toISOString(),
+            sync_progress: 100
+        };
+        // Only advance historyId, never regress
+        if (newIdNum > currentIdNum) {
+            updateData.history_id = newIdToStore?.toString();
+        }
+
         await supabase
             .from('gmail_accounts')
-            .update({
-                history_id: newIdToStore?.toString(),
-                last_synced_at: new Date().toISOString(),
-                sync_progress: 100
-            })
+            .update(updateData)
             .eq('id', accountId);
 
     } catch (error: any) {
@@ -489,41 +503,34 @@ export async function syncGmailEmails(accountId: string) {
         throw new Error('Invalid account for Gmail API sync');
     }
 
-    // CONCURRENCY GUARD: If already syncing, don't start another one
-    if (account.status === 'SYNCING') {
-        console.log(`[Sync] Sync already in progress for ${account.email}. Skipping redundant trigger.`);
+    // CONCURRENCY GUARD: Atomic check-and-set to prevent TOCTOU race condition.
+    // Only update to SYNCING if currently ACTIVE, and check if the row was actually updated.
+    const { data: lockResult, error: lockError } = await supabase
+        .from('gmail_accounts')
+        .update({ status: 'SYNCING', sync_progress: 0 })
+        .eq('id', accountId)
+        .eq('status', 'ACTIVE')
+        .select('id');
+
+    if (lockError || !lockResult || lockResult.length === 0) {
+        console.log(`[Sync] Sync already in progress or account not ACTIVE for ${account.email}. Skipping.`);
         return;
     }
 
     const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
 
-    // Mark as SYNCING immediately to lock others out
-    await supabase.from('gmail_accounts').update({ status: 'SYNCING', sync_progress: 0 }).eq('id', accountId);
-
     try {
         // Per Gmail docs: using multiple labelIds in messages.list acts as an AND filter.
         // To get messages from ANY of these, we should use the 'q' parameter.
         const combinedQuery = `in:anywhere`;
-        const fs = require('fs');
-        fs.appendFileSync('sync_debug.log', `[Full Sync] Starting for ${account.email} at ${new Date().toISOString()}\n`);
+        console.log(`[Full Sync] Starting for ${account.email} at ${new Date().toISOString()}`);
         // One broad fetch is much more efficient than separate label fetches
         // 'in:anywhere' includes Inbox, Sent, Drafts, Trash, Spam
         const allMessageIds = await fetchAllMessageIds(gmail, [], 'in:anywhere', 100000);
 
-        fs.appendFileSync('sync_debug.log', `[Full Sync] Found ${allMessageIds.length} total messages for ${account.email} at ${new Date().toISOString()}\n`);
-        console.log(`[Full Sync] Found ${allMessageIds.length} total messages for ${account.email}`);
+        console.log(`[Full Sync] Found ${allMessageIds.length} total messages for ${account.email} at ${new Date().toISOString()}`);
 
-        // ── Step 3: Fetch current historyId from user profile ─────────────────
-        let latestHistoryId: string | undefined = undefined;
-        try {
-            const profile = await gmail.users.getProfile({ userId: 'me' });
-            latestHistoryId = profile.data.historyId || undefined;
-            console.log(`[Full Sync] Current profile historyId: ${latestHistoryId}`);
-        } catch (e) {
-            console.warn('[Full Sync] Failed to get latest historyId from profile, partial sync might be delayed.');
-        }
-
-        // ── Step 4: Batch process all messages in parallel ────────────────────
+        // ── Step 3: Batch process all messages in parallel ────────────────────
         console.log(`[Full Sync] Processing messages in batches...`);
 
         // OPTIMIZATION: pre-fetch threads that have SENT messages to avoid N+1 queries in handleEmailReceived
@@ -543,27 +550,36 @@ export async function syncGmailEmails(accountId: string) {
 
         await processBatch(gmail, account, allMessageIds, undefined, 20, sentThreadIds, ignoredSenders, allMessageIds.length);
 
+        // Fetch historyId AFTER processing to avoid stale historyId when messages
+        // arrive during a long sync. This ensures the next incremental sync won't miss them.
+        let latestHistoryId: string | undefined = undefined;
+        try {
+            const profile = await gmail.users.getProfile({ userId: 'me' });
+            latestHistoryId = profile.data.historyId || undefined;
+            console.log(`[Full Sync] Post-sync profile historyId: ${latestHistoryId}`);
+        } catch (e) {
+            console.warn('[Full Sync] Failed to get latest historyId from profile, partial sync might be delayed.');
+        }
+
         await supabase
             .from('gmail_accounts')
             .update({
                 status: 'ACTIVE',
                 last_synced_at: new Date().toISOString(),
-                history_id: latestHistoryId?.toString(), // Only set history_id after successful sync
+                history_id: latestHistoryId?.toString(),
                 sync_progress: 100
             })
             .eq('id', accountId);
 
-        fs.appendFileSync('sync_debug.log', `[Full Sync] Finished processing ${allMessageIds.length} messages at ${new Date().toISOString()}\n`);
+        console.log(`[Full Sync] Finished processing ${allMessageIds.length} messages at ${new Date().toISOString()}`);
         console.log(`[Full Sync] Complete for ${account.email}. Total messages: ${allMessageIds.length}. historyId: ${latestHistoryId}`);
 
         // ── Step 6: Register Pub/Sub watch for real-time push ──────────────────
         await startGmailWatch(accountId);
 
     } catch (error: any) {
-        const fs = require('fs');
-        const logMsg = `[SYNC ERROR] ${new Date().toISOString()}: ${error?.message || error}\n${error?.stack}\n`;
-        fs.appendFileSync('sync_debug.log', logMsg);
-        console.error('[Full Sync] Error:', error?.message || error);
+        // Log full error details server-side but sanitize what propagates to the client
+        console.error(`[SYNC ERROR] ${new Date().toISOString()}: ${error?.message || error}`, error?.stack);
 
         // Only set status to ERROR if it's a permanent auth failure
         if (isAuthError(error)) {
@@ -572,7 +588,8 @@ export async function syncGmailEmails(accountId: string) {
             // Revert to ACTIVE so they can retry without re-authenticating
             await supabase.from('gmail_accounts').update({ status: 'ACTIVE' }).eq('id', accountId);
         }
-        throw error;
+        // Throw sanitized error to avoid leaking internal details
+        throw new Error(isAuthError(error) ? 'AUTH_REQUIRED' : 'Email sync failed. Please try again later.');
     }
 }
 

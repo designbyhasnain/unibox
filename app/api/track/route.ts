@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { supabase } from '../../../src/lib/supabase';
+import { isGoogleProxy } from '../../../src/utils/botDetection';
+import {
+    extractTrackingContext,
+    validateTrackingId,
+    checkRateLimit,
+    shouldSkipAsOwner,
+} from '../../../src/lib/trackingHelpers';
 
 const PIXEL = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -19,54 +21,63 @@ const PIXEL_HEADERS = {
     'Expires': '0',
 };
 
-async function processTrackingEvent(trackingId: string, ip: string, userAgent: string, referer: string) {
+async function processTrackingEvent(ctx: ReturnType<typeof extractTrackingContext>) {
     try {
-        if (!trackingId || trackingId === 'null') {
-             console.log('[Track] ABORT: No tracking ID');
-             return;
+        const { trackingId, ip, userAgent } = ctx;
+        if (!validateTrackingId(trackingId)) return;
+
+        // Rate limiting
+        if (await checkRateLimit(ip)) {
+            console.log(`[Track] RATE LIMITED | IP: ${ip}`);
+            return;
         }
 
-        // --- DEBUG: Temporarily allowing ALL hits to see if it works at all ---
-        console.log(`[Track] DEBUG HIT | ID: ${trackingId} | IP: ${ip} | UA: ${userAgent} | Ref: ${referer}`);
-
-        /*
-        const isGoogleProxy = /GoogleImageProxy|via ggpht\.com/i.test(userAgent);
-
-        if (!isGoogleProxy) {
-            if (referer && (referer.includes('localhost') || referer.includes('vercel.app'))) {
-                console.log(`[Track] SKIP (Referer: CRM UI) | ID: ${trackingId}`);
-                return;
-            }
-
-            const { data: ownerSession } = await supabase
-                .from('email_tracking_events')
-                .select('id')
-                .eq('ip_address', ip)
-                .eq('event_type', 'owner_session')
-                .gte('created_at', new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString())
-                .limit(1)
-                .maybeSingle();
-
-            if (ownerSession) {
-                console.log(`[Track] SKIP (Direct Owner Open) | ID: ${trackingId} | IP: ${ip}`);
-                return;
-            }
+        // Google Image Proxy — log but don't count as real open
+        if (isGoogleProxy(userAgent)) {
+            await supabase.from('email_tracking_events').insert({
+                tracking_id: trackingId,
+                event_type: 'proxy_open',
+                ip_address: ip,
+                user_agent: userAgent,
+            });
+            console.log(`[Track] Proxy open logged (not counted) | ID: ${trackingId}`);
+            return;
         }
-        */
 
-        // Record the Open for EVERY hit during debugging
-        console.log(`[Track] FORCING RECORD | ID: ${trackingId}`);
-        
+        // Owner / self-open filtering
+        const owner = await shouldSkipAsOwner(ctx);
+        if (owner.skip) {
+            console.log(`[Track] SKIP (${owner.reason}) | ID: ${trackingId}`);
+            return;
+        }
+
+        // Deduplication: existing open from same IP within 1 hour
+        const { data: existingOpen } = await supabase
+            .from('email_tracking_events')
+            .select('id')
+            .eq('tracking_id', trackingId)
+            .eq('ip_address', ip)
+            .eq('event_type', 'open')
+            .gte('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
+            .limit(1)
+            .maybeSingle();
+
+        if (existingOpen) {
+            console.log(`[Track] SKIP (Duplicate open within 1h) | ID: ${trackingId} | IP: ${ip}`);
+            return;
+        }
+
+        console.log(`[Track] Recording open | ID: ${trackingId}`);
+
         await Promise.all([
-            // Log the event
             supabase.from('email_tracking_events').insert({
                 tracking_id: trackingId,
                 event_type: 'open',
                 ip_address: ip,
                 user_agent: userAgent,
             }),
-            // Increment the counter
-            supabase.rpc('increment_email_opens', { p_tracking_id: trackingId })
+            supabase.rpc('increment_email_opens', { p_tracking_id: trackingId }),
+            supabase.from('email_messages').update({ last_opened_at: new Date().toISOString() }).eq('tracking_id', trackingId),
         ]);
     } catch (err: any) {
         console.error('[Track] Fatal Error in processTrackingEvent:', err?.message || err);
@@ -74,17 +85,10 @@ async function processTrackingEvent(trackingId: string, ip: string, userAgent: s
 }
 
 export async function GET(request: NextRequest) {
-    const trackingId = request.nextUrl.searchParams.get('t');
-    
-    // Safety check for headers
-    const ipHeader = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
-    const userAgent = request.headers.get('user-agent') || 'unknown';
-    const referer = request.headers.get('referer') || '';
+    const ctx = extractTrackingContext(request);
 
-    if (trackingId) {
-        // Await to ensure Vercel doesn't kill the lambda before recording
-        const clientIp = ipHeader.split(',')[0].trim();
-        await processTrackingEvent(trackingId, clientIp, userAgent, referer).catch((err: any) => {
+    if (validateTrackingId(ctx.trackingId)) {
+        await processTrackingEvent(ctx).catch((err: any) => {
             console.error('[Track] Background Error:', err?.message || err);
         });
     }

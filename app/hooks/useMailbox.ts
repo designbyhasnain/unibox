@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-    getInboxEmailsAction, 
-    getSentEmailsAction, 
+import { useReducer, useEffect, useCallback, useRef } from 'react';
+import {
+    getInboxEmailsAction,
+    getSentEmailsAction,
     getClientEmailsAction,
     getThreadMessagesAction,
     markEmailAsReadAction,
@@ -18,8 +18,9 @@ import { getAccountsAction } from '../../src/actions/accountActions';
 import { useRealtimeInbox } from '../../src/hooks/useRealtimeInbox';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import { doesEmailMatchTab } from '../constants/stages';
+import { supabaseClient } from '../../src/lib/supabase-client';
+import { DEFAULT_USER_ID } from '../constants/config';
 
-const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
 const PAGE_SIZE = 50;
 
 export type MailboxType = 'inbox' | 'sent' | 'client' | 'search';
@@ -36,6 +37,8 @@ interface UseMailboxProps {
 // Durable global cache to prevent flicker on mount/navigation
 const globalMailboxCache: Record<string, { emails: any[], totalCount: number, totalPages: number, page: number, timestamp: number }> = {};
 let globalTabCountsCache: Record<string, Record<string, number>> = {};
+let globalTabCountsTimestamp: Record<string, number> = {};
+const TAB_COUNTS_TTL = 30_000; // 30 seconds
 
 /**
  * Aggressively flush ALL mailbox caches (memory + localStorage).
@@ -45,6 +48,7 @@ export function flushAllMailboxCaches() {
     // Wipe memory caches completely
     Object.keys(globalMailboxCache).forEach(k => delete globalMailboxCache[k]);
     Object.keys(globalTabCountsCache).forEach(k => delete globalTabCountsCache[k]);
+    Object.keys(globalTabCountsTimestamp).forEach(k => delete globalTabCountsTimestamp[k]);
 
     // Wipe localStorage caches
     if (typeof window !== 'undefined') {
@@ -59,6 +63,162 @@ export function flushAllMailboxCaches() {
     }
 }
 
+// ── Reducer ────────────────────────────────────────────────────────────────
+
+interface MailboxState {
+    emails: any[];
+    totalCount: number;
+    totalPages: number;
+    currentPage: number;
+    isLoading: boolean;
+    tabCounts: Record<string, number>;
+    selectedEmail: any;
+    threadMessages: any[];
+    isThreadLoading: boolean;
+    selectedEmailIds: Set<string>;
+    accounts: any[];
+    isSyncing: boolean;
+    syncMessage: string;
+    prevCacheKey: string;
+    prevCountsKey: string;
+}
+
+type MailboxAction =
+    | { type: 'SET_LOADING'; isLoading: boolean }
+    | { type: 'SET_EMAILS'; emails: any[]; totalCount: number; totalPages: number; page: number }
+    | { type: 'CLEAR_FOR_NEW_KEY'; prevCacheKey: string; isLoading: boolean; accountChanged: boolean }
+    | { type: 'RESTORE_FROM_CACHE'; prevCacheKey: string; emails: any[]; totalCount: number; totalPages: number; page: number }
+    | { type: 'SET_SELECTED'; selectedEmail: any }
+    | { type: 'SET_TAB_COUNTS'; tabCounts: Record<string, number>; prevCountsKey?: string }
+    | { type: 'UPDATE_EMAILS'; updater: (prev: any[]) => any[] }
+    | { type: 'SET_THREAD'; threadMessages: any[]; isThreadLoading?: boolean }
+    | { type: 'SET_THREAD_LOADING'; isThreadLoading: boolean }
+    | { type: 'SET_SELECTED_IDS'; selectedEmailIds: Set<string> }
+    | { type: 'SET_ACCOUNTS'; accounts: any[] }
+    | { type: 'SET_SYNCING'; isSyncing: boolean; syncMessage: string }
+    | { type: 'SET_EMAILS_AND_COUNTS'; emails: any[]; totalCount: number; totalPages: number; page: number; tabCounts: Record<string, number> }
+    | { type: 'UPDATE_TOTAL_COUNT'; delta: number }
+    | { type: 'UPDATE_THREAD_MESSAGES'; updater: (prev: any[]) => any[] }
+    | { type: 'SELECT_EMAIL_AND_THREAD'; selectedEmail: any; threadMessages: any[] }
+    | { type: 'CLEAR_CACHE_LOADING'; emails: any[]; totalCount: number; totalPages: number };
+
+function mailboxReducer(state: MailboxState, action: MailboxAction): MailboxState {
+    switch (action.type) {
+        case 'SET_LOADING':
+            return { ...state, isLoading: action.isLoading };
+
+        case 'SET_EMAILS':
+            return {
+                ...state,
+                emails: action.emails,
+                totalCount: action.totalCount,
+                totalPages: action.totalPages,
+                currentPage: action.page,
+                isLoading: false,
+            };
+
+        case 'CLEAR_FOR_NEW_KEY':
+            if (action.accountChanged) {
+                return {
+                    ...state,
+                    prevCacheKey: action.prevCacheKey,
+                    selectedEmail: null,
+                    threadMessages: [],
+                    emails: [],
+                    totalCount: 0,
+                    totalPages: 0,
+                    currentPage: 1,
+                    isLoading: action.isLoading,
+                };
+            }
+            // Same account, no cache — clear list state
+            return {
+                ...state,
+                prevCacheKey: action.prevCacheKey,
+                emails: [],
+                totalCount: 0,
+                totalPages: 0,
+                currentPage: 1,
+                isLoading: action.isLoading,
+            };
+
+        case 'RESTORE_FROM_CACHE':
+            return {
+                ...state,
+                prevCacheKey: action.prevCacheKey,
+                emails: action.emails,
+                totalCount: action.totalCount,
+                totalPages: action.totalPages,
+                currentPage: action.page,
+                isLoading: false,
+            };
+
+        case 'SET_SELECTED':
+            return { ...state, selectedEmail: action.selectedEmail };
+
+        case 'SET_TAB_COUNTS':
+            return {
+                ...state,
+                tabCounts: action.tabCounts,
+                ...(action.prevCountsKey !== undefined ? { prevCountsKey: action.prevCountsKey } : {}),
+            };
+
+        case 'UPDATE_EMAILS':
+            return { ...state, emails: action.updater(state.emails) };
+
+        case 'SET_THREAD':
+            return {
+                ...state,
+                threadMessages: action.threadMessages,
+                ...(action.isThreadLoading !== undefined ? { isThreadLoading: action.isThreadLoading } : {}),
+            };
+
+        case 'SET_THREAD_LOADING':
+            return { ...state, isThreadLoading: action.isThreadLoading };
+
+        case 'SET_SELECTED_IDS':
+            return { ...state, selectedEmailIds: action.selectedEmailIds };
+
+        case 'SET_ACCOUNTS':
+            return { ...state, accounts: action.accounts };
+
+        case 'SET_SYNCING':
+            return { ...state, isSyncing: action.isSyncing, syncMessage: action.syncMessage };
+
+        case 'SET_EMAILS_AND_COUNTS':
+            return {
+                ...state,
+                emails: action.emails,
+                totalCount: action.totalCount,
+                totalPages: action.totalPages,
+                currentPage: action.page,
+                tabCounts: action.tabCounts,
+                isLoading: false,
+            };
+
+        case 'UPDATE_TOTAL_COUNT':
+            return { ...state, totalCount: state.totalCount + action.delta };
+
+        case 'UPDATE_THREAD_MESSAGES':
+            return { ...state, threadMessages: action.updater(state.threadMessages) };
+
+        case 'SELECT_EMAIL_AND_THREAD':
+            return { ...state, selectedEmail: action.selectedEmail, threadMessages: action.threadMessages };
+
+        case 'CLEAR_CACHE_LOADING':
+            return {
+                ...state,
+                emails: action.emails,
+                totalCount: action.totalCount,
+                totalPages: action.totalPages,
+                isLoading: true,
+            };
+
+        default:
+            return state;
+    }
+}
+
 export function useMailbox({ type, activeStage, clientEmail, searchTerm, selectedAccountId, enabled = true }: UseMailboxProps) {
     // 1. Generate a robust cache key
     const getCacheKey = useCallback(() => {
@@ -70,68 +230,71 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     }, [type, activeStage, clientEmail, searchTerm, selectedAccountId]);
 
     const cacheKey = getCacheKey();
-    
+    const activeCountsKey = `inbox_tabs_${selectedAccountId}`;
+
     // Durable initialization logic
-    const getInitialData = () => {
-        if (!enabled) return null;
-        if (globalMailboxCache[cacheKey]) return globalMailboxCache[cacheKey];
-        if (typeof window !== 'undefined') {
-            const saved = getFromLocalCache(`mailbox_${cacheKey}`);
-            if (saved) {
-                globalMailboxCache[cacheKey] = saved;
-                return saved;
+    const getInitialState = (): MailboxState => {
+        let initialCache: any = null;
+        if (enabled) {
+            if (globalMailboxCache[cacheKey]) {
+                initialCache = globalMailboxCache[cacheKey];
+            } else if (typeof window !== 'undefined') {
+                const saved = getFromLocalCache(`mailbox_${cacheKey}`);
+                if (saved) {
+                    globalMailboxCache[cacheKey] = saved;
+                    initialCache = saved;
+                }
             }
         }
-        return null;
-    };
 
-    const initialCache = getInitialData();
-
-    // ── State ────────────────────────────────────────────────────────────────
-    const [emails, setEmails] = useState<any[]>(() => initialCache?.emails || []);
-    const [totalCount, setTotalCount] = useState(() => initialCache?.totalCount || 0);
-    const [totalPages, setTotalPages] = useState(() => initialCache?.totalPages || 0);
-    const [currentPage, setCurrentPage] = useState(() => initialCache?.page || 1);
-    const [isLoading, setIsLoading] = useState(() => enabled && !initialCache);
-    
-    // Tab counts hydration
-    const activeCountsKey = `inbox_tabs_${selectedAccountId}`;
-    const [tabCounts, setTabCounts] = useState<Record<string, number>>(() => {
-        if (globalTabCountsCache[activeCountsKey]) return globalTabCountsCache[activeCountsKey];
-        if (typeof window !== 'undefined') {
+        let initialTabCounts: Record<string, number> = {};
+        if (globalTabCountsCache[activeCountsKey]) {
+            initialTabCounts = globalTabCountsCache[activeCountsKey];
+        } else if (typeof window !== 'undefined') {
             const saved = getFromLocalCache(activeCountsKey);
             if (saved) {
                 globalTabCountsCache[activeCountsKey] = saved;
-                return saved;
+                initialTabCounts = saved;
             }
         }
-        return {};
-    });
 
-    // --- State for email detail (declared early so sync transition block can clear them) ---
-    const [selectedEmail, setSelectedEmail] = useState<any>(null);
-    const [threadMessages, setThreadMessages] = useState<any[]>([]);
-    const [isThreadLoading, setIsThreadLoading] = useState(false);
+        return {
+            emails: initialCache?.emails || [],
+            totalCount: initialCache?.totalCount || 0,
+            totalPages: initialCache?.totalPages || 0,
+            currentPage: initialCache?.page || 1,
+            isLoading: enabled && !initialCache,
+            tabCounts: initialTabCounts,
+            selectedEmail: null,
+            threadMessages: [],
+            isThreadLoading: false,
+            selectedEmailIds: new Set(),
+            accounts: [],
+            isSyncing: false,
+            syncMessage: '',
+            prevCacheKey: cacheKey,
+            prevCountsKey: activeCountsKey,
+        };
+    };
+
+    const [state, dispatch] = useReducer(mailboxReducer, undefined, getInitialState);
+
+    const {
+        emails, totalCount, totalPages, currentPage, isLoading,
+        tabCounts, selectedEmail, threadMessages, isThreadLoading,
+        selectedEmailIds, accounts, isSyncing, syncMessage,
+        prevCacheKey, prevCountsKey,
+    } = state;
 
     // --- Synchronous Derived State to eliminate visual lag during transitions ---
-    const [prevCacheKey, setPrevCacheKey] = useState(cacheKey);
-    const [prevCountsKey, setPrevCountsKey] = useState(activeCountsKey);
-
     if (cacheKey !== prevCacheKey) {
         const prevAccount = prevCacheKey.split('_').pop();
         const newAccount = cacheKey.split('_').pop();
         const accountChanged = prevAccount !== newAccount;
-        setPrevCacheKey(cacheKey);
 
-        // On account change: aggressively clear everything — no stale data
         if (accountChanged) {
-            setSelectedEmail(null);
-            setThreadMessages([]);
-            setEmails([]);
-            setTotalCount(0);
-            setTotalPages(0);
-            setCurrentPage(1);
-            setIsLoading(enabled);
+            // On account change: aggressively clear everything — no stale data
+            dispatch({ type: 'CLEAR_FOR_NEW_KEY', prevCacheKey: cacheKey, isLoading: enabled, accountChanged: true });
         } else {
             // Same account, different tab/stage — try cache
             let syncCache = globalMailboxCache[cacheKey];
@@ -140,41 +303,38 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
             }
             if (syncCache) {
                 globalMailboxCache[cacheKey] = syncCache;
-                setEmails(syncCache.emails);
-                setTotalCount(syncCache.totalCount);
-                setTotalPages(syncCache.totalPages);
-                setCurrentPage(syncCache.page);
-                setIsLoading(false);
+                dispatch({
+                    type: 'RESTORE_FROM_CACHE',
+                    prevCacheKey: cacheKey,
+                    emails: syncCache.emails,
+                    totalCount: syncCache.totalCount,
+                    totalPages: syncCache.totalPages,
+                    page: syncCache.page,
+                });
             } else {
-                setEmails([]);
-                setTotalCount(0);
-                setTotalPages(0);
-                setCurrentPage(1);
-                setIsLoading(enabled);
+                dispatch({ type: 'CLEAR_FOR_NEW_KEY', prevCacheKey: cacheKey, isLoading: enabled, accountChanged: false });
             }
         }
     }
 
     if (activeCountsKey !== prevCountsKey && type === 'inbox') {
-        setPrevCountsKey(activeCountsKey);
         let syncCounts = globalTabCountsCache[activeCountsKey];
         if (!syncCounts && typeof window !== 'undefined') {
             syncCounts = getFromLocalCache(activeCountsKey);
         }
         if (syncCounts) {
             globalTabCountsCache[activeCountsKey] = syncCounts;
-            setTabCounts(syncCounts);
+            dispatch({ type: 'SET_TAB_COUNTS', tabCounts: syncCounts, prevCountsKey: activeCountsKey });
         } else {
-            setTabCounts({});
+            dispatch({ type: 'SET_TAB_COUNTS', tabCounts: {}, prevCountsKey: activeCountsKey });
         }
     }
-    
-    const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
-    const [accounts, setAccounts] = useState<any[]>([]);
-    const [isSyncing, setIsSyncing] = useState(false);
-    const [syncMessage, setSyncMessage] = useState('');
 
     const lastSyncTimeRef = useRef<number>(0);
+    const currentPageRef = useRef(currentPage);
+    currentPageRef.current = currentPage;
+    const selectedEmailRef = useRef(selectedEmail);
+    selectedEmailRef.current = selectedEmail;
 
     // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -185,21 +345,21 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
 
         const currentCacheKey = getCacheKey();
         const cached = globalMailboxCache[currentCacheKey];
-        
+
         // Show cached data immediately if page matches
         if (cached && cached.page === page) {
-            setEmails(cached.emails);
-            setTotalCount(cached.totalCount);
-            setTotalPages(cached.totalPages);
-            setCurrentPage(cached.page);
-            setIsLoading(false);
+            dispatch({
+                type: 'SET_EMAILS',
+                emails: cached.emails,
+                totalCount: cached.totalCount,
+                totalPages: cached.totalPages,
+                page: cached.page,
+            });
         } else {
-            setIsLoading(true);
+            dispatch({ type: 'SET_LOADING', isLoading: true });
             // Clear prior state immediately if no cache exists to prevent stale UI ghosting
             if (!cached && page === 1) {
-                setEmails([]);
-                setTotalCount(0);
-                setTotalPages(0);
+                dispatch({ type: 'CLEAR_CACHE_LOADING', emails: [], totalCount: 0, totalPages: 0 });
             }
         }
 
@@ -207,9 +367,9 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
             const countsKey = `inbox_tabs_${selectedAccountId}`;
             const cachedCounts = globalTabCountsCache[countsKey] || getFromLocalCache(countsKey);
             if (cachedCounts) {
-                setTabCounts(cachedCounts);
+                dispatch({ type: 'SET_TAB_COUNTS', tabCounts: cachedCounts });
             } else {
-                setTabCounts({});
+                dispatch({ type: 'SET_TAB_COUNTS', tabCounts: {} });
             }
         }
 
@@ -218,19 +378,29 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
             let counts: any = null;
 
             if (type === 'inbox') {
-                [result, counts] = await Promise.all([
-                    getInboxEmailsAction(ADMIN_USER_ID, page, PAGE_SIZE, activeStage, selectedAccountId),
-                    getTabCountsAction(ADMIN_USER_ID, selectedAccountId)
-                ]);
+                const countsKey = `inbox_tabs_${selectedAccountId}`;
+                const cachedCountsTs = globalTabCountsTimestamp[countsKey] || 0;
+                const countsAreFresh = globalTabCountsCache[countsKey] && (Date.now() - cachedCountsTs < TAB_COUNTS_TTL);
+
+                if (countsAreFresh) {
+                    // Tab counts are still fresh — skip re-fetch, only load emails
+                    result = await getInboxEmailsAction(DEFAULT_USER_ID, page, PAGE_SIZE, activeStage, selectedAccountId);
+                    counts = globalTabCountsCache[countsKey];
+                } else {
+                    [result, counts] = await Promise.all([
+                        getInboxEmailsAction(DEFAULT_USER_ID, page, PAGE_SIZE, activeStage, selectedAccountId),
+                        getTabCountsAction(DEFAULT_USER_ID, selectedAccountId)
+                    ]);
+                }
             } else if (type === 'sent') {
-                result = await getSentEmailsAction(ADMIN_USER_ID, page, PAGE_SIZE, selectedAccountId);
+                result = await getSentEmailsAction(DEFAULT_USER_ID, page, PAGE_SIZE, selectedAccountId);
             } else if (type === 'client') {
                 if (!clientEmail) return;
-                const fetchedEmails = await getClientEmailsAction(ADMIN_USER_ID, clientEmail, selectedAccountId);
+                const fetchedEmails = await getClientEmailsAction(DEFAULT_USER_ID, clientEmail, selectedAccountId);
                 result = { emails: fetchedEmails, totalCount: fetchedEmails.length, totalPages: 1, page: 1 };
             } else if (type === 'search') {
                 if (!searchTerm) return;
-                const fetchedEmails = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 100, selectedAccountId);
+                const fetchedEmails = await searchEmailsAction(DEFAULT_USER_ID, searchTerm, 100, selectedAccountId);
                 result = { emails: fetchedEmails, totalCount: fetchedEmails.length, totalPages: 1, page: 1 };
             }
 
@@ -252,19 +422,31 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                     timestamp: Date.now()
                 };
                 globalMailboxCache[currentCacheKey] = newCacheEntry;
-                
-                setEmails(result.emails);
-                setTotalCount(result.totalCount);
-                setTotalPages(result.totalPages);
-                setCurrentPage(result.page);
-                
+
                 if (counts) {
                     const countsKey = `inbox_tabs_${selectedAccountId}`;
                     globalTabCountsCache[countsKey] = counts;
-                    setTabCounts(counts);
+                    globalTabCountsTimestamp[countsKey] = Date.now();
                     saveToLocalCache(countsKey, counts);
+                    // Batch emails + counts into single dispatch
+                    dispatch({
+                        type: 'SET_EMAILS_AND_COUNTS',
+                        emails: result.emails,
+                        totalCount: result.totalCount,
+                        totalPages: result.totalPages,
+                        page: result.page,
+                        tabCounts: counts,
+                    });
+                } else {
+                    dispatch({
+                        type: 'SET_EMAILS',
+                        emails: result.emails,
+                        totalCount: result.totalCount,
+                        totalPages: result.totalPages,
+                        page: result.page,
+                    });
                 }
-                
+
                 // Also persist to localStorage for ultra-persistent caching, skipped for search to avoid bloat
                 if (type !== 'search') {
                     saveToLocalCache(`mailbox_${currentCacheKey}`, newCacheEntry);
@@ -275,7 +457,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
             // On error, keep existing emails if they came from cache
         } finally {
             if (getCacheKey() === currentCacheKey) {
-                setIsLoading(false);
+                dispatch({ type: 'SET_LOADING', isLoading: false });
             }
         }
     }, [type, activeStage, clientEmail, searchTerm, selectedAccountId, getCacheKey, enabled]);
@@ -284,8 +466,8 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     useEffect(() => {
         loadEmails(1);
         if (accounts.length === 0) {
-            getAccountsAction(ADMIN_USER_ID).then(res => {
-                if (res.success) setAccounts(res.accounts);
+            getAccountsAction(DEFAULT_USER_ID).then(res => {
+                if (res.success) dispatch({ type: 'SET_ACCOUNTS', accounts: res.accounts });
             });
         }
     }, [loadEmails, accounts.length]);
@@ -294,9 +476,8 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     const handleSync = useCallback(async () => {
         if (isSyncing || accounts.length === 0) return;
 
-        setIsSyncing(true);
+        dispatch({ type: 'SET_SYNCING', isSyncing: true, syncMessage: `Syncing ${accounts.length} account${accounts.length > 1 ? 's' : ''}...` });
         lastSyncTimeRef.current = Date.now();
-        setSyncMessage(`Syncing ${accounts.length} account${accounts.length > 1 ? 's' : ''}...`);
 
         try {
             await Promise.allSettled(
@@ -306,18 +487,16 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                     body: JSON.stringify({ accountId: a.id }),
                 }))
             );
-            
+
             // Allow DB to settle
             setTimeout(() => {
-                setIsSyncing(false);
-                setSyncMessage('');
-                loadEmails(currentPage);
+                dispatch({ type: 'SET_SYNCING', isSyncing: false, syncMessage: '' });
+                loadEmails(currentPageRef.current);
             }, 1500);
         } catch (err) {
-            setIsSyncing(false);
-            setSyncMessage('Sync failed');
+            dispatch({ type: 'SET_SYNCING', isSyncing: false, syncMessage: 'Sync failed' });
         }
-    }, [isSyncing, accounts, loadEmails, currentPage]);
+    }, [isSyncing, accounts, loadEmails]);
 
     // ── Realtime Updates ──────────────────────────────────────────────────────
     const handleNewEmail = useCallback((newEmail: any) => {
@@ -334,21 +513,30 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
             if (!newEmail.from_email?.includes(clientEmail!) && !newEmail.to_email?.includes(clientEmail!)) return;
         }
 
-        setEmails(prev => {
-            const filtered = prev.filter(e => e.thread_id !== newEmail.thread_id);
-            // Enrich with account info if available in local state
-            const account = accounts.find(a => a.id === newEmail.gmail_account_id);
-            const enriched = {
-                ...newEmail,
-                gmail_accounts: account ? {
-                    email: account.email,
-                    user: { name: account.manager_name }
-                } : newEmail.gmail_accounts
-            };
-            return [enriched, ...filtered].slice(0, PAGE_SIZE);
+        dispatch({
+            type: 'UPDATE_EMAILS',
+            updater: (prev) => {
+                const isExistingThread = prev.some(e => e.thread_id === newEmail.thread_id);
+                const filtered = prev.filter(e => e.thread_id !== newEmail.thread_id);
+                // Enrich with account info if available in local state
+                const account = accounts.find(a => a.id === newEmail.gmail_account_id);
+                const enriched = {
+                    ...newEmail,
+                    gmail_accounts: account ? {
+                        email: account.email,
+                        user: { name: account.manager_name }
+                    } : newEmail.gmail_accounts
+                };
+                // Only increment totalCount for genuinely new threads
+                if (!isExistingThread) {
+                    // We need to also update totalCount — dispatch separately
+                    // This is fine because React batches dispatches from the same event
+                    dispatch({ type: 'UPDATE_TOTAL_COUNT', delta: 1 });
+                }
+                return [enriched, ...filtered].slice(0, PAGE_SIZE);
+            },
         });
-        setTotalCount((prev: number) => prev + 1);
-        
+
         // Update Cache synchronously
         const currentKey = getCacheKey();
         if (globalMailboxCache[currentKey]) {
@@ -359,39 +547,54 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     }, [type, activeStage, clientEmail, selectedAccountId, accounts, getCacheKey]);
 
     const handleEmailUpdated = useCallback((updated: any) => {
-        setEmails(prev => {
-            const exists = prev.some(e => e.id === updated.id);
-            if (!exists) return prev;
-            return prev.map(e => e.id === updated.id ? { ...e, ...updated } : e);
+        dispatch({
+            type: 'UPDATE_EMAILS',
+            updater: (prev) => {
+                const exists = prev.some(e => e.id === updated.id);
+                if (!exists) return prev;
+                return prev.map(e => e.id === updated.id ? { ...e, ...updated } : e);
+            },
         });
-        
+
         // Update thread if open
-        if (selectedEmail?.thread_id === updated.thread_id) {
-            setThreadMessages(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m));
+        if (selectedEmailRef.current?.thread_id === updated.thread_id) {
+            dispatch({
+                type: 'UPDATE_THREAD_MESSAGES',
+                updater: (prev) => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m),
+            });
         }
 
-        // Correctly update ALL relevant caches
+        // Correctly update ALL relevant caches (immutable updates)
         Object.keys(globalMailboxCache).forEach(key => {
             const cached = globalMailboxCache[key];
             if (cached && cached.emails.some(e => e.id === updated.id)) {
-                cached.emails = cached.emails.map(e => e.id === updated.id ? { ...e, ...updated } : e);
+                globalMailboxCache[key] = { ...cached, emails: cached.emails.map(e => e.id === updated.id ? { ...e, ...updated } : e) };
             }
         });
-    }, [selectedEmail]);
+    }, []);
 
     const handleEmailDeleted = useCallback((id: string) => {
-        setEmails(prev => prev.filter(e => e.id !== id));
-        if (selectedEmail?.id === id) setSelectedEmail(null);
-        
-        // Update caches
+        dispatch({
+            type: 'UPDATE_EMAILS',
+            updater: (prev) => prev.filter(e => e.id !== id),
+        });
+        // Use ref to avoid stale closure (FE-025)
+        if (selectedEmailRef.current?.id === id) {
+            dispatch({ type: 'SET_SELECTED', selectedEmail: null });
+        }
+
+        // Update caches (immutable)
         Object.keys(globalMailboxCache).forEach(key => {
             const cached = globalMailboxCache[key];
             if (cached && cached.emails.some(e => e.id === id)) {
-                cached.emails = cached.emails.filter(e => e.id !== id);
-                cached.totalCount = Math.max(0, cached.totalCount - 1);
+                globalMailboxCache[key] = {
+                    ...cached,
+                    emails: cached.emails.filter(e => e.id !== id),
+                    totalCount: Math.max(0, cached.totalCount - 1),
+                };
             }
         });
-    }, [selectedEmail]);
+    }, []);
 
     useRealtimeInbox({
         accountIds: accounts.map(a => a.id),
@@ -402,74 +605,120 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
 
     // ── Interaction Handlers ──────────────────────────────────────────────────
     const handleSelectEmail = useCallback(async (email: any) => {
-        setSelectedEmail(email);
-        setThreadMessages([email]);
-        
+        dispatch({ type: 'SELECT_EMAIL_AND_THREAD', selectedEmail: email, threadMessages: [email] });
+
         if (email.is_unread) {
-            setEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_unread: false } : e));
+            dispatch({
+                type: 'UPDATE_EMAILS',
+                updater: (prev) => prev.map(e => e.id === email.id ? { ...e, is_unread: false } : e),
+            });
             markEmailAsReadAction(email.id); // fire and forget
         }
 
         if (email.thread_id) {
-            setIsThreadLoading(true);
+            dispatch({ type: 'SET_THREAD_LOADING', isThreadLoading: true });
             try {
-                const history = await getThreadMessagesAction(email.thread_id);
-                setThreadMessages(history);
+                // Fetch thread directly from client-side Supabase (avoids server action round-trip)
+                const { data: messages, error } = await supabaseClient
+                    .from('email_messages')
+                    .select(`
+                        id, thread_id, from_email, to_email, subject,
+                        snippet, body, direction, sent_at, is_unread, pipeline_stage,
+                        gmail_account_id, is_tracked, opens_count, clicks_count, last_opened_at,
+                        gmail_accounts ( email, users ( name ) )
+                    `)
+                    .eq('thread_id', email.thread_id)
+                    .order('sent_at', { ascending: true });
+
+                if (error) throw error;
+
+                const threadHasReply = (messages || []).some((m: any) => m.direction === 'RECEIVED');
+                const enriched = (messages || []).map((m: any) => ({
+                    ...m,
+                    has_reply: threadHasReply,
+                    account_email: m.gmail_accounts?.email,
+                    manager_name: m.gmail_accounts?.users?.name || 'System',
+                    gmail_accounts: {
+                        email: m.gmail_accounts?.email,
+                        user: { name: m.gmail_accounts?.users?.name || 'System' }
+                    }
+                }));
+                dispatch({ type: 'SET_THREAD', threadMessages: enriched, isThreadLoading: false });
             } catch (err) {
                 console.error('Thread load failed', err);
-            } finally {
-                setIsThreadLoading(false);
+                dispatch({ type: 'SET_THREAD_LOADING', isThreadLoading: false });
             }
         }
     }, []);
 
-    const toggleSelectEmail = (id: string) => {
-        setSelectedEmailIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
+    // ── Wrapper setters to preserve external API ──────────────────────────────
+    const setSelectedEmail = useCallback((email: any) => {
+        dispatch({ type: 'SET_SELECTED', selectedEmail: email });
+    }, []);
+
+    const setCurrentPage = useCallback((page: number) => {
+        dispatch({ type: 'SET_EMAILS', emails, totalCount, totalPages, page });
+    }, [emails, totalCount, totalPages]);
+
+    const toggleSelectEmail = useCallback((id: string) => {
+        dispatch({
+            type: 'SET_SELECTED_IDS',
+            selectedEmailIds: (() => {
+                const next = new Set(selectedEmailIds);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+            })(),
         });
-    };
+    }, [selectedEmailIds]);
 
-    const toggleSelectAll = () => {
+    const toggleSelectAll = useCallback(() => {
         if (selectedEmailIds.size > 0 && selectedEmailIds.size === emails.length) {
-            setSelectedEmailIds(new Set());
+            dispatch({ type: 'SET_SELECTED_IDS', selectedEmailIds: new Set() });
         } else {
-            setSelectedEmailIds(new Set(emails.map(e => e.id)));
+            dispatch({ type: 'SET_SELECTED_IDS', selectedEmailIds: new Set(emails.map(e => e.id)) });
         }
-    };
+    }, [selectedEmailIds, emails]);
 
-    const handleDelete = async (id: string) => {
+    const handleDelete = useCallback(async (id: string) => {
         if (!confirm('Delete this message?')) return;
         handleEmailDeleted(id);
         const res = await deleteEmailAction(id);
         if (!res.success) loadEmails(currentPage);
-    };
+    }, [handleEmailDeleted, loadEmails, currentPage]);
 
-    const handleBulkDelete = async () => {
+    const handleBulkDelete = useCallback(async () => {
         const ids = Array.from(selectedEmailIds);
         if (!ids.length || !confirm(`Delete ${ids.length} messages?`)) return;
-        setEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
-        setSelectedEmailIds(new Set());
+        dispatch({
+            type: 'UPDATE_EMAILS',
+            updater: (prev) => prev.filter(e => !selectedEmailIds.has(e.id)),
+        });
+        dispatch({ type: 'SET_SELECTED_IDS', selectedEmailIds: new Set() });
         await bulkDeleteEmailsAction(ids);
         loadEmails(currentPage);
-    };
+    }, [selectedEmailIds, loadEmails, currentPage]);
 
-    const handleToggleRead = async (id: string, currentUnread: boolean) => {
+    const handleToggleRead = useCallback(async (id: string, currentUnread: boolean) => {
         const next = !currentUnread;
-        setEmails(prev => prev.map(e => e.id === id ? { ...e, is_unread: next } : e));
+        dispatch({
+            type: 'UPDATE_EMAILS',
+            updater: (prev) => prev.map(e => e.id === id ? { ...e, is_unread: next } : e),
+        });
         if (next) await markEmailAsUnreadAction(id);
         else await markEmailAsReadAction(id);
-    };
+    }, []);
 
-    const handleBulkMarkAsRead = async () => {
+    const handleBulkMarkAsRead = useCallback(async () => {
         const ids = Array.from(selectedEmailIds);
         if (!ids.length) return;
-        setEmails(prev => prev.map(e => selectedEmailIds.has(e.id) ? { ...e, is_unread: false } : e));
-        setSelectedEmailIds(new Set());
+        dispatch({
+            type: 'UPDATE_EMAILS',
+            updater: (prev) => prev.map(e => selectedEmailIds.has(e.id) ? { ...e, is_unread: false } : e),
+        });
+        dispatch({ type: 'SET_SELECTED_IDS', selectedEmailIds: new Set() });
         await bulkMarkAsReadAction(ids);
-    };
+    }, [selectedEmailIds]);
 
     return {
         // State

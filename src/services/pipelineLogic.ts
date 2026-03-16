@@ -1,3 +1,5 @@
+// TODO: Add `import 'server-only';` after running `npm install` to install the server-only package.
+// This prevents accidental client-side imports that could leak secrets.
 import { supabase } from '../lib/supabase';
 
 type PipelineStage = 'LEAD' | 'COLD_LEAD' | 'OFFER_ACCEPTED' | 'CLOSED';

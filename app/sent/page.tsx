@@ -7,27 +7,15 @@ import ComposeModal from '../components/ComposeModal';
 import InlineReply from '../components/InlineReply';
 import { useMailbox } from '../hooks/useMailbox';
 import { EmailRow, EmailDetail, PaginationControls, ToastStack } from '../components/InboxComponents';
-import { getAccountsAction } from '../../src/actions/accountActions';
-import { useRealtimeInbox } from '../../src/hooks/useRealtimeInbox';
 import { useGlobalFilter } from '../context/FilterContext';
-import { avatarColor, formatDate, cleanBody } from '../utils/helpers';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
-import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
 const PAGE_SIZE = 50;
 
 interface ToastItem { id: string; subject: string; to: string; }
-
-let globalSentCache: { emails: any[]; totalCount: number; totalPages: number; page: number } | null = null;
-
-if (typeof window !== 'undefined') {
-    const savedSentCache = getFromLocalCache('sent_data');
-    if (savedSentCache) globalSentCache = savedSentCache;
-}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function SentPage() {
@@ -66,16 +54,20 @@ export default function SentPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [isReplyingInline, setIsReplyingInline] = useState(false);
     const [isComposeOpen, setIsComposeOpen] = useState(false);
-    const [isLive, setIsLive] = useState(false);
     const [toasts, setToasts] = useState<ToastItem[]>([]);
 
     const toastTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-    // Initial sync connection UI state
+    // Cleanup toast timers on unmount
     useEffect(() => {
-        const t = setTimeout(() => setIsLive(true), 1500);
-        return () => clearTimeout(t);
+        return () => {
+            toastTimerRef.current.forEach((timer) => clearTimeout(timer));
+            toastTimerRef.current.clear();
+        };
     }, []);
+
+    // Derive live status from whether accounts are loaded
+    const isLive = accounts.length > 0;
 
     // ── Derived Handlers ──────────────────────────────────────────────────────
     const goToPage = (page: number) => {
@@ -122,12 +114,12 @@ export default function SentPage() {
                     onSearch={() => { }}
                     onClearSearch={() => setSearchTerm('')}
                     leftContent={
-                        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Sent</h1>
+                        <h1 className="page-title">Sent</h1>
                     }
                     rightContent={
                         <div className="topbar-actions">
                             {syncMessage && (
-                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{syncMessage}</span>
+                                <span className="sync-message">{syncMessage}</span>
                             )}
                             <div className="status-pill">
                                 <div
@@ -141,6 +133,7 @@ export default function SentPage() {
                                 onClick={handleSync}
                                 disabled={isSyncing}
                                 title="Sync"
+                                aria-label="Sync messages"
                                 id="sync-btn"
                             >
                                 <svg
@@ -159,8 +152,8 @@ export default function SentPage() {
                 />
 
                 {/* Tab bar */}
-                <div className="tabs-bar">
-                    <div className="tab active" id="tab-sent">Sent Items</div>
+                <div className="tabs-bar" role="tablist" aria-label="Sent mail tabs">
+                    <div className="tab active" id="tab-sent" role="tab" aria-selected="true">Sent Items</div>
                 </div>
 
 
@@ -181,10 +174,10 @@ export default function SentPage() {
                                     </label>
                                     {selectedEmailIds.size > 0 && (
                                         <>
-                                            <button className="icon-btn sm danger" title="Delete selected" onClick={handleBulkDelete}>
+                                            <button className="icon-btn sm danger" title="Delete selected" aria-label="Delete selected" onClick={handleBulkDelete}>
                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
                                             </button>
-                                            <button className="icon-btn sm" title="Mark Read" onClick={handleBulkMarkAsRead} disabled={selectedEmailIds.size === 0}>
+                                            <button className="icon-btn sm" title="Mark Read" aria-label="Mark as read" onClick={handleBulkMarkAsRead} disabled={selectedEmailIds.size === 0}>
                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                                     <circle cx="12" cy="12" r="3" />
@@ -193,21 +186,23 @@ export default function SentPage() {
                                         </>
                                     )}
                                     <div className="divider-v" />
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                                    <span className="toolbar-label">
                                         Outgoing
                                     </span>
                                 </div>
                                 <div className="list-toolbar-right">
                                     <span className="count-label">
-                                        {totalCount > 0
-                                            ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, totalCount)} of ${totalCount.toLocaleString()}`
-                                            : ''}
+                                        {searchTerm
+                                            ? `${filteredEmails.length} result${filteredEmails.length !== 1 ? 's' : ''} (filtering current page)`
+                                            : totalCount > 0
+                                                ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, totalCount)} of ${totalCount.toLocaleString()}`
+                                                : ''}
                                     </span>
                                 </div>
                             </div>
 
                             {/* Email rows */}
-                            <div id="sent-list-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                            <div id="sent-list-scroll" className="scroll-list">
                                 <div className="universal-grid grid-inbox grid-header">
                                     <div className="grid-col" /> {/* Checkbox space */}
                                     <div className="grid-col">Sender</div>
@@ -244,13 +239,15 @@ export default function SentPage() {
                                 </PageLoader>
                             </div>
 
-                            <PaginationControls
-                                currentPage={currentPage}
-                                totalPages={totalPages}
-                                totalCount={totalCount}
-                                pageSize={PAGE_SIZE}
-                                onGoToPage={goToPage}
-                            />
+                            {!searchTerm && (
+                                <PaginationControls
+                                    currentPage={currentPage}
+                                    totalPages={totalPages}
+                                    totalCount={totalCount}
+                                    pageSize={PAGE_SIZE}
+                                    onGoToPage={goToPage}
+                                />
+                            )}
                         </div>
                     ) : (
                         /* Detail Panel */
@@ -281,6 +278,30 @@ export default function SentPage() {
             </main>
 
             {isComposeOpen && <ComposeModal onClose={() => setIsComposeOpen(false)} />}
+
+            <style jsx>{`
+                .page-title {
+                    font-size: 1.25rem;
+                    font-weight: 700;
+                    color: var(--text-primary);
+                    margin: 0;
+                }
+                .sync-message {
+                    font-size: 0.75rem;
+                    color: var(--text-muted);
+                }
+                .toolbar-label {
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    color: var(--text-muted);
+                }
+                .scroll-list {
+                    flex: 1;
+                    overflow-y: auto;
+                    display: flex;
+                    flex-direction: column;
+                }
+            `}</style>
         </>
     );
 }

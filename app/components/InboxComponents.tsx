@@ -38,42 +38,63 @@ export const EmailRow = React.memo(function EmailRow({ email, isSelected, isRowC
 
     const isHydrated = useHydrated();
 
+    const subject = email.subject || '(no subject)';
+    const accountEmail = email.gmail_accounts?.email || '';
+    const managerName = email.gmail_accounts?.user?.name || '';
+    const dateStr = formatDate(email.sent_at);
+
     return (
         <div
             className={`gmail-email-row ${isUnread ? 'unread' : 'read'} ${isSelected ? 'selected' : ''}`}
             onClick={onClick}
+            role="row"
+            aria-label={`Email from ${senderName} - ${subject}`}
+            tabIndex={0}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onClick();
+                }
+            }}
         >
             {/* Checkbox */}
-            <div className="gmail-row-check" onClick={(e) => e.stopPropagation()}>
+            <div
+                className="gmail-row-check"
+                onClick={(e) => e.stopPropagation()}
+                role="checkbox"
+                aria-checked={isRowChecked}
+                aria-label={`Select email from ${senderName}`}
+            >
                 <label className="check-container" style={{ margin: 0 }}>
                     <input
                         type="checkbox"
                         checked={isRowChecked}
                         onChange={() => onToggleSelect(email.id)}
+                        tabIndex={-1}
                     />
                     <span className="checkmark" />
                 </label>
             </div>
 
             {/* Star */}
-            <div className="gmail-row-star" onClick={(e) => e.stopPropagation()}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#bdc1c6" strokeWidth="1.5" style={{ cursor: 'pointer', display: 'block' }}>
+            <div className="gmail-row-star" onClick={(e) => e.stopPropagation()} role="button" aria-label="Star email" tabIndex={-1}>
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="1.5" style={{ cursor: 'pointer', display: 'block' }}>
                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                 </svg>
             </div>
 
-            {/* Sender — fixed width */}
-            <div className="gmail-row-sender">
+            {/* Sender — flex with min-width for truncation */}
+            <div className="gmail-row-sender" title={senderName}>
                 {senderName}
             </div>
 
             {/* Subject + Preview + Badge — flex grow */}
             <div className="gmail-row-body">
-                <span className="gmail-row-subject">{email.subject || '(no subject)'}</span>
+                <span className="gmail-row-subject" title={subject}>{subject}</span>
                 {preview && (
                     <>
                         <span className="gmail-row-dash"> – </span>
-                        <span className="gmail-row-preview">{preview}</span>
+                        <span className="gmail-row-preview" title={preview}>{preview}</span>
                     </>
                 )}
                 {showBadge && (
@@ -87,10 +108,10 @@ export const EmailRow = React.memo(function EmailRow({ email, isSelected, isRowC
             {(() => {
                 const wasOpened = (email.opens_count > 0) || email.has_reply;
                 const isTracked = email.is_tracked;
-                
+
                 // Show ticks if we sent it OR if it's a lead thread with tracking data
                 const shouldShowTicks = (email.direction === 'SENT') || wasOpened;
-                
+
                 if (!shouldShowTicks) return null;
 
                 // Ticks Logic:
@@ -99,19 +120,19 @@ export const EmailRow = React.memo(function EmailRow({ email, isSelected, isRowC
                 // 2 Ticks (Blue): When opened.
                 const sentTime = email.sent_at ? new Date(email.sent_at).getTime() : 0;
                 const isDelivered = (isHydrated && email.direction === 'SENT' && (Date.now() - sentTime > 15000));
-                
+
                 return (
-                    <div className="gmail-row-tracking" style={{ minWidth: '40px', gap: '4px' }}>
+                    <div className="gmail-row-tracking">
                         {wasOpened ? (
-                            <div className="tracking-tick-blue" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <CheckCheck size={16} color="#1a73e8" strokeWidth={3} />
+                            <div className="tracking-tick-blue">
+                                <CheckCheck size={16} color="var(--accent)" strokeWidth={3} />
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <div className="tracking-tick">
                                 {isDelivered ? (
-                                    <CheckCheck size={16} color="#9aa0a6" strokeWidth={2.5} />
+                                    <CheckCheck size={16} color="var(--text-tertiary)" strokeWidth={2.5} />
                                 ) : (
-                                    <Check size={16} color="#9aa0a6" strokeWidth={2.5} />
+                                    <Check size={16} color="var(--text-tertiary)" strokeWidth={2.5} />
                                 )}
                             </div>
                         )}
@@ -120,19 +141,40 @@ export const EmailRow = React.memo(function EmailRow({ email, isSelected, isRowC
             })()}
 
             {/* Gmail Account */}
-            <div className="gmail-row-account">
-                {email.gmail_accounts?.email || ''}
+            <div className="gmail-row-account" title={accountEmail}>
+                {accountEmail}
             </div>
 
             {/* Manager */}
-            <div className="gmail-row-manager">
-                {email.gmail_accounts?.user?.name || ''}
+            <div className="gmail-row-manager" title={managerName}>
+                {managerName}
             </div>
 
             {/* Date */}
-            <div className="gmail-row-date">
-                {formatDate(email.sent_at)}
+            <div className="gmail-row-date" title={dateStr}>
+                {dateStr}
             </div>
+
+            <style jsx>{`
+                .gmail-row-sender {
+                    flex: 0 0 220px;
+                    min-width: 0;
+                }
+                .gmail-row-account {
+                    flex: 0 0 220px;
+                    min-width: 0;
+                }
+                .gmail-row-tracking {
+                    min-width: 40px;
+                    gap: 4px;
+                }
+                .tracking-tick-blue,
+                .tracking-tick {
+                    display: flex;
+                    align-items: center;
+                    gap: 3px;
+                }
+            `}</style>
         </div>
     );
 }, (prev, next) => {
@@ -173,6 +215,7 @@ interface EmailDetailProps {
 /** Safely render HTML email body inside a sandboxed iframe for Gmail-like fidelity */
 function EmailBodyFrame({ html }: { html: string }) {
     const iframeRef = React.useRef<HTMLIFrameElement>(null);
+    const observerRef = React.useRef<MutationObserver | null>(null);
     const [height, setHeight] = React.useState(200);
 
     React.useEffect(() => {
@@ -182,8 +225,17 @@ function EmailBodyFrame({ html }: { html: string }) {
         // Build a full HTML document for the iframe so images/links render correctly
         const sanitized = (html || '')
             .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
+            .replace(/<iframe[^>]*\/?\s*>/gi, '')
             .replace(/on\w+\s*=\s*"[^"]*"/gi, '')
-            .replace(/on\w+\s*=\s*'[^']*'/gi, '');
+            .replace(/on\w+\s*=\s*'[^']*'/gi, '')
+            .replace(/on\w+\s*=\s*[^\s>]+/gi, '')
+            .replace(/href\s*=\s*["']?\s*javascript\s*:/gi, 'href="')
+            .replace(/src\s*=\s*["']?\s*javascript\s*:/gi, 'src="')
+            .replace(/href\s*=\s*["']?\s*data\s*:\s*text\/html/gi, 'href="')
+            .replace(/src\s*=\s*["']?\s*data\s*:\s*text\/html/gi, 'src="')
+            .replace(/expression\s*\(/gi, 'blocked(')
+            .replace(/url\s*\(\s*["']?\s*javascript\s*:/gi, 'url(blocked:');
 
         const doc = `
             <!DOCTYPE html>
@@ -252,14 +304,20 @@ function EmailBodyFrame({ html }: { html: string }) {
             } catch { }
         };
 
-        iframe.addEventListener('load', () => {
+        const loadHandler = () => {
             resizeHandler();
             // Start observing for changes (like clicking the ellipsis)
             try {
+                // Disconnect previous observer if any
+                if (observerRef.current) {
+                    observerRef.current.disconnect();
+                    observerRef.current = null;
+                }
                 const b = iframe.contentDocument?.body;
                 if (b) {
                     const observer = new MutationObserver(resizeHandler);
                     observer.observe(b, { childList: true, subtree: true, attributes: true });
+                    observerRef.current = observer;
                 }
             } catch { }
 
@@ -271,11 +329,20 @@ function EmailBodyFrame({ html }: { html: string }) {
                     link.setAttribute('rel', 'noopener noreferrer');
                 });
             } catch { }
-        });
+        };
+
+        iframe.addEventListener('load', loadHandler);
 
         // Fallback resize
         const timer = setTimeout(resizeHandler, 500);
-        return () => clearTimeout(timer);
+        return () => {
+            clearTimeout(timer);
+            iframe.removeEventListener('load', loadHandler);
+            if (observerRef.current) {
+                observerRef.current.disconnect();
+                observerRef.current = null;
+            }
+        };
     }, [html]);
 
     return (
@@ -283,7 +350,7 @@ function EmailBodyFrame({ html }: { html: string }) {
             ref={iframeRef}
             className="email-body-iframe"
             style={{ width: '100%', height: `${height}px`, border: 'none', borderRadius: '8px', background: '#fff' }}
-            sandbox="allow-same-origin allow-popups"
+            sandbox="allow-popups"
             title="Email content"
         />
     );
@@ -292,19 +359,20 @@ function EmailBodyFrame({ html }: { html: string }) {
 /** Plain text body renderer with clickable link detection */
 function PlainTextBody({ text }: { text: string }) {
     return (
-        <div className="plain-text-body" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+        <div className="plain-text-body">
             <TextWithLinks text={text} />
         </div>
     );
 }
 
 function TextWithLinks({ text }: { text: string }) {
-    const urlRegex = /(https?:\/\/[^\s<]+)/g;
-    const parts = text.split(urlRegex);
+    const urlRegexGlobal = /(https?:\/\/[^\s<]+)/g;
+    const urlRegexTest = /^https?:\/\/[^\s<]+$/;
+    const parts = text.split(urlRegexGlobal);
     return (
         <>
             {parts.map((part, i) =>
-                urlRegex.test(part) ? (
+                urlRegexTest.test(part) ? (
                     <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="email-link">
                         {part}
                     </a>
@@ -461,8 +529,8 @@ function MessageDetailsPopover({ msg }: { msg: any }) {
             <div className="popover-row">
                 <span className="popover-label">security:</span>
                 <span className="popover-value">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2.5">
+                    <div className="flex-center-gap-sm">
+                        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
                             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                         </svg>
@@ -569,18 +637,18 @@ export function EmailDetail({
             {/* ─── Gmail-style Toolbar ─── */}
             <div className="gmail-toolbar">
                 <div className="gmail-toolbar-left">
-                    <button className="gmail-toolbar-btn" onClick={onBack} title="Back to inbox">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+                    <button className="gmail-toolbar-btn" onClick={onBack} title="Back to inbox" aria-label="Back to inbox">
+                        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
                     </button>
 
-                    <button className="gmail-toolbar-btn" title="Delete" onClick={async () => {
+                    <button className="gmail-toolbar-btn" title="Delete" aria-label="Delete email" onClick={async () => {
                         if (window.confirm('Delete this email?')) {
                             const { deleteEmailAction } = await import('../../src/actions/emailActions');
                             await deleteEmailAction(email.id);
                             onBack();
                         }
                     }}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                             <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
                         </svg>
                     </button>
@@ -591,8 +659,9 @@ export function EmailDetail({
                             style={{ marginLeft: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '12px', borderRadius: 0 }}
                             onClick={() => onNotSpam(email.id)}
                             title="Not Spam / Move to Inbox"
+                            aria-label="Not Spam - Move to Inbox"
                         >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                                 <path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" />
                             </svg>
                         </button>
@@ -604,8 +673,9 @@ export function EmailDetail({
                             style={{ marginLeft: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '12px', borderRadius: 0 }}
                             onClick={() => onNotInterested(extractEmail(email.from_email))}
                             title="Not Interested / Hide Sender"
+                            aria-label="Mark as not interested"
                         >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                                 <circle cx="12" cy="12" r="10" />
                                 <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
                             </svg>
@@ -619,7 +689,7 @@ export function EmailDetail({
                         disabled={isCreatingProject}
                     >
                         {isCreatingProject ? <div className="spinner-tiny" style={{ marginRight: 6 }} /> : (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 6 }}>
+                            <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 6 }}>
                                 <path d="M12 5v14M5 12h14" />
                             </svg>
                         )}
@@ -627,7 +697,7 @@ export function EmailDetail({
                     </button>
                 </div>
 
-                <div className="gmail-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div className="gmail-toolbar-right">
                     <div className="gmail-stage-selector">
                         <span className="gmail-stage-label">Stage</span>
                         <select
@@ -641,16 +711,16 @@ export function EmailDetail({
                         </select>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '12px' }}>
-                        <span style={{ fontSize: '12px', color: '#5f6368', fontWeight: 500, minWidth: '40px', textAlign: 'right' }}>
+                    <div className="gmail-toolbar-nav">
+                        <span className="gmail-toolbar-nav-count">
                             1 of {totalCount || 1}
                         </span>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <button className="gmail-toolbar-btn" disabled style={{ opacity: 0.3 }}>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" /></svg>
+                        <div className="flex-center">
+                            <button className="gmail-toolbar-btn" disabled style={{ opacity: 0.3 }} aria-label="Previous email">
+                                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" /></svg>
                             </button>
-                            <button className="gmail-toolbar-btn" disabled style={{ opacity: 0.3 }}>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
+                            <button className="gmail-toolbar-btn" disabled style={{ opacity: 0.3 }} aria-label="Next email">
+                                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
                             </button>
                         </div>
                     </div>
@@ -751,6 +821,7 @@ export function EmailDetail({
                                                             to {toRecipientsText}
                                                         </span>
                                                         <svg
+                                                            aria-hidden="true"
                                                             width="12"
                                                             height="12"
                                                             viewBox="0 0 24 24"
@@ -778,15 +849,15 @@ export function EmailDetail({
                                                 const isDelivered = (isHydrated && Date.now() - sentTime > 15000);
                                                 
                                                 return (
-                                                    <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '8px', gap: '4px' }}>
+                                                    <span className="inline-flex-center-gap-sm" style={{ marginRight: '8px' }}>
                                                         {msgOpened ? (
-                                                            <div className="tracking-tick-blue" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                                                <CheckCheck size={14} color="#1a73e8" strokeWidth={3} />
+                                                            <div className="tracking-tick-blue inline-flex-center-gap-sm">
+                                                                <CheckCheck size={14} color="var(--accent)" strokeWidth={3} />
                                                             </div>
                                                         ) : isDelivered ? (
-                                                            <CheckCheck size={14} color="#9aa0a6" strokeWidth={2.5} />
+                                                            <CheckCheck size={14} color="var(--text-tertiary)" strokeWidth={2.5} />
                                                         ) : (
-                                                            <Check size={14} color="#9aa0a6" strokeWidth={2.5} />
+                                                            <Check size={14} color="var(--text-tertiary)" strokeWidth={2.5} />
                                                         )}
                                                     </span>
                                                 );
@@ -803,20 +874,21 @@ export function EmailDetail({
 
                                         {!isCollapsed && (
                                             <div className="gmail-msg-actions">
-                                                <button className="gmail-action-btn" title="Reply" onClick={(e) => { e.stopPropagation(); onReply(); }}>
-                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17L4 12l5-5M4 12h16" /></svg>
+                                                <button className="gmail-action-btn" title="Reply" aria-label="Reply to email" onClick={(e) => { e.stopPropagation(); onReply(); }}>
+                                                    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17L4 12l5-5M4 12h16" /></svg>
                                                 </button>
-                                                <div style={{ position: 'relative' }}>
+                                                <div className="position-relative">
                                                     <button
                                                         className="gmail-action-btn"
                                                         title="More options"
+                                                        aria-label="More options"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             setOpenMoreId(openMoreId === msg.id ? null : msg.id);
                                                             setOpenDetailsId(null);
                                                         }}
                                                     >
-                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></svg>
+                                                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></svg>
                                                     </button>
                                                     {openMoreId === msg.id && (
                                                         <div className="gmail-msg-popover more-options" style={{ top: '100%', right: 0, left: 'auto', width: '180px', padding: '6px 0' }}>
@@ -877,7 +949,7 @@ export function EmailDetail({
                                                                 const atts = JSON.parse(match[1]);
                                                                 return atts.map((a: any) => (
                                                                     <div key={a.id} className="gmail-attachment-chip">
-                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
+                                                                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
                                                                         <span>{a.filename || 'Attachment'}</span>
                                                                         <span className="gmail-att-size">{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ''}</span>
                                                                     </div>
@@ -903,11 +975,11 @@ export function EmailDetail({
                 ) : (
                     <div className="gmail-reply-buttons">
                         <button className="gmail-reply-btn" onClick={onReply} id="reply-btn">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17L4 12l5-5M4 12h16" /></svg>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17L4 12l5-5M4 12h16" /></svg>
                             Reply
                         </button>
                         <button className="gmail-reply-btn" onClick={onForward} id="forward-btn">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 17l5-5-5-5M20 12H4" /></svg>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 17l5-5-5-5M20 12H4" /></svg>
                             Forward
                         </button>
                     </div>
@@ -965,19 +1037,20 @@ export function PaginationControls({ currentPage, totalPages, totalCount, pageSi
                     ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, totalCount)} of ${totalCount.toLocaleString()}`
                     : ''}
             </span>
-            <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <div className="pagination-controls">
                 <button
                     className="page-btn"
                     onClick={() => onGoToPage(currentPage - 1)}
                     disabled={currentPage === 1}
+                    aria-label="Previous page"
                 >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M15 18l-6-6 6-6" />
                     </svg>
                 </button>
                 {getPageNumbers().map((p, i) =>
                     p === '...' ? (
-                        <span key={`ellipsis-${i}`} style={{ color: 'var(--text-muted)', padding: '0 4px', fontSize: '0.75rem' }}>…</span>
+                        <span key={`ellipsis-${i}`} className="pagination-ellipsis">…</span>
                     ) : (
                         <button
                             key={p}
@@ -992,8 +1065,9 @@ export function PaginationControls({ currentPage, totalPages, totalCount, pageSi
                     className="page-btn"
                     onClick={() => onGoToPage(currentPage + 1)}
                     disabled={currentPage === totalPages}
+                    aria-label="Next page"
                 >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M9 18l6-6-6-6" />
                     </svg>
                 </button>
@@ -1018,17 +1092,17 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
             {toasts.map((toast) => (
                 <div key={toast.id} className="toast">
                     <div className="toast-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-accent)" strokeWidth="2">
+                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-accent)" strokeWidth="2">
                             <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                         </svg>
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="toast-content">
                         <div className="toast-label">New email</div>
                         <div className="toast-title">{toast.subject}</div>
                         <div className="toast-sub">from {toast.from}</div>
                     </div>
-                    <button className="toast-close" onClick={() => onDismiss(toast.id)}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <button className="toast-close" onClick={() => onDismiss(toast.id)} aria-label="Dismiss notification">
+                        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <path d="M18 6L6 18M6 6l12 12" />
                         </svg>
                     </button>

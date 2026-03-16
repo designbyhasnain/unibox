@@ -1,3 +1,4 @@
+import 'server-only';
 import { ImapFlow } from 'imapflow';
 import * as nodemailer from 'nodemailer';
 import { simpleParser } from 'mailparser';
@@ -27,7 +28,7 @@ export async function testManualConnection(
     const imap = new ImapFlow({
         host: imapHost,
         port: imapPort,
-        secure: imapPort === 993,
+        secure: Number(imapPort) === 993,
         auth: { user: email, pass: appPassword },
         logger: false,
     });
@@ -43,7 +44,7 @@ export async function testManualConnection(
     const transporter = nodemailer.createTransport({
         host: smtpHost,
         port: smtpPort,
-        secure: smtpPort === 465,
+        secure: Number(smtpPort) === 465,
         auth: { user: email, pass: appPassword },
     });
 
@@ -62,11 +63,13 @@ export async function testManualConnection(
 export async function sendManualEmail(params: {
     accountId: string;
     to: string;
+    cc?: string;
+    bcc?: string;
     subject: string;
     body: string;
     threadId?: string;
 }) {
-    const { accountId, to, subject, body, threadId } = params;
+    const { accountId, to, cc, bcc, subject, body, threadId } = params;
 
     const { data: account, error: accError } = await supabase
         .from('gmail_accounts')
@@ -86,13 +89,15 @@ export async function sendManualEmail(params: {
     const transporter = nodemailer.createTransport({
         host: smtpHost,
         port: smtpPort,
-        secure: smtpPort === 465,
+        secure: Number(smtpPort) === 465,
         auth: { user: account.email, pass: password },
     });
 
     const info = await transporter.sendMail({
         from: account.email,
         to,
+        ...(cc ? { cc } : {}),
+        ...(bcc ? { bcc } : {}),
         subject,
         html: body,
     });
@@ -129,14 +134,18 @@ export async function syncManualEmails(accountId: string) {
         throw new Error('Invalid account for manual sync');
     }
 
-    // CONCURRENCY GUARD: If already syncing, don't start another one
-    if (account.status === 'SYNCING') {
-        console.log(`[Manual Sync] Sync already in progress for ${account.email}. Skipping.`);
+    // CONCURRENCY GUARD: Atomic check-and-set to prevent TOCTOU race condition.
+    const { data: lockResult, error: lockError } = await supabase
+        .from('gmail_accounts')
+        .update({ status: 'SYNCING', sync_progress: 0 })
+        .eq('id', accountId)
+        .eq('status', 'ACTIVE')
+        .select('id');
+
+    if (lockError || !lockResult || lockResult.length === 0) {
+        console.log(`[Manual Sync] Sync already in progress or account not ACTIVE for ${account.email}. Skipping.`);
         return;
     }
-
-    // Mark as SYNCING immediately to lock others out
-    await supabase.from('gmail_accounts').update({ status: 'SYNCING', sync_progress: 0 }).eq('id', accountId);
 
     const password = decrypt(account.app_password);
     const imapHost = account.imap_host || 'imap.gmail.com';
@@ -145,11 +154,12 @@ export async function syncManualEmails(accountId: string) {
     const imap = new ImapFlow({
         host: imapHost,
         port: imapPort,
-        secure: imapPort === 993,
+        secure: Number(imapPort) === 993,
         auth: { user: account.email, pass: password },
         logger: false,
     });
 
+    try {
     await imap.connect();
 
     try {
@@ -181,6 +191,9 @@ export async function syncManualEmails(accountId: string) {
 
         console.log(`[Sync] Targeting folders for ${account.email}:`, targetFolders);
 
+        // Track processed message IDs across folders to avoid duplicates (ES-020)
+        const processedMessageIds = new Set<string>();
+
         for (let i = 0; i < targetFolders.length; i++) {
             const folder = targetFolders[i];
             if (!folder) continue;
@@ -209,6 +222,14 @@ export async function syncManualEmails(accountId: string) {
                         bodyStructure: true,
                     });
 
+                    // Determine folder type for correct handling
+                    const folderLower = folder.toLowerCase();
+                    const mb = mailboxes.find(m => m.path === folder);
+                    const specialUse = (mb as any)?.specialUse || '';
+                    const isSentFolder = specialUse === '\\Sent' || folderLower.includes('sent');
+                    const isSpamFolder = specialUse === '\\Junk' || specialUse === '\\Spam' ||
+                        folderLower.includes('spam') || folderLower.includes('junk') || folderLower.includes('bulk');
+
                     for await (const message of messages) {
                         // Batch cancellation check within folder
                         if (Math.random() < 0.05) { // Check occasionally to avoid DB spam
@@ -218,19 +239,38 @@ export async function syncManualEmails(accountId: string) {
 
                         if (!message.source || !message.envelope) continue;
 
+                        // Skip messages already processed from another folder
+                        const msgId = message.envelope.messageId || String(message.uid);
+                        if (processedMessageIds.has(msgId)) continue;
+                        processedMessageIds.add(msgId);
+
                         const parsed = await simpleParser(message.source);
 
-                        await handleEmailReceived({
-                            gmailAccountId: account.id,
-                            threadId: (message as any).threadId || message.envelope.messageId || String(message.uid),
-                            messageId: message.envelope.messageId || String(message.uid),
-                            fromEmail: message.envelope.from?.[0]?.address || '',
-                            toEmail: account.email,
-                            subject: message.envelope.subject || '(No Subject)',
-                            body: parsed.text || parsed.html || '',
-                            receivedAt: message.envelope.date || new Date(),
-                            isSpam: folder !== 'INBOX',
-                        });
+                        if (isSentFolder) {
+                            // Messages from Sent folder should be treated as SENT
+                            await handleEmailSent({
+                                gmailAccountId: account.id,
+                                threadId: (message as any).threadId || message.envelope.messageId || String(message.uid),
+                                messageId: message.envelope.messageId || String(message.uid),
+                                fromEmail: account.email,
+                                toEmail: message.envelope.to?.[0]?.address || '',
+                                subject: message.envelope.subject || '(No Subject)',
+                                body: parsed.text || parsed.html || '',
+                                sentAt: message.envelope.date || new Date(),
+                            });
+                        } else {
+                            await handleEmailReceived({
+                                gmailAccountId: account.id,
+                                threadId: (message as any).threadId || message.envelope.messageId || String(message.uid),
+                                messageId: message.envelope.messageId || String(message.uid),
+                                fromEmail: message.envelope.from?.[0]?.address || '',
+                                toEmail: account.email,
+                                subject: message.envelope.subject || '(No Subject)',
+                                body: parsed.text || parsed.html || '',
+                                receivedAt: message.envelope.date || new Date(),
+                                isSpam: isSpamFolder,
+                            });
+                        }
                     }
 
                     // Update progress based on folders completed
@@ -252,12 +292,20 @@ export async function syncManualEmails(accountId: string) {
         await imap.logout();
     }
 
-
-
     await supabase
         .from('gmail_accounts')
         .update({ last_synced_at: new Date().toISOString(), status: 'ACTIVE', sync_progress: 100 })
         .eq('id', accountId);
+
+    } catch (error: any) {
+        console.error(`[Manual Sync] Error syncing ${account.email}:`, error?.message || error);
+        // Reset status so account doesn't stay stuck in SYNCING
+        await supabase
+            .from('gmail_accounts')
+            .update({ status: 'ACTIVE', sync_progress: 0 })
+            .eq('id', accountId);
+        throw error;
+    }
 }
 
 /**
@@ -268,7 +316,7 @@ export async function unspamManualMessage(account: any, messageId: string) {
     const imap = new ImapFlow({
         host: account.imap_host || 'imap.gmail.com',
         port: account.imap_port || 993,
-        secure: account.imap_port === 993,
+        secure: Number(account.imap_port) === 993,
         auth: { user: account.email, pass: password },
         logger: false,
     });

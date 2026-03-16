@@ -4,7 +4,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction } from '../../src/actions/emailActions';
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Send, User } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
+import { DEFAULT_USER_ID } from '../constants/config';
 
 interface InlineReplyProps {
     threadId: string;
@@ -22,10 +24,8 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
     const [accounts, setAccounts] = useState<any[]>([]);
     const [selectedAccountId, setSelectedAccountId] = useState(accountId);
     const editorRef = useRef<HTMLDivElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const [showFormatting, setShowFormatting] = useState(false);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-    const [attachments, setAttachments] = useState<File[]>([]);
     const [emojiSearch, setEmojiSearch] = useState('');
     const [activeEmojiCategory, setActiveEmojiCategory] = useState('Faces');
     const [fontSize, setFontSize] = useState('Normal');
@@ -38,7 +38,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
     useEffect(() => {
         const fetchAccounts = async () => {
             try {
-                const result = await getAccountsAction('1ca1464d-1009-426e-96d5-8c5e8c84faac');
+                const result = await getAccountsAction(DEFAULT_USER_ID);
                 if (result.success) {
                     const data = result.accounts;
                     setAccounts(data);
@@ -112,6 +112,19 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                     range.insertNode(span);
                     setBody(editorRef.current.innerHTML);
                 }
+            } else if (command === 'insertText') {
+                // Use Range API instead of deprecated execCommand('insertText')
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    range.deleteContents();
+                    const textNode = document.createTextNode(value);
+                    range.insertNode(textNode);
+                    range.setStartAfter(textNode);
+                    range.setEndAfter(textNode);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
             } else {
                 document.execCommand(command, false, value);
             }
@@ -132,23 +145,14 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
     const handleInsertSignature = () => {
         const signature = '<br><br>--<br>Best regards,<br>User';
         if (editorRef.current) {
-            editorRef.current.innerHTML += signature;
+            editorRef.current.innerHTML += DOMPurify.sanitize(signature);
             setBody(editorRef.current.innerHTML);
         }
     };
 
     const handleAttachmentClick = () => {
-        fileInputRef.current?.click();
-    };
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            setAttachments(prev => [...prev, ...Array.from(e.target.files!)]);
-        }
-    };
-
-    const handleRemoveAttachment = (index: number) => {
-        setAttachments(prev => prev.filter((_, i) => i !== index));
+        // Attachments are not yet wired to the send action (FE-020)
+        alert('Attachments are coming soon. This feature is not yet available.');
     };
 
     const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
@@ -357,16 +361,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                     }}
                 />
 
-                {attachments.length > 0 && (
-                    <div className="compose-attachments-preview">
-                        {attachments.map((file, idx) => (
-                            <div key={idx} className="attachment-chip">
-                                <span>{file.name}</span>
-                                <button onClick={() => handleRemoveAttachment(idx)}>×</button>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                {/* Attachment preview removed - feature coming soon (FE-020) */}
             </div>
 
             {/* Error */}
@@ -413,13 +408,6 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                     <button className="compose-icon-btn" title="Attach files" onClick={handleAttachmentClick}>
                         <Paperclip size={20} />
                     </button>
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        style={{ display: 'none' }}
-                        onChange={handleFileChange}
-                        multiple
-                    />
                     <button className="compose-icon-btn" title="Insert link" onClick={handleInsertLink}>
                         <Link size={20} />
                     </button>

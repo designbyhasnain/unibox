@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useMemo } from 'react';
-import { supabaseClient } from '../lib/supabase-client'; // ✅ browser-safe — uses NEXT_PUBLIC_ anon key only
+import { supabaseClient } from '../lib/supabase-client';
 
 interface RealtimeInboxOptions {
     /** The gmail_account IDs to watch for new messages */
@@ -40,6 +40,8 @@ export function useRealtimeInbox({
     const channelRef = useRef<ReturnType<typeof supabaseClient.channel> | null>(null);
     const pollingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const latestTimestampRef = useRef<string>(new Date().toISOString());
+    const inFlightRef = useRef(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     // Stable key — only changes when the set of accountIds actually changes
     const accountIdsKey = useMemo(
@@ -59,7 +61,9 @@ export function useRealtimeInbox({
     // ───── Polling: fetch emails newer than latest seen ─────────────────────
     const pollForNewEmails = useCallback(async () => {
         if (!accountIds || accountIds.length === 0) return;
+        if (inFlightRef.current) return; // Skip if previous poll still running
 
+        inFlightRef.current = true;
         try {
             // Priority 1: New Received Emails
             const { data: newEmails } = await supabaseClient
@@ -72,7 +76,7 @@ export function useRealtimeInbox({
                 `)
                 .in('gmail_account_id', accountIds)
                 .eq('direction', 'RECEIVED')
-                .gt('sent_at', latestTimestampRef.current) 
+                .gt('sent_at', latestTimestampRef.current)
                 .order('sent_at', { ascending: true });
 
             if (newEmails && newEmails.length > 0) {
@@ -103,6 +107,8 @@ export function useRealtimeInbox({
 
         } catch (err) {
             console.warn('[Polling] Error:', err);
+        } finally {
+            inFlightRef.current = false;
         }
     }, [accountIds]);
 
@@ -189,6 +195,12 @@ export function useRealtimeInbox({
             clearTimeout(initialTimer);
             if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            // Cancel any in-flight request
+            inFlightRef.current = false;
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+                abortControllerRef.current = null;
+            }
         };
     }, [pollForNewEmails, pollingIntervalMs, accountIdsKey]);
 }

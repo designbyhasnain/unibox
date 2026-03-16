@@ -1,12 +1,27 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { sendGmailEmail } from '../services/gmailSenderService';
 import { sendManualEmail, unspamManualMessage } from '../services/manualEmailService';
 import { unspamGmailMessage } from '../services/gmailSyncService';
 import { prepareTrackedEmail } from '../services/trackingService';
+import { normalizeEmail } from '../utils/emailNormalizer';
+import { buildAccountMap } from '../utils/accountHelpers';
+import { buildThreadRepliesMap } from '../utils/threadHelpers';
+import { transformEmailRow, transformJoinedEmailRow } from '../utils/emailTransformers';
+import { clampPageSize } from '../utils/pagination';
+import { PAGINATION } from '../constants/limits';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = PAGINATION.DEFAULT_PAGE_SIZE;
+
+/**
+ * Escape special characters for ILIKE patterns to prevent SQL injection.
+ * Characters %, _, and \ have special meaning in ILIKE and must be escaped.
+ */
+function escapeIlike(str: string): string {
+    return str.replace(/[%_\\]/g, '\\$&');
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,20 +39,33 @@ export type PaginatedEmailResult = {
 export async function sendEmailAction(params: {
     accountId: string;
     to: string;
+    cc?: string;
+    bcc?: string;
     subject: string;
     body: string;
     threadId?: string;
     isTracked?: boolean;
 }) {
     try {
+        // Input validation
+        if (!params.accountId || !params.to || !params.subject) {
+            return { success: false, error: 'accountId, to, and subject are required' };
+        }
+
         const { data: account, error: accError } = await supabase
             .from('gmail_accounts')
-            .select('connection_method, sent_count_today')
+            .select('connection_method, sent_count_today, last_send_date')
             .eq('id', params.accountId)
             .single();
 
         if (accError || !account) {
             throw new Error('Sender account not found.');
+        }
+
+        // Reset sent_count_today if last_send_date is not today
+        const todayStr = new Date().toISOString().split('T')[0];
+        if (account.last_send_date !== todayStr) {
+            account.sent_count_today = 0;
         }
 
         // Inject tracking pixel and wrap links
@@ -54,51 +82,50 @@ export async function sendEmailAction(params: {
 
         // Increment sent count and save tracking_id on success
         if (result && result.success) {
-            await supabase
-                .from('gmail_accounts')
-                .update({ sent_count_today: (account.sent_count_today || 0) + 1 })
-                .eq('id', params.accountId);
+            // Use atomic increment via RPC to avoid read-modify-write race condition
+            const { error: rpcError } = await supabase.rpc('increment_sent_count', { p_account_id: params.accountId });
+            if (rpcError) {
+                // Fallback to non-atomic increment if RPC doesn't exist yet
+                console.warn('increment_sent_count RPC not available, falling back:', rpcError.message);
+                const newCount = (account.sent_count_today || 0) + 1;
+                await supabase
+                    .from('gmail_accounts')
+                    .update({ sent_count_today: newCount, last_send_date: todayStr })
+                    .eq('id', params.accountId);
+            } else {
+                // Also update last_send_date for the RPC path
+                await supabase
+                    .from('gmail_accounts')
+                    .update({ last_send_date: todayStr })
+                    .eq('id', params.accountId);
+            }
 
-            // Save tracking_id and message details to the database immediately
+            // Update only tracking-specific fields on the message already created by handleEmailSent.
+            // This avoids a full upsert that would overwrite contact_id and pipeline_stage.
             if (result.messageId) {
                 const cleanMsgId = result.messageId.replace(/[<>]/g, '');
-                
-                // Get account email for the 'from_email' field
-                const { data: acc } = await supabase
-                    .from('gmail_accounts')
-                    .select('email')
-                    .eq('id', params.accountId)
-                    .single();
 
                 await supabase
                     .from('email_messages')
-                    .upsert({
-                        id: cleanMsgId,
-                        thread_id: result.threadId || params.threadId,
-                        gmail_account_id: params.accountId,
-                        from_email: acc?.email || 'me',
-                        to_email: params.to,
-                        subject: params.subject,
-                        body: trackedBody, // Use trackedBody with pixel.
-                        snippet: params.body.substring(0, 200),
-                        direction: 'SENT',
-                        sent_at: new Date().toISOString(),
-                        is_unread: false,
+                    .update({
                         is_tracked: isTracked,
                         tracking_id: isTracked ? trackingId : null,
-                        opens_count: 0
-                    }, { onConflict: 'id' });
+                        opens_count: 0,
+                        body: trackedBody, // Update body to include tracking pixel
+                    })
+                    .eq('id', cleanMsgId);
             }
         }
 
+        revalidatePath('/');
         return { ...result, trackingId: isTracked ? trackingId : undefined };
     } catch (error: any) {
-        console.error('sendEmailAction error:', error);
+        console.error('[emailActions] sendEmailAction error:', error);
         return {
             success: false,
             error: error.message === 'AUTH_REQUIRED'
                 ? 'AUTH_REQUIRED'
-                : (error.message || 'Failed to send email'),
+                : 'An error occurred while processing your request',
         };
     }
 }
@@ -116,6 +143,15 @@ async function getAccountIds(userId: string): Promise<string[] | null> {
     return accounts.map((a) => a.id);
 }
 
+// ─── Resolve account IDs from user + optional filter ──────────────────────────
+
+async function resolveAccountIds(userId: string, gmailAccountId?: string): Promise<string[] | null> {
+    if (gmailAccountId && gmailAccountId !== 'ALL') {
+        return [gmailAccountId];
+    }
+    return getAccountIds(userId);
+}
+
 // ─── Inbox Emails (DB-level thread grouping via RPC) ──────────────────────────
 
 export async function getInboxEmailsAction(
@@ -125,28 +161,26 @@ export async function getInboxEmailsAction(
     stage: string = 'ALL',
     gmailAccountId?: string
 ): Promise<PaginatedEmailResult> {
-    const empty: PaginatedEmailResult = { emails: [], totalCount: 0, page, pageSize, totalPages: 0 };
+    // Clamp pageSize to prevent unbounded queries
+    const clampedPageSize = clampPageSize(pageSize);
+    const empty: PaginatedEmailResult = { emails: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
 
-    let accountIds: string[] | null = null;
-    if (gmailAccountId && gmailAccountId !== 'ALL') {
-        accountIds = [gmailAccountId];
-    } else {
-        accountIds = await getAccountIds(userId);
-    }
+    if (!userId) return empty;
 
+    const accountIds = await resolveAccountIds(userId, gmailAccountId);
     if (!accountIds || accountIds.length === 0) return empty;
 
     const { data, error } = await supabase.rpc('get_inbox_threads', {
         p_account_ids: accountIds,
         p_pipeline_stage: stage === 'ALL' || stage === 'SPAM' ? null : stage,
         p_page: page,
-        p_page_size: pageSize,
+        p_page_size: clampedPageSize,
         p_is_spam: stage === 'SPAM',
     });
 
     if (error) {
         console.error('[getInboxEmailsAction] RPC error:', error);
-        return { ...empty, error: true }; 
+        return { ...empty, error: true };
     }
 
 
@@ -154,65 +188,20 @@ export async function getInboxEmailsAction(
     if (!rows || rows.length === 0) return empty;
 
     const totalCount = Number(rows[0].total_count ?? 0);
-    const totalPages = Math.ceil(totalCount / pageSize);
+    const totalPages = Math.ceil(totalCount / clampedPageSize);
 
-    // 4. Enrich row shape to match what frontend expects
-    const { data: accountsData } = await supabase
-        .from('gmail_accounts')
-        .select('id, email, users(name)')
-        .in('id', accountIds);
-
-    const accountMap = new Map((accountsData || []).map((a: any) => [a.id, {
-        email: a.email,
-        manager_name: a.users?.name
-    }]));
-
-    // 5. BACKFILL: Ensure has_reply is accurate for all threads in the result
-    // This handles old emails that might not have tracking pixels but DO have replies.
+    // Enrich row shape to match what frontend expects
+    // Parallelize independent queries for account info and thread replies
     const threadIds = Array.from(new Set(rows.map(r => r.thread_id).filter(Boolean)));
-    let threadRepliesMap = new Set<string>();
-    
-    if (threadIds.length > 0) {
-        const { data: replyData } = await supabase
-            .from('email_messages')
-            .select('thread_id')
-            .in('thread_id', threadIds)
-            .eq('direction', 'RECEIVED');
-            
-        if (replyData) {
-            threadRepliesMap = new Set(replyData.map(r => r.thread_id));
-        }
-    }
+    const [accountMap, threadRepliesMap] = await Promise.all([
+        buildAccountMap(accountIds, supabase),
+        buildThreadRepliesMap(threadIds, supabase),
+    ]);
 
-    const emails = rows.map((r) => {
-        const accInfo = accountMap.get(r.gmail_account_id);
-        const hasActualReply = r.has_reply || threadRepliesMap.has(r.thread_id);
-        
-        return {
-            id: r.id,
-            thread_id: r.thread_id,
-            from_email: r.from_email,
-            to_email: r.to_email,
-            subject: r.subject,
-            snippet: r.snippet,
-            direction: r.direction,
-            sent_at: r.sent_at,
-            is_unread: r.is_unread,
-            pipeline_stage: stage === 'SPAM' ? 'SPAM' : r.pipeline_stage,
-            gmail_account_id: r.gmail_account_id,
-            contact_id: r.contact_id,
-            is_tracked: r.is_tracked,
-            opens_count: r.opens_count || 0,
-            clicks_count: r.clicks_count || 0,
-            has_reply: hasActualReply,
-            gmail_accounts: {
-                email: accInfo?.email || r.account_email,
-                user: { name: accInfo?.manager_name || 'System' }
-            },
-        };
-    });
+    const stageOverride = stage === 'SPAM' ? { pipeline_stage: 'SPAM' } : undefined;
+    const emails = rows.map((r) => transformEmailRow(r, accountMap, threadRepliesMap, stageOverride));
 
-    return { emails, totalCount, page, pageSize, totalPages };
+    return { emails, totalCount, page, pageSize: clampedPageSize, totalPages };
 }
 
 // ─── Sent Emails (DB-level thread grouping via RPC) ───────────────────────────
@@ -223,21 +212,18 @@ export async function getSentEmailsAction(
     pageSize = PAGE_SIZE,
     gmailAccountId?: string
 ): Promise<PaginatedEmailResult> {
-    const empty: PaginatedEmailResult = { emails: [], totalCount: 0, page, pageSize, totalPages: 0 };
+    const clampedPageSize = clampPageSize(pageSize);
+    const empty: PaginatedEmailResult = { emails: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
 
-    let accountIds: string[] | null = null;
-    if (gmailAccountId && gmailAccountId !== 'ALL') {
-        accountIds = [gmailAccountId];
-    } else {
-        accountIds = await getAccountIds(userId);
-    }
+    if (!userId) return empty;
 
+    const accountIds = await resolveAccountIds(userId, gmailAccountId);
     if (!accountIds || accountIds.length === 0) return empty;
 
     const { data, error } = await supabase.rpc('get_sent_threads', {
         p_account_ids: accountIds,
         p_page: page,
-        p_page_size: pageSize,
+        p_page_size: clampedPageSize,
     });
 
     if (error) {
@@ -249,113 +235,108 @@ export async function getSentEmailsAction(
     if (!rows || rows.length === 0) return empty;
 
     const totalCount = Number(rows[0].total_count ?? 0);
-    const totalPages = Math.ceil(totalCount / pageSize);
+    const totalPages = Math.ceil(totalCount / clampedPageSize);
 
-    const { data: accountsData } = await supabase
-        .from('gmail_accounts')
-        .select('id, email, users(name)')
-        .in('id', accountIds);
-
-    const accountMap = new Map((accountsData || []).map((a: any) => [a.id, {
-        email: a.email,
-        manager_name: a.users?.name
-    }]));
-
-    // 5. BACKFILL: Ensure has_reply is accurate for all threads in the result
+    // Parallelize independent queries for account info and thread replies
     const threadIds = Array.from(new Set(rows.map(r => r.thread_id).filter(Boolean)));
-    let threadRepliesMap = new Set<string>();
-    
-    if (threadIds.length > 0) {
-        const { data: replyData } = await supabase
-            .from('email_messages')
-            .select('thread_id')
-            .in('thread_id', threadIds)
-            .eq('direction', 'RECEIVED');
-            
-        if (replyData) {
-            threadRepliesMap = new Set(replyData.map(r => r.thread_id));
-        }
-    }
+    const [accountMap, threadRepliesMap] = await Promise.all([
+        buildAccountMap(accountIds, supabase),
+        buildThreadRepliesMap(threadIds, supabase),
+    ]);
 
-    const emails = rows.map((r) => {
-        const accInfo = accountMap.get(r.gmail_account_id);
-        const hasActualReply = r.has_reply || threadRepliesMap.has(r.thread_id);
+    const emails = rows.map((r) => transformEmailRow(r, accountMap, threadRepliesMap));
 
-        return {
-            id: r.id,
-            thread_id: r.thread_id,
-            from_email: r.from_email,
-            to_email: r.to_email,
-            subject: r.subject,
-            snippet: r.snippet,
-            direction: r.direction,
-            sent_at: r.sent_at,
-            is_unread: r.is_unread,
-            pipeline_stage: r.pipeline_stage,
-            gmail_account_id: r.gmail_account_id,
-            contact_id: r.contact_id,
-            is_tracked: r.is_tracked,
-            opens_count: r.opens_count || 0,
-            clicks_count: r.clicks_count || 0,
-            has_reply: hasActualReply,
-            gmail_accounts: {
-                email: accInfo?.email || r.account_email,
-                user: { name: accInfo?.manager_name || 'System' }
-            },
-        };
-    });
-
-    return { emails, totalCount, page, pageSize, totalPages };
+    return { emails, totalCount, page, pageSize: clampedPageSize, totalPages };
 }
 
 // ─── Client Emails ────────────────────────────────────────────────────────────
 
 export async function markClientEmailsAsReadAction(clientEmail: string) {
-    if (!clientEmail) return { success: false };
+    if (!clientEmail || typeof clientEmail !== 'string') return { success: false };
 
+    const normalizedEmail_ = normalizeEmail(clientEmail);
     const { data: messages } = await supabase
         .from('email_messages')
         .select('id')
-        .or(`from_email.ilike.%${clientEmail}%,to_email.ilike.%${clientEmail}%`)
-        .eq('is_unread', true);
+        .or(`from_email.ilike.%${escapeIlike(normalizedEmail_)}%,to_email.ilike.%${escapeIlike(normalizedEmail_)}%`)
+        .eq('is_unread', true)
+        .limit(500);
 
     if (messages && messages.length > 0) {
         const ids = messages.map(m => m.id);
         return await bulkMarkAsReadAction(ids);
     }
 
+    revalidatePath('/');
     return { success: true };
 }
 
+export async function getClientEmailsAction(params: {
+    clientEmail: string;
+    accountIds: string[];
+    page?: number;
+    pageSize?: number;
+}): Promise<{ success: boolean; emails: any[]; total: number; page: number; pageSize: number }>;
+// Legacy overload for backward compatibility (returns plain array)
 export async function getClientEmailsAction(
     userId: string,
     targetEmail: string,
     gmailAccountId?: string
-) {
-    let accountIds: string[] | null = null;
-    if (gmailAccountId && gmailAccountId !== 'ALL') {
-        accountIds = [gmailAccountId];
-    } else {
-        accountIds = await getAccountIds(userId);
-    }
-    if (!accountIds || accountIds.length === 0) return [];
+): Promise<any[]>;
+export async function getClientEmailsAction(
+    userIdOrParams: string | { clientEmail: string; accountIds: string[]; page?: number; pageSize?: number },
+    targetEmail?: string,
+    gmailAccountId?: string
+): Promise<any[] | { success: boolean; emails: any[]; total: number; page: number; pageSize: number }> {
+    // Normalize arguments: support both old positional and new object style
+    const isLegacy = typeof userIdOrParams === 'string';
+    let clientEmail: string;
+    let accountIds: string[];
+    let page: number;
+    let pageSize: number;
 
-    const { data: messages, error } = await supabase
+    if (!isLegacy) {
+        const params = userIdOrParams as { clientEmail: string; accountIds: string[]; page?: number; pageSize?: number };
+        clientEmail = params.clientEmail;
+        accountIds = params.accountIds;
+        page = params.page || 1;
+        pageSize = Math.min(params.pageSize || 50, 100); // Cap at 100
+    } else {
+        // Legacy call: getClientEmailsAction(userId, targetEmail, gmailAccountId?)
+        const userId = userIdOrParams;
+        if (!userId || !targetEmail) return [];
+
+        clientEmail = targetEmail;
+        const resolved = await resolveAccountIds(userId, gmailAccountId);
+        if (!resolved || resolved.length === 0) return [];
+        accountIds = resolved;
+        page = 1;
+        pageSize = 50;
+    }
+
+    if (!clientEmail || !accountIds || accountIds.length === 0) {
+        return isLegacy ? [] : { success: true, emails: [], total: 0, page, pageSize };
+    }
+
+    const normalizedTarget = normalizeEmail(clientEmail);
+    const offset = (page - 1) * pageSize;
+
+    const { data: messages, error, count } = await supabase
         .from('email_messages')
         .select(`
             id, thread_id, from_email, to_email, subject,
             snippet, direction, sent_at, is_unread, pipeline_stage,
             gmail_account_id,
             gmail_accounts ( email, users ( name ) )
-        `)
+        `, { count: 'exact' })
         .in('gmail_account_id', accountIds)
-        .or(`from_email.ilike.%${targetEmail}%,to_email.ilike.%${targetEmail}%`)
+        .or(`from_email.ilike.%${escapeIlike(normalizedTarget)}%,to_email.ilike.%${escapeIlike(normalizedTarget)}%`)
         .order('sent_at', { ascending: false, nullsFirst: false })
-        .limit(100);
+        .range(offset, offset + pageSize - 1);
 
     if (error) {
-        console.error('getClientEmailsAction error:', error);
-        return [];
+        console.error('[emailActions] getClientEmailsAction error:', error);
+        return isLegacy ? [] : { success: false, emails: [], total: 0, page, pageSize };
     }
 
     // Group by thread_id to mimic Gmail's conversation list view
@@ -365,24 +346,21 @@ export async function getClientEmailsAction(
     for (const m of (messages || [])) {
         if (!threadMap.has(m.thread_id)) {
             threadMap.set(m.thread_id, true);
-            const acc = Array.isArray(m.gmail_accounts) ? m.gmail_accounts[0] : m.gmail_accounts;
-            const user = acc ? (Array.isArray(acc.users) ? acc.users[0] : acc.users) : null;
-            groupedMessages.push({
-                ...m,
-                gmail_accounts: {
-                    email: acc?.email,
-                    user: { name: user?.name || 'System' }
-                }
-            });
+            groupedMessages.push(transformJoinedEmailRow(m));
         }
     }
 
-    return groupedMessages;
+    // Legacy callers expect a plain array; new callers get paginated response
+    if (isLegacy) {
+        return groupedMessages;
+    }
+    return { success: true, emails: groupedMessages, total: count ?? 0, page, pageSize };
 }
 
 // ─── Mark Email As Read ───────────────────────────────────────────────────────
 
 export async function markEmailAsReadAction(messageId: string) {
+    if (!messageId) return { success: false };
     const { error } = await supabase
         .from('email_messages')
         .update({ is_unread: false })
@@ -392,10 +370,12 @@ export async function markEmailAsReadAction(messageId: string) {
         console.error('markEmailAsReadAction error:', error);
         return { success: false };
     }
+    revalidatePath('/');
     return { success: true };
 }
 
 export async function markEmailAsUnreadAction(messageId: string) {
+    if (!messageId) return { success: false };
     const { error } = await supabase
         .from('email_messages')
         .update({ is_unread: true })
@@ -405,10 +385,13 @@ export async function markEmailAsUnreadAction(messageId: string) {
         console.error('markEmailAsUnreadAction error:', error);
         return { success: false };
     }
+    revalidatePath('/');
     return { success: true };
 }
 
 export async function bulkMarkAsReadAction(messageIds: string[]) {
+    if (!messageIds || messageIds.length === 0) return { success: true };
+
     const { error } = await supabase
         .from('email_messages')
         .update({ is_unread: false })
@@ -418,10 +401,13 @@ export async function bulkMarkAsReadAction(messageIds: string[]) {
         console.error('bulkMarkAsReadAction error:', error);
         return { success: false };
     }
+    revalidatePath('/');
     return { success: true };
 }
 
 export async function bulkMarkAsUnreadAction(messageIds: string[]) {
+    if (!messageIds || messageIds.length === 0) return { success: true };
+
     const { error } = await supabase
         .from('email_messages')
         .update({ is_unread: true })
@@ -431,12 +417,15 @@ export async function bulkMarkAsUnreadAction(messageIds: string[]) {
         console.error('bulkMarkAsUnreadAction error:', error);
         return { success: false };
     }
+    revalidatePath('/');
     return { success: true };
 }
 
 // ─── Update Pipeline Stage ────────────────────────────────────────────────────
 
 export async function updateEmailStageAction(messageId: string, stage: string) {
+    if (!messageId || !stage) return { success: false };
+
     // 1. Fetch the email to get the sender details
     const { data: emailMsg } = await supabase
         .from('email_messages')
@@ -446,10 +435,9 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
 
     if (!emailMsg) return { success: false };
 
-    // 2. Extract the clean email address
+    // 2. Extract the clean email address and normalize
     const rawEmail = emailMsg.direction === 'RECEIVED' ? emailMsg.from_email : emailMsg.to_email;
-    const emailMatch = rawEmail?.match(/<([^>]+)>/);
-    const actualEmail = emailMatch ? emailMatch[1] : (rawEmail || '');
+    const actualEmail = normalizeEmail(rawEmail || '');
 
     let contactId = emailMsg.contact_id;
 
@@ -509,7 +497,7 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
     const { error } = await supabase
         .from('email_messages')
         .update({ pipeline_stage: stage })
-        .or(`id.eq.${messageId}${contactId ? `,contact_id.eq.${contactId}` : ''}${actualEmail ? `,from_email.ilike.%${actualEmail}%,to_email.ilike.%${actualEmail}%` : ''}`);
+        .or(`id.eq.${messageId}${contactId ? `,contact_id.eq.${contactId}` : ''}${actualEmail ? `,from_email.ilike.%${escapeIlike(actualEmail)}%,to_email.ilike.%${escapeIlike(actualEmail)}%` : ''}`);
 
     if (error) {
         console.error('updateEmailStageAction error:', error);
@@ -521,15 +509,18 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
         await supabase
             .from('ignored_senders')
             .delete()
-            .eq('email', actualEmail.toLowerCase());
+            .eq('email', actualEmail);
     }
 
+    revalidatePath('/');
     return { success: true };
 }
 
 // ─── Get Thread Messages ──────────────────────────────────────────────────────
 
 export async function getThreadMessagesAction(threadId: string) {
+    if (!threadId) return [];
+
     const { data: messages, error } = await supabase
         .from('email_messages')
         .select(`
@@ -546,7 +537,7 @@ export async function getThreadMessagesAction(threadId: string) {
         return [];
     }
 
-    // Since has_reply might not be a column, we compute it: 
+    // Since has_reply might not be a column, we compute it:
     // a thread "has_reply" if at least one message is RECEIVED.
     const threadHasReply = (messages || []).some((m: any) => m.direction === 'RECEIVED');
 
@@ -565,8 +556,10 @@ export async function getThreadMessagesAction(threadId: string) {
 // ─── Delete Email ─────────────────────────────────────────────────────────────
 
 export async function deleteEmailAction(messageId: string) {
-    // Only delete the specific project linked to this email (if any)
-    await supabase.from('projects').delete().eq('source_email_id', messageId);
+    if (!messageId) return { success: false, error: 'messageId is required' };
+
+    // Nullify source_email_id on linked projects instead of deleting them
+    await supabase.from('projects').update({ source_email_id: null }).eq('source_email_id', messageId);
 
     // Delete the message itself
     const { error } = await supabase
@@ -575,17 +568,18 @@ export async function deleteEmailAction(messageId: string) {
         .eq('id', messageId);
 
     if (error) {
-        console.error('deleteEmailAction error:', error);
-        return { success: false, error: error.message };
+        console.error('[emailActions] deleteEmailAction error:', error);
+        return { success: false, error: 'An error occurred while processing your request' };
     }
+    revalidatePath('/');
     return { success: true };
 }
 
 export async function bulkDeleteEmailsAction(messageIds: string[]) {
     if (!messageIds || messageIds.length === 0) return { success: true };
 
-    // Delete projects specifically linked to these emails
-    await supabase.from('projects').delete().in('source_email_id', messageIds);
+    // Nullify source_email_id on linked projects instead of deleting them
+    await supabase.from('projects').update({ source_email_id: null }).in('source_email_id', messageIds);
 
     // Delete the messages
     const { error } = await supabase
@@ -594,9 +588,10 @@ export async function bulkDeleteEmailsAction(messageIds: string[]) {
         .in('id', messageIds);
 
     if (error) {
-        console.error('bulkDeleteEmailsAction error:', error);
-        return { success: false, error: error.message };
+        console.error('[emailActions] bulkDeleteEmailsAction error:', error);
+        return { success: false, error: 'An error occurred while processing your request' };
     }
+    revalidatePath('/');
     return { success: true };
 }
 
@@ -606,7 +601,7 @@ export async function markAsNotInterestedAction(email: string) {
     if (!email) return { success: false };
 
     try {
-        const senderEmail = email.toLowerCase();
+        const senderEmail = normalizeEmail(email);
 
         // 1. Add specific email to ignored_senders
         const { error: ignoreError } = await supabase
@@ -619,7 +614,7 @@ export async function markAsNotInterestedAction(email: string) {
         const { error: updateError } = await supabase
             .from('email_messages')
             .update({ pipeline_stage: 'NOT_INTERESTED' })
-            .ilike('from_email', `%${senderEmail}%`);
+            .ilike('from_email', `%${escapeIlike(senderEmail)}%`);
 
         if (updateError) throw updateError;
 
@@ -627,23 +622,19 @@ export async function markAsNotInterestedAction(email: string) {
         await supabase
             .from('contacts')
             .update({ pipeline_stage: 'NOT_INTERESTED' })
-            .ilike('email', `%${senderEmail}%`);
+            .ilike('email', `%${escapeIlike(senderEmail)}%`);
 
+        revalidatePath('/');
         return { success: true };
     } catch (err: any) {
-        console.error('markAsNotInterestedAction error:', err);
-        return { success: false, error: err.message };
+        console.error('[emailActions] markAsNotInterestedAction error:', err);
+        return { success: false, error: 'An error occurred while processing your request' };
     }
 }
 
 export async function getTabCountsAction(userId: string, gmailAccountId?: string) {
-    let accountIds: string[] | null = null;
-    if (gmailAccountId && gmailAccountId !== 'ALL') {
-        accountIds = [gmailAccountId];
-    } else {
-        accountIds = await getAccountIds(userId);
-    }
-
+    if (!userId) return {};
+    const accountIds = await resolveAccountIds(userId, gmailAccountId);
     if (!accountIds || accountIds.length === 0) return {};
 
     try {
@@ -660,6 +651,7 @@ export async function getTabCountsAction(userId: string, gmailAccountId?: string
 }
 
 export async function markAsNotSpamAction(messageId: string) {
+    if (!messageId) return { success: false, error: 'messageId is required' };
     try {
         // 1. Fetch message and account details
         const { data: message, error: msgError } = await supabase
@@ -686,10 +678,11 @@ export async function markAsNotSpamAction(messageId: string) {
             .update({ is_spam: false, pipeline_stage: 'COLD_LEAD' })
             .eq('id', messageId);
 
+        revalidatePath('/');
         return { success: true };
     } catch (error: any) {
-        console.error('[markAsNotSpamAction] error:', error);
-        return { success: false, error: error.message };
+        console.error('[emailActions] markAsNotSpamAction error:', error);
+        return { success: false, error: 'An error occurred while processing your request' };
     }
 }
 
@@ -703,14 +696,11 @@ export async function searchEmailsAction(
     limit = 6,
     gmailAccountId?: string
 ) {
-    if (!query || query.trim().length < 1) return [];
+    if (!userId || !query || query.trim().length < 1) return [];
+    // Clamp limit to prevent unbounded queries
+    const clampedLimit = clampPageSize(limit, PAGINATION.SEARCH_MAX);
 
-    let accountIds: string[] | null = null;
-    if (gmailAccountId && gmailAccountId !== 'ALL') {
-        accountIds = [gmailAccountId];
-    } else {
-        accountIds = await getAccountIds(userId);
-    }
+    const accountIds = await resolveAccountIds(userId, gmailAccountId);
     if (!accountIds || accountIds.length === 0) return [];
 
     let q = query.trim();
@@ -723,11 +713,11 @@ export async function searchEmailsAction(
     // 1. from:
     const fromMatch = q.match(/from:([^\s]+)/);
     if (fromMatch) {
-        const value = fromMatch[1];
+        const value = fromMatch[1] ?? '';
         if (value === 'me') {
             rpcQuery = rpcQuery.eq('direction', 'SENT');
         } else {
-            rpcQuery = rpcQuery.ilike('from_email', `%${value}%`);
+            rpcQuery = rpcQuery.ilike('from_email', `%${escapeIlike(value)}%`);
         }
         q = q.replace(/from:[^\s]+/, '').trim();
     }
@@ -735,15 +725,17 @@ export async function searchEmailsAction(
     // 2. to:
     const toMatch = q.match(/to:([^\s]+)/);
     if (toMatch) {
-        rpcQuery = rpcQuery.ilike('to_email', `%${toMatch[1]}%`);
+        const toValue = toMatch[1] ?? '';
+        rpcQuery = rpcQuery.ilike('to_email', `%${escapeIlike(toValue)}%`);
         q = q.replace(/to:[^\s]+/, '').trim();
     }
 
-    // 3. subject:
-    const subjectMatch = q.match(/subject:([^\s]+)/);
+    // 3. subject: (supports quoted multi-word: subject:"hello world" or single word: subject:hello)
+    const subjectMatch = q.match(/subject:"([^"]+)"|subject:(\S+)/);
     if (subjectMatch) {
-        rpcQuery = rpcQuery.ilike('subject', `%${subjectMatch[1]}%`);
-        q = q.replace(/subject:[^\s]+/, '').trim();
+        const subjectValue = subjectMatch[1] || subjectMatch[2] || '';
+        rpcQuery = rpcQuery.ilike('subject', `%${escapeIlike(subjectValue)}%`);
+        q = q.replace(/subject:"[^"]+"|subject:\S+/, '').trim();
     }
 
     // 4. has:attachment (placeholder)
@@ -766,31 +758,27 @@ export async function searchEmailsAction(
     }
 
     if (q) {
-        rpcQuery = rpcQuery.or(`subject.ilike.%${q}%,from_email.ilike.%${q}%,snippet.ilike.%${q}%,to_email.ilike.%${q}%`);
+        const escapedQ = escapeIlike(q);
+        rpcQuery = rpcQuery.or(`subject.ilike.%${escapedQ}%,from_email.ilike.%${escapedQ}%,snippet.ilike.%${escapedQ}%,to_email.ilike.%${escapedQ}%`);
     }
 
     const { data, error } = await rpcQuery
         .in('gmail_account_id', accountIds)
         .order('sent_at', { ascending: false })
-        .limit(limit);
+        .limit(clampedLimit);
 
     if (error) {
         console.error('searchEmailsAction error:', error);
         return [];
     }
 
-    return (data || []).map((m: any) => ({
-        ...m,
-        gmail_accounts: {
-            email: m.gmail_accounts?.email,
-            user: { name: m.gmail_accounts?.users?.name || 'System' }
-        }
-    }));
+    return (data || []).map((m: any) => transformJoinedEmailRow(m));
 }
 
 // ─── Email Tracking ──────────────────────────────────────────────────────────
 
 export async function getEmailTrackingAction(messageId: string) {
+    if (!messageId) return null;
     try {
         // 1. Get tracking info from email_messages
         const { data: email, error: emailError } = await supabase

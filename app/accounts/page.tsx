@@ -31,12 +31,31 @@ interface GmailAccount {
 
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import { useHydrated } from '../utils/useHydration';
+import { DEFAULT_USER_ID } from '../constants/config';
+
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_MAX_SIZE = 100; // Max entries before clearing
 
 let globalAccountsCache: GmailAccount[] | null = null;
+let globalAccountsCacheTimestamp = 0;
 
 if (typeof window !== 'undefined') {
     const savedAccounts = getFromLocalCache('accounts_data');
-    if (savedAccounts) globalAccountsCache = savedAccounts;
+    if (savedAccounts) {
+        globalAccountsCache = savedAccounts;
+        globalAccountsCacheTimestamp = 0; // Treat restored cache as stale
+    }
+}
+
+function isAccountsCacheValid(): boolean {
+    if (!globalAccountsCache) return false;
+    if (Date.now() - globalAccountsCacheTimestamp > CACHE_TTL_MS) return false;
+    if (globalAccountsCache.length > CACHE_MAX_SIZE) {
+        globalAccountsCache = null;
+        globalAccountsCacheTimestamp = 0;
+        return false;
+    }
+    return true;
 }
 
 function StatusBadge({ status }: { status: AccountStatus }) {
@@ -67,16 +86,16 @@ export default function AccountsPage() {
     const [imapHost, setImapHost] = useState('imap.gmail.com');
     const [imapPort, setImapPort] = useState(993);
     const [smtpHost, setSmtpHost] = useState('smtp.gmail.com');
-    const [smtpPort, setSmtpPort] = useState(465);
+    const [smtpPort, setSmtpPort] = useState(587);
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
 
     const fetchAccounts = async () => {
-        if (!globalAccountsCache) setIsLoading(true);
+        if (!isAccountsCacheValid()) setIsLoading(true);
         try {
-            const userId = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
+            const userId = DEFAULT_USER_ID;
 
             // Safety timeout
             const timeoutPromise = new Promise((_, reject) =>
@@ -91,6 +110,7 @@ export default function AccountsPage() {
             if (result.success) {
                 const accts = result.accounts as unknown as GmailAccount[];
                 globalAccountsCache = accts;
+                globalAccountsCacheTimestamp = Date.now();
                 saveToLocalCache('accounts_data', accts);
                 setAccounts(accts);
             } else {
@@ -107,11 +127,12 @@ export default function AccountsPage() {
     // Separated background refresh for better handling
     const refreshAccountsSilently = async () => {
         try {
-            const userId = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
+            const userId = DEFAULT_USER_ID;
             const result = await getAccountsAction(userId);
             if (result.success) {
                 const accts = result.accounts as unknown as GmailAccount[];
                 globalAccountsCache = accts;
+                globalAccountsCacheTimestamp = Date.now();
                 saveToLocalCache('accounts_data', accts);
                 setAccounts(accts);
             }
@@ -149,7 +170,7 @@ export default function AccountsPage() {
         setIsConnecting(true);
         setError(null);
         try {
-            const userId = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
+            const userId = DEFAULT_USER_ID;
             const config = {
                 imapHost,
                 imapPort,
@@ -280,6 +301,10 @@ export default function AccountsPage() {
         </svg>
     );
 
+    const selectionModalTitleId = 'selection-modal-title';
+    const manualFormTitleId = 'manual-form-title';
+    const removeModalTitleId = 'remove-modal-title';
+
     return (
         <>
             <Sidebar onOpenCompose={() => setIsComposeOpen(true)} />
@@ -292,7 +317,7 @@ export default function AccountsPage() {
                     onSearch={() => { }}
                     onClearSearch={() => setSearchQuery('')}
                     leftContent={
-                        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Accounts</h1>
+                        <h1 className="page-title">Accounts</h1>
                     }
                     rightContent={
                         <div className="topbar-actions">
@@ -350,18 +375,7 @@ export default function AccountsPage() {
                         <div className="list-area" style={{ padding: '0' }}>
                             {/* Global Error Banner */}
                             {error && (
-                                <div style={{
-                                    margin: '1rem 1.5rem',
-                                    padding: '0.75rem 1rem',
-                                    background: 'rgba(239,68,68,0.08)',
-                                    border: '1px solid rgba(239,68,68,0.2)',
-                                    borderRadius: 'var(--radius-md)',
-                                    color: 'var(--danger)',
-                                    fontSize: '0.8125rem',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.75rem'
-                                }}>
+                                <div className="acct-error-banner">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
                                     <span>{error}</span>
                                 </div>
@@ -369,14 +383,10 @@ export default function AccountsPage() {
 
                             {/* Error banners */}
                             {needsReauth.length > 0 && (
-                                <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)', background: 'rgba(239,68,68,0.03)' }}>
+                                <div className="acct-reauth-section">
                                     {needsReauth.map(acc => (
-                                        <div key={acc.id} style={{
-                                            background: 'var(--bg-base)', border: '1px solid var(--danger)',
-                                            borderRadius: 'var(--radius-md)', padding: '0.75rem 1rem',
-                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem'
-                                        }}>
-                                            <span style={{ fontSize: '0.8125rem', color: 'var(--danger)' }}>
+                                        <div key={acc.id} className="acct-reauth-item">
+                                            <span className="acct-reauth-text">
                                                 <strong>{acc.email}</strong> needs to be reconnected.
                                             </span>
                                             <button className="btn btn-sm btn-danger" onClick={() => handleOAuthFlow()}>Re-authenticate</button>
@@ -403,14 +413,9 @@ export default function AccountsPage() {
                                                 key={acc.id}
                                                 className={`account-item-card${acc.status === 'ERROR' ? ' account-error' : acc.status === 'SYNCING' ? ' account-syncing' : ''}`}
                                             >
-                                                {/* Card Content ... */}
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-                                                    <div style={{
-                                                        width: 44, height: 44, borderRadius: 'var(--radius-md)',
-                                                        background: 'var(--bg-elevated)',
-                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        flexShrink: 0,
-                                                    }}>
+                                                {/* Card Content */}
+                                                <div className="acct-card-header">
+                                                    <div className="acct-card-icon">
                                                         {acc.connection_method === 'OAUTH' ? <GoogleIcon /> : (
                                                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                                                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
@@ -418,66 +423,53 @@ export default function AccountsPage() {
                                                             </svg>
                                                         )}
                                                     </div>
-                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <div style={{ fontWeight: 600, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    <div className="acct-card-info">
+                                                        <div className="acct-card-email">
                                                             {acc.email}
                                                         </div>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                                                        <div className="acct-card-meta">
                                                             <StatusBadge status={acc.status} />
-                                                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                                            <span className="acct-card-method">
                                                                 {acc.connection_method === 'MANUAL' ? 'Manual/IMAP' : 'Google OAuth'}
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Last synced</div>
-                                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500, marginTop: 1 }}>
+                                                    <div className="acct-card-sync-info">
+                                                        <div className="acct-card-sync-label">Last synced</div>
+                                                        <div className="acct-card-sync-value">
                                                             {formatLastSynced(acc.last_synced_at)}
                                                         </div>
                                                     </div>
                                                 </div>
 
-                                                <div style={{
-                                                    marginTop: '1.25rem',
-                                                    padding: '0.875rem 1rem',
-                                                    background: 'var(--bg-elevated)',
-                                                    borderRadius: 'var(--radius-md)',
-                                                    border: '1px solid var(--border)',
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center'
-                                                }}>
-                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                <div className="acct-card-status-box">
+                                                    <div className="acct-card-status-label">
                                                         Synchronization Status
                                                     </div>
-                                                    <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                                    <div className="acct-card-status-value">
                                                         {acc.emails_count != null ? `${acc.emails_count.toLocaleString()} emails synced` : 'Scanning...'}
                                                     </div>
                                                 </div>
 
                                                 {acc.status === 'ERROR' && (
-                                                    <div style={{
-                                                        marginTop: '0.875rem', background: 'rgba(239,68,68,0.08)',
-                                                        border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius-sm)',
-                                                        padding: '0.6rem 0.75rem', fontSize: '0.775rem', color: 'var(--danger)'
-                                                    }}>
+                                                    <div className="acct-card-error-msg">
                                                         Authentication failed.
                                                     </div>
                                                 )}
 
                                                 {acc.status === 'SYNCING' && (
-                                                    <div style={{ marginTop: '0.875rem' }}>
-                                                        <div className="sync-bar">
+                                                    <div className="acct-sync-progress">
+                                                        <div className="sync-bar" role="progressbar" aria-valuenow={acc.sync_progress || 0} aria-valuemin={0} aria-valuemax={100} aria-label={`Sync progress: ${acc.sync_progress || 0}%`}>
                                                             <div className="sync-bar-fill" style={{ width: `${acc.sync_progress || 0}%` }} />
                                                         </div>
-                                                        <p style={{ fontSize: '0.72rem', color: 'var(--accent)', marginTop: '0.35rem', textAlign: 'center' }}>
-                                                            Syncing... {acc.sync_progress || 0}%
+                                                        <p className="acct-sync-label">
+                                                            <span>Syncing... {acc.sync_progress || 0}%</span>
                                                         </p>
                                                     </div>
                                                 )}
 
-                                                <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                <div className="acct-card-actions">
+                                                    <div className="acct-card-actions-left">
                                                         {acc.status === 'ERROR' ? (
                                                             <button className="btn btn-sm btn-primary" onClick={() => handleOAuthFlow()}>
                                                                 Re-connect
@@ -521,24 +513,22 @@ export default function AccountsPage() {
             {/* Account type selection modal */}
             {showSelectionModal && (
                 <div className="modal-overlay" onClick={() => setShowSelectionModal(false)}>
-                    <div className="modal-box animate-slide-in" onClick={e => e.stopPropagation()}>
-                        <div className="modal-title">Add Gmail Account</div>
+                    <div
+                        className="modal-box animate-slide-in"
+                        onClick={e => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby={selectionModalTitleId}
+                    >
+                        <div className="modal-title" id={selectionModalTitleId}>Add Gmail Account</div>
                         <div className="modal-sub">Choose how you&apos;d like to connect your account.</div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <div className="acct-modal-options">
                             <button
+                                className="acct-modal-option-btn"
                                 onClick={handleOAuthFlow}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '1rem',
-                                    padding: '1rem 1.125rem', borderRadius: 'var(--radius-lg)',
-                                    background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                                    cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s',
-                                    color: 'var(--text-primary)',
-                                }}
-                                onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                                onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-elevated)'; }}
                             >
-                                <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-sm)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <div className="acct-modal-option-icon acct-modal-option-icon--oauth">
                                     <svg width="20" height="20" viewBox="0 0 24 24">
                                         <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
                                         <path d="M12 23c3.11 0 5.71-1.03 7.61-2.79l-3.57-2.77c-1.01.69-2.31 1.1-4.04 1.1-3.11 0-5.74-2.1-6.68-4.93H1.72v2.85C3.65 20.46 7.55 23 12 23z" fill="#34A853" />
@@ -547,33 +537,25 @@ export default function AccountsPage() {
                                     </svg>
                                 </div>
                                 <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Google OAuth</div>
-                                    <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)', marginTop: 2 }}>Recommended — secure automatic sync</div>
+                                    <div className="acct-modal-option-title">Google OAuth</div>
+                                    <div className="acct-modal-option-desc">Recommended -- secure automatic sync</div>
                                 </div>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
                             </button>
 
                             <button
+                                className="acct-modal-option-btn"
                                 onClick={() => { setShowSelectionModal(false); setShowManualForm(true); }}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '1rem',
-                                    padding: '1rem 1.125rem', borderRadius: 'var(--radius-lg)',
-                                    background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                                    cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s',
-                                    color: 'var(--text-primary)',
-                                }}
-                                onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                                onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-elevated)'; }}
                             >
-                                <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <div className="acct-modal-option-icon acct-modal-option-icon--manual">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                         <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                                         <polyline points="22,6 12,13 2,6" />
                                     </svg>
                                 </div>
                                 <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Manual App Password</div>
-                                    <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)', marginTop: 2 }}>Uses IMAP/SMTP connection</div>
+                                    <div className="acct-modal-option-title">Manual App Password</div>
+                                    <div className="acct-modal-option-desc">Uses IMAP/SMTP connection</div>
                                 </div>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
                             </button>
@@ -589,36 +571,40 @@ export default function AccountsPage() {
             {/* Manual form modal */}
             {showManualForm && (
                 <div className="modal-overlay" onClick={() => setShowManualForm(false)}>
-                    <div className="modal-box animate-slide-in" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
-                        <div className="modal-title">Custom Domain / IMAP Setup</div>
+                    <div
+                        className="modal-box animate-slide-in"
+                        style={{ maxWidth: '500px' }}
+                        onClick={e => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby={manualFormTitleId}
+                    >
+                        <div className="modal-title" id={manualFormTitleId}>Custom Domain / IMAP Setup</div>
                         <div className="modal-sub">Enter your email details. For Gmail, use an App Password.</div>
 
                         {error && (
-                            <div style={{
-                                background: 'rgba(239,68,68,0.08)', color: 'var(--danger)',
-                                padding: '0.65rem 0.875rem', borderRadius: 'var(--radius-sm)',
-                                marginBottom: '1rem', fontSize: '0.8rem', border: '1px solid rgba(239,68,68,0.2)'
-                            }}>
+                            <div className="acct-form-error">
                                 {error}
                             </div>
                         )}
 
-                        <form onSubmit={handleManualConnect} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <form onSubmit={handleManualConnect} className="acct-manual-form">
+                            <div className="acct-manual-form-grid">
                                 <div style={{ gridColumn: 'span 2' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                    <label className="acct-form-label" htmlFor="manual-email">
                                         Email Address
                                     </label>
                                     <input
                                         className="form-input"
+                                        id="manual-email"
                                         type="email"
                                         placeholder="you@yourdomain.com"
                                         required
+                                        aria-label="Email address for manual connection"
                                         value={manualEmail}
                                         onChange={e => {
                                             const val = e.target.value;
                                             setManualEmail(val);
-                                            // Auto-guess host for common setups
                                             if (val.includes('@')) {
                                                 const domain = val.split('@')[1];
                                                 if (domain && !domain.includes('gmail.com')) {
@@ -635,75 +621,85 @@ export default function AccountsPage() {
                                     />
                                 </div>
                                 <div style={{ gridColumn: 'span 2' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                    <label className="acct-form-label" htmlFor="manual-password">
                                         Password / App Password
                                     </label>
                                     <input
                                         className="form-input"
+                                        id="manual-password"
                                         type="password"
                                         placeholder="Your email password"
                                         required
+                                        aria-label="Password or app password"
                                         value={appPassword}
                                         onChange={e => setAppPassword(e.target.value)}
                                     />
                                 </div>
 
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                    <label className="acct-form-label" htmlFor="manual-imap-host">
                                         IMAP Host
                                     </label>
                                     <input
                                         className="form-input"
+                                        id="manual-imap-host"
                                         type="text"
                                         placeholder="imap.gmail.com"
+                                        aria-label="IMAP server hostname"
                                         value={imapHost}
                                         onChange={e => setImapHost(e.target.value)}
                                     />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                    <label className="acct-form-label" htmlFor="manual-imap-port">
                                         IMAP Port
                                     </label>
                                     <input
                                         className="form-input"
+                                        id="manual-imap-port"
                                         type="number"
                                         placeholder="993"
+                                        aria-label="IMAP server port number"
                                         value={imapPort}
                                         onChange={e => setImapPort(Number(e.target.value))}
                                     />
                                 </div>
 
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                    <label className="acct-form-label" htmlFor="manual-smtp-host">
                                         SMTP Host
                                     </label>
                                     <input
                                         className="form-input"
+                                        id="manual-smtp-host"
                                         type="text"
                                         placeholder="smtp.gmail.com"
+                                        aria-label="SMTP server hostname"
                                         value={smtpHost}
                                         onChange={e => setSmtpHost(e.target.value)}
                                     />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.775rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                    <label className="acct-form-label" htmlFor="manual-smtp-port">
                                         SMTP Port
                                     </label>
                                     <input
                                         className="form-input"
+                                        id="manual-smtp-port"
                                         type="number"
                                         placeholder="465"
+                                        aria-label="SMTP server port number"
                                         value={smtpPort}
                                         onChange={e => setSmtpPort(Number(e.target.value))}
                                     />
                                 </div>
                             </div>
 
-                            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                                💡 Tip: For custom domains, Host is usually <code>mail.yourdomain.com</code>. For Gmail, use an <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>App Password</a>.
+                            <p className="acct-form-tip">
+                                Tip: For custom domains, Host is usually <code>mail.yourdomain.com</code>. For Gmail, use an <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>App Password</a>.
                             </p>
 
-                            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
+                            <div className="acct-form-actions">
                                 <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowManualForm(false)}>Cancel</button>
                                 <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={isConnecting}>
                                     {isConnecting ? <><div className="spinner spinner-sm" />Connecting...</> : 'Connect Account'}
@@ -718,12 +714,18 @@ export default function AccountsPage() {
             {/* Remove confirmation modal */}
             {accountToRemove && (
                 <div className="modal-overlay" onClick={() => { setAccountToRemove(null); setRemoveConfirmText(''); }}>
-                    <div className="modal-box animate-slide-in" onClick={e => e.stopPropagation()}>
-                        <div className="modal-title">Remove Account</div>
-                        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.6 }}>
+                    <div
+                        className="modal-box animate-slide-in"
+                        onClick={e => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby={removeModalTitleId}
+                    >
+                        <div className="modal-title" id={removeModalTitleId}>Remove Account</div>
+                        <p className="acct-remove-desc">
                             Are you sure? All emails from <strong style={{ color: 'var(--text-primary)' }}>{accountToRemove.email}</strong> will be removed from Unibox. This will <em>not</em> delete emails from Gmail itself.
                         </p>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                        <p className="acct-remove-hint">
                             Type <strong style={{ color: 'var(--text-primary)' }}>REMOVE</strong> to confirm.
                         </p>
                         <input
@@ -732,14 +734,15 @@ export default function AccountsPage() {
                             placeholder="REMOVE"
                             value={removeConfirmText}
                             onChange={e => setRemoveConfirmText(e.target.value)}
-                            style={{ marginBottom: '1.25rem', textTransform: 'uppercase' }}
+                            aria-label="Type REMOVE to confirm account removal"
+                            style={{ marginBottom: '1.25rem' }}
                         />
-                        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                        <div className="acct-remove-actions">
                             <button className="btn btn-secondary" onClick={() => { setAccountToRemove(null); setRemoveConfirmText(''); }}>Cancel</button>
                             <button
                                 className="btn btn-danger"
                                 onClick={() => handleRemove(accountToRemove.id)}
-                                disabled={removeConfirmText.toUpperCase() !== 'REMOVE'}
+                                disabled={removeConfirmText.trim().toUpperCase() !== 'REMOVE'}
                             >
                                 Yes, Remove
                             </button>
@@ -750,6 +753,240 @@ export default function AccountsPage() {
 
             {isComposeOpen && <ComposeModal onClose={() => setIsComposeOpen(false)} />}
 
+            <style jsx>{`
+                .page-title {
+                    font-size: 1.25rem;
+                    font-weight: 700;
+                    color: var(--text-primary);
+                    margin: 0;
+                }
+                .acct-error-banner {
+                    margin: 16px 24px;
+                    padding: 12px 16px;
+                    background: rgba(239,68,68,0.08);
+                    border: 1px solid rgba(239,68,68,0.2);
+                    border-radius: var(--radius-md);
+                    color: var(--danger);
+                    font-size: 0.8125rem;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                .acct-reauth-section {
+                    padding: 16px 24px;
+                    border-bottom: 1px solid var(--border);
+                    background: rgba(239,68,68,0.03);
+                }
+                .acct-reauth-item {
+                    background: var(--bg-base);
+                    border: 1px solid var(--danger);
+                    border-radius: var(--radius-md);
+                    padding: 12px 16px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 8px;
+                }
+                .acct-reauth-text {
+                    font-size: 0.8125rem;
+                    color: var(--danger);
+                }
+                .acct-card-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 16px;
+                }
+                .acct-card-icon {
+                    width: 44px;
+                    height: 44px;
+                    border-radius: var(--radius-md);
+                    background: var(--bg-elevated);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                }
+                .acct-card-info {
+                    flex: 1;
+                    min-width: 0;
+                }
+                .acct-card-email {
+                    font-weight: 600;
+                    font-size: 0.875rem;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .acct-card-meta {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    margin-top: 4px;
+                }
+                .acct-card-method {
+                    font-size: 0.7rem;
+                    color: var(--text-muted);
+                }
+                .acct-card-sync-info {
+                    text-align: right;
+                    flex-shrink: 0;
+                }
+                .acct-card-sync-label {
+                    font-size: 0.72rem;
+                    color: var(--text-muted);
+                }
+                .acct-card-sync-value {
+                    font-size: 0.8rem;
+                    color: var(--text-secondary);
+                    font-weight: 500;
+                    margin-top: 1px;
+                }
+                .acct-card-status-box {
+                    margin-top: 16px;
+                    padding: 16px;
+                    background: var(--bg-elevated);
+                    border-radius: var(--radius-md);
+                    border: 1px solid var(--border);
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .acct-card-status-label {
+                    font-size: 0.75rem;
+                    color: var(--text-muted);
+                }
+                .acct-card-status-value {
+                    font-size: 0.8125rem;
+                    font-weight: 600;
+                    color: var(--text-primary);
+                }
+                .acct-card-error-msg {
+                    margin-top: 16px;
+                    background: rgba(239,68,68,0.08);
+                    border: 1px solid rgba(239,68,68,0.2);
+                    border-radius: var(--radius-sm);
+                    padding: 8px 12px;
+                    font-size: 0.775rem;
+                    color: var(--danger);
+                }
+                .acct-sync-progress {
+                    margin-top: 16px;
+                }
+                .acct-sync-label {
+                    font-size: 0.72rem;
+                    color: var(--accent);
+                    margin-top: 6px;
+                    text-align: center;
+                }
+                .acct-card-actions {
+                    margin-top: 16px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .acct-card-actions-left {
+                    display: flex;
+                    gap: 8px;
+                }
+                .acct-modal-options {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                .acct-modal-option-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 16px;
+                    padding: 16px 18px;
+                    border-radius: var(--radius-lg);
+                    background: var(--bg-elevated);
+                    border: 1px solid var(--border);
+                    cursor: pointer;
+                    text-align: left;
+                    transition: all 0.2s;
+                    color: var(--text-primary);
+                }
+                .acct-modal-option-btn:hover {
+                    border-color: var(--border-strong);
+                    background: var(--bg-hover);
+                }
+                .acct-modal-option-icon {
+                    width: 36px;
+                    height: 36px;
+                    border-radius: var(--radius-sm);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                }
+                .acct-modal-option-icon--oauth {
+                    background: #fff;
+                }
+                .acct-modal-option-icon--manual {
+                    background: var(--bg-tertiary);
+                }
+                .acct-modal-option-title {
+                    font-weight: 600;
+                    font-size: 0.9rem;
+                }
+                .acct-modal-option-desc {
+                    font-size: 0.775rem;
+                    color: var(--text-muted);
+                    margin-top: 2px;
+                }
+                .acct-form-error {
+                    background: rgba(239,68,68,0.08);
+                    color: var(--danger);
+                    padding: 10px 14px;
+                    border-radius: var(--radius-sm);
+                    margin-bottom: 16px;
+                    font-size: 0.8rem;
+                    border: 1px solid rgba(239,68,68,0.2);
+                }
+                .acct-manual-form {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 16px;
+                }
+                .acct-manual-form-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 16px;
+                }
+                .acct-form-label {
+                    display: block;
+                    margin-bottom: 6px;
+                    font-size: 0.775rem;
+                    color: var(--text-secondary);
+                    font-weight: 500;
+                }
+                .acct-form-tip {
+                    font-size: 0.72rem;
+                    color: var(--text-muted);
+                    margin-top: 6px;
+                }
+                .acct-form-actions {
+                    display: flex;
+                    gap: 12px;
+                    margin-top: 4px;
+                }
+                .acct-remove-desc {
+                    font-size: 0.875rem;
+                    color: var(--text-secondary);
+                    margin-bottom: 16px;
+                    line-height: 1.6;
+                }
+                .acct-remove-hint {
+                    font-size: 0.8rem;
+                    color: var(--text-muted);
+                    margin-bottom: 8px;
+                }
+                .acct-remove-actions {
+                    display: flex;
+                    gap: 12px;
+                    justify-content: flex-end;
+                }
+            `}</style>
         </>
     );
 }

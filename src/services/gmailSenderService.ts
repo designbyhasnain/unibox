@@ -1,3 +1,5 @@
+// TODO: Add `import 'server-only';` after running `npm install` to install the server-only package.
+// This prevents accidental client-side imports that could leak secrets.
 import { google } from 'googleapis';
 import { supabase } from '../lib/supabase';
 import { handleEmailSent } from './emailSyncLogic';
@@ -13,11 +15,13 @@ import { refreshAccessToken } from './googleAuthService';
 export async function sendGmailEmail(params: {
     accountId: string;
     to: string;
+    cc?: string;
+    bcc?: string;
     subject: string;
     body: string;
     threadId?: string;
 }) {
-    const { accountId, to, subject, body, threadId } = params;
+    const { accountId, to, cc, bcc, subject, body, threadId } = params;
 
     // 1. Get Account Details
     const { data: account, error: accError } = await supabase
@@ -50,13 +54,15 @@ export async function sendGmailEmail(params: {
         const messageParts = [
             `From: ${account.email}`,
             `To: ${to}`,
+            ...(cc ? [`Cc: ${cc}`] : []),
+            ...(bcc ? [`Bcc: ${bcc}`] : []),
             `Content-Type: text/html; charset=utf-8`,
             `MIME-Version: 1.0`,
             `Subject: ${utf8Subject}`,
             ``,
             body,
         ];
-        const message = messageParts.join('\n');
+        const message = messageParts.join('\r\n');
 
         // Requirement: Encode in base64url
         const encodedMessage = Buffer.from(message)
@@ -123,6 +129,7 @@ export async function sendGmailEmail(params: {
         }
 
         console.error('[Gmail Send] Error:', error.message);
-        throw error;
+        // Sanitize error to avoid leaking internal details to the client
+        throw new Error('Failed to send email. Please try again later.');
     }
 }

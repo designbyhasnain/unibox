@@ -6,6 +6,7 @@ import Topbar from '../components/Topbar';
 import { useRouter } from 'next/navigation';
 import { useGlobalFilter } from '../context/FilterContext';
 import { getAccountsAction } from '../../src/actions/accountActions';
+import { DEFAULT_USER_ID } from '../constants/config';
 
 interface SettingRow {
     id: string;
@@ -35,8 +36,7 @@ export default function SettingsPage() {
         if (savedFocus !== null) setFocusSyncEnabled(savedFocus === 'true');
         if (savedNotifs !== null) setNotificationsEnabled(savedNotifs === 'true');
 
-        const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
-        getAccountsAction(ADMIN_USER_ID)
+        getAccountsAction(DEFAULT_USER_ID)
             .then(result => {
                 if (result.success) setAccounts(result.accounts);
             })
@@ -88,54 +88,59 @@ export default function SettingsPage() {
                     onSearch={() => { }}
                     onClearSearch={() => { }}
                     leftContent={
-                        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Settings</h1>
+                        <h1 className="settings-page-title">Settings</h1>
                     }
                     rightContent={
                         <div className="topbar-actions">
-                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem' }}>Admin</span>
+                            <span className="settings-admin-label">Admin</span>
                             <div className="avatar-btn">A</div>
                         </div>
                     }
                 />
 
                 {/* Content */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
-                    <div style={{ maxWidth: 680, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div className="settings-content">
+                    <div className="settings-container">
 
                         {/* Sync Preferences Card */}
-                        <div className="card" style={{ padding: '1.75rem' }}>
-                            <div style={{ marginBottom: '1.5rem' }}>
-                                <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.2rem' }}>
+                        <div className="card settings-card">
+                            <div className="settings-card-header">
+                                <h2 className="settings-section-title">
                                     Sync Preferences
                                 </h2>
-                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                <p className="settings-section-desc">
                                     Control how Unibox fetches your emails in the background.
                                 </p>
                             </div>
 
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+                            <div className="settings-toggle-list">
                                 {toggleRows.map((row, i) => (
                                     <div
                                         key={row.id}
+                                        className="settings-toggle-row"
                                         style={{
-                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                            padding: '1rem 0',
                                             borderBottom: i < toggleRows.length - 1 ? '1px solid var(--border)' : 'none',
                                         }}
                                     >
-                                        <div style={{ flex: 1, paddingRight: '1.5rem' }}>
-                                            <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.2rem', color: 'var(--text-primary)' }}>
+                                        <div className="settings-toggle-info">
+                                            <div className="settings-toggle-title">
                                                 {row.title}
                                             </div>
-                                            <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                            <div className="settings-toggle-desc">
                                                 {row.description}
                                             </div>
                                         </div>
-                                        <label className="toggle-switch" style={{ flexShrink: 0 }}>
+                                        <label
+                                            className="toggle-switch"
+                                            htmlFor={`toggle-${row.id}`}
+                                            style={{ flexShrink: 0 }}
+                                        >
                                             <input
                                                 type="checkbox"
+                                                id={`toggle-${row.id}`}
                                                 checked={row.value}
                                                 onChange={e => row.onChange(e.target.checked)}
+                                                aria-label={`Toggle ${row.title}`}
                                             />
                                             <span className="toggle-track" />
                                         </label>
@@ -145,36 +150,27 @@ export default function SettingsPage() {
 
                             {/* Polling interval slider */}
                             {pollingEnabled && (
-                                <div style={{
-                                    marginTop: '1.25rem',
-                                    background: 'var(--bg-elevated)',
-                                    border: '1px solid var(--border)',
-                                    borderRadius: 'var(--radius-md)',
-                                    padding: '1.125rem',
-                                }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                <div className="settings-interval-box">
+                                    <div className="settings-interval-header">
+                                        <label className="settings-interval-label" htmlFor="polling-interval">
                                             Check interval
                                         </label>
-                                        <span style={{
-                                            background: 'var(--accent-light)', color: 'var(--text-accent)',
-                                            fontSize: '0.775rem', fontWeight: 700,
-                                            padding: '2px 10px', borderRadius: 'var(--radius-full)',
-                                            border: '1px solid rgba(79,140,255,0.2)'
-                                        }}>
+                                        <span className="settings-interval-badge">
                                             {pollingInterval}s
                                         </span>
                                     </div>
                                     <input
                                         type="range"
+                                        id="polling-interval"
                                         min="5"
                                         max="300"
                                         step="5"
                                         value={pollingInterval}
                                         onChange={e => setPollingInterval(parseInt(e.target.value, 10))}
-                                        style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer' }}
+                                        aria-label={`Polling interval: ${pollingInterval} seconds`}
+                                        className="settings-range-input"
                                     />
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.4rem', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                    <div className="settings-interval-range-labels">
                                         <span>5s (fastest)</span>
                                         <span>5m (slowest)</span>
                                     </div>
@@ -183,31 +179,30 @@ export default function SettingsPage() {
                         </div>
 
                         {/* About Card */}
-                        <div className="card" style={{ padding: '1.75rem' }}>
-                            <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '1rem' }}>
+                        <div className="card settings-card">
+                            <h2 className="settings-section-title" style={{ marginBottom: '16px' }}>
                                 About Unibox
                             </h2>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                            <div className="settings-about-list">
                                 {[
                                     ['Version', '1.0.0'],
                                     ['Framework', 'Next.js 14 (App Router)'],
                                     ['Database', 'Supabase (PostgreSQL)'],
                                     ['Email Provider', 'Google Gmail API + IMAP/SMTP'],
                                 ].map(([label, val]) => (
-                                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', padding: '0.35rem 0', borderBottom: '1px solid var(--border)' }}>
-                                        <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-                                        <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{val}</span>
+                                    <div key={label} className="settings-about-row">
+                                        <span className="settings-about-label">{label}</span>
+                                        <span className="settings-about-value">{val}</span>
                                     </div>
                                 ))}
                             </div>
                         </div>
 
                         {/* Save */}
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                        <div className="settings-save-row">
                             <button
                                 onClick={handleSave}
-                                className="btn btn-primary btn-lg"
-                                style={{ minWidth: 140 }}
+                                className="btn btn-primary btn-lg settings-save-btn"
                             >
                                 {isSaved ? (
                                     <>
@@ -220,6 +215,142 @@ export default function SettingsPage() {
                     </div>
                 </div>
             </main>
+            <style jsx>{`
+                .settings-page-title {
+                    font-size: 1.25rem;
+                    font-weight: 700;
+                    color: var(--text-primary);
+                    margin: 0;
+                }
+                .settings-admin-label {
+                    color: var(--text-secondary);
+                    font-size: 0.8125rem;
+                }
+                .settings-content {
+                    flex: 1;
+                    overflow-y: auto;
+                    padding: 2rem;
+                }
+                .settings-container {
+                    max-width: 680px;
+                    margin: 0 auto;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 24px;
+                }
+                .settings-card {
+                    padding: 1.5rem;
+                }
+                .settings-card-header {
+                    margin-bottom: 24px;
+                }
+                .settings-section-title {
+                    font-size: 1rem;
+                    font-weight: 600;
+                    color: var(--text-primary);
+                    margin-bottom: 3px;
+                }
+                .settings-section-desc {
+                    font-size: 0.8rem;
+                    color: var(--text-muted);
+                }
+                .settings-toggle-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0;
+                }
+                .settings-toggle-row {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 16px 0;
+                }
+                .settings-toggle-info {
+                    flex: 1;
+                    padding-right: 24px;
+                }
+                .settings-toggle-title {
+                    font-weight: 600;
+                    font-size: 0.875rem;
+                    margin-bottom: 3px;
+                    color: var(--text-primary);
+                }
+                .settings-toggle-desc {
+                    font-size: 0.775rem;
+                    color: var(--text-muted);
+                    line-height: 1.5;
+                }
+                .settings-interval-box {
+                    margin-top: 16px;
+                    background: var(--bg-elevated);
+                    border: 1px solid var(--border);
+                    border-radius: var(--radius-md);
+                    padding: 16px;
+                }
+                .settings-interval-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 12px;
+                }
+                .settings-interval-label {
+                    font-size: 0.8rem;
+                    color: var(--text-secondary);
+                    font-weight: 500;
+                }
+                .settings-interval-badge {
+                    background: var(--accent-light);
+                    color: var(--text-accent);
+                    font-size: 0.775rem;
+                    font-weight: 700;
+                    padding: 2px 10px;
+                    border-radius: var(--radius-full);
+                    border: 1px solid rgba(79,140,255,0.2);
+                }
+                .settings-range-input {
+                    width: 100%;
+                    accent-color: var(--accent);
+                    cursor: pointer;
+                }
+                .settings-interval-range-labels {
+                    display: flex;
+                    justify-content: space-between;
+                    margin-top: 6px;
+                    font-size: 0.68rem;
+                    color: var(--text-muted);
+                }
+                .settings-about-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                }
+                .settings-about-row {
+                    display: flex;
+                    justify-content: space-between;
+                    font-size: 0.8125rem;
+                    padding: 6px 0;
+                    border-bottom: 1px solid var(--border);
+                }
+                .settings-about-label {
+                    color: var(--text-muted);
+                }
+                .settings-about-value {
+                    color: var(--text-secondary);
+                    font-weight: 500;
+                }
+                .settings-save-row {
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 12px;
+                }
+                .settings-save-btn {
+                    min-width: 140px;
+                }
+                .settings-save-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+            `}</style>
         </>
     );
 }

@@ -14,14 +14,12 @@ import {
     searchEmailsAction,
 } from '../src/actions/emailActions';
 import { useMailbox } from './hooks/useMailbox';
-import { getAccountsAction } from '../src/actions/accountActions';
-import { useRealtimeInbox } from '../src/hooks/useRealtimeInbox';
 import { useGlobalFilter } from './context/FilterContext';
 import { shouldShowStageBadge } from './constants/stages';
+import { DEFAULT_USER_ID } from './constants/config';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
 const PAGE_SIZE = 50;
 
 const TABS = [
@@ -35,10 +33,7 @@ const TABS = [
 
 interface ToastItem { id: string; subject: string; from: string; }
 
-import { saveToLocalCache, getFromLocalCache } from './utils/localCache';
 import { useHydrated } from './utils/useHydration';
-
-let globalActiveStage = 'COLD_LEAD';
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -47,7 +42,7 @@ export default function InboxPage() {
     const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
 
     // ─── Use Universal Mailbox Hook ───────────────────────────────────────────
-    const [activeStage, setActiveStage] = useState(globalActiveStage);
+    const [activeStage, setActiveStage] = useState('COLD_LEAD');
     const {
         emails,
         totalCount,
@@ -83,18 +78,45 @@ export default function InboxPage() {
     const [isComposeOpen, setIsComposeOpen] = useState(false);
     const [composeDefaultTo, setComposeDefaultTo] = useState('');
     const [toasts, setToasts] = useState<ToastItem[]>([]);
-    const [isLive, setIsLive] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [searchLoading, setSearchLoading] = useState(false);
     const [isSearchResults, setIsSearchResults] = useState(false);
 
-    // Settings
-    const [pollingInterval, setPollingInterval] = useState(300);
-    const [isPollingEnabled, setIsPollingEnabled] = useState(true);
-    const [isFocusSyncEnabled, setIsFocusSyncEnabled] = useState(true);
+    // Settings - read from localStorage to connect with settings page (FE-024)
+    const [pollingInterval, setPollingInterval] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('settings_polling_interval');
+            return saved ? parseInt(saved, 10) : 300;
+        }
+        return 300;
+    });
+    const [isPollingEnabled, setIsPollingEnabled] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('settings_polling_enabled');
+            return saved !== null ? saved === 'true' : true;
+        }
+        return true;
+    });
+    const [isFocusSyncEnabled, setIsFocusSyncEnabled] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('settings_focus_sync_enabled');
+            return saved !== null ? saved === 'true' : true;
+        }
+        return true;
+    });
 
     const toastTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+    const handleSyncRef = useRef(handleSync);
+    handleSyncRef.current = handleSync;
+
+    // Cleanup toast timers on unmount
+    useEffect(() => {
+        return () => {
+            toastTimerRef.current.forEach((timer) => clearTimeout(timer));
+            toastTimerRef.current.clear();
+        };
+    }, []);
 
     // ── Search Logic ──────────────────────────────────────────────────────────
     const handleSearchSubmit = useCallback(async (e?: React.FormEvent | React.KeyboardEvent) => {
@@ -104,8 +126,8 @@ export default function InboxPage() {
         setSearchLoading(true);
         setIsSearchResults(true);
         try {
-            const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 100, selectedAccountId);
-            // Search results are handled locally here for simplicity
+            const results = await searchEmailsAction(DEFAULT_USER_ID, searchTerm, 100, selectedAccountId);
+            setSearchResults(results);
             setSelectedEmail(null);
         } catch (err) {
             console.error('Search submit error:', err);
@@ -123,7 +145,7 @@ export default function InboxPage() {
         const timer = setTimeout(async () => {
             setSearchLoading(true);
             try {
-                const results = await searchEmailsAction(ADMIN_USER_ID, searchTerm, 8, selectedAccountId);
+                const results = await searchEmailsAction(DEFAULT_USER_ID, searchTerm, 8, selectedAccountId);
                 setSearchResults(results);
             } catch (err) { console.error(err); }
             finally { setSearchLoading(false); }
@@ -131,11 +153,8 @@ export default function InboxPage() {
         return () => clearTimeout(timer);
     }, [searchTerm, selectedAccountId]);
 
-    // Initial sync connection
-    useEffect(() => {
-        const t = setTimeout(() => setIsLive(true), 1500);
-        return () => clearTimeout(t);
-    }, []);
+    // Derive live status from whether accounts are loaded (real indicator)
+    const isLive = accounts.length > 0;
 
     // ── Keyboard & Shortcuts ──────────────────────────────────────────────────
     useEffect(() => {
@@ -150,15 +169,15 @@ export default function InboxPage() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [setSelectedEmail]);
 
-    // Auto-polling
+    // Auto-polling — use ref to avoid clearing/restarting interval when handleSync changes
     useEffect(() => {
         if (!isPollingEnabled) return;
         const intervalMs = pollingInterval * 1000;
         const id = setInterval(() => {
-            handleSync();
+            handleSyncRef.current();
         }, intervalMs);
         return () => clearInterval(id);
-    }, [isPollingEnabled, pollingInterval, handleSync]);
+    }, [isPollingEnabled, pollingInterval]);
 
     // ── Derived Handlers ──────────────────────────────────────────────────────
     const goToPage = (page: number) => {
@@ -169,16 +188,30 @@ export default function InboxPage() {
     };
 
     const handleChangeStage = async (messageId: string, newStage: string) => {
-        await updateEmailStageAction(messageId, newStage);
-        // Clear other caches except current
-        // (Note: in useMailbox, we can add a refresh method)
-        loadEmails(currentPage);
+        try {
+            await updateEmailStageAction(messageId, newStage);
+            loadEmails(currentPage);
+        } catch (err) {
+            console.error('Stage change failed:', err);
+            const toastId = `error-${Date.now()}`;
+            setToasts(prev => [...prev, { id: toastId, subject: 'Failed to change stage', from: 'Please try again' }]);
+            const timer = setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 4000);
+            toastTimerRef.current.set(toastId, timer);
+        }
     };
 
-    const handleNotInterested = async (email: string) => {
-        if (!email) return;
-        await markAsNotInterestedAction(email);
-        loadEmails(currentPage);
+    const handleNotInterested = async (senderEmail: string) => {
+        if (!senderEmail) return;
+        try {
+            await markAsNotInterestedAction(senderEmail);
+            loadEmails(currentPage);
+        } catch (err) {
+            console.error('Mark not interested failed:', err);
+            const toastId = `error-${Date.now()}`;
+            setToasts(prev => [...prev, { id: toastId, subject: 'Failed to mark as not interested', from: 'Please try again' }]);
+            const timer = setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 4000);
+            toastTimerRef.current.set(toastId, timer);
+        }
     };
 
     const handleNotSpam = async (messageId: string) => {
@@ -230,14 +263,14 @@ export default function InboxPage() {
                         handleSelectEmail(res);
                     }}
                     rightContent={
-                        <div className="topbar-actions" style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', paddingRight: '1rem', alignItems: 'center', gap: '1rem' }}>
+                        <div className="topbar-actions">
                             {isSyncing && (
                                 <div className="sync-status">
                                     <div className="spinner spinner-xs" />
                                     <span>{syncMessage || 'Syncing...'}</span>
                                 </div>
                             )}
-                            <div className="status-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', background: 'var(--bg-elevated)', padding: '4px 10px', borderRadius: '100px', border: '1px solid var(--border)' }}>
+                            <div className="status-pill">
                                 <div className={`status-dot ${isLive ? 'live' : ''}`} />
                                 <span>{isLive ? 'Live' : 'Connecting...'}</span>
                             </div>
@@ -246,6 +279,7 @@ export default function InboxPage() {
                                 onClick={handleSync}
                                 disabled={isSyncing}
                                 title="Refresh messages"
+                                aria-label="Refresh messages"
                                 id="sync-btn"
                             >
                                 <svg
@@ -263,20 +297,33 @@ export default function InboxPage() {
                     }
                 />
 
-                <div className="tabs-bar">
+                <div className="tabs-bar" role="tablist" aria-label="Pipeline stages">
                     {TABS.map((tab) => {
                         const count = isHydrated ? (tabCounts[tab.id] || 0) : 0;
+                        const isActive = activeStage === tab.id;
                         return (
                             <div
                                 key={tab.id}
-                                className={`tab ${activeStage === tab.id ? 'active' : ''}`}
+                                className={`tab ${isActive ? 'active' : ''}`}
+                                role="tab"
+                                tabIndex={0}
+                                aria-selected={isActive}
                                 onClick={() => {
-                                    globalActiveStage = tab.id;
                                     setActiveStage(tab.id);
                                     setIsSearchResults(false);
                                     setSearchTerm('');
                                     setSearchResults([]);
                                     setSelectedEmail(null);
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setActiveStage(tab.id);
+                                        setIsSearchResults(false);
+                                        setSearchTerm('');
+                                        setSearchResults([]);
+                                        setSelectedEmail(null);
+                                    }
                                 }}
                                 id={`tab-${tab.id}`}
                             >
@@ -316,7 +363,7 @@ export default function InboxPage() {
                             </div>
 
                             {/* Email Rows */}
-                            <div id="email-list-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                            <div id="email-list-scroll" className="email-list-scroll" aria-live="polite">
                                 <div className="gmail-list-header">
                                     <div className="gmail-lh-check" />
                                     <div className="gmail-lh-star" />
@@ -326,25 +373,26 @@ export default function InboxPage() {
                                     <div className="gmail-lh-manager">MANAGER</div>
                                     <div className="gmail-lh-date">DATE</div>
                                 </div>
-                                <PageLoader isLoading={!isHydrated || isLoading} type="list" count={PAGE_SIZE}>
-                                    {emails.length === 0 ? (
-                                        <div className="empty-state" style={{ padding: '4rem 2rem', opacity: isLoading ? 0.3 : 1 }}>
-                                            <div className="empty-state-icon" style={{ marginBottom: '1rem', width: '64px', height: '64px', background: 'var(--bg-elevated)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
-                                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
-                                                    <path d="M22 12l-10-9-10 9M9 21V12h6v9" />
+                                <PageLoader isLoading={!isHydrated || isLoading || searchLoading} type="list" count={PAGE_SIZE}>
+                                    {(isSearchResults ? searchResults : emails).length === 0 ? (
+                                        <div className={`empty-state empty-state-card${isLoading ? ' empty-state-loading' : ''}`}>
+                                            <div className="empty-state-icon">
+                                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                                                    <path d="M22 7l-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
                                                 </svg>
                                             </div>
-                                            <div className="empty-state-title" style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                            <div className="empty-state-title">
                                                 {isSearchResults ? 'No search results' : 'Inbox is empty'}
                                             </div>
-                                            <div className="empty-state-desc" style={{ marginTop: '0.5rem', color: 'var(--text-muted)', maxWidth: '300px', margin: '0.5rem auto 0' }}>
+                                            <div className="empty-state-desc">
                                                 {isSearchResults
                                                     ? `No messages found for "${searchTerm}"`
                                                     : `Your ${TABS.find((t) => t.id === activeStage)?.label || 'Inbox'} is all caught up.`
                                                 }
                                             </div>
                                             {selectedAccountId !== 'ALL' && (
-                                                <div style={{ marginTop: '1.5rem' }}>
+                                                <div className="empty-state-action">
                                                     <button
                                                         className="btn btn-secondary btn-sm"
                                                         onClick={() => setSelectedAccountId('ALL')}
@@ -355,7 +403,7 @@ export default function InboxPage() {
                                             )}
                                         </div>
                                     ) : (
-                                        emails.map((email: any) => (
+                                        (isSearchResults ? searchResults : emails).map((email: any) => (
                                             <EmailRow
                                                 key={email.id}
                                                 email={email}
@@ -410,7 +458,7 @@ export default function InboxPage() {
                         />
                     )}
                 </div>
-            </main >
+            </main>
 
             {isComposeOpen && (
                 <ComposeModal
@@ -425,6 +473,31 @@ export default function InboxPage() {
                 />
             )
             }
+
+            <style jsx>{`
+                .email-list-scroll {
+                    flex: 1;
+                    overflow-y: auto;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .empty-state-card {
+                    padding: 4rem 2rem;
+                    background: var(--bg-elevated);
+                    border-radius: 12px;
+                    border: 1px solid var(--border);
+                    margin: 2rem auto;
+                    max-width: 400px;
+                    width: 100%;
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+                }
+                .empty-state-loading {
+                    opacity: 0.3;
+                }
+                .empty-state-action {
+                    margin-top: 1.5rem;
+                }
+            `}</style>
         </>
     );
 }

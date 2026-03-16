@@ -77,8 +77,8 @@ export function cleanPreview(snippet: string): string {
         // Strip HTML entities
         .replace(/&#\d+;/g, ' ')
         .replace(/&[a-z]+;/gi, ' ')
-        // Strip CSS/code fragments (property: value;)
-        .replace(/[\w-]+\s*:\s*[\w#\-().,!%]+\s*;?/g, ' ')
+        // Strip CSS/code fragments (property: value;) — only if it ends with a semicolon to avoid stripping normal text like "Date: March 16"
+        .replace(/[\w-]+\s*:\s*[\w#\-().,!%]+\s*;/g, ' ')
         // Strip MS/Outlook specific patterns
         .replace(/-webkit-[\w-]+/g, '')
         .replace(/-ms-[\w-]+/g, '')

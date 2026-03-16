@@ -1,4 +1,6 @@
+import 'server-only';
 import { google } from 'googleapis';
+import * as crypto from 'crypto';
 import { supabase } from '../lib/supabase';
 import { encrypt, decrypt } from '../utils/encryption';
 
@@ -20,12 +22,37 @@ function createOAuth2Client() {
     );
 }
 
-export function getGoogleAuthUrl(): string {
+/**
+ * Generates a cryptographically random state token for CSRF protection.
+ */
+export function generateOAuthState(): string {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Validates the state parameter returned from the OAuth callback.
+ * Returns true if the state matches the expected value.
+ */
+export function validateOAuthState(returnedState: string | null, expectedState: string | null): boolean {
+    if (!returnedState || !expectedState) return false;
+    // Use timing-safe comparison to prevent timing attacks
+    try {
+        return crypto.timingSafeEqual(
+            Buffer.from(returnedState, 'utf8'),
+            Buffer.from(expectedState, 'utf8')
+        );
+    } catch {
+        return false;
+    }
+}
+
+export function getGoogleAuthUrl(state?: string): string {
     const oauth2Client = createOAuth2Client();
     return oauth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: SCOPES,
         prompt: 'consent',
+        ...(state ? { state } : {}),
     });
 }
 
@@ -53,6 +80,15 @@ export async function handleAuthCallback(
     const encryptedRefreshToken = tokens.refresh_token
         ? encrypt(tokens.refresh_token)
         : existingAccount?.refresh_token;
+
+    // If no refresh token from Google AND no existing one in DB, the account
+    // will become unusable after the access token expires (~1 hour).
+    if (!encryptedRefreshToken) {
+        throw new Error(
+            'No refresh token available. Please revoke app access in your Google Account settings ' +
+            '(myaccount.google.com/permissions) and try connecting again.'
+        );
+    }
 
     const { data, error } = await supabase
         .from('gmail_accounts')
@@ -97,7 +133,8 @@ export async function refreshAccessToken(accountId: string): Promise<string> {
 
         return newAccessToken;
     } catch (err: any) {
-        console.error(`[Token Refresh] Failed to refresh token for ${accountId}`, err);
+        // Log full error for debugging, but don't expose details to the client
+        console.error(`[Token Refresh] Failed to refresh token for account`, err?.message);
         await supabase
             .from('gmail_accounts')
             .update({ status: 'ERROR' })

@@ -1,15 +1,28 @@
 'use server';
 
 import { google } from 'googleapis';
+import { cookies } from 'next/headers';
 import { supabase } from '../lib/supabase';
-import { getGoogleAuthUrl, handleAuthCallback } from '../services/googleAuthService';
+import { getGoogleAuthUrl, generateOAuthState, handleAuthCallback } from '../services/googleAuthService';
 import { testManualConnection } from '../services/manualEmailService';
 import { encrypt, decrypt } from '../utils/encryption';
 import { syncGmailEmails } from '../services/gmailSyncService';
 import { syncManualEmails } from '../services/manualEmailService';
+import { normalizeEmail } from '../utils/emailNormalizer';
 
 export async function getGoogleAuthUrlAction(): Promise<string> {
-    return getGoogleAuthUrl();
+    const state = generateOAuthState();
+
+    const cookieStore = await cookies();
+    cookieStore.set('oauth_state', state, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 600, // 10 minutes
+        path: '/api/auth',
+    });
+
+    return getGoogleAuthUrl(state);
 }
 
 export async function connectManualAccountAction(
@@ -24,10 +37,27 @@ export async function connectManualAccountAction(
     }
 ): Promise<{ success: boolean; error?: string; account?: any }> {
     try {
+        if (!email || !appPassword) {
+            return { success: false, error: 'Email and app password are required' };
+        }
+
+        const normalizedEmail = normalizeEmail(email);
+
         // Test the credentials first
-        const testResult = await testManualConnection(email, appPassword, config);
+        const testResult = await testManualConnection(normalizedEmail, appPassword, config);
         if (!testResult.success) {
             return { success: false, error: testResult.error || 'Connection test failed' };
+        }
+
+        // Check if an OAuth account already exists for this email to avoid overwriting it
+        const { data: existingAccount } = await supabase
+            .from('gmail_accounts')
+            .select('id, connection_method')
+            .eq('email', normalizedEmail)
+            .maybeSingle();
+
+        if (existingAccount && existingAccount.connection_method === 'OAUTH') {
+            return { success: false, error: 'This email is already connected via OAuth. Remove the OAuth connection first before adding a manual connection.' };
         }
 
         const encryptedPassword = encrypt(appPassword);
@@ -36,7 +66,7 @@ export async function connectManualAccountAction(
             .from('gmail_accounts')
             .upsert({
                 user_id: userId,
-                email,
+                email: normalizedEmail,
                 connection_method: 'MANUAL',
                 app_password: encryptedPassword,
                 status: 'ACTIVE',
@@ -51,8 +81,8 @@ export async function connectManualAccountAction(
         if (error) throw error;
         return { success: true, account };
     } catch (err: any) {
-        console.error('connectManualAccountAction error:', err);
-        return { success: false, error: err.message || 'Unknown error' };
+        console.error('[accountActions] connectManualAccountAction error:', err);
+        return { success: false, error: 'An error occurred while processing your request' };
     }
 }
 
@@ -60,8 +90,10 @@ export async function connectManualAccountAction(
 
 
 export async function getAccountsAction(userId: string) {
+    if (!userId) {
+        return { success: false, accounts: [], error: 'userId is required' };
+    }
     try {
-        console.log('[getAccountsAction] Fetching for:', userId);
 
         // 1. Fetch basic account data first
         const { data: rawData, error } = await supabase
@@ -74,43 +106,27 @@ export async function getAccountsAction(userId: string) {
             .order('created_at', { ascending: false });
 
         if (error) {
-            console.error('[getAccountsAction] Database error:', error);
-            return { success: false, accounts: [], error: error.message };
+            console.error('[accountActions] getAccountsAction database error:', error);
+            return { success: false, accounts: [], error: 'An error occurred while processing your request' };
         }
 
-        // 2. Fetch counts separately for each account to avoid slow joins/timeouts
-        const accountsWithCounts = await Promise.all((rawData ?? []).map(async (acc) => {
-            try {
-                // Per-account timeout of 5s for the count query specifically
-                const countTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
-                
-                const fetchCount = (async () => {
-                    const { count, error: countErr } = await supabase
-                        .from('email_messages')
-                        .select('*', { count: 'exact', head: true })
-                        .eq('gmail_account_id', acc.id);
-                    
-                    if (countErr) throw countErr;
-                    return count;
-                })();
-
-                const countResult = await Promise.race([fetchCount, countTimeout]) as number;
-
-                return {
-                    ...acc,
-                    sent_count_today: acc.sent_count_today || 0,
-                    manager_name: acc.users?.name,
-                    emails_count: countResult ?? 0
-                };
-            } catch (e) {
-                console.warn(`[getAccountsAction] Skipping count for ${acc.email} due to error or timeout:`, e);
-                return { 
-                    ...acc, 
-                    sent_count_today: acc.sent_count_today || 0,
-                    manager_name: acc.users?.name,
-                    emails_count: acc.emails_count ?? 0 
-                };
+        // 2. Fetch thread counts per account in a single fast query using denormalized email_threads table
+        const accountIds = (rawData ?? []).map(a => a.id);
+        const countsByAccount: Record<string, number> = {};
+        if (accountIds.length > 0) {
+            const { data: countData } = await supabase.rpc('get_account_thread_counts', {
+                p_account_ids: accountIds
+            });
+            if (countData && typeof countData === 'object') {
+                Object.assign(countsByAccount, countData);
             }
+        }
+
+        const accountsWithCounts = (rawData ?? []).map((acc) => ({
+            ...acc,
+            sent_count_today: acc.sent_count_today || 0,
+            manager_name: acc.users?.name,
+            emails_count: countsByAccount[acc.id] ?? 0
         }));
 
         // 3. Auto-fix stuck syncs (more than 15 mins or 100% progress)
@@ -150,13 +166,14 @@ export async function getAccountsAction(userId: string) {
         console.log('[getAccountsAction] Found accounts:', accountsWithCounts.length);
         return { success: true, accounts: accountsWithCounts };
     } catch (err: any) {
-        console.error('[getAccountsAction] Unexpected error:', err);
-        return { success: false, accounts: [], error: err.message || 'Unexpected server error' };
+        console.error('[accountActions] getAccountsAction unexpected error:', err);
+        return { success: false, accounts: [], error: 'An error occurred while processing your request' };
     }
 }
 
 
 export async function reSyncAccountAction(accountId: string, connectionMethod: 'OAUTH' | 'MANUAL'): Promise<{ success: boolean; error?: string }> {
+    if (!accountId) return { success: false, error: 'accountId is required' };
     try {
         if (connectionMethod === 'OAUTH') {
             // Trigger sync in the background so we don't block the UI forever
@@ -166,12 +183,13 @@ export async function reSyncAccountAction(accountId: string, connectionMethod: '
         }
         return { success: true };
     } catch (error: any) {
-        console.error('reSyncAccountAction error:', error);
-        return { success: false, error: error.message };
+        console.error('[accountActions] reSyncAccountAction error:', error);
+        return { success: false, error: 'An error occurred while processing your request' };
     }
 }
 
 export async function syncAllUserAccountsAction(userId: string): Promise<{ success: boolean; accountsSynced: number }> {
+    if (!userId) return { success: false, accountsSynced: 0 };
     const { data: accounts } = await supabase.from('gmail_accounts').select('id, connection_method').eq('user_id', userId);
     if (!accounts || accounts.length === 0) return { success: true, accountsSynced: 0 };
 
@@ -186,6 +204,11 @@ export async function syncAllUserAccountsAction(userId: string): Promise<{ succe
 }
 
 export async function toggleSyncStatusAction(accountId: string, currentStatus: string) {
+    if (!accountId) return { success: false, error: 'accountId is required' };
+    // Only allow toggling between ACTIVE and PAUSED states
+    if (currentStatus !== 'ACTIVE' && currentStatus !== 'PAUSED') {
+        return { success: false, error: `Cannot toggle from status '${currentStatus}'. Only ACTIVE and PAUSED accounts can be toggled.` };
+    }
     const newStatus = currentStatus === 'PAUSED' ? 'ACTIVE' : 'PAUSED';
     try {
         const { error } = await supabase
@@ -196,12 +219,13 @@ export async function toggleSyncStatusAction(accountId: string, currentStatus: s
         if (error) throw error;
         return { success: true, status: newStatus };
     } catch (err: any) {
-        console.error('toggleSyncStatusAction error:', err);
-        return { success: false, error: err.message };
+        console.error('[accountActions] toggleSyncStatusAction error:', err);
+        return { success: false, error: 'An error occurred while processing your request' };
     }
 }
 
 export async function stopSyncingAction(accountId: string) {
+    if (!accountId) return { success: false, error: 'accountId is required' };
     try {
         const { error } = await supabase
             .from('gmail_accounts')
@@ -214,12 +238,14 @@ export async function stopSyncingAction(accountId: string) {
         if (error) throw error;
         return { success: true };
     } catch (err: any) {
-        console.error('stopSyncingAction error:', err);
-        return { success: false, error: err.message };
+        console.error('[accountActions] stopSyncingAction error:', err);
+        return { success: false, error: 'An error occurred while processing your request' };
     }
 }
 
 export async function removeAccountAction(accountId: string): Promise<{ success: boolean; error?: string }> {
+    if (!accountId) return { success: false, error: 'accountId is required' };
+
     const { data: account } = await supabase.from('gmail_accounts').select('*').eq('id', accountId).single();
     if (!account) return { success: false, error: 'Account not found.' };
 
@@ -261,8 +287,8 @@ export async function removeAccountAction(accountId: string): Promise<{ success:
         .eq('id', accountId);
 
     if (error) {
-        console.error('removeAccountAction error:', error);
-        return { success: false, error: error.message };
+        console.error('[accountActions] removeAccountAction error:', error);
+        return { success: false, error: 'An error occurred while processing your request' };
     }
     return { success: true };
 }

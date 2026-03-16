@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { sendEmailAction } from '../../src/actions/emailActions';
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Eye, MousePointerClick, FileText, Unlink } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
+import { DEFAULT_USER_ID } from '../constants/config';
 
 interface ComposeModalProps {
     onClose: () => void;
@@ -31,7 +33,6 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
 
     const [showFormatting, setShowFormatting] = useState(false);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-    const [attachments, setAttachments] = useState<File[]>([]);
     const [fontFamily, setFontFamily] = useState('Sans Serif');
     const [fontSize, setFontSize] = useState('Normal');
     const [showMoreOptions, setShowMoreOptions] = useState(false);
@@ -43,11 +44,14 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const editorRef = useRef<HTMLDivElement>(null);
     const moreOptionsRef = useRef<HTMLDivElement>(null);
     const fromDropdownRef = useRef<HTMLDivElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const emojiPickerRef = useRef<HTMLDivElement>(null);
     const savedSelection = useRef<Range | null>(null);
     const [emojiSearch, setEmojiSearch] = useState('');
     const [activeEmojiCategory, setActiveEmojiCategory] = useState('Faces');
+
+    // Ref to track dropdown/picker state for the click-outside handler (avoids listener leak)
+    const dropdownStateRef = useRef({ showEmojiPicker, showMoreOptions, showFromDropdown, showTrackingMenu });
+    dropdownStateRef.current = { showEmojiPicker, showMoreOptions, showFromDropdown, showTrackingMenu };
 
     const saveSelection = () => {
         const sel = window.getSelection();
@@ -68,7 +72,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     useEffect(() => {
         const fetchAccounts = async () => {
             try {
-                const result = await getAccountsAction('1ca1464d-1009-426e-96d5-8c5e8c84faac');
+                const result = await getAccountsAction(DEFAULT_USER_ID);
                 if (result.success) {
                     const data = result.accounts;
                     setAccounts(data);
@@ -87,12 +91,16 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
 
     useEffect(() => {
         if (editorRef.current && editorRef.current.innerHTML !== body) {
-            editorRef.current.innerHTML = body;
+            editorRef.current.innerHTML = DOMPurify.sanitize(body);
         }
     }, [body]);
 
+    // Register click-outside listener once on mount; read state from ref to avoid leak
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
+            const s = dropdownStateRef.current;
+            if (!s.showEmojiPicker && !s.showMoreOptions && !s.showFromDropdown && !s.showTrackingMenu) return;
+
             if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
                 setShowEmojiPicker(false);
             }
@@ -107,13 +115,11 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             }
         };
 
-        if (showEmojiPicker || showMoreOptions || showFromDropdown || showTrackingMenu) {
-            document.addEventListener('mousedown', handleClickOutside);
-        }
+        document.addEventListener('mousedown', handleClickOutside);
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [showEmojiPicker, showMoreOptions, showFromDropdown, showTrackingMenu]);
+    }, []); // Empty deps — register once, no leak
 
     const handleSend = async () => {
         if (!to.trim() || !fromAccount || isSending) return;
@@ -135,25 +141,37 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         }
     };
 
+    const sanitizeUrl = (raw: string): string | null => {
+        const trimmed = raw.trim();
+        if (/^https?:\/\//i.test(trimmed)) return trimmed;
+        if (/^[a-z0-9]/i.test(trimmed) && !trimmed.includes(':')) return `https://${trimmed}`;
+        return null; // reject javascript:, data:, etc.
+    };
+
+    const escapeHtml = (str: string): string =>
+        str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
     const handleInsertTrackedLink = () => {
-        const url = prompt('Enter the URL to track:');
-        if (url) {
-            restoreSelection();
-            const linkText = window.getSelection()?.toString() || url;
-            document.execCommand('insertHTML', false, `<a href="${url}" style="color:#1a73e8;text-decoration:underline;">${linkText}</a>`);
-            if (editorRef.current) setBody(editorRef.current.innerHTML);
-        }
+        const rawUrl = prompt('Enter the URL to track:');
+        if (!rawUrl) { setShowTrackingMenu(false); return; }
+        const url = sanitizeUrl(rawUrl);
+        if (!url) { alert('Invalid URL. Please enter an http:// or https:// URL.'); setShowTrackingMenu(false); return; }
+        restoreSelection();
+        const linkText = window.getSelection()?.toString() || url;
+        document.execCommand('insertHTML', false, `<a href="${escapeHtml(url)}" style="color:#1a73e8;text-decoration:underline;">${escapeHtml(linkText)}</a>`);
+        if (editorRef.current) setBody(editorRef.current.innerHTML);
         setShowTrackingMenu(false);
     };
 
     const handleInsertTrackedButton = () => {
-        const url = prompt('Enter the button URL:');
+        const rawUrl = prompt('Enter the button URL:');
         const label = prompt('Enter the button text:', 'Click Here');
-        if (url && label) {
-            restoreSelection();
-            document.execCommand('insertHTML', false, `<a href="${url}" style="display:inline-block;padding:10px 24px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:4px;font-weight:500;font-size:14px;">${label}</a>&nbsp;`);
-            if (editorRef.current) setBody(editorRef.current.innerHTML);
-        }
+        if (!rawUrl || !label) { setShowTrackingMenu(false); return; }
+        const url = sanitizeUrl(rawUrl);
+        if (!url) { alert('Invalid URL. Please enter an http:// or https:// URL.'); setShowTrackingMenu(false); return; }
+        restoreSelection();
+        document.execCommand('insertHTML', false, `<a href="${escapeHtml(url)}" style="display:inline-block;padding:10px 24px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:4px;font-weight:500;font-size:14px;">${escapeHtml(label)}</a>&nbsp;`);
+        if (editorRef.current) setBody(editorRef.current.innerHTML);
         setShowTrackingMenu(false);
     };
 
@@ -164,7 +182,22 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
 
     const execCommand = (command: string, value: any = null) => {
         restoreSelection();
-        document.execCommand(command, false, value);
+        if (command === 'insertText' && editorRef.current) {
+            // Use Range API instead of deprecated execCommand('insertText')
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                const textNode = document.createTextNode(value);
+                range.insertNode(textNode);
+                range.setStartAfter(textNode);
+                range.setEndAfter(textNode);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        } else {
+            document.execCommand(command, false, value);
+        }
         if (editorRef.current) {
             setBody(editorRef.current.innerHTML);
         }
@@ -176,17 +209,8 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     };
 
     const handleAttachmentClick = () => {
-        fileInputRef.current?.click();
-    };
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            setAttachments(prev => [...prev, ...Array.from(e.target.files!)]);
-        }
-    };
-
-    const handleRemoveAttachment = (index: number) => {
-        setAttachments(prev => prev.filter((_, i) => i !== index));
+        // Attachments are not yet wired to the send action (FE-020)
+        alert('Attachments are coming soon. This feature is not yet available.');
     };
 
     const handleInsertLink = () => {
@@ -199,7 +223,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const handleInsertSignature = () => {
         const signature = '<br><br>--<br>Best regards,<br>User';
         if (editorRef.current) {
-            editorRef.current.innerHTML += signature;
+            editorRef.current.innerHTML += DOMPurify.sanitize(signature);
             setBody(editorRef.current.innerHTML);
         }
     };
@@ -220,7 +244,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const modalClass = `compose-modal${isMinimized ? ' minimized' : ''}${isMaximized ? ' maximized' : ''}`;
 
     return (
-        <div className={modalClass} onKeyDown={handleKeyDown}>
+        <div className={modalClass} onKeyDown={handleKeyDown} role="dialog" aria-modal="true" aria-label="Compose new message">
             {/* Header */}
             <div
                 className="compose-header"
@@ -323,6 +347,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                 value={to}
                                 onChange={(e) => setTo(e.target.value)}
                                 autoFocus
+                                aria-label="To"
                             />
                             <div className="compose-cc-bcc-actions">
                                 {!showCc && <span onClick={() => setShowCc(true)}>Cc</span>}
@@ -338,6 +363,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     type="email"
                                     value={cc}
                                     onChange={(e) => setCc(e.target.value)}
+                                    aria-label="CC"
                                 />
                             </div>
                         )}
@@ -350,6 +376,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     type="email"
                                     value={bcc}
                                     onChange={(e) => setBcc(e.target.value)}
+                                    aria-label="BCC"
                                 />
                             </div>
                         )}
@@ -361,6 +388,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                 placeholder="Subject"
                                 value={subject}
                                 onChange={(e) => setSubject(e.target.value)}
+                                aria-label="Subject"
                             />
                         </div>
 
@@ -376,16 +404,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                 data-placeholder="Write your message..."
                             />
 
-                            {attachments.length > 0 && (
-                                <div className="compose-attachments-preview">
-                                    {attachments.map((file, idx) => (
-                                        <div key={idx} className="attachment-chip">
-                                            <span>{file.name}</span>
-                                            <button onClick={() => handleRemoveAttachment(idx)}>×</button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            {/* Attachment preview removed - feature coming soon (FE-020) */}
                             {showFormatting && (
                                 <div className="formatting-toolbar" style={{ borderBottom: '1px solid #e0e0e0', position: 'relative', background: '#f8f9fa' }}>
                                     <div className="format-group">
@@ -437,16 +456,16 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     <div className="format-separator" />
 
                                     <div className="format-group">
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('bold'); }} title="Bold">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('bold'); }} title="Bold" aria-label="Bold">
                                             <Bold size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('italic'); }} title="Italic">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('italic'); }} title="Italic" aria-label="Italic">
                                             <Italic size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('underline'); }} title="Underline">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('underline'); }} title="Underline" aria-label="Underline">
                                             <Underline size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('foreColor', '#f28b82'); }} title="Text color">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('foreColor', '#f28b82'); }} title="Text color" aria-label="Text color">
                                             <Highlighter size={18} />
                                         </button>
                                     </div>
@@ -454,19 +473,19 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     <div className="format-separator" />
 
                                     <div className="format-group">
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('justifyLeft'); }} title="Align left">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('justifyLeft'); }} title="Align left" aria-label="Align left">
                                             <AlignLeft size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('justifyCenter'); }} title="Align center">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('justifyCenter'); }} title="Align center" aria-label="Align center">
                                             <AlignCenter size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('justifyRight'); }} title="Align right">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('justifyRight'); }} title="Align right" aria-label="Align right">
                                             <AlignRight size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('insertUnorderedList'); }} title="Bullet list">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('insertUnorderedList'); }} title="Bullet list" aria-label="Bullet list">
                                             <List size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('insertOrderedList'); }} title="Numbered list">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('insertOrderedList'); }} title="Numbered list" aria-label="Numbered list">
                                             <ListOrdered size={18} />
                                         </button>
                                     </div>
@@ -474,10 +493,10 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     <div className="format-separator" />
 
                                     <div className="format-group">
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('indent'); }} title="Indent more">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('indent'); }} title="Indent more" aria-label="Indent more">
                                             <Indent size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('outdent'); }} title="Indent less">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('outdent'); }} title="Indent less" aria-label="Indent less">
                                             <Outdent size={18} />
                                         </button>
                                     </div>
@@ -485,13 +504,13 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     <div className="format-separator" />
 
                                     <div className="format-group">
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('strikeThrough'); }} title="Strikethrough">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('strikeThrough'); }} title="Strikethrough" aria-label="Strikethrough">
                                             <Strikethrough size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('formatBlock', 'blockquote'); }} title="Quote">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('formatBlock', 'blockquote'); }} title="Quote" aria-label="Quote">
                                             <Quote size={18} />
                                         </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('removeFormat'); }} title="Remove formatting">
+                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('removeFormat'); }} title="Remove formatting" aria-label="Remove formatting">
                                             <Eraser size={18} />
                                         </button>
                                     </div>
@@ -624,13 +643,6 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                 <button className="compose-icon-btn" title="Attach files" onClick={handleAttachmentClick}>
                                     <Paperclip size={20} />
                                 </button>
-                                <input
-                                    type="file"
-                                    ref={fileInputRef}
-                                    style={{ display: 'none' }}
-                                    onChange={handleFileChange}
-                                    multiple
-                                />
 
                                 <button className="compose-icon-btn" title="Insert link" onClick={handleInsertLink}>
                                     <Link size={20} />
@@ -766,9 +778,15 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                 </button>
                             </div>
                         </div>
-                    </div >
+                    </div>
                 </>
             )}
-        </div >
+
+            <style jsx>{`
+                .compose-modal {
+                    max-width: min(500px, calc(100vw - 32px));
+                }
+            `}</style>
+        </div>
     );
 }

@@ -31,7 +31,7 @@ function getBaseUrl(): string {
  */
 export function getTrackingPixelHtml(trackingId: string): string {
     const baseUrl = getBaseUrl();
-    return `<img src="${baseUrl}/api/track?t=${trackingId}" width="1" height="1" style="display:none;width:1px;height:1px;opacity:0;" alt="" />`;
+    return `<img src="${baseUrl}/api/track?t=${trackingId}" width="1" height="1" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" alt="" />`;
 }
 
 /**
@@ -41,10 +41,11 @@ export function getTrackingPixelHtml(trackingId: string): string {
 export function wrapLinksForTracking(htmlBody: string, trackingId: string): string {
     const baseUrl = getBaseUrl();
 
-    // Match href="..." in anchor tags
+    // Match href="url", href='url', or href=url (unquoted)
     return htmlBody.replace(
-        /href="(https?:\/\/[^"]+)"/gi,
-        (match, url) => {
+        /href=(?:["'](https?:\/\/[^"'\s]+)["']|(https?:\/\/[^\s>]+))/gi,
+        (match, quotedUrl, unquotedUrl) => {
+            const url = quotedUrl || unquotedUrl;
             // Don't track our own tracking URLs to avoid recursion
             if (url.includes('/api/track')) return match;
 
@@ -62,19 +63,26 @@ export function prepareTrackedEmail(body: string, isTrackingEnabled: boolean = t
     body: string;
     trackingId: string;
 } {
-    const trackingId = generateTrackingId();
-
     if (!isTrackingEnabled) {
-        return { body, trackingId };
+        return { body, trackingId: '' };
     }
+
+    const trackingId = generateTrackingId();
 
     let trackedBody = body;
 
     // 1. Wrap links for click tracking
     trackedBody = wrapLinksForTracking(trackedBody, trackingId);
 
-    // 2. Append tracking pixel
-    trackedBody += getTrackingPixelHtml(trackingId);
+    // 2. Insert tracking pixel before </body> if present, otherwise append
+    const pixelHtml = getTrackingPixelHtml(trackingId);
+    if (trackedBody.includes('</body>')) {
+        trackedBody = trackedBody.replace('</body>', pixelHtml + '</body>');
+    } else if (trackedBody.includes('</html>')) {
+        trackedBody = trackedBody.replace('</html>', pixelHtml + '</html>');
+    } else {
+        trackedBody += pixelHtml;
+    }
 
     return { body: trackedBody, trackingId };
 }

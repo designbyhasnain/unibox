@@ -1,14 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-    AreaChart, Area, PieChart, Pie, Cell, Legend, LabelList
-} from 'recharts';
-import { getAnalyticsDataAction } from '../../src/actions/analyticsActions';
+import { getAnalyticsDataAction, getDeviceAnalyticsAction } from '../../src/actions/analyticsActions';
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { getManagersAction } from '../../src/actions/projectActions';
 import { useGlobalFilter } from '../context/FilterContext';
@@ -16,406 +12,738 @@ import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 import DateRangePicker from '../components/DateRangePicker';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
+import { DEFAULT_USER_ID } from '../constants/config';
 
-const ADMIN_USER_ID = '1ca1464d-1009-426e-96d5-8c5e8c84faac';
-const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16'];
+/* ── Lazy-load the heavy Recharts bundle ──────────────────────────── */
+const AnalyticsCharts = dynamic(() => import('../components/AnalyticsCharts'), {
+    loading: () => <div className="a-loading">Loading charts...</div>,
+    ssr: false,
+});
 
-const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-        return (
-            <div style={{ 
-                background: 'rgba(255, 255, 255, 0.9)', 
-                backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(0,0,0,0.05)', 
-                borderRadius: '16px', 
-                padding: '16px', 
-                boxShadow: '0 20px 40px rgba(0,0,0,0.1)', 
-                minWidth: '200px' 
-            }}>
-                <p style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '12px', color: '#1a1a1a' }}>{label}</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {payload.map((entry: any, index: number) => (
-                        <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#666' }}>
-                                <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: entry.color || entry.fill }} />
-                                {entry.name}
-                            </span>
-                            <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#1a1a1a' }}>{entry.value.toLocaleString()}</span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    }
-    return null;
-};
+const ANALYTICS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-const KPICard = ({ title, value, subtext, icon, index, accent }: any) => (
-    <motion.div 
-        initial={{ opacity: 0, y: 20 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ delay: index * 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] }} 
-        whileHover={{ y: -5, boxShadow: '0 20px 40px rgba(0,0,0,0.08)' }}
-        style={{ 
-            flex: 1, 
-            minWidth: '260px', 
-            background: 'white',
-            borderRadius: '24px',
-            padding: '28px',
-            border: '1px solid rgba(0,0,0,0.04)',
-            position: 'relative',
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between'
-        }}
-    >
-        <div style={{ position: 'absolute', top: '-20px', right: '-20px', width: '120px', height: '120px', background: `${accent}08`, borderRadius: '50%', filter: 'blur(40px)' }} />
-        
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
-            <div style={{ 
-                width: '56px', 
-                height: '56px', 
-                background: `linear-gradient(135deg, ${accent}15, ${accent}05)`, 
-                borderRadius: '18px', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                color: accent,
-                boxShadow: `0 8px 16px ${accent}10`
-            }}>{icon}</div>
-        </div>
-
-        <div>
-            <p style={{ color: '#64748b', fontSize: '0.9rem', fontWeight: 600, letterSpacing: '0.01em', marginBottom: '8px' }}>{title}</p>
-            <h2 style={{ fontSize: '2.5rem', fontWeight: 850, color: '#0f172a', letterSpacing: '-0.04em', lineHeight: 1 }}>{value}</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px' }}>
-                <div style={{ padding: '4px 10px', background: '#f1f5f9', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>
-                    {subtext}
-                </div>
-            </div>
-        </div>
-    </motion.div>
-);
-
+/* ── Main page ────────────────────────────────────────────────────── */
 export default function AnalyticsPage() {
     const { selectedAccountId, setSelectedAccountId, startDate, endDate } = useGlobalFilter();
     const [selectedManager, setSelectedManager] = useState('ALL');
     const [accounts, setAccounts] = useState<any[]>([]);
     const [managers, setManagers] = useState<any[]>([]);
     const [data, setData] = useState<any>(null);
+    const [deviceData, setDeviceData] = useState<any>(null);
+    const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isStale, setIsStale] = useState(false);
+    const cacheTimestampRef = useRef<number>(0);
     const isHydrated = useHydrated();
 
-    // 1. Initial hydration from cache — ONLY on client to prevent SSR mismatch
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const cached = getFromLocalCache('analytics_data');
             if (cached) {
                 setData(cached);
                 setLoading(false);
+                // Check staleness from localStorage metadata
+                const cachedMeta = getFromLocalCache('analytics_data_ts');
+                const ts = typeof cachedMeta === 'number' ? cachedMeta : 0;
+                cacheTimestampRef.current = ts;
+                setIsStale(Date.now() - ts > ANALYTICS_CACHE_TTL);
             }
         }
     }, []);
 
     useEffect(() => {
-        const loadMetaData = async () => {
-            const [accs, mgrs] = await Promise.all([getAccountsAction(ADMIN_USER_ID), getManagersAction()]);
+        const load = async () => {
+            const [accs, mgrs] = await Promise.all([getAccountsAction(DEFAULT_USER_ID), getManagersAction()]);
             if (accs.success) setAccounts(accs.accounts);
             setManagers(mgrs);
         };
-        loadMetaData();
+        load();
     }, []);
 
     useEffect(() => {
-        if (!isHydrated) return; // Wait for hydration before fetching to allow cache sync
-
-        const fetchData = async () => {
-            // Only show loader if we don't have cached data
+        if (!isHydrated) return;
+        const fetch = async () => {
             if (!data) setLoading(true);
-            
-            const result = await getAnalyticsDataAction({ startDate, endDate, managerId: selectedManager, accountId: selectedAccountId });
+            setError(null);
+            const [result, deviceResult] = await Promise.all([
+                getAnalyticsDataAction({ startDate, endDate, managerId: selectedManager, accountId: selectedAccountId }),
+                getDeviceAnalyticsAction({ accountId: selectedAccountId, startDate, endDate }),
+            ]);
             if (result.success) {
                 setData(result);
+                const now = Date.now();
+                cacheTimestampRef.current = now;
                 saveToLocalCache('analytics_data', result);
+                saveToLocalCache('analytics_data_ts', now);
+                setIsStale(false);
+            } else {
+                setError(result.error || 'Failed to load analytics');
+            }
+            if (deviceResult.success) {
+                setDeviceData(deviceResult);
             }
             setLoading(false);
         };
-        fetchData();
+        fetch();
     }, [startDate, endDate, selectedManager, selectedAccountId, isHydrated]);
+
+    const stats = data?.stats;
+    const hasData = isHydrated && data;
+
+    /* ── KPI definitions ── */
+    const kpis = [
+        { label: 'Emails Sent', value: stats?.totalOutreach?.toLocaleString() || '0', detail: `${stats?.avgReplyRate || '0%'} reply rate`, icon: <svg width="18" height="18" fill="none" stroke="#1a73e8" strokeWidth="2" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg> },
+        { label: 'Open Rate', value: stats?.openRate || '0%', detail: `${stats?.openedEmails?.toLocaleString() || '0'} unique opens`, icon: <svg width="18" height="18" fill="none" stroke="#1e8e3e" strokeWidth="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> },
+        { label: 'Click Rate', value: stats?.clickRate || '0%', detail: `${stats?.clickedEmails?.toLocaleString() || '0'} link clicks`, icon: <svg width="18" height="18" fill="none" stroke="#f9ab00" strokeWidth="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> },
+        { label: 'Deliverability', value: data?.deliverability?.inboxRate || '100%', detail: data?.deliverability?.health || 'Excellent', icon: <svg width="18" height="18" fill="none" stroke="#8430ce" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> },
+    ];
 
     return (
         <>
             <Sidebar onOpenCompose={() => {}} />
-            <main className="main-area" style={{ background: '#f8fafc' }}>
-                <Topbar searchTerm="" setSearchTerm={() => {}} onSearch={() => {}} onClearSearch={() => {}} placeholder="Search deep business intelligence..." />
+            <main className="main-area a-main">
+                <Topbar searchTerm="" setSearchTerm={() => {}} onSearch={() => {}} onClearSearch={() => {}} placeholder="Search analytics..." />
 
-                <div style={{ 
-                    padding: '16px 32px', 
-                    background: 'rgba(255, 255, 255, 0.8)', 
-                    backdropFilter: 'blur(12px)',
-                    borderBottom: '1px solid rgba(0,0,0,0.05)', 
-                    display: 'flex', 
-                    gap: '24px', 
-                    alignItems: 'center', 
-                    position: 'sticky', 
-                    top: 0, 
-                    zIndex: 100 
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#6366f1', boxShadow: '0 0 12px #6366f160' }} />
-                        <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em' }}>Intelligence</h1>
+                {/* ── Filter bar ──────────────────────────────── */}
+                <div className="a-filter-bar">
+                    <h1 className="a-page-title">Analytics</h1>
+
+                    <div className="a-filter-controls">
+                        <DateRangePicker />
+                        <select className="a-select" value={selectedManager} onChange={(e) => setSelectedManager(e.target.value)} aria-label="Filter by manager">
+                            <option value="ALL">All Managers</option>
+                            {managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                        </select>
+                        <select className="a-select" value={selectedAccountId} onChange={(e) => setSelectedAccountId(e.target.value)} aria-label="Filter by account">
+                            <option value="ALL">All Accounts</option>
+                            {accounts.map(a => <option key={a.id} value={a.id}>{a.email}</option>)}
+                        </select>
                     </div>
-                    
-                    <div style={{ height: '32px', width: '1px', background: 'rgba(0,0,0,0.1)', margin: '0 8px' }} />
-                    
-                    <DateRangePicker />
-                    
-                    <select className="premium-select" style={{ background: '#f1f5f9', border: 'none', padding: '10px 18px', borderRadius: '14px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', outline: 'none' }} value={selectedManager} onChange={(e) => setSelectedManager(e.target.value)}>
-                        <option value="ALL">All Managers</option>
-                        {managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                    </select>
 
-                    <select className="premium-select" style={{ background: '#f1f5f9', border: 'none', padding: '10px 18px', borderRadius: '14px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', outline: 'none' }} value={selectedAccountId} onChange={(e) => setSelectedAccountId(e.target.value)}>
-                        <option value="ALL">All Accounts</option>
-                        {accounts.map(a => <option key={a.id} value={a.id}>{a.email}</option>)}
-                    </select>
+                    {isHydrated && loading && (
+                        <div className="a-sync a-fade-in">
+                            <div className="a-sync-dot" />
+                            <span>Updating...</span>
+                        </div>
+                    )}
 
-                    <AnimatePresence>
-                        {isHydrated && loading && (
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ marginLeft: 'auto' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div className="pulse-dot" style={{ width: '8px', height: '8px', background: '#6366f1' }} />
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1' }}>SYNCING LIVE...</span>
-                                </div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                    {isStale && !loading && (
+                        <span className="a-stale-badge">Cached data</span>
+                    )}
+
+                    <button
+                        className="a-refresh-btn"
+                        onClick={() => {
+                            setIsStale(false);
+                            setLoading(true);
+                            const doRefresh = async () => {
+                                const [result, deviceResult] = await Promise.all([
+                                    getAnalyticsDataAction({ startDate, endDate, managerId: selectedManager, accountId: selectedAccountId }),
+                                    getDeviceAnalyticsAction({ accountId: selectedAccountId, startDate, endDate }),
+                                ]);
+                                if (result.success) {
+                                    setData(result);
+                                    const now = Date.now();
+                                    cacheTimestampRef.current = now;
+                                    saveToLocalCache('analytics_data', result);
+                                    saveToLocalCache('analytics_data_ts', now);
+                                }
+                                if (deviceResult.success) setDeviceData(deviceResult);
+                                setLoading(false);
+                            };
+                            doRefresh();
+                        }}
+                        disabled={loading}
+                        aria-label="Refresh analytics"
+                        title="Refresh analytics data"
+                    >
+                        <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path d="M1 4v6h6M23 20v-6h-6" /><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15" />
+                        </svg>
+                    </button>
                 </div>
 
-                <div className="content-area" style={{ flex: 1, overflowY: 'auto' }}>
+                {/* ── Content ─────────────────────────────────── */}
+                <div className="a-scroll-area">
+                    {error && (
+                        <div className="a-error">
+                            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" /></svg>
+                            <span>{error}</span>
+                        </div>
+                    )}
+
                     <PageLoader isLoading={!isHydrated || (loading && !data)} type="grid">
-                        {isHydrated && data && (
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ padding: '40px', maxWidth: '1800px', margin: '0 auto' }}>
-                                
-                                {/* 1. Premium Master KPIs */}
-                                <div style={{ display: 'flex', gap: '24px', marginBottom: '40px', overflowX: 'auto', paddingBottom: '10px' }}>
-                                    <KPICard title="TOTAL OUTREACH" value={data?.stats?.totalOutreach || 0} subtext={`${data?.stats?.avgReplyRate || '0%'} reply rate`} index={0} accent="#6366f1" icon={<svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>} />
-                                    <KPICard title="EMAIL OPEN RATE" value={data?.stats?.openRate || '0%'} subtext={`${data?.stats?.openedEmails || 0} unique opens`} index={1} accent="#10b981" icon={<svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} />
-                                    <KPICard title="LINK CLICK RATE" value={data?.stats?.clickRate || '0%'} subtext={`${data?.stats?.clickedEmails || 0} link clicks`} index={2} accent="#f59e0b" icon={<svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>} />
-                                    <KPICard title="DELIVERABILITY" value={data?.deliverability?.inboxRate || '100%'} subtext={`Status: ${data?.deliverability?.health || 'Optimal'}`} index={3} accent="#8b5cf6" icon={<svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>} />
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '40px', marginBottom: '40px' }}>
-                                    
-                                    {/* 2. Conversion Funnel Deep Dive */}
-                                    <div style={{ gridColumn: 'span 7', background: 'white', borderRadius: '32px', padding: '40px', border: '1px solid rgba(0,0,0,0.04)', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
-                                            <div>
-                                                <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em' }}>Conversion Efficiency</h3>
-                                                <p style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500, marginTop: '4px' }}>Deep analysis of outreach flow</p>
-                                            </div>
-                                            <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#6366f1' }} />
-                                        </div>
-                                        <div style={{ width: '100%', height: '400px' }}>
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <BarChart layout="vertical" data={data?.funnelData || []} margin={{ left: 20 }}>
-                                                    <XAxis type="number" hide />
-                                                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} fontSize={13} width={100} tick={{ fill: '#64748b', fontWeight: 600 }} />
-                                                    <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
-                                                    <Bar dataKey="value" radius={[0, 12, 12, 0]} barSize={48}>
-                                                        {(data?.funnelData || []).map((entry: any, index: number) => (
-                                                            <Cell key={index} fill={entry.fill} fillOpacity={0.9} />
-                                                        ))}
-                                                        <LabelList dataKey="value" position="right" offset={15} style={{ fill: '#0f172a', fontSize: '14px', fontWeight: 800 }} />
-                                                    </Bar>
-                                                </BarChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    </div>
-
-                                    {/* 3. Sentiment & Account Health */}
-                                    <div style={{ gridColumn: 'span 5', background: 'white', borderRadius: '32px', padding: '40px', border: '1px solid rgba(0,0,0,0.04)', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                                        <div style={{ marginBottom: '40px' }}>
-                                            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em' }}>AI Sentiment Pulse</h3>
-                                            <p style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500, marginTop: '4px' }}>Natural language reply classification</p>
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', height: '320px', gap: '20px' }}>
-                                            <div style={{ flex: 1.2, height: '100%' }}>
-                                                <ResponsiveContainer width="100%" height="100%">
-                                                    <PieChart>
-                                                        <Pie 
-                                                            data={data?.sentimentData || []} 
-                                                            innerRadius={100} 
-                                                            outerRadius={135} 
-                                                            paddingAngle={10} 
-                                                            cornerRadius={8}
-                                                            dataKey="value"
-                                                            stroke="none"
-                                                        >
-                                                            {(data?.sentimentData || []).map((entry:any, i:number) => <Cell key={i} fill={entry.color} />)}
-                                                        </Pie>
-                                                        <Tooltip content={<CustomTooltip />} />
-                                                    </PieChart>
-                                                </ResponsiveContainer>
-                                            </div>
-                                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                                                {(data?.sentimentData || []).map((s:any, i:number) => (
-                                                    <div key={i}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '8px' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                                <div style={{ width: 12, height: 12, borderRadius: '4px', background: s.color }} />
-                                                                <span style={{ fontSize: '0.9rem', color: '#475569', fontWeight: 600 }}>{s.name}</span>
-                                                            </div>
-                                                            <span style={{ fontWeight: 800, color: '#0f172a' }}>{s.value}</span>
-                                                        </div>
-                                                        <div style={{ width: '100%', height: '4px', background: '#f1f5f9', borderRadius: '2px', overflow: 'hidden' }}>
-                                                            <motion.div 
-                                                                initial={{ width: 0 }} 
-                                                                animate={{ width: `${(s.value / data.stats.totalReceived) * 100}%` }} 
-                                                                style={{ height: '100%', background: s.color }} 
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* 4. Team Performance Table */}
-                                <div style={{ background: 'white', borderRadius: '32px', padding: '40px', border: '1px solid rgba(0,0,0,0.04)', boxShadow: '0 4px 20px rgba(0,0,0,0.02)', marginBottom: '40px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-                                        <div>
-                                            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em' }}>Leaderboard Spectrum</h3>
-                                            <p style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500, marginTop: '4px' }}>Real-time team conversion dynamics</p>
-                                        </div>
-                                    </div>
-                                    <div style={{ overflowX: 'auto' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 12px' }}>
-                                            <thead>
-                                                <tr style={{ textAlign: 'left' }}>
-                                                    <th style={{ padding: '0 20px', color: '#94a3b8', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Leader</th>
-                                                    <th style={{ padding: '0 20px', color: '#94a3b8', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Leads</th>
-                                                    <th style={{ padding: '0 20px', color: '#94a3b8', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Revenue</th>
-                                                    <th style={{ padding: '0 20px', color: '#94a3b8', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Success Rate</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {(data?.leaderboard || []).map((m:any, i:number) => (
-                                                    <motion.tr 
-                                                        key={i} 
-                                                        initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 + (i * 0.1) }}
-                                                        style={{ borderRadius: '16px' }}
-                                                    >
-                                                        <td style={{ padding: '16px 20px', background: '#f8fafc', borderRadius: '16px 0 0 16px' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                                                <div style={{ width: 44, height: 44, borderRadius: '14px', background: `linear-gradient(135deg, ${COLORS[i % COLORS.length]}, ${COLORS[i % COLORS.length]}dd)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: '1.1rem', boxShadow: `0 8px 16px ${COLORS[i % COLORS.length]}20` }}>{m.name[0]}</div>
-                                                                <div>
-                                                                    <p style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>{m.name}</p>
-                                                                    <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Active Manager</p>
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td style={{ padding: '16px 20px', background: '#f8fafc', fontWeight: 700, color: '#0f172a' }}>{m.leads} <span style={{ color: '#94a3b8', fontSize: '0.75rem', marginLeft: '4px' }}>Qualified</span></td>
-                                                        <td style={{ padding: '16px 20px', background: '#f8fafc', fontWeight: 850, color: '#0f172a', fontSize: '1.1rem' }}>${(m.revenue || 0).toLocaleString()}</td>
-                                                        <td style={{ padding: '16px 20px', background: '#f8fafc', borderRadius: '0 16px 16px 0' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                                <div style={{ flex: 1, height: '8px', background: 'white', borderRadius: '4px', overflow: 'hidden', minWidth: '80px' }}>
-                                                                    <div style={{ height: '100%', width: m.conversion, background: '#10b981', borderRadius: '4px' }} />
-                                                                </div>
-                                                                <span style={{ fontWeight: 800, color: '#10b981', fontSize: '0.9rem' }}>{m.conversion}</span>
-                                                            </div>
-                                                        </td>
-                                                    </motion.tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '40px' }}>
-                                    {/* 5. Precision Engagement Timing */}
-                                    <div style={{ gridColumn: 'span 7', background: 'white', borderRadius: '32px', padding: '40px', border: '1px solid rgba(0,0,0,0.04)', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                                        <div style={{ marginBottom: '40px' }}>
-                                            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em' }}>Peak Resonance Time</h3>
-                                            <p style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500, marginTop: '4px' }}>Hourly reply distribution analysis</p>
-                                        </div>
-                                        <div style={{ width: '100%', height: '280px' }}>
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <AreaChart data={data?.hourlyEngagement || []}>
-                                                    <defs>
-                                                        <linearGradient id="colorReplies" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4}/>
-                                                            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
-                                                        </linearGradient>
-                                                    </defs>
-                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                    <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} interval={3} tick={{ fill: '#94a3b8', fontWeight: 600 }} />
-                                                    <YAxis hide />
-                                                    <Tooltip content={<CustomTooltip />} />
-                                                    <Area type="monotone" dataKey="replies" stroke="#f59e0b" strokeWidth={4} fillOpacity={1} fill="url(#colorReplies)" />
-                                                </AreaChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    </div>
-
-                                    {/* 6. Elite Content Performance */}
-                                    <div style={{ gridColumn: 'span 5', background: 'white', borderRadius: '32px', padding: '40px', border: '1px solid rgba(0,0,0,0.04)', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                                        <div style={{ marginBottom: '32px' }}>
-                                            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em' }}>Elite Performing Assets</h3>
-                                            <p style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500, marginTop: '4px' }}>Highest reply resonance content</p>
-                                        </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                            {(data?.topSubjects || []).map((s:any, i:number) => (
-                                                <motion.div 
-                                                    key={i} 
-                                                    whileHover={{ scale: 1.02 }}
-                                                    style={{ padding: '20px', background: '#f8fafc', borderRadius: '20px', border: '1px solid rgba(0,0,0,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                                                >
-                                                    <div style={{ maxWidth: '75%' }}>
-                                                        <p style={{ fontSize: '0.95rem', fontWeight: 750, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</p>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-                                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#6366f1', background: '#eeeefd', padding: '2px 8px', borderRadius: '6px', textTransform: 'uppercase' }}>Subject Alpha</span>
-                                                        </div>
-                                                    </div>
-                                                    <div style={{ textAlign: 'center', padding: '8px 16px', background: 'white', borderRadius: '14px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-                                                        <p style={{ fontSize: '1.25rem', fontWeight: 900, color: '#6366f1', lineHeight: 1 }}>{s.replies}</p>
-                                                        <p style={{ fontSize: '0.6rem', fontWeight: 800, color: '#94a3b8', marginTop: '4px' }}>REPLIES</p>
-                                                    </div>
-                                                </motion.div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
-                            </motion.div>
+                        {hasData && (
+                            <AnalyticsCharts
+                                data={data}
+                                deviceData={deviceData}
+                                stats={stats}
+                                kpis={kpis}
+                            />
                         )}
                     </PageLoader>
                 </div>
             </main>
+
             <style jsx global>{`
-                .premium-select:hover {
-                    background: #e2e8f0 !important;
-                    transition: all 0.2s ease;
+                /* ── Base ──────────────────────────────────── */
+                .a-main {
+                    background: var(--bg-base);
                 }
-                .pulse-dot {
+                .a-scroll-area {
+                    flex: 1;
+                    overflow-y: auto;
+                    -webkit-overflow-scrolling: touch;
+                }
+                .a-content {
+                    padding: var(--space-2xl);
+                    max-width: 1600px;
+                    margin: 0 auto;
+                    display: flex;
+                    flex-direction: column;
+                    gap: var(--space-xl);
+                }
+
+                /* ── Filter bar ────────────────────────────── */
+                .a-filter-bar {
+                    padding: var(--space-lg) var(--space-2xl);
+                    background: var(--bg-surface);
+                    border-bottom: 1px solid var(--border);
+                    display: flex;
+                    align-items: center;
+                    gap: 20px;
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                }
+                .a-page-title {
+                    font-size: var(--text-xl);
+                    font-weight: var(--font-bold);
+                    color: var(--text-primary);
+                    letter-spacing: -0.02em;
+                    white-space: nowrap;
+                }
+                .a-filter-controls {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-md);
+                    margin-left: var(--space-xl);
+                }
+                .a-select {
+                    appearance: none;
+                    background: var(--bg-elevated);
+                    border: 1px solid var(--border);
+                    padding: var(--space-sm) 32px var(--space-sm) 14px;
+                    border-radius: var(--radius-sm);
+                    font-size: var(--text-sm);
+                    font-weight: var(--font-medium);
+                    color: var(--text-primary);
+                    cursor: pointer;
+                    outline: none;
+                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%235f6368' stroke-width='2'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E");
+                    background-repeat: no-repeat;
+                    background-position: right 12px center;
+                    transition: border-color 0.15s, box-shadow 0.15s;
+                }
+                .a-select:hover {
+                    border-color: var(--text-muted);
+                }
+                .a-select:focus-visible {
+                    border-color: var(--accent);
+                    box-shadow: 0 0 0 3px var(--accent-light);
+                }
+                .a-sync {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-sm);
+                    margin-left: auto;
+                    font-size: var(--text-xs);
+                    font-weight: var(--font-medium);
+                    color: var(--text-muted);
+                }
+                .a-sync-dot {
+                    width: 6px;
+                    height: 6px;
+                    border-radius: 50%;
+                    background: var(--accent);
+                    animation: a-pulse 1.8s ease-in-out infinite;
+                }
+                @keyframes a-pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.3; }
+                }
+
+                /* ── Stats row ─────────────────────────────── */
+                .a-stats-row {
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: var(--space-lg);
+                }
+                .a-stat {
+                    background: var(--bg-surface);
+                    border-radius: var(--radius-lg);
+                    padding: 20px 24px;
+                    border: 1px solid var(--border);
+                    box-shadow: var(--shadow-sm);
+                    transition: border-color 0.2s, box-shadow 0.2s;
+                }
+                .a-stat:hover {
+                    border-color: var(--accent);
+                    box-shadow: var(--shadow-md);
+                }
+                .a-stat-top {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-sm);
+                    margin-bottom: var(--space-md);
+                }
+                .a-stat-icon {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: var(--radius-sm);
+                    background: var(--bg-elevated);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                }
+                .a-stat-label {
+                    font-size: var(--text-sm);
+                    font-weight: var(--font-medium);
+                    color: var(--text-muted);
+                }
+                .a-stat-value {
+                    font-size: 1.75rem;
+                    font-weight: var(--font-bold);
+                    color: var(--text-primary);
+                    letter-spacing: -0.02em;
+                    line-height: 1.1;
+                }
+                .a-stat-detail {
+                    font-size: var(--text-sm);
+                    color: var(--text-secondary);
+                    margin-top: 6px;
+                    font-weight: var(--font-normal);
+                }
+
+                /* ── Cards & Grid ──────────────────────────── */
+                .a-grid {
+                    display: grid;
+                    grid-template-columns: repeat(12, 1fr);
+                    gap: var(--space-lg);
+                }
+                .a-card {
+                    background: var(--bg-surface);
+                    border-radius: var(--radius-lg);
+                    padding: var(--space-xl);
+                    border: 1px solid var(--border);
+                    box-shadow: var(--shadow-sm);
+                }
+                .a-card--7 { grid-column: span 7; }
+                .a-card--5 { grid-column: span 5; }
+                .a-card-full { width: 100%; }
+                .a-card-header {
+                    margin-bottom: 20px;
+                }
+                .a-card-title {
+                    font-size: var(--text-lg);
+                    font-weight: var(--font-semibold);
+                    color: var(--text-primary);
+                    letter-spacing: -0.02em;
+                }
+                .a-card-sub {
+                    font-size: var(--text-sm);
+                    color: var(--text-muted);
+                    margin-top: 2px;
+                    font-weight: var(--font-normal);
+                }
+                .a-chart-container {
+                    width: 100%;
+                }
+
+                /* ── Sentiment / Reply Categories ──────────── */
+                .a-sentiment-layout {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-xl);
+                    min-height: 280px;
+                }
+                .a-pie-wrap {
+                    flex: 1;
+                    height: 280px;
+                }
+                .a-legend {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 20px;
+                }
+                .a-legend-item {}
+                .a-legend-top {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-sm);
+                    margin-bottom: 6px;
+                }
+                .a-legend-dot {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 3px;
+                    flex-shrink: 0;
+                }
+                .a-legend-name {
+                    font-size: var(--text-base);
+                    color: var(--text-secondary);
+                    font-weight: var(--font-medium);
+                    flex: 1;
+                }
+                .a-legend-count {
+                    font-size: var(--text-base);
+                    font-weight: var(--font-semibold);
+                    color: var(--text-primary);
+                }
+                .a-legend-bar {
+                    height: 4px;
+                    background: var(--bg-elevated);
+                    border-radius: 2px;
+                    overflow: hidden;
+                }
+                .a-legend-bar-fill {
+                    height: 100%;
+                    border-radius: 2px;
+                }
+
+                /* ── Table ─────────────────────────────────── */
+                .a-table-wrap {
+                    overflow-x: auto;
+                    -webkit-overflow-scrolling: touch;
+                }
+                .a-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                }
+                .a-th {
+                    text-align: left;
+                    padding: 0 var(--space-lg) var(--space-md);
+                    font-size: var(--text-xs);
+                    font-weight: var(--font-semibold);
+                    text-transform: uppercase;
+                    letter-spacing: 0.06em;
+                    color: var(--text-muted);
+                    border-bottom: 1px solid var(--border);
+                }
+                .a-th--right { text-align: right; }
+                .a-tr {
+                    transition: background 0.15s;
+                }
+                .a-tr:hover {
+                    background: var(--bg-hover);
+                }
+                .a-td {
+                    padding: 14px var(--space-lg);
+                    font-size: var(--text-base);
+                    color: var(--text-primary);
+                    border-bottom: 1px solid var(--border);
+                }
+                .a-td--right { text-align: right; }
+                .a-td--mono {
+                    font-variant-numeric: tabular-nums;
+                    font-weight: var(--font-semibold);
+                }
+                .a-manager-cell {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-md);
+                }
+                .a-avatar {
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    font-weight: var(--font-semibold);
+                    font-size: var(--text-base);
+                    flex-shrink: 0;
+                }
+                .a-manager-name {
+                    font-weight: var(--font-semibold);
+                    color: var(--text-primary);
+                }
+                .a-conv-cell {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                }
+                .a-conv-track {
+                    flex: 1;
+                    height: 6px;
+                    background: var(--bg-elevated);
+                    border-radius: 3px;
+                    overflow: hidden;
+                    min-width: 60px;
+                }
+                .a-conv-fill {
+                    height: 100%;
+                    border-radius: 3px;
+                    transition: width 0.4s ease;
+                }
+                .a-conv-label {
+                    font-size: var(--text-sm);
+                    font-weight: var(--font-semibold);
+                    color: var(--text-secondary);
+                    font-variant-numeric: tabular-nums;
+                    min-width: 44px;
+                    text-align: right;
+                }
+
+                /* ── Subjects list ─────────────────────────── */
+                .a-subjects {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                }
+                .a-subject-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 14px;
+                    padding: 14px 12px;
+                    border-radius: var(--radius-sm);
+                    transition: background 0.15s;
+                }
+                .a-subject-row:hover {
+                    background: var(--bg-hover);
+                }
+                .a-subject-rank {
+                    width: 28px;
+                    height: 28px;
+                    border-radius: var(--radius-sm);
+                    background: var(--bg-elevated);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: var(--text-xs);
+                    font-weight: var(--font-semibold);
+                    color: var(--text-muted);
+                    flex-shrink: 0;
+                }
+                .a-subject-info {
+                    flex: 1;
+                    min-width: 0;
+                }
+                .a-subject-name {
+                    font-size: var(--text-base);
+                    font-weight: var(--font-medium);
+                    color: var(--text-primary);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .a-subject-count {
+                    font-size: var(--text-base);
+                    font-weight: var(--font-semibold);
+                    color: var(--text-primary);
+                    white-space: nowrap;
+                    font-variant-numeric: tabular-nums;
+                }
+                .a-subject-unit {
+                    font-size: var(--text-xs);
+                    font-weight: var(--font-normal);
+                    color: var(--text-muted);
+                }
+
+                /* ── Device/Browser Breakdown ──────────────── */
+                .a-grid--3 {
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: var(--space-lg);
+                }
+                .a-card--4 { grid-column: span 1; }
+                .a-breakdown-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 14px;
+                }
+                .a-breakdown-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                .a-breakdown-label {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    min-width: 90px;
+                    flex-shrink: 0;
+                }
+                .a-breakdown-dot {
                     width: 8px;
                     height: 8px;
+                    border-radius: 2px;
+                    flex-shrink: 0;
+                }
+                .a-breakdown-name {
+                    font-size: var(--text-sm);
+                    font-weight: var(--font-medium);
+                    color: var(--text-primary);
+                    white-space: nowrap;
+                }
+                .a-breakdown-bar-wrap {
+                    flex: 1;
+                    height: 6px;
+                    background: var(--bg-elevated);
+                    border-radius: 3px;
+                    overflow: hidden;
+                    min-width: 40px;
+                }
+                .a-breakdown-bar-fill {
+                    height: 100%;
+                    border-radius: 3px;
+                }
+                .a-breakdown-value {
+                    font-size: var(--text-sm);
+                    font-weight: var(--font-semibold);
+                    color: var(--text-primary);
+                    font-variant-numeric: tabular-nums;
+                    white-space: nowrap;
+                    min-width: 70px;
+                    text-align: right;
+                }
+                .a-breakdown-pct {
+                    font-weight: var(--font-normal);
+                    color: var(--text-muted);
+                    font-size: var(--text-xs);
+                }
+
+                /* ── CSS Animations (replacing framer-motion) ── */
+                .a-fade-in {
+                    animation: a-fadeIn 0.3s ease-out;
+                }
+                @keyframes a-fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+                .a-charts-fade-in {
+                    animation: a-fadeIn 0.3s ease-out;
+                }
+                .a-kpi-stagger {
+                    animation: a-slideUp 0.4s cubic-bezier(0.25, 1, 0.5, 1) both;
+                }
+                @keyframes a-slideUp {
+                    from { opacity: 0; transform: translateY(12px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                .a-bar-animate {
+                    animation: a-barGrow 0.6s cubic-bezier(0.25, 1, 0.5, 1) both;
+                }
+                @keyframes a-barGrow {
+                    from { width: 0 !important; }
+                }
+                .a-loading {
+                    padding: var(--space-2xl);
+                    text-align: center;
+                    font-size: var(--text-base);
+                    color: var(--text-muted);
+                }
+
+                /* ── Stale badge & Refresh button ─────────── */
+                .a-stale-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 3px 10px;
+                    border-radius: 12px;
+                    font-size: var(--text-xs);
+                    font-weight: var(--font-medium);
+                    color: #b45309;
+                    background: #fef3c7;
+                    border: 1px solid #fde68a;
+                    margin-left: auto;
+                    white-space: nowrap;
+                }
+                .a-refresh-btn {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 32px;
+                    height: 32px;
                     border-radius: 50%;
-                    animation: pulse 2s infinite;
+                    border: 1px solid var(--border);
+                    background: var(--bg-surface);
+                    color: var(--text-secondary);
+                    cursor: pointer;
+                    transition: all 0.15s;
+                    flex-shrink: 0;
                 }
-                @keyframes pulse {
-                    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
-                    70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
-                    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+                .a-refresh-btn:hover:not(:disabled) {
+                    border-color: var(--accent);
+                    color: var(--accent);
+                    background: var(--bg-elevated);
                 }
-                ::-webkit-scrollbar {
-                    width: 6px;
+                .a-refresh-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
                 }
-                ::-webkit-scrollbar-thumb {
-                    background: #cbd5e1;
-                    border-radius: 10px;
+
+                /* ── Error & Empty ─────────────────────────── */
+                .a-error {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 14px 20px;
+                    margin: var(--space-lg) var(--space-2xl);
+                    background: var(--danger-light);
+                    border: 1px solid var(--danger);
+                    border-radius: var(--radius-md);
+                    font-size: var(--text-base);
+                    color: var(--danger);
+                    font-weight: var(--font-medium);
+                }
+                .a-empty {
+                    padding: var(--space-2xl) 0;
+                    text-align: center;
+                    font-size: var(--text-base);
+                    color: var(--text-muted);
+                }
+
+                /* ── Responsive ────────────────────────────── */
+                @media (max-width: 1200px) {
+                    .a-stats-row {
+                        grid-template-columns: repeat(2, 1fr);
+                    }
+                    .a-grid, .a-grid--3 {
+                        grid-template-columns: 1fr;
+                    }
+                    .a-card--7, .a-card--5 {
+                        grid-column: span 1;
+                    }
+                }
+                @media (max-width: 768px) {
+                    .a-content {
+                        padding: var(--space-lg);
+                    }
+                    .a-filter-bar {
+                        padding: var(--space-md) var(--space-lg);
+                        flex-wrap: wrap;
+                        gap: var(--space-md);
+                    }
+                    .a-filter-controls {
+                        margin-left: 0;
+                        flex-wrap: wrap;
+                    }
+                    .a-stats-row {
+                        grid-template-columns: 1fr;
+                    }
+                    .a-stat-value {
+                        font-size: 1.5rem;
+                    }
+                    .a-sentiment-layout {
+                        flex-direction: column;
+                    }
+                    .a-pie-wrap {
+                        width: 100%;
+                        height: 220px;
+                    }
                 }
             `}</style>
         </>

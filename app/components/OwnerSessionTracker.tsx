@@ -15,7 +15,7 @@ export function OwnerSessionTracker() {
         registered.current = true;
 
         // Fire-and-forget — don't await, don't block anything
-        fetch('/api/track/session', { method: 'POST' }).catch(() => {});
+        fetch('/api/track/session', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
     }, []);
 
     return null; // No UI — invisible
