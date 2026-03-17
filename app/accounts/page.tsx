@@ -27,6 +27,9 @@ interface GmailAccount {
     last_synced_at: string | Date | null;
     emails_count?: number;
     sync_progress?: number;
+    last_error_message?: string | null;
+    last_error_at?: string | null;
+    sync_fail_count?: number;
 }
 
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
@@ -451,9 +454,25 @@ export default function AccountsPage() {
                                                     </div>
                                                 </div>
 
-                                                {acc.status === 'ERROR' && (
+                                                {acc.status === 'ERROR' && acc.last_error_message && (
+                                                    <div className="account-sync-error">
+                                                        <span className="account-sync-error-icon">&#9888;</span>
+                                                        <span className="account-sync-error-text">{acc.last_error_message}</span>
+                                                        {acc.last_error_at && (
+                                                            <span className="account-sync-error-time">
+                                                                {new Date(acc.last_error_at).toLocaleString()}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                {acc.status === 'ERROR' && !acc.last_error_message && (
                                                     <div className="acct-card-error-msg">
                                                         Authentication failed.
+                                                    </div>
+                                                )}
+                                                {acc.status === 'ACTIVE' && (acc.sync_fail_count ?? 0) > 0 && (
+                                                    <div className="account-sync-warning">
+                                                        &#9888; {acc.sync_fail_count} recent sync {acc.sync_fail_count === 1 ? 'error' : 'errors'} &mdash; monitoring
                                                     </div>
                                                 )}
 

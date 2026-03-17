@@ -15,6 +15,14 @@ function isAuthError(error: any) {
         (error.code === 403 && msg.includes('unauthorized'));
 }
 
+function isRateLimitError(err: any): boolean {
+    return err?.code === 429 ||
+        err?.status === 429 ||
+        err?.message?.includes('rateLimitExceeded') ||
+        err?.message?.includes('userRateLimitExceeded') ||
+        err?.message?.includes('quotaExceeded');
+}
+
 // ─── Paginated Message ID Fetcher ─────────────────────────────────────────────
 
 /**
@@ -83,11 +91,26 @@ async function processSingleMessage(
 
     try {
         // Per docs: use format=FULL for initial fetch, format=MINIMAL for already-cached
-        const detailRes = await gmail.users.messages.get({
-            userId: 'me',
-            id: messageId,
-            format: 'full',
-        });
+        let detailRes: any;
+        try {
+            detailRes = await gmail.users.messages.get({
+                userId: 'me',
+                id: messageId,
+                format: 'full',
+            });
+        } catch (fetchErr: any) {
+            if (isRateLimitError(fetchErr)) {
+                // Wait 2 seconds and retry once on rate limit
+                await new Promise(r => setTimeout(r, 2000));
+                detailRes = await gmail.users.messages.get({
+                    userId: 'me',
+                    id: messageId,
+                    format: 'full',
+                });
+            } else {
+                throw fetchErr;
+            }
+        }
 
         const detail = detailRes.data;
         const headers: Array<{ name: string; value: string }> = detail.payload?.headers || [];
@@ -367,7 +390,10 @@ export async function syncAccountHistory(accountId: string, newHistoryId?: strin
 
         const updateData: any = {
             last_synced_at: new Date().toISOString(),
-            sync_progress: 100
+            sync_progress: 100,
+            last_error_message: null,
+            last_error_at: null,
+            sync_fail_count: 0,
         };
         // Only advance historyId, never regress
         if (newIdNum > currentIdNum) {
@@ -391,6 +417,25 @@ export async function syncAccountHistory(accountId: string, newHistoryId?: strin
             return syncGmailEmails(accountId);
         }
         console.error(`[History Sync] Error:`, error.message);
+
+        if (isAuthError(error)) {
+            await supabase.from('gmail_accounts').update({
+                status: 'ERROR',
+                last_error_message: error?.message || 'Authentication error',
+                last_error_at: new Date().toISOString(),
+                sync_fail_count: 0,
+            }).eq('id', accountId);
+        } else {
+            const { data: acc } = await supabase.from('gmail_accounts')
+                .select('sync_fail_count')
+                .eq('id', accountId)
+                .single();
+            await supabase.from('gmail_accounts').update({
+                last_error_message: error?.message || 'Unknown sync error',
+                last_error_at: new Date().toISOString(),
+                sync_fail_count: (acc?.sync_fail_count || 0) + 1,
+            }).eq('id', accountId);
+        }
     }
 }
 
@@ -480,7 +525,10 @@ export async function syncGmailEmails(accountId: string) {
                 status: 'ACTIVE',
                 last_synced_at: new Date().toISOString(),
                 history_id: latestHistoryId?.toString(),
-                sync_progress: 100
+                sync_progress: 100,
+                last_error_message: null,
+                last_error_at: null,
+                sync_fail_count: 0,
             })
             .eq('id', accountId);
 
@@ -496,10 +544,24 @@ export async function syncGmailEmails(accountId: string) {
 
         // Only set status to ERROR if it's a permanent auth failure
         if (isAuthError(error)) {
-            await supabase.from('gmail_accounts').update({ status: 'ERROR' }).eq('id', accountId);
+            await supabase.from('gmail_accounts').update({
+                status: 'ERROR',
+                last_error_message: error?.message || 'Authentication error',
+                last_error_at: new Date().toISOString(),
+                sync_fail_count: 0,
+            }).eq('id', accountId);
         } else {
             // Revert to ACTIVE so they can retry without re-authenticating
-            await supabase.from('gmail_accounts').update({ status: 'ACTIVE' }).eq('id', accountId);
+            const { data: acc } = await supabase.from('gmail_accounts')
+                .select('sync_fail_count')
+                .eq('id', accountId)
+                .single();
+            await supabase.from('gmail_accounts').update({
+                status: 'ACTIVE',
+                last_error_message: error?.message || 'Unknown sync error',
+                last_error_at: new Date().toISOString(),
+                sync_fail_count: (acc?.sync_fail_count || 0) + 1,
+            }).eq('id', accountId);
         }
         // Throw sanitized error to avoid leaking internal details
         throw new Error(isAuthError(error) ? 'AUTH_REQUIRED' : 'Email sync failed. Please try again later.');

@@ -262,6 +262,17 @@ export default function InboxPage() {
                     onResultClick={(res) => {
                         handleSelectEmail(res);
                     }}
+                    leftContent={
+                        selectedEmail ? (
+                            <button
+                                className="mobile-back-btn"
+                                onClick={() => setSelectedEmail(null)}
+                                aria-label="Back to inbox"
+                            >
+                                ← Back
+                            </button>
+                        ) : undefined
+                    }
                     rightContent={
                         <div className="topbar-actions">
                             {isSyncing && (

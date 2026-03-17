@@ -162,6 +162,11 @@ model GmailAccount {
   /// Daily send counter — should be reset to 0 daily via cron job (see DB-039)
   sentCountToday Int @default(0) @map("sent_count_today")
 
+  // Sync error tracking
+  lastErrorMessage String?   @map("last_error_message") @db.Text
+  lastErrorAt      DateTime? @map("last_error_at")
+  syncFailCount    Int       @default(0) @map("sync_fail_count")
+
   emails EmailMessage[]
 
   @@index([userId])

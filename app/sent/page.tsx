@@ -114,7 +114,17 @@ export default function SentPage() {
                     onSearch={() => { }}
                     onClearSearch={() => setSearchTerm('')}
                     leftContent={
-                        <h1 className="page-title">Sent</h1>
+                        selectedEmail ? (
+                            <button
+                                className="mobile-back-btn"
+                                onClick={() => setSelectedEmail(null)}
+                                aria-label="Back to sent items"
+                            >
+                                ← Back
+                            </button>
+                        ) : (
+                            <h1 className="page-title">Sent</h1>
+                        )
                     }
                     rightContent={
                         <div className="topbar-actions">
