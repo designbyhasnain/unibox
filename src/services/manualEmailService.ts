@@ -5,6 +5,7 @@ import { simpleParser } from 'mailparser';
 import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
 import { decrypt } from '../utils/encryption';
+import { extractPlainText } from '../utils/gmailBodyParser';
 
 /**
  * Test IMAP and SMTP connection with provided credentials
@@ -112,6 +113,7 @@ export async function sendManualEmail(params: {
         toEmail: to,
         subject,
         body,
+        bodyText: extractPlainText(body, 2000),
         sentAt: new Date(),
     });
 
@@ -246,6 +248,7 @@ export async function syncManualEmails(accountId: string) {
 
                         const parsed = await simpleParser(message.source);
 
+                        const parsedBody = parsed.text || parsed.html || '';
                         if (isSentFolder) {
                             // Messages from Sent folder should be treated as SENT
                             await handleEmailSent({
@@ -255,7 +258,8 @@ export async function syncManualEmails(accountId: string) {
                                 fromEmail: account.email,
                                 toEmail: message.envelope.to?.[0]?.address || '',
                                 subject: message.envelope.subject || '(No Subject)',
-                                body: parsed.text || parsed.html || '',
+                                body: parsedBody,
+                                bodyText: extractPlainText(parsedBody, 2000),
                                 sentAt: message.envelope.date || new Date(),
                             });
                         } else {
@@ -266,7 +270,8 @@ export async function syncManualEmails(accountId: string) {
                                 fromEmail: message.envelope.from?.[0]?.address || '',
                                 toEmail: account.email,
                                 subject: message.envelope.subject || '(No Subject)',
-                                body: parsed.text || parsed.html || '',
+                                body: parsedBody,
+                                bodyText: extractPlainText(parsedBody, 2000),
                                 receivedAt: message.envelope.date || new Date(),
                                 isSpam: isSpamFolder,
                             });

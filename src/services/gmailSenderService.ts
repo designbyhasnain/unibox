@@ -1,5 +1,4 @@
-// TODO: Add `import 'server-only';` after running `npm install` to install the server-only package.
-// This prevents accidental client-side imports that could leak secrets.
+import 'server-only';
 import { google } from 'googleapis';
 import { supabase } from '../lib/supabase';
 import { handleEmailSent } from './emailSyncLogic';
@@ -38,17 +37,16 @@ export async function sendGmailEmail(params: {
         throw new Error('Only OAuth accounts are supported for sending via Gmail API currently.');
     }
 
-    const oauth2Client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET,
-        process.env.GOOGLE_REDIRECT_URI
-    );
-
     const performSend = async (token: string) => {
+        const oauth2Client = new google.auth.OAuth2(
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET,
+            process.env.GOOGLE_REDIRECT_URI
+        );
         oauth2Client.setCredentials({ access_token: token });
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-        // Build MIME message manually to avoid bulky dependencies if possible, 
+        // Build MIME message manually to avoid bulky dependencies if possible,
         // but ensure it's robust for UTF-8.
         const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
         const messageParts = [

@@ -193,8 +193,9 @@ model EmailMessage {
   fromEmail     String         @map("from_email")
   toEmail       String         @map("to_email")
   subject       String         @db.Text
-  body          String         @db.Text
+  body          String?        @db.Text
   snippet       String?        @db.Text
+  bodyText      String?        @map("body_text") @db.Text
   direction     EmailDirection
   isUnread      Boolean        @default(true) @map("is_unread")
   sentAt        DateTime       @map("sent_at")

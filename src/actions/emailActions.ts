@@ -6,6 +6,7 @@ import { sendGmailEmail } from '../services/gmailSenderService';
 import { sendManualEmail, unspamManualMessage } from '../services/manualEmailService';
 import { unspamGmailMessage } from '../services/gmailSyncService';
 import { prepareTrackedEmail } from '../services/trackingService';
+import { extractPlainText } from '../utils/gmailBodyParser';
 import { normalizeEmail } from '../utils/emailNormalizer';
 import { buildAccountMap } from '../utils/accountHelpers';
 import { buildThreadRepliesMap } from '../utils/threadHelpers';
@@ -111,7 +112,8 @@ export async function sendEmailAction(params: {
                         is_tracked: isTracked,
                         tracking_id: isTracked ? trackingId : null,
                         opens_count: 0,
-                        body: trackedBody, // Update body to include tracking pixel
+                        body: null, // Don't store body in DB
+                        body_text: extractPlainText(trackedBody, 2000),
                     })
                     .eq('id', cleanMsgId);
             }
@@ -525,7 +527,7 @@ export async function getThreadMessagesAction(threadId: string) {
         .from('email_messages')
         .select(`
             id, thread_id, from_email, to_email, subject,
-            snippet, body, direction, sent_at, is_unread, pipeline_stage,
+            snippet, body_text, body, direction, sent_at, is_unread, pipeline_stage,
             gmail_account_id, is_tracked, opens_count, clicks_count, last_opened_at,
             gmail_accounts ( email, users ( name ) )
         `)
@@ -759,7 +761,7 @@ export async function searchEmailsAction(
 
     if (q) {
         const escapedQ = escapeIlike(q);
-        rpcQuery = rpcQuery.or(`subject.ilike.%${escapedQ}%,from_email.ilike.%${escapedQ}%,snippet.ilike.%${escapedQ}%,to_email.ilike.%${escapedQ}%`);
+        rpcQuery = rpcQuery.or(`subject.ilike.%${escapedQ}%,from_email.ilike.%${escapedQ}%,snippet.ilike.%${escapedQ}%,to_email.ilike.%${escapedQ}%,body_text.ilike.%${escapedQ}%`);
     }
 
     const { data, error } = await rpcQuery

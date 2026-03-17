@@ -623,7 +623,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                     .from('email_messages')
                     .select(`
                         id, thread_id, from_email, to_email, subject,
-                        snippet, body, direction, sent_at, is_unread, pipeline_stage,
+                        snippet, body_text, body, direction, sent_at, is_unread, pipeline_stage,
                         gmail_account_id, is_tracked, opens_count, clicks_count, last_opened_at,
                         gmail_accounts ( email, users ( name ) )
                     `)

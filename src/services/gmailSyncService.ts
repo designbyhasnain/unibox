@@ -1,8 +1,8 @@
 import 'server-only';
-import { google } from 'googleapis';
 import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
-import { decrypt } from '../utils/encryption';
+import { getGmailClientFromAccount } from './gmailClientFactory';
+import { getMessageBody, extractPlainText } from '../utils/gmailBodyParser';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -13,94 +13,6 @@ function isAuthError(error: any) {
         error.code === 401 ||
         error.status === 401 ||
         (error.code === 403 && msg.includes('unauthorized'));
-}
-
-// ─── OAuth Client ─────────────────────────────────────────────────────────────
-
-function getOAuthClient(account: any) {
-    const oauth2Client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET,
-        process.env.GOOGLE_REDIRECT_URI
-    );
-
-    let refreshToken = account.refresh_token;
-    if (refreshToken && refreshToken.includes(':')) {
-        try {
-            refreshToken = decrypt(refreshToken);
-        } catch (e) {
-            console.error('Failed to decrypt refresh token:', e);
-        }
-    }
-
-    oauth2Client.setCredentials({
-        access_token: account.access_token,
-        refresh_token: refreshToken,
-    });
-
-    // Automatically save new access tokens when googleapis refreshes them
-    oauth2Client.on('tokens', async (tokens) => {
-        if (tokens.access_token) {
-            console.log(`[OAuth] Auto-refreshing access token for account ${account.email}`);
-            await supabase
-                .from('gmail_accounts')
-                .update({ access_token: tokens.access_token })
-                .eq('id', account.id);
-        }
-    });
-
-    return oauth2Client;
-}
-
-// ─── Body Extractor ───────────────────────────────────────────────────────────
-
-/**
- * Recursively walks a Gmail message payload to find text/plain or text/html body.
- * Falls back to snippet if no body found.
- */
-function getMessageBody(payload: any): string {
-    if (!payload) return '';
-
-    let htmlBody = '';
-    let textBody = '';
-    const attachments: any[] = [];
-
-    function walk(part: any) {
-        if (part.parts) {
-            part.parts.forEach(walk);
-        }
-
-        if (part.body?.attachmentId) {
-            attachments.push({
-                id: part.body.attachmentId,
-                filename: part.filename,
-                mimeType: part.mimeType,
-                size: part.body.size
-            });
-        }
-
-        if (part.mimeType === 'text/html' && part.body?.data) {
-            htmlBody = Buffer.from(part.body.data, 'base64').toString('utf-8');
-        } else if (part.mimeType === 'text/plain' && part.body?.data) {
-            textBody = Buffer.from(part.body.data, 'base64').toString('utf-8');
-        }
-    }
-
-    walk(payload);
-
-    let result = htmlBody || textBody || '';
-
-    // If no body found in parts, check root body
-    if (!result && payload.body?.data) {
-        result = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-    }
-
-    // Append metadata for UI
-    if (attachments.length > 0) {
-        result += `\n<!-- ATTACHMENTS: ${JSON.stringify(attachments)} -->`;
-    }
-
-    return result;
 }
 
 // ─── Paginated Message ID Fetcher ─────────────────────────────────────────────
@@ -158,16 +70,14 @@ async function processSingleMessage(
     // Deduplication check
     const { data: existing } = await supabase
         .from('email_messages')
-        .select('id, body, gmail_account_id')
+        .select('id, body_text, gmail_account_id')
         .eq('id', messageId)
         .maybeSingle();
 
-    // If it exists and already has the CORRECT account ID and rich body, we skip.
+    // If it exists and already has the CORRECT account ID and plain text body, we skip.
     // Optimization: we only skip if it's already linked to THIS account.
     // If gmail_account_id is NULL (orphaned email from a delete), we MUST continue to re-link it.
-    if (existing?.gmail_account_id === account.id &&
-        existing?.body &&
-        (existing.body.includes('<div') || existing.body.includes('<p') || existing.body.includes('<br'))) {
+    if (existing?.gmail_account_id === account.id && existing?.body_text) {
         return;
     }
 
@@ -227,6 +137,7 @@ async function processSingleMessage(
         const subject = getHeader('subject') || '(No Subject)';
         const dateStr = getHeader('date');
         const body = getMessageBody(detail.payload) || detail.snippet || '';
+        const bodyText = extractPlainText(body, 2000);
 
         // Per docs: check labelIds for SENT and UNREAD — this is more reliable than email parsing
         const isSent = knownDirection
@@ -248,6 +159,7 @@ async function processSingleMessage(
                 toEmail: to,
                 subject,
                 body,
+                bodyText,
                 isUnread,
                 sentAt: parsedDate,
             });
@@ -261,6 +173,7 @@ async function processSingleMessage(
                 toEmail: to || account.email,
                 subject,
                 body,
+                bodyText,
                 isUnread,
                 receivedAt: parsedDate,
                 isSpam: labelIds.includes('SPAM'),
@@ -353,7 +266,7 @@ export async function startGmailWatch(accountId: string) {
         return;
     }
 
-    const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
+    const gmail = getGmailClientFromAccount(account);
 
     try {
         const watchRes = await gmail.users.watch({
@@ -407,7 +320,7 @@ export async function syncAccountHistory(accountId: string, newHistoryId?: strin
         return syncGmailEmails(accountId);
     }
 
-    const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
+    const gmail = getGmailClientFromAccount(account);
 
     try {
         const historyRes = await gmail.users.history.list({
@@ -517,7 +430,7 @@ export async function syncGmailEmails(accountId: string) {
         return;
     }
 
-    const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
+    const gmail = getGmailClientFromAccount(account);
 
     try {
         // Per Gmail docs: using multiple labelIds in messages.list acts as an AND filter.
@@ -597,7 +510,7 @@ export async function syncGmailEmails(accountId: string) {
  * Removes SPAM/TRASH labels and adds INBOX label for a Gmail message
  */
 export async function unspamGmailMessage(account: any, messageId: string) {
-    const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
+    const gmail = getGmailClientFromAccount(account);
 
     try {
         await gmail.users.messages.modify({

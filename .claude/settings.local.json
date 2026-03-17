@@ -1,0 +1,53 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd D:/coding/unibox && rm -rf .claude_backup env.download.backup)",
+      "Bash(cd D:/coding/unibox && npm install 2>&1 | tail -5)",
+      "Bash(cd D:/coding/unibox && npm run build 2>&1 | tail -80)",
+      "Bash(cd D:/coding/unibox && npm run build 2>&1 | tail -20)",
+      "Bash(cd D:/coding/unibox && npm run build 2>&1 | tail -15)",
+      "Bash(cd D:/coding/unibox && npx prisma validate 2>&1)",
+      "Bash(cd D:/coding/unibox && npx prisma format 2>&1)",
+      "Bash(cd D:/coding/unibox && npm run build 2>&1 | tail -30)",
+      "Bash(cd D:/coding/unibox && npm run build 2>&1 | tail -25)",
+      "Bash(cd D:/coding/unibox && rm -rf .next && npm run build 2>&1 | tail -20)",
+      "Bash(cd D:/coding/unibox && rm -rf .next && npm run build 2>&1 | tail -25)",
+      "Bash(cd D:/coding/unibox && rm -rf .next && npm run build 2>&1 | tail -30)",
+      "Bash(sleep 10 && curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000 2>/dev/null)",
+      "Bash(npx kill-port:*)",
+      "Bash(npx next:*)",
+      "Bash(curl -s http://localhost:3000/ | head -50)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\" http://localhost:3000/api/auth/google/callback 2>&1 && echo \"\" && curl -s -o /dev/null -w \"HTTP %{http_code}\" http://localhost:3000/api/track 2>&1 && echo \"\")",
+      "Bash(curl -s http://localhost:3000/ > /dev/null 2>&1; sleep 2; curl -s \"http://localhost:3000/api/test-db\" 2>&1 || echo \"no test endpoint\")",
+      "Bash(claude mcp:*)",
+      "mcp__plugin_supabase_supabase__list_tables",
+      "mcp__plugin_supabase_supabase__execute_sql",
+      "Bash(curl -s http://localhost:3000/ > /dev/null 2>&1; sleep 10; echo \"DONE\")",
+      "mcp__plugin_supabase_supabase__apply_migration",
+      "Bash(grep -n \"Topbar\" /d/coding/unibox/app/components/*.tsx | head -20)",
+      "Bash(find \"D:\\\\coding\\\\unibox\" -name \"*analyticsActions*\" -o -name \"*analytics*action*\" 2>/dev/null | head -20)",
+      "Bash(find \"D:\\\\coding\\\\unibox\" -name \"useMailbox*\" -o -name \"*useMailbox*\" 2>/dev/null | head -20)",
+      "Bash(npx tsc:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/analytics 2>&1)",
+      "Bash(grep -l 'style jsx' /d/coding/unibox/app/**/*.tsx)",
+      "Bash(while read:*)",
+      "Bash(do echo:*)",
+      "Read(//d/coding/unibox/**)",
+      "Bash(find /d \"D:\\\\coding\\\\unibox\" -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) | xargs grep -l \"getAccountsAction\" | head -10)",
+      "Bash(grep -n \"new Date\\(\\)\" /d/coding/unibox/src/actions/*.ts | head -20)",
+      "Bash(wc -l /d/coding/unibox/app/components/*.tsx /d/coding/unibox/app/*.tsx 2>/dev/null | tail -15)",
+      "Bash(grep -n \"localStorage\\\\|getItem\\\\|setItem\" /d/coding/unibox/app/hooks/*.ts /d/coding/unibox/app/utils/*.ts 2>/dev/null | head -20)",
+      "Bash(find /d/coding/unibox -name \"*.ts\" -o -name \"*.tsx\" | xargs wc -l | tail -20)",
+      "Bash(cd \"D:/coding/unibox\" && npx prisma generate 2>&1)",
+      "Bash(cd \"D:/coding/unibox\" && npm run build 2>&1)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ],
+  "enabledPlugins": {
+    "supabase@claude-plugins-official": true,
+    "github@claude-plugins-official": true
+  }
+}

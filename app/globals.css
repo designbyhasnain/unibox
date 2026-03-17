@@ -5551,4 +5551,28 @@ textarea:focus-visible {
         border-radius: 0;
     }
 }
+
+/* Email body loading skeleton */
+.email-body-skeleton {
+    background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary, #2a2a2a) 50%, var(--bg-secondary) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 8px;
+    min-height: 200px;
+    margin: 12px 0;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.email-body-fallback {
+    padding: 16px;
+    color: var(--text-muted);
+    font-style: italic;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    margin: 12px 0;
+}
 

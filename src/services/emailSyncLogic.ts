@@ -26,6 +26,7 @@ export async function handleEmailSent(data: {
     fromEmail: string;
     subject: string;
     body: string;
+    bodyText?: string;
     sentAt: Date;
     isUnread?: boolean;
     isSpam?: boolean;
@@ -71,7 +72,7 @@ export async function handleEmailSent(data: {
         from_email: data.fromEmail,
         to_email: data.toEmail,
         subject: data.subject,
-        body: data.body,
+        body_text: data.bodyText ?? null,
         snippet: data.body
             .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, '') // Remove style/script content
             .replace(/<[^>]*>/g, ' ') // Remove all remaining tags
@@ -104,6 +105,7 @@ export async function handleEmailReceived(data: {
     toEmail: string;
     subject: string;
     body: string;
+    bodyText?: string;
     receivedAt: Date;
     isUnread?: boolean;
     isSpam?: boolean;
@@ -154,7 +156,7 @@ export async function handleEmailReceived(data: {
     }
 
     // 3. Keyword detection for possible offer acceptance (Activity log only)
-    const bodyText = data.body.toLowerCase();
+    const bodyText = (data.bodyText || data.body || '').toLowerCase();
     const mightBeAccepted = ACCEPTANCE_REGEXES.some((regex) => regex.test(bodyText));
 
     if (mightBeAccepted && contact?.pipeline_stage === 'LEAD' && contact.id) {
@@ -208,7 +210,7 @@ export async function handleEmailReceived(data: {
             from_email: data.fromEmail,
             to_email: data.toEmail,
             subject: data.subject,
-            body: data.body,
+            body_text: data.bodyText ?? null,
             snippet: data.body
                 .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, '')
                 .replace(/<[^>]*>/g, ' ')

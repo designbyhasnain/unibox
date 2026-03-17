@@ -6,6 +6,7 @@ import { avatarColor, formatDate, cleanPreview } from '../utils/helpers';
 import AddProjectModal from './AddProjectModal';
 import { useHydrated } from '../utils/useHydration';
 import { ensureContactAction } from '../../src/actions/clientActions';
+import { useEmailBody } from '../hooks/useEmailBody';
 
 import { STAGE_COLORS, STAGE_LABELS, STAGE_OPTIONS } from '../constants/stages';
 
@@ -33,7 +34,7 @@ export const EmailRow = React.memo(function EmailRow({ email, isSelected, isRowC
         senderName = fromName || 'Unknown';
     }
     const stage = email.pipeline_stage;
-    const preview = cleanPreview(email.snippet || email.body || '');
+    const preview = cleanPreview(email.snippet || email.body_text || email.body || '');
     const isUnread = email.is_unread;
 
     const isHydrated = useHydrated();
@@ -560,6 +561,19 @@ export function EmailDetail({
     totalCount = 0,
 }: EmailDetailProps) {
     const isHydrated = useHydrated();
+
+    // On-demand body fetching — bodies are no longer stored in the DB
+    const messageIds = React.useMemo(
+        () => threadMessages.map((m) => m.id),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [threadMessages.map((m) => m.id).join(',')]
+    );
+    const { bodies, attachments: apiAttachments, isLoading: isBodyLoading, isFallback } = useEmailBody(
+        email?.thread_id ?? null,
+        email?.gmail_account_id ?? null,
+        messageIds
+    );
+
     const [showAllIntermediate, setShowAllIntermediate] = React.useState(false);
     const [collapsedThreads, setCollapsedThreads] = React.useState<Set<string>>(new Set());
     const [isAllExpanded, setIsAllExpanded] = React.useState(false);
@@ -772,8 +786,6 @@ export function EmailDetail({
                             const expandedEmail = extractEmail(msg.from_email || '');
                             const toRecipientsText = isSent ? (msg.to_email ? extractSenderName(msg.to_email) || expandedEmail : 'recipient') : 'me';
 
-                            const isHtml = isHtmlBody(msg.body || '');
-
                             return (
                                 <div key={msg.id} className={`gmail-message ${isCollapsed ? 'collapsed' : 'expanded'} ${isLast ? 'last' : ''}`}>
                                     {/* ─── Message Header ─── */}
@@ -804,7 +816,7 @@ export function EmailDetail({
                                                 </span>
                                                 {isCollapsed && (
                                                     <span className="gmail-snippet" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', marginTop: '1px' }}>
-                                                        {cleanPreview(msg.snippet || msg.body || '')}
+                                                        {cleanPreview(msg.snippet || msg.body_text || msg.body || '')}
                                                     </span>
                                                 )}
                                             </div>
@@ -925,11 +937,30 @@ export function EmailDetail({
 
                                     {/* ─── Message Body ─── */}
                                     {!isCollapsed && (() => {
-                                        const isHtmlLocal = isHtmlBody(msg.body || '');
-                                        const cleanBody = stripOldEmailContent(msg.body || '', isHtmlLocal);
+                                        // Prefer API-fetched body, fall back to legacy DB body, then plain text
+                                        const resolvedBody = bodies.get(msg.id) || msg.body || msg.body_text || '';
+                                        const isHtmlLocal = isHtmlBody(resolvedBody);
+                                        const cleanBody = stripOldEmailContent(resolvedBody, isHtmlLocal);
+
+                                        // Resolve attachments: prefer API-fetched, fall back to inline HTML comment
+                                        const apiAtts = apiAttachments.get(msg.id);
+                                        let resolvedAtts: any[] | null = apiAtts || null;
+                                        if (!resolvedAtts && msg.body?.includes('<!-- ATTACHMENTS:')) {
+                                            const attMatch = msg.body.match(/<!-- ATTACHMENTS: ([\s\S]*?) -->/);
+                                            if (attMatch) {
+                                                try { resolvedAtts = JSON.parse(attMatch[1]); } catch { resolvedAtts = null; }
+                                            }
+                                        }
+
                                         return (
                                             <div className="gmail-msg-body">
-                                                {isHtmlLocal ? (
+                                                {isBodyLoading && !resolvedBody ? (
+                                                    <div className="email-body-skeleton" />
+                                                ) : isFallback && !resolvedBody ? (
+                                                    <div className="email-body-fallback">
+                                                        <PlainTextBody text={msg.body_text || msg.snippet || ''} />
+                                                    </div>
+                                                ) : isHtmlLocal ? (
                                                     <EmailBodyFrame
                                                         html={cleanBody
                                                             .replace(/<img /gi, '<img referrerpolicy="no-referrer" ')
@@ -940,22 +971,15 @@ export function EmailDetail({
                                                 )}
 
                                                 {/* Attachments */}
-                                                {msg.body?.includes('<!-- ATTACHMENTS:') && (
+                                                {resolvedAtts && resolvedAtts.length > 0 && (
                                                     <div className="gmail-attachments">
-                                                        {(() => {
-                                                            const match = msg.body.match(/<!-- ATTACHMENTS: ([\s\S]*?) -->/);
-                                                            if (!match) return null;
-                                                            try {
-                                                                const atts = JSON.parse(match[1]);
-                                                                return atts.map((a: any) => (
-                                                                    <div key={a.id} className="gmail-attachment-chip">
-                                                                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
-                                                                        <span>{a.filename || 'Attachment'}</span>
-                                                                        <span className="gmail-att-size">{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ''}</span>
-                                                                    </div>
-                                                                ));
-                                                            } catch { return null; }
-                                                        })()}
+                                                        {resolvedAtts.map((a: any) => (
+                                                            <div key={a.id} className="gmail-attachment-chip">
+                                                                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
+                                                                <span>{a.filename || 'Attachment'}</span>
+                                                                <span className="gmail-att-size">{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ''}</span>
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 )}
                                             </div>

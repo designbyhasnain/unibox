@@ -35,6 +35,7 @@ export function transformEmailRow(
         to_email: row.to_email,
         subject: row.subject,
         snippet: row.snippet,
+        body_text: row.body_text,
         direction: row.direction,
         sent_at: row.sent_at,
         is_unread: row.is_unread,

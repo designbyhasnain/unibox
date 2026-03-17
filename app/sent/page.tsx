@@ -90,7 +90,7 @@ export default function SentPage() {
         return (
             (e.subject && e.subject.toLowerCase().includes(sl)) ||
             (e.to_email && e.to_email.toLowerCase().includes(sl)) ||
-            (e.body && e.body.toLowerCase().includes(sl))
+            ((e.body_text || e.body || '').toLowerCase().includes(sl))
         );
     });
 
