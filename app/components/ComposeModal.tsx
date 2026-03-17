@@ -202,6 +202,9 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     // Draft auto-save — every 5 seconds
     useEffect(() => {
         const interval = setInterval(() => {
+            // Don't overwrite draft with reply/forward data
+            if (defaultTo || threadId) return;
+
             const editorBody = editorRef.current?.innerHTML ?? '';
             const currentTo = to;
             const currentSubject = subject;
@@ -223,7 +226,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         }, 5000);
 
         return () => clearInterval(interval);
-    }, [to, subject, cc, bcc, fromAccount, isTrackingEnabled, threadId]);
+    }, [to, subject, cc, bcc, fromAccount, isTrackingEnabled, threadId, defaultTo]);
 
     // Discard draft handler
     const discardDraft = useCallback(() => {
@@ -298,7 +301,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     };
 
     const handleClose = useCallback(() => {
-        const editorBody = editorRef.current?.innerHTML ?? '';
+        const editorBody = editorRef.current?.innerHTML?.replace(/<br\s*\/?>/gi, '').replace(/<div><\/div>/gi, '').trim() ?? '';
         if (!to && !subject && !editorBody && !cc && !bcc) {
             clearDraft();
         }
@@ -440,7 +443,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                         cursor: 'pointer',
                                         padding: '4px 0',
                                         fontSize: '14px',
-                                        color: '#202124'
+                                        color: 'var(--text-primary)'
                                     }}
                                 >
                                     <span>
@@ -448,7 +451,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                             ? `${accounts.find(a => a.id === fromAccount)!.email}${accounts.find(a => a.id === fromAccount)!.manager_name ? ` (${accounts.find(a => a.id === fromAccount)!.manager_name})` : ''}`
                                             : 'Select account'}
                                     </span>
-                                    <ChevronDown size={14} style={{ color: '#5f6368', flexShrink: 0 }} />
+                                    <ChevronDown size={14} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
                                 </div>
                                 {showFromDropdown && (
                                     <div style={{
@@ -456,8 +459,8 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                         top: 'calc(100% + 4px)',
                                         left: '-16px',
                                         right: '-24px',
-                                        background: '#ffffff',
-                                        border: '1px solid #e0e0e0',
+                                        background: 'var(--bg-surface)',
+                                        border: '1px solid var(--border)',
                                         borderRadius: '4px',
                                         boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
                                         zIndex: 2000,
@@ -471,13 +474,13 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                                 style={{
                                                     padding: '10px 16px',
                                                     fontSize: '14px',
-                                                    color: '#202124',
+                                                    color: 'var(--text-primary)',
                                                     cursor: 'pointer',
-                                                    background: acc.id === fromAccount ? '#e8f0fe' : '#ffffff',
+                                                    background: acc.id === fromAccount ? 'var(--accent-light)' : 'var(--bg-surface)',
                                                     fontWeight: acc.id === fromAccount ? 500 : 400
                                                 }}
-                                                onMouseEnter={e => (e.currentTarget.style.background = acc.id === fromAccount ? '#e8f0fe' : '#f1f3f4')}
-                                                onMouseLeave={e => (e.currentTarget.style.background = acc.id === fromAccount ? '#e8f0fe' : '#ffffff')}
+                                                onMouseEnter={e => (e.currentTarget.style.background = acc.id === fromAccount ? 'var(--accent-light)' : 'var(--bg-elevated)')}
+                                                onMouseLeave={e => (e.currentTarget.style.background = acc.id === fromAccount ? 'var(--accent-light)' : 'var(--bg-surface)')}
                                             >
                                                 {acc.email} {acc.manager_name ? `(${acc.manager_name})` : ''}
                                             </div>
@@ -554,7 +557,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
 
                             {/* Attachment preview removed - feature coming soon (FE-020) */}
                             {showFormatting && (
-                                <div className="formatting-toolbar" style={{ borderBottom: '1px solid #e0e0e0', position: 'relative', background: '#f8f9fa' }}>
+                                <div className="formatting-toolbar" style={{ borderBottom: '1px solid var(--border)', position: 'relative', background: 'var(--bg-elevated)' }}>
                                     <div className="format-group">
                                         <select
                                             className="format-select font-family-select"
@@ -667,26 +670,26 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                         </div>
                     </div>
 
-                    <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', flexDirection: 'column', borderTop: '1px solid #e0e0e0', overflow: 'visible', position: 'relative' }}>
+                    <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border)', overflow: 'visible', position: 'relative' }}>
                         {/* Tracking Indicator Bar — Mailsuite style */}
                         {isTrackingEnabled && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 0 6px', borderBottom: '1px solid #e8eaed', marginBottom: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 0 6px', borderBottom: '1px solid var(--border)', marginBottom: '6px' }}>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-                                    <path d="M1 12l5 5L18 5" stroke="#34a853" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d="M7 12l5 5L24 5" stroke="#34a853" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    <path d="M1 12l5 5L18 5" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    <path d="M7 12l5 5L24 5" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                                 </svg>
-                                <span style={{ fontSize: '11px', color: '#5f6368', letterSpacing: '0.2px' }}>
-                                    Email tracked with <strong style={{ color: '#34a853' }}>Unibox</strong>
+                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', letterSpacing: '0.2px' }}>
+                                    Email tracked with <strong style={{ color: 'var(--success)' }}>Unibox</strong>
                                 </span>
-                                <span style={{ margin: '0 2px', color: '#dadce0', fontSize: '11px' }}>·</span>
+                                <span style={{ margin: '0 2px', color: 'var(--border)', fontSize: '11px' }}>·</span>
                                 <span
-                                    style={{ fontSize: '11px', color: '#ea4335', cursor: 'pointer' }}
+                                    style={{ fontSize: '11px', color: 'var(--danger)', cursor: 'pointer' }}
                                     onClick={() => setIsTrackingEnabled(false)}
                                 >
                                     Opt out
                                 </span>
                                 <span
-                                    style={{ fontSize: '13px', color: '#ea4335', cursor: 'pointer', marginLeft: '1px', fontWeight: 600 }}
+                                    style={{ fontSize: '13px', color: 'var(--danger)', cursor: 'pointer', marginLeft: '1px', fontWeight: 600 }}
                                     onClick={() => setIsTrackingEnabled(false)}
                                 >
                                     ✕
@@ -732,8 +735,8 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                         }}
                                     >
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                                            <path d="M1 12l5 5L18 5" stroke={isTrackingEnabled ? '#34a853' : '#9aa0a6'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                            <path d="M7 12l5 5L24 5" stroke={isTrackingEnabled ? '#34a853' : '#9aa0a6'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                            <path d="M1 12l5 5L18 5" stroke={isTrackingEnabled ? 'var(--success)' : 'var(--text-muted)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                            <path d="M7 12l5 5L24 5" stroke={isTrackingEnabled ? 'var(--success)' : 'var(--text-muted)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                                         </svg>
                                     </button>
 
@@ -745,32 +748,32 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                             left: 'auto',
                                             width: '220px',
                                             padding: '6px 0',
-                                            background: '#fff',
-                                            border: '1px solid #dadce0',
+                                            background: 'var(--bg-surface)',
+                                            border: '1px solid var(--border)',
                                             borderRadius: '8px',
                                             boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
                                             zIndex: 9999,
                                         }}>
-                                            <div style={{ padding: '8px 16px 6px', fontSize: '11px', fontWeight: 600, color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            <div style={{ padding: '8px 16px 6px', fontSize: '11px', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                                 Insert
                                             </div>
-                                            <div onClick={handleInsertTrackedLink} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124', fontSize: '13px' }}
-                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f1f3f4')}
+                                            <div onClick={handleInsertTrackedLink} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '13px' }}
+                                                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
                                                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                                             >
-                                                <Link size={16} style={{ color: '#1a73e8' }} />
+                                                <Link size={16} style={{ color: 'var(--accent)' }} />
                                                 <span>Tracked link</span>
                                             </div>
-                                            <div onClick={handleInsertTrackedButton} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124', fontSize: '13px' }}
-                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f1f3f4')}
+                                            <div onClick={handleInsertTrackedButton} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '13px' }}
+                                                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
                                                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                                             >
-                                                <MousePointerClick size={16} style={{ color: '#1a73e8' }} />
+                                                <MousePointerClick size={16} style={{ color: 'var(--accent)' }} />
                                                 <span>Tracked button</span>
                                             </div>
-                                            <div style={{ borderTop: '1px solid #e8eaed', margin: '4px 0' }} />
-                                            <div onClick={() => { setIsTrackingEnabled(false); setShowTrackingMenu(false); }} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#ea4335', fontSize: '13px' }}
-                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#fce8e6')}
+                                            <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                                            <div onClick={() => { setIsTrackingEnabled(false); setShowTrackingMenu(false); }} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: 'var(--danger)', fontSize: '13px' }}
+                                                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--danger-light)')}
                                                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                                             >
                                                 <Unlink size={16} />
@@ -811,8 +814,8 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                             bottom: 'calc(100% + 10px)',
                                             left: '0',
                                             zIndex: 1000,
-                                            backgroundColor: '#ffffff',
-                                            border: '1px solid #e0e0e0',
+                                            backgroundColor: 'var(--bg-surface)',
+                                            border: '1px solid var(--border)',
                                             borderRadius: '8px',
                                             boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
                                             width: '320px'
@@ -827,10 +830,10 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                                     style={{
                                                         width: '100%',
                                                         padding: '8px',
-                                                        background: '#f1f3f4',
-                                                        border: '1px solid #e0e0e0',
+                                                        background: 'var(--bg-elevated)',
+                                                        border: '1px solid var(--border)',
                                                         borderRadius: '4px',
-                                                        color: '#202124',
+                                                        color: 'var(--text-primary)',
                                                         fontSize: '13px',
                                                         outline: 'none'
                                                     }}
@@ -839,7 +842,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                             <div className="emoji-picker-content" style={{ maxHeight: '250px', overflowY: 'auto', padding: '8px' }}>
                                                 {filteredEmojiGroups.map((group) => (
                                                     <div key={group.label} className="emoji-category">
-                                                        <div className="emoji-category-title" style={{ fontSize: '11px', color: '#5f6368', padding: '4px 8px', textTransform: 'uppercase', fontWeight: 600 }}>
+                                                        <div className="emoji-category-title" style={{ fontSize: '11px', color: 'var(--text-tertiary)', padding: '4px 8px', textTransform: 'uppercase', fontWeight: 600 }}>
                                                             {group.label}
                                                         </div>
                                                         <div className="emoji-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '4px' }}>
@@ -868,7 +871,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                                     </div>
                                                 ))}
                                                 {filteredEmojiGroups?.[0]?.emojis?.length === 0 && (
-                                                    <div className="no-emojis" style={{ textAlign: 'center', color: '#5f6368', padding: '16px' }}>No emojis found</div>
+                                                    <div className="no-emojis" style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '16px' }}>No emojis found</div>
                                                 )}
                                             </div>
                                         </div>
@@ -894,7 +897,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
 
                             <div className="compose-footer-right" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                 {sendResult && (
-                                    <span style={{ fontSize: '12px', color: sendResult.success ? '#81c995' : '#f28b82', paddingRight: '8px' }}>
+                                    <span style={{ fontSize: '12px', color: sendResult.success ? 'var(--success)' : 'var(--danger)', paddingRight: '8px' }}>
                                         {sendResult.message}
                                     </span>
                                 )}

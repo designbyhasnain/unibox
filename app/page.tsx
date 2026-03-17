@@ -240,11 +240,10 @@ export default function InboxPage() {
                 break;
             }
             case 'f': {
-                // Forward selected email
+                // Forward selected email — To field should be blank (user picks recipient)
                 e.preventDefault();
                 if (selectedEmail) {
-                    const fromEmail = selectedEmail.from_email?.match(/<([^>]+)>/)?.[1] || selectedEmail.from_email;
-                    setComposeDefaultTo(fromEmail);
+                    setComposeDefaultTo('');
                     setComposeDefaultSubject(
                         selectedEmail.subject?.startsWith('Fwd:') ? selectedEmail.subject : `Fwd: ${selectedEmail.subject || ''}`
                     );

@@ -63,7 +63,7 @@ async function computeAnalytics(
         fetchManagerLeaderboard(startDate, endDate),
         fetchAccountPerformance(startDate, endDate),
         fetchCoreStatsFromDB(startDate, endDate, managerId, filterAccountIds),
-        fetchPipelineFunnel(),
+        fetchPipelineFunnel(startDate, endDate),
     ]);
 
     // ─── 0. Response Time (derived from allMessages) ───────────────────────
@@ -130,7 +130,8 @@ function computeResponseTimes(allMessages: EmailMessageRow[]): ResponseTimeData 
         else entry.sent.push(date);
     }
 
-    // For each thread, pair each RECEIVED with the first subsequent SENT
+    // For each thread, pair each RECEIVED with the first subsequent SENT.
+    // Use a two-pointer approach so each SENT message is consumed at most once.
     const responseHours: number[] = [];
     for (const [, { received, sent }] of threadMap) {
         if (received.length === 0 || sent.length === 0) continue;
@@ -138,12 +139,16 @@ function computeResponseTimes(allMessages: EmailMessageRow[]): ResponseTimeData 
         received.sort((a, b) => a.getTime() - b.getTime());
         sent.sort((a, b) => a.getTime() - b.getTime());
 
+        let sentIdx = 0;
         for (const recvDate of received) {
-            // Find the first SENT message after this RECEIVED message
-            const reply = sent.find(s => s.getTime() > recvDate.getTime());
-            if (reply) {
-                const diffHours = (reply.getTime() - recvDate.getTime()) / (1000 * 60 * 60);
+            // Advance past any SENT messages that are before or at this RECEIVED time
+            while (sentIdx < sent.length && sent[sentIdx]!.getTime() <= recvDate.getTime()) {
+                sentIdx++;
+            }
+            if (sentIdx < sent.length) {
+                const diffHours = (sent[sentIdx]!.getTime() - recvDate.getTime()) / (1000 * 60 * 60);
                 responseHours.push(diffHours);
+                sentIdx++; // consume this sent message so it isn't reused
             }
         }
     }
@@ -200,11 +205,13 @@ function computeResponseTimes(allMessages: EmailMessageRow[]): ResponseTimeData 
 }
 
 // ─── Pipeline Funnel ─────────────────────────────────────────────────────────
-async function fetchPipelineFunnel(): Promise<PipelineFunnelEntry[]> {
+async function fetchPipelineFunnel(startDate: string, endDate: string): Promise<PipelineFunnelEntry[]> {
     const { data: pipelineContacts } = await supabase
         .from('contacts')
         .select('pipeline_stage')
-        .not('pipeline_stage', 'is', null);
+        .not('pipeline_stage', 'is', null)
+        .gte('created_at', startDate)
+        .lte('created_at', endDate);
 
     const contacts = pipelineContacts || [];
     return [

@@ -14,16 +14,16 @@ const ChartTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     return (
         <div style={{
-            background: '#fff', border: '1px solid #e0e0e0', borderRadius: 12,
+            background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12,
             padding: '12px 16px', boxShadow: '0 1px 3px 0 rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15)',
             minWidth: 160,
         }}>
-            <p style={{ fontWeight: 600, fontSize: '0.85rem', color: '#202124', marginBottom: 8 }}>{label}</p>
+            <p style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: 8 }}>{label}</p>
             {payload.map((entry: any, i: number) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: entry.color || entry.fill, flexShrink: 0 }} />
-                    <span style={{ fontSize: '0.8rem', color: '#444746', flex: 1 }}>{entry.name}</span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#202124' }}>{entry.value?.toLocaleString()}</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', flex: 1 }}>{entry.name}</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{entry.value?.toLocaleString()}</span>
                 </div>
             ))}
         </div>
@@ -78,13 +78,13 @@ export default function AnalyticsCharts({ data, deviceData, stats, kpis }: Analy
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart layout="vertical" data={data?.funnelData || []} margin={{ left: 10, right: 40 }}>
                                 <XAxis type="number" hide />
-                                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} fontSize={13} width={80} tick={{ fill: '#444746', fontWeight: 500 }} />
+                                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} fontSize={13} width={80} tick={{ fill: 'var(--text-secondary)', fontWeight: 500 }} />
                                 <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(0,0,0,0.02)' }} />
                                 <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={40}>
                                     {(data?.funnelData || []).map((_: any, i: number) => (
                                         <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                                     ))}
-                                    <LabelList dataKey="value" position="right" offset={12} style={{ fill: '#202124', fontSize: '13px', fontWeight: 600 }} />
+                                    <LabelList dataKey="value" position="right" offset={12} style={{ fill: 'var(--text-primary)', fontSize: '13px', fontWeight: 600 }} />
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
@@ -195,7 +195,7 @@ export default function AnalyticsCharts({ data, deviceData, stats, kpis }: Analy
                                         <stop offset="100%" stopColor="#1a73e8" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
-                                <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} interval={3} tick={{ fill: '#5f6368' }} />
+                                <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} interval={3} tick={{ fill: 'var(--text-tertiary)' }} />
                                 <YAxis hide />
                                 <Tooltip content={<ChartTooltip />} />
                                 <Area type="monotone" dataKey="replies" stroke="#1a73e8" strokeWidth={2.5} fillOpacity={1} fill="url(#areaGrad)" />
@@ -238,8 +238,8 @@ export default function AnalyticsCharts({ data, deviceData, stats, kpis }: Analy
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data?.responseTimeData?.responseDistribution || []}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                                <XAxis dataKey="bucket" tick={{ fontSize: 12 }} stroke="#5f6368" />
-                                <YAxis tick={{ fontSize: 12 }} stroke="#5f6368" />
+                                <XAxis dataKey="bucket" tick={{ fontSize: 12 }} stroke="var(--text-tertiary)" />
+                                <YAxis tick={{ fontSize: 12 }} stroke="var(--text-tertiary)" />
                                 <Bar dataKey="count" fill="#1a73e8" radius={[4, 4, 0, 0]} />
                                 <Tooltip content={<ChartTooltip />} />
                             </BarChart>
@@ -256,13 +256,13 @@ export default function AnalyticsCharts({ data, deviceData, stats, kpis }: Analy
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data?.pipelineFunnel || []} layout="vertical" margin={{ left: 10, right: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                                <XAxis type="number" tick={{ fontSize: 12 }} stroke="#5f6368" />
-                                <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} stroke="#5f6368" width={120} />
+                                <XAxis type="number" tick={{ fontSize: 12 }} stroke="var(--text-tertiary)" />
+                                <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} stroke="var(--text-tertiary)" width={120} />
                                 <Bar dataKey="value" radius={[0, 4, 4, 0]}>
                                     {(data?.pipelineFunnel || []).map((entry: any, index: number) => (
                                         <Cell key={index} fill={entry.fill} />
                                     ))}
-                                    <LabelList dataKey="value" position="right" offset={8} style={{ fill: '#202124', fontSize: '12px', fontWeight: 600 }} />
+                                    <LabelList dataKey="value" position="right" offset={8} style={{ fill: 'var(--text-primary)', fontSize: '12px', fontWeight: 600 }} />
                                 </Bar>
                                 <Tooltip content={<ChartTooltip />} />
                             </BarChart>

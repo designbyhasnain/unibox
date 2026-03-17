@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 
 export function ThemeToggle() {
+    const [mounted, setMounted] = useState(false);
     const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
     useEffect(() => {
@@ -14,6 +15,7 @@ export function ThemeToggle() {
             setTheme('dark');
             document.documentElement.setAttribute('data-theme', 'dark');
         }
+        setMounted(true);
     }, []);
 
     const toggle = () => {
@@ -22,6 +24,10 @@ export function ThemeToggle() {
         document.documentElement.setAttribute('data-theme', next);
         localStorage.setItem('unibox_theme', next);
     };
+
+    if (!mounted) {
+        return <div className="theme-toggle-btn" style={{ width: 36, height: 36 }} />;
+    }
 
     return (
         <button
