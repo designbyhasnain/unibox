@@ -175,6 +175,645 @@
     --ease: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ─── Dark Mode ────────────────────────────────────────────────── */
+[data-theme="dark"] {
+    --bg-base: #1a1a2e;
+    --bg-surface: #16213e;
+    --bg-elevated: #1a1a2e;
+    --bg-card: #1e2a45;
+    --bg-hover: #1e2a45;
+    --bg-active: #233554;
+    --bg-selected: #233554;
+    --bg-tertiary: #1e2a45;
+
+    --text-primary: #e2e8f0;
+    --text-secondary: #a0aec0;
+    --text-muted: #718096;
+    --text-accent: #63b3ed;
+    --text-tertiary: #718096;
+
+    --accent: #63b3ed;
+    --accent-hover: #4299e1;
+    --accent-light: rgba(99, 179, 237, 0.15);
+    --accent-glow: rgba(99, 179, 237, 0.25);
+    --accent-primary: var(--accent);
+
+    --success: #48bb78;
+    --success-light: rgba(72, 187, 120, 0.15);
+    --warning: #ecc94b;
+    --warning-light: rgba(236, 201, 75, 0.15);
+    --danger: #fc8181;
+    --danger-light: rgba(252, 129, 129, 0.15);
+    --purple: #b794f4;
+    --purple-light: rgba(183, 148, 244, 0.15);
+
+    --accent-danger: var(--danger);
+    --accent-danger-light: rgba(252, 129, 129, 0.1);
+    --accent-danger-border: rgba(252, 129, 129, 0.3);
+
+    --border: #2d3748;
+    --border-strong: #4a5568;
+    --border-color: var(--border);
+
+    --bg-primary: #16213e;
+    --bg-secondary: #1a1a2e;
+    --bg-overlay: rgba(0, 0, 0, 0.75);
+
+    --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.4), 0 1px 3px 1px rgba(0,0,0,0.3);
+    --shadow-md: 0 1px 3px 0 rgba(0,0,0,0.4), 0 4px 8px 3px rgba(0,0,0,0.3);
+    --shadow-lg: 0 2px 6px 2px rgba(0,0,0,0.3), 0 1px 2px 0 rgba(0,0,0,0.4);
+    --shadow-xl: 0 8px 24px -6px rgba(0,0,0,0.5);
+
+    color-scheme: dark;
+}
+
+/* Dark mode overrides for hardcoded colors */
+[data-theme="dark"] .skeleton-box {
+    background: #2d3748;
+    background-image: linear-gradient(90deg, #2d3748 0px, #4a5568 40px, #2d3748 80px);
+}
+
+[data-theme="dark"] .skeleton-row {
+    border-bottom-color: #2d3748;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: var(--bg-surface);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+[data-theme="dark"] .nav-item:hover {
+    background: var(--bg-hover);
+}
+
+[data-theme="dark"] .compose-btn {
+    background: #233554;
+    color: #63b3ed;
+}
+
+[data-theme="dark"] .compose-btn:hover {
+    background: #2a4365;
+}
+
+[data-theme="dark"] .search-bar {
+    background: #1e2a45;
+    border-color: #2d3748;
+}
+
+[data-theme="dark"] .search-bar:focus-within {
+    background: #16213e;
+    border-color: #4a5568;
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.4), 0 4px 8px 3px rgba(0,0,0,0.3);
+}
+
+[data-theme="dark"] .search-bar--focused {
+    background: #16213e !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(0,0,0,0.3) !important;
+}
+
+[data-theme="dark"] .search-popup {
+    background: #16213e;
+    border-top-color: #2d3748;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4), 0 8px 16px rgba(0,0,0,0.3);
+}
+
+[data-theme="dark"] .search-chips {
+    border-bottom-color: #2d3748;
+    background: #16213e;
+}
+
+[data-theme="dark"] .search-chip {
+    background: #1e2a45;
+    border-color: #4a5568;
+    color: #a0aec0;
+}
+
+[data-theme="dark"] .search-chip:hover {
+    background: #233554;
+}
+
+[data-theme="dark"] .search-chip.active {
+    background: rgba(99, 179, 237, 0.15);
+    border-color: rgba(99, 179, 237, 0.3);
+    color: #63b3ed;
+}
+
+[data-theme="dark"] .search-item:hover {
+    background: #1e2a45;
+}
+
+[data-theme="dark"] .search-item-icon {
+    color: #718096;
+}
+
+[data-theme="dark"] .search-item-title {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .search-item-date,
+[data-theme="dark"] .search-item-sub {
+    color: #718096;
+}
+
+[data-theme="dark"] .search-all-btn {
+    border-top-color: #2d3748;
+    color: #63b3ed;
+    background: #16213e;
+}
+
+[data-theme="dark"] .search-all-btn:hover {
+    background: #1e2a45;
+}
+
+[data-theme="dark"] .press-enter-label {
+    color: #718096;
+    background: #1e2a45;
+}
+
+[data-theme="dark"] .search-filter-btn {
+    color: #718096;
+}
+
+[data-theme="dark"] .search-filter-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .adv-search-popup {
+    background: #16213e;
+    color: #e2e8f0;
+    border-color: #4a5568;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+
+[data-theme="dark"] .adv-search-row label {
+    color: #718096;
+}
+
+[data-theme="dark"] .adv-search-row input[type="text"],
+[data-theme="dark"] .adv-search-row select {
+    border-bottom-color: #4a5568;
+    color: #e2e8f0;
+    background: transparent;
+}
+
+[data-theme="dark"] .adv-search-row input[type="text"]:focus {
+    border-bottom-color: #63b3ed;
+}
+
+[data-theme="dark"] .adv-date-input {
+    border-color: #4a5568;
+    background: #1e2a45;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .adv-footer-btn {
+    color: #a0aec0;
+}
+
+[data-theme="dark"] .adv-footer-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .adv-btn-ghost {
+    color: #a0aec0;
+}
+
+[data-theme="dark"] .adv-btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .adv-btn-primary {
+    background: #63b3ed;
+    color: #1a1a2e;
+}
+
+[data-theme="dark"] .adv-btn-primary:hover {
+    background: #4299e1;
+}
+
+[data-theme="dark"] .search-result-item:hover {
+    background: #1e2a45;
+}
+
+[data-theme="dark"] .search-result-avatar {
+    background: #63b3ed;
+}
+
+[data-theme="dark"] .search-result-sender {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .search-result-date,
+[data-theme="dark"] .search-result-preview {
+    color: #718096;
+}
+
+[data-theme="dark"] .search-result-subject {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .search-loading,
+[data-theme="dark"] .search-no-results {
+    color: #718096;
+}
+
+[data-theme="dark"] .search-all-link {
+    border-top-color: #2d3748;
+    color: #63b3ed;
+}
+
+[data-theme="dark"] .search-all-link:hover {
+    background: #1e2a45;
+}
+
+/* Gmail email row dark overrides */
+[data-theme="dark"] .gmail-list-header {
+    border-bottom-color: #2d3748;
+    background: #16213e;
+    color: #718096;
+}
+
+[data-theme="dark"] .gmail-email-row {
+    border-bottom-color: #2d3748;
+    background: #16213e !important;
+}
+
+[data-theme="dark"] .gmail-email-row.unread {
+    background: #1e2a45 !important;
+}
+
+[data-theme="dark"] .gmail-email-row.read {
+    background: #16213e !important;
+}
+
+[data-theme="dark"] .gmail-email-row:hover {
+    background: #233554 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+[data-theme="dark"] .gmail-email-row.selected {
+    background: #233554 !important;
+}
+
+[data-theme="dark"] .gmail-email-row:focus-visible {
+    background: #233554 !important;
+}
+
+[data-theme="dark"] .gmail-row-sender {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .gmail-email-row.unread .gmail-row-sender {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .gmail-row-subject {
+    color: #a0aec0;
+}
+
+[data-theme="dark"] .gmail-email-row.unread .gmail-row-subject {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .gmail-row-dash,
+[data-theme="dark"] .gmail-row-preview {
+    color: #718096;
+}
+
+[data-theme="dark"] .gmail-row-account {
+    color: #718096;
+}
+
+[data-theme="dark"] .gmail-row-manager {
+    color: #63b3ed;
+}
+
+[data-theme="dark"] .gmail-row-date {
+    color: #a0aec0;
+}
+
+[data-theme="dark"] .gmail-email-row.unread .gmail-row-date {
+    color: #e2e8f0;
+}
+
+/* Old email row dark overrides */
+[data-theme="dark"] .email-row {
+    background: #1e2a45;
+}
+
+[data-theme="dark"] .email-row:hover {
+    background: #233554;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+[data-theme="dark"] .email-row.selected {
+    background: #233554;
+}
+
+[data-theme="dark"] .email-row.unread {
+    background: #16213e;
+}
+
+[data-theme="dark"] .email-row.unread:hover {
+    background: #233554;
+}
+
+[data-theme="dark"] .grid-row:hover {
+    background: #233554;
+    border-color: #4a5568;
+    box-shadow: var(--shadow-md);
+}
+
+[data-theme="dark"] .grid-row.unread {
+    background: #1e2a45;
+}
+
+/* Detail panel dark overrides */
+[data-theme="dark"] .detail-panel {
+    background: #16213e;
+}
+
+[data-theme="dark"] .detail-header {
+    background: #16213e;
+}
+
+[data-theme="dark"] .detail-body {
+    background: #16213e;
+}
+
+[data-theme="dark"] .gmail-toolbar {
+    background: #16213e;
+}
+
+[data-theme="dark"] .gmail-subject-bar {
+    background: #16213e;
+}
+
+[data-theme="dark"] .gmail-thread-body {
+    background: #16213e;
+}
+
+[data-theme="dark"] .gmail-reply-footer {
+    background: #16213e;
+}
+
+[data-theme="dark"] .gmail-msg-body {
+    color: #a0aec0;
+}
+
+/* Compose modal dark overrides */
+[data-theme="dark"] .compose-modal {
+    background: #16213e;
+    border-color: #2d3748;
+    color: #e2e8f0;
+    box-shadow: 0 8px 10px 1px rgba(0,0,0,0.2), 0 3px 14px 2px rgba(0,0,0,0.15);
+}
+
+[data-theme="dark"] .compose-body-container {
+    background: #16213e;
+}
+
+[data-theme="dark"] .compose-row {
+    border-bottom-color: rgba(255,255,255,0.08);
+}
+
+[data-theme="dark"] .compose-row:hover {
+    background: rgba(255,255,255,0.02);
+}
+
+[data-theme="dark"] .compose-inline-label {
+    color: #718096;
+}
+
+[data-theme="dark"] .compose-input {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .compose-input::placeholder {
+    color: #718096;
+}
+
+[data-theme="dark"] select.compose-input option {
+    background: #16213e;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .compose-cc-bcc-actions {
+    color: #718096;
+}
+
+[data-theme="dark"] .compose-editor {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .compose-editor:empty:before,
+[data-theme="dark"] .compose-editor:not(:focus):not([data-has-content]):before {
+    color: #718096;
+}
+
+[data-theme="dark"] .compose-footer {
+    background: #1a1a2e;
+    border-top-color: rgba(255,255,255,0.08);
+}
+
+[data-theme="dark"] .compose-icon-btn {
+    color: #a0aec0;
+}
+
+[data-theme="dark"] .compose-icon-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .formatting-toolbar {
+    background: #1a1a2e;
+    border-top-color: #2d3748;
+}
+
+[data-theme="dark"] .format-separator {
+    background: #4a5568;
+}
+
+[data-theme="dark"] .format-btn {
+    color: #a0aec0;
+}
+
+[data-theme="dark"] .format-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .format-select {
+    color: #a0aec0;
+}
+
+[data-theme="dark"] .format-select:hover {
+    background: #1e2a45;
+}
+
+[data-theme="dark"] .format-select option {
+    background: #16213e;
+    color: #e2e8f0;
+}
+
+/* Inline reply dark overrides */
+[data-theme="dark"] .inline-reply-footer {
+    background: #1a1a2e;
+}
+
+/* Emoji picker dark overrides */
+[data-theme="dark"] .emoji-picker-advanced {
+    background: #16213e;
+    border-color: #2d3748;
+    color: #e2e8f0;
+    box-shadow: 0 12px 24px rgba(0,0,0,0.3);
+}
+
+[data-theme="dark"] .emoji-picker-header {
+    border-bottom-color: #2d3748;
+    background: #16213e;
+}
+
+[data-theme="dark"] .emoji-search-container {
+    background: #1e2a45;
+}
+
+[data-theme="dark"] .emoji-search-container input {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .emoji-search-container input::placeholder {
+    color: #718096;
+}
+
+[data-theme="dark"] .category-btn:hover,
+[data-theme="dark"] .category-btn.active {
+    background: #1e2a45;
+}
+
+[data-theme="dark"] .emoji-picker-scroll::-webkit-scrollbar-thumb {
+    background: #4a5568;
+}
+
+[data-theme="dark"] .emoji-divider {
+    color: #718096;
+}
+
+[data-theme="dark"] .emoji-grid span:hover {
+    background: #1e2a45;
+}
+
+[data-theme="dark"] .no-emojis {
+    color: #718096;
+}
+
+/* Attachment dark overrides */
+[data-theme="dark"] .compose-attachments-preview {
+    border-top-color: #2d3748;
+    background: #1a1a2e;
+}
+
+[data-theme="dark"] .attachment-chip {
+    background: #1e2a45;
+    color: #a0aec0;
+}
+
+[data-theme="dark"] .attachment-chip button {
+    color: #718096;
+}
+
+[data-theme="dark"] .attachment-chip button:hover {
+    color: #e2e8f0;
+}
+
+/* Badge dark overrides */
+[data-theme="dark"] .badge-blue {
+    background: rgba(99, 179, 237, 0.15);
+    color: #63b3ed;
+}
+
+[data-theme="dark"] .badge-green {
+    background: rgba(72, 187, 120, 0.15);
+    color: #48bb78;
+}
+
+[data-theme="dark"] .badge-yellow {
+    background: rgba(236, 201, 75, 0.15);
+    color: #ecc94b;
+}
+
+[data-theme="dark"] .badge-red {
+    background: rgba(252, 129, 129, 0.15);
+    color: #fc8181;
+}
+
+[data-theme="dark"] .badge-purple {
+    background: rgba(183, 148, 244, 0.15);
+    color: #b794f4;
+}
+
+/* Open count badge dark override */
+[data-theme="dark"] .open-count-badge {
+    color: #63b3ed;
+    background: rgba(99, 179, 237, 0.15);
+    border-color: rgba(99, 179, 237, 0.2);
+    box-shadow: 0 1px 2px rgba(99, 179, 237, 0.1);
+}
+
+/* Gmail fold dark overrides */
+[data-theme="dark"] .gmail-fold-line {
+    background: #2d3748;
+}
+
+[data-theme="dark"] .gmail-fold-chip {
+    background: #1e2a45;
+    border-color: #2d3748;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+[data-theme="dark"] .gmail-fold-badge-container:hover .gmail-fold-chip {
+    background: #233554;
+}
+
+[data-theme="dark"] .gmail-fold-count {
+    color: #718096;
+}
+
+[data-theme="dark"] .gmail-fold-badge-container:hover .gmail-fold-count {
+    color: #63b3ed;
+}
+
+/* Date input dark override */
+[data-theme="dark"] input[type="date"] {
+    color-scheme: dark;
+}
+
+/* ─── Theme Toggle Button ────────────────────────────────────────── */
+.theme-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--duration-normal);
+}
+
+.theme-toggle-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
 /* ─── Reset ─────────────────────────────────────────────────────── */
 *,
 *::before,
@@ -5677,4 +6316,54 @@ textarea:focus-visible {
   font-size: 12px;
   color: var(--color-amber, #f59e0b);
   margin-top: 4px;
+}
+
+/* ─── Attachment Download Styles ───────────────────────────────────────────── */
+.email-attachments {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.email-attachments-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.email-attachments-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.email-attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+.email-attachment-chip:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.email-attachment-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.email-attachment-size {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }

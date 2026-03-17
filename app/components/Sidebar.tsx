@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useGlobalFilter } from '../context/FilterContext';
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { DEFAULT_USER_ID } from '../constants/config';
+import { ThemeToggle } from './ThemeToggle';
 
 const Icons = {
     Inbox: () => (
@@ -161,6 +162,9 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                         {label}
                     </Link>
                 ))}
+                <div style={{ marginTop: '8px', paddingLeft: '4px' }}>
+                    <ThemeToggle />
+                </div>
             </div>
         </aside>
     );

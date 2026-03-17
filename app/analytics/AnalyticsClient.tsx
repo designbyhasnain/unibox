@@ -10,6 +10,13 @@ import { getManagersAction } from '../../src/actions/projectActions';
 import { useGlobalFilter } from '../context/FilterContext';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
+
+function formatResponseTime(hours: number | null): string {
+    if (hours === null || hours === undefined) return 'N/A';
+    if (hours < 1) return `${Math.round(hours * 60)}m`;
+    if (hours < 24) return `${hours.toFixed(1)}h`;
+    return `${(hours / 24).toFixed(1)}d`;
+}
 import DateRangePicker from '../components/DateRangePicker';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import { DEFAULT_USER_ID } from '../constants/config';
@@ -33,6 +40,8 @@ type AnalyticsSuccessResult = {
     hourlyEngagement: any;
     topSubjects: any;
     accountPerformance: any;
+    responseTimeData?: any;
+    pipelineFunnel?: any;
 };
 
 type DeviceAnalyticsResult = {
@@ -142,6 +151,7 @@ export function AnalyticsClient({ initialData, initialDeviceData }: AnalyticsCli
         { label: 'Open Rate', value: stats?.openRate || '0%', detail: `${stats?.openedEmails?.toLocaleString() || '0'} unique opens`, icon: <svg width="18" height="18" fill="none" stroke="#1e8e3e" strokeWidth="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> },
         { label: 'Click Rate', value: stats?.clickRate || '0%', detail: `${stats?.clickedEmails?.toLocaleString() || '0'} link clicks`, icon: <svg width="18" height="18" fill="none" stroke="#f9ab00" strokeWidth="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> },
         { label: 'Deliverability', value: data?.deliverability?.inboxRate || '100%', detail: data?.deliverability?.health || 'Excellent', icon: <svg width="18" height="18" fill="none" stroke="#8430ce" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> },
+        { label: 'Avg Response Time', value: formatResponseTime(stats?.avgResponseTimeHours ?? null), detail: `Median: ${formatResponseTime(stats?.medianResponseTimeHours ?? null)}`, icon: <svg width="18" height="18" fill="none" stroke="#129eaf" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> },
     ];
 
     return (
@@ -322,7 +332,7 @@ export function AnalyticsClient({ initialData, initialDeviceData }: AnalyticsCli
                 /* ── Stats row ─────────────────────────────── */
                 .a-stats-row {
                     display: grid;
-                    grid-template-columns: repeat(4, 1fr);
+                    grid-template-columns: repeat(5, 1fr);
                     gap: var(--space-lg);
                 }
                 .a-stat {

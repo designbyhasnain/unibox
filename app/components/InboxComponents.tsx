@@ -10,6 +10,13 @@ import { useEmailBody } from '../hooks/useEmailBody';
 
 import { STAGE_COLORS, STAGE_LABELS, STAGE_OPTIONS } from '../constants/stages';
 
+function formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
 
 interface EmailRowProps {
     email: any;
@@ -985,14 +992,26 @@ export function EmailDetail({
 
                                                 {/* Attachments */}
                                                 {resolvedAtts && resolvedAtts.length > 0 && (
-                                                    <div className="gmail-attachments">
-                                                        {resolvedAtts.map((a: any) => (
-                                                            <div key={a.id} className="gmail-attachment-chip">
-                                                                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
-                                                                <span>{a.filename || 'Attachment'}</span>
-                                                                <span className="gmail-att-size">{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ''}</span>
-                                                            </div>
-                                                        ))}
+                                                    <div className="email-attachments">
+                                                        <div className="email-attachments-header">
+                                                            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                                                            <span>{resolvedAtts.length} attachment{resolvedAtts.length > 1 ? 's' : ''}</span>
+                                                        </div>
+                                                        <div className="email-attachments-list">
+                                                            {resolvedAtts.map((a: any, i: number) => (
+                                                                <a
+                                                                    key={a.id || i}
+                                                                    href={`/api/email/attachment?messageId=${msg.id}&attachmentId=${a.id}&accountId=${email.gmail_account_id}&filename=${encodeURIComponent(a.filename || 'attachment')}&mimeType=${encodeURIComponent(a.mimeType || 'application/octet-stream')}`}
+                                                                    download={a.filename || 'attachment'}
+                                                                    className="email-attachment-chip"
+                                                                    title={`Download ${a.filename || 'attachment'}`}
+                                                                >
+                                                                    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                                                    <span className="email-attachment-name">{a.filename || 'Attachment'}</span>
+                                                                    <span className="email-attachment-size">{a.size ? formatFileSize(a.size) : ''}</span>
+                                                                </a>
+                                                            ))}
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>

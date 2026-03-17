@@ -4,8 +4,16 @@ import { unstable_cache } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { parseUserAgent } from '../../app/utils/parseUserAgent';
 
+type ResponseTimeData = {
+    avgResponseTimeHours: number | null;
+    medianResponseTimeHours: number | null;
+    responseDistribution: { bucket: string; count: number }[];
+};
+
+type PipelineFunnelEntry = { name: string; value: number; fill: string };
+
 type AnalyticsResult =
-    | { success: true; stats: any; funnelData: any; leaderboard: any; deliverability: any; sentimentData: any; dailyData: any; hourlyEngagement: any; topSubjects: any; accountPerformance: any }
+    | { success: true; stats: any; funnelData: any; leaderboard: any; deliverability: any; sentimentData: any; dailyData: any; hourlyEngagement: any; topSubjects: any; accountPerformance: any; responseTimeData: ResponseTimeData; pipelineFunnel: PipelineFunnelEntry[] }
     | { success: false; error: string };
 
 export async function getAnalyticsDataAction(params: {
@@ -50,15 +58,19 @@ async function computeAnalytics(
     // Fix C: run ALL independent heavy queries in parallel instead of sequentially.
     // fetchAllMessages, fetchManagerLeaderboard, fetchAccountPerformance, and the
     // contacts/projects sub-queries inside fetchCoreStats are all independent at this level.
-    const [allMessages, leaderboard, accountPerformance, coreStatsRaw] = await Promise.all([
+    const [allMessages, leaderboard, accountPerformance, coreStatsRaw, pipelineFunnel] = await Promise.all([
         fetchAllMessages(startDate, endDate, filterAccountIds),
         fetchManagerLeaderboard(startDate, endDate),
         fetchAccountPerformance(startDate, endDate),
         fetchCoreStatsFromDB(startDate, endDate, managerId, filterAccountIds),
+        fetchPipelineFunnel(),
     ]);
 
+    // ─── 0. Response Time (derived from allMessages) ───────────────────────
+    const responseTimeData = computeResponseTimes(allMessages);
+
     // ─── 1. Core KPIs (derived from allMessages + DB counts) ───────────────
-    const stats = buildCoreStats(allMessages, coreStatsRaw);
+    const stats = buildCoreStats(allMessages, coreStatsRaw, responseTimeData);
 
     // ─── 2. Conversion Funnel ──────────────────────────────────────────────
     const funnelData = [
@@ -95,7 +107,113 @@ async function computeAnalytics(
         hourlyEngagement,
         topSubjects,
         accountPerformance,
+        responseTimeData,
+        pipelineFunnel,
     };
+}
+
+// ─── Response Time Calculation ────────────────────────────────────────────────
+// For each RECEIVED message in a thread, find the first subsequent SENT message
+// and compute the time difference. Returns avg, median, and distribution buckets.
+function computeResponseTimes(allMessages: EmailMessageRow[]): ResponseTimeData {
+    // Group messages by thread
+    const threadMap = new Map<string, { received: Date[]; sent: Date[] }>();
+    for (const msg of allMessages) {
+        if (msg.direction !== 'SENT' && msg.direction !== 'RECEIVED') continue;
+        if (!msg.thread_id || !msg.sent_at) continue;
+        if (!threadMap.has(msg.thread_id)) {
+            threadMap.set(msg.thread_id, { received: [], sent: [] });
+        }
+        const entry = threadMap.get(msg.thread_id)!;
+        const date = new Date(msg.sent_at);
+        if (msg.direction === 'RECEIVED') entry.received.push(date);
+        else entry.sent.push(date);
+    }
+
+    // For each thread, pair each RECEIVED with the first subsequent SENT
+    const responseHours: number[] = [];
+    for (const [, { received, sent }] of threadMap) {
+        if (received.length === 0 || sent.length === 0) continue;
+        // Sort both arrays by time
+        received.sort((a, b) => a.getTime() - b.getTime());
+        sent.sort((a, b) => a.getTime() - b.getTime());
+
+        for (const recvDate of received) {
+            // Find the first SENT message after this RECEIVED message
+            const reply = sent.find(s => s.getTime() > recvDate.getTime());
+            if (reply) {
+                const diffHours = (reply.getTime() - recvDate.getTime()) / (1000 * 60 * 60);
+                responseHours.push(diffHours);
+            }
+        }
+    }
+
+    if (responseHours.length === 0) {
+        return {
+            avgResponseTimeHours: null,
+            medianResponseTimeHours: null,
+            responseDistribution: [
+                { bucket: '< 1h', count: 0 },
+                { bucket: '1-4h', count: 0 },
+                { bucket: '4-12h', count: 0 },
+                { bucket: '12-24h', count: 0 },
+                { bucket: '1-3d', count: 0 },
+                { bucket: '> 3d', count: 0 },
+            ],
+        };
+    }
+
+    // Calculate avg
+    const avg = responseHours.reduce((sum, h) => sum + h, 0) / responseHours.length;
+
+    // Calculate median
+    const sorted = [...responseHours].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 === 0
+        ? ((sorted[mid - 1]!) + (sorted[mid]!)) / 2
+        : sorted[mid]!;
+
+    // Build distribution buckets
+    const buckets = [
+        { bucket: '< 1h', count: 0 },
+        { bucket: '1-4h', count: 0 },
+        { bucket: '4-12h', count: 0 },
+        { bucket: '12-24h', count: 0 },
+        { bucket: '1-3d', count: 0 },
+        { bucket: '> 3d', count: 0 },
+    ];
+
+    for (const h of responseHours) {
+        if (h < 1) buckets[0]!.count++;
+        else if (h < 4) buckets[1]!.count++;
+        else if (h < 12) buckets[2]!.count++;
+        else if (h < 24) buckets[3]!.count++;
+        else if (h < 72) buckets[4]!.count++;
+        else buckets[5]!.count++;
+    }
+
+    return {
+        avgResponseTimeHours: Math.round(avg * 10) / 10,
+        medianResponseTimeHours: Math.round(median * 10) / 10,
+        responseDistribution: buckets,
+    };
+}
+
+// ─── Pipeline Funnel ─────────────────────────────────────────────────────────
+async function fetchPipelineFunnel(): Promise<PipelineFunnelEntry[]> {
+    const { data: pipelineContacts } = await supabase
+        .from('contacts')
+        .select('pipeline_stage')
+        .not('pipeline_stage', 'is', null);
+
+    const contacts = pipelineContacts || [];
+    return [
+        { name: 'Cold Leads', value: contacts.filter(c => c.pipeline_stage === 'COLD_LEAD').length, fill: '#6366f1' },
+        { name: 'Leads', value: contacts.filter(c => c.pipeline_stage === 'LEAD').length, fill: '#f59e0b' },
+        { name: 'Offer Accepted', value: contacts.filter(c => c.pipeline_stage === 'OFFER_ACCEPTED').length, fill: '#10b981' },
+        { name: 'Closed', value: contacts.filter(c => c.pipeline_stage === 'CLOSED').length, fill: '#8b5cf6' },
+        { name: 'Not Interested', value: contacts.filter(c => c.pipeline_stage === 'NOT_INTERESTED').length, fill: '#ef4444' },
+    ];
 }
 
 // ─── Resolve accountId/managerId to a list of gmail_account IDs (or null = ALL) ──
@@ -125,6 +243,7 @@ type EmailMessageRow = {
     subject: string | null;
     opens_count: number | null;
     clicks_count: number | null;
+    thread_id: string;
 };
 
 async function fetchAllMessages(
@@ -134,7 +253,7 @@ async function fetchAllMessages(
 ): Promise<EmailMessageRow[]> {
     let query = supabase
         .from('email_messages')
-        .select('sent_at, direction, is_spam, subject, opens_count, clicks_count')
+        .select('sent_at, direction, is_spam, subject, opens_count, clicks_count, thread_id')
         .gte('sent_at', startDate)
         .lte('sent_at', endDate)
         .limit(10000);
@@ -185,7 +304,8 @@ async function fetchCoreStatsFromDB(
 // ─── Build core stats from pre-fetched messages + DB results ─────────────────
 function buildCoreStats(
     allMessages: EmailMessageRow[],
-    coreStatsRaw: Awaited<ReturnType<typeof fetchCoreStatsFromDB>>
+    coreStatsRaw: Awaited<ReturnType<typeof fetchCoreStatsFromDB>>,
+    responseTimeData: ResponseTimeData
 ) {
     const sentMessages = allMessages.filter(m => m.direction === 'SENT');
     const receivedMessages = allMessages.filter(m => m.direction === 'RECEIVED');
@@ -216,7 +336,9 @@ function buildCoreStats(
         openRate: openRateNum.toFixed(1) + '%',
         clickRate: clickRateNum.toFixed(1) + '%',
         openedEmails,
-        clickedEmails
+        clickedEmails,
+        avgResponseTimeHours: responseTimeData.avgResponseTimeHours,
+        medianResponseTimeHours: responseTimeData.medianResponseTimeHours,
     };
 }
 

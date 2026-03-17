@@ -3,7 +3,7 @@
 import React from 'react';
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-    AreaChart, Area, PieChart, Pie, Cell, LabelList
+    AreaChart, Area, PieChart, Pie, Cell, LabelList, CartesianGrid
 } from 'recharts';
 
 /* ── Palette matching app design system (Gmail-inspired) ──────────── */
@@ -29,6 +29,14 @@ const ChartTooltip = ({ active, payload, label }: any) => {
         </div>
     );
 };
+
+/* ── Format response time for display ──────────────────────────────── */
+function formatResponseTime(hours: number | null): string {
+    if (hours === null || hours === undefined) return 'N/A';
+    if (hours < 1) return `${Math.round(hours * 60)}m`;
+    if (hours < 24) return `${hours.toFixed(1)}h`;
+    return `${(hours / 24).toFixed(1)}d`;
+}
 
 interface AnalyticsChartsProps {
     data: any;
@@ -219,7 +227,51 @@ export default function AnalyticsCharts({ data, deviceData, stats, kpis }: Analy
                 </div>
             </div>
 
-            {/* ── Row 4: Device & Browser Analytics ── */}
+            {/* ── Row 4: Response Time Distribution + Pipeline Overview ── */}
+            <div className="a-grid">
+                <div className="a-card a-card--7">
+                    <div className="a-card-header">
+                        <h3 className="a-card-title">Response Time Distribution</h3>
+                        <p className="a-card-sub">How quickly you reply to incoming emails</p>
+                    </div>
+                    <div className="a-chart-container" style={{ height: 250 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={data?.responseTimeData?.responseDistribution || []}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                                <XAxis dataKey="bucket" tick={{ fontSize: 12 }} stroke="#5f6368" />
+                                <YAxis tick={{ fontSize: 12 }} stroke="#5f6368" />
+                                <Bar dataKey="count" fill="#1a73e8" radius={[4, 4, 0, 0]} />
+                                <Tooltip content={<ChartTooltip />} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                <div className="a-card a-card--5">
+                    <div className="a-card-header">
+                        <h3 className="a-card-title">Pipeline Overview</h3>
+                        <p className="a-card-sub">Contact distribution by pipeline stage</p>
+                    </div>
+                    <div className="a-chart-container" style={{ height: 250 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={data?.pipelineFunnel || []} layout="vertical" margin={{ left: 10, right: 20 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                                <XAxis type="number" tick={{ fontSize: 12 }} stroke="#5f6368" />
+                                <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} stroke="#5f6368" width={120} />
+                                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                                    {(data?.pipelineFunnel || []).map((entry: any, index: number) => (
+                                        <Cell key={index} fill={entry.fill} />
+                                    ))}
+                                    <LabelList dataKey="value" position="right" offset={8} style={{ fill: '#202124', fontSize: '12px', fontWeight: 600 }} />
+                                </Bar>
+                                <Tooltip content={<ChartTooltip />} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+
+            {/* ── Row 5: Device & Browser Analytics ── */}
             {deviceData && (
                 <div className="a-grid a-grid--3">
                     {/* Device Type */}

@@ -8,6 +8,62 @@ import DOMPurify from 'dompurify';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
 import { DEFAULT_USER_ID } from '../constants/config';
 
+const DRAFT_STORAGE_KEY = 'unibox_compose_draft';
+const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+interface Draft {
+    to: string;
+    subject: string;
+    body: string;
+    cc: string;
+    bcc: string;
+    fromAccountId: string | null;
+    isTrackingEnabled: boolean;
+    savedAt: number;
+    threadId?: string;
+}
+
+function formatTimeAgo(timestamp: number): string {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return 'over a day ago';
+}
+
+function loadDraft(): Draft | null {
+    try {
+        const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+        if (!raw) return null;
+        const draft: Draft = JSON.parse(raw);
+        if (Date.now() - draft.savedAt > DRAFT_MAX_AGE_MS) {
+            localStorage.removeItem(DRAFT_STORAGE_KEY);
+            return null;
+        }
+        return draft;
+    } catch {
+        return null;
+    }
+}
+
+function saveDraft(draft: Draft): void {
+    try {
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    } catch {
+        // Private browsing or quota exceeded — silently ignore
+    }
+}
+
+function clearDraft(): void {
+    try {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch {
+        // Private browsing — silently ignore
+    }
+}
+
 interface ComposeModalProps {
     onClose: () => void;
     defaultTo?: string;
@@ -48,6 +104,10 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const savedSelection = useRef<Range | null>(null);
     const [emojiSearch, setEmojiSearch] = useState('');
     const [activeEmojiCategory, setActiveEmojiCategory] = useState('Faces');
+
+    // Draft auto-save state
+    const [hasDraft, setHasDraft] = useState(false);
+    const [draftRestoredAt, setDraftRestoredAt] = useState<number>(0);
 
     // Ref to track dropdown/picker state for the click-outside handler (avoids listener leak)
     const dropdownStateRef = useRef({ showEmojiPicker, showMoreOptions, showFromDropdown, showTrackingMenu });
@@ -121,6 +181,66 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         };
     }, []); // Empty deps — register once, no leak
 
+    // Draft restore — runs once on mount
+    const isReply = !!(defaultTo || threadId);
+    useEffect(() => {
+        if (isReply) return; // Don't restore draft for replies/forwards
+        const draft = loadDraft();
+        if (!draft) return;
+        setTo(draft.to || '');
+        setSubject(draft.subject || '');
+        setBody(draft.body || '');
+        if (draft.cc) { setCc(draft.cc); setShowCc(true); }
+        if (draft.bcc) { setBcc(draft.bcc); setShowBcc(true); }
+        if (draft.fromAccountId) setFromAccount(draft.fromAccountId);
+        setIsTrackingEnabled(draft.isTrackingEnabled);
+        setHasDraft(true);
+        setDraftRestoredAt(draft.savedAt);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Mount-only
+
+    // Draft auto-save — every 5 seconds
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const editorBody = editorRef.current?.innerHTML ?? '';
+            const currentTo = to;
+            const currentSubject = subject;
+            // Only save if there is some content
+            if (!currentTo && !currentSubject && !editorBody) return;
+
+            const draft: Draft = {
+                to: currentTo,
+                subject: currentSubject,
+                body: editorBody,
+                cc,
+                bcc,
+                fromAccountId: fromAccount || null,
+                isTrackingEnabled,
+                savedAt: Date.now(),
+                ...(threadId ? { threadId } : {}),
+            };
+            saveDraft(draft);
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [to, subject, cc, bcc, fromAccount, isTrackingEnabled, threadId]);
+
+    // Discard draft handler
+    const discardDraft = useCallback(() => {
+        clearDraft();
+        setHasDraft(false);
+        setDraftRestoredAt(0);
+        setTo(defaultTo);
+        setSubject(defaultSubject);
+        setBody('');
+        setCc('');
+        setBcc('');
+        setShowCc(false);
+        setShowBcc(false);
+        setIsTrackingEnabled(true);
+        if (editorRef.current) editorRef.current.innerHTML = '';
+    }, [defaultTo, defaultSubject]);
+
     const handleSend = async () => {
         if (!to.trim() || !fromAccount || isSending) return;
         setIsSending(true);
@@ -129,6 +249,8 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             const payload = { to, subject, body, accountId: fromAccount, isTracked: isTrackingEnabled, ...(threadId ? { threadId } : {}) };
             const result = await sendEmailAction(payload) as { success: boolean, error?: string, messageId?: string };
             if (result.success) {
+                clearDraft();
+                setHasDraft(false);
                 setSendResult({ success: true, message: 'Message sent.' });
                 setTimeout(() => onClose(), 2000);
             } else {
@@ -175,9 +297,17 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         setShowTrackingMenu(false);
     };
 
+    const handleClose = useCallback(() => {
+        const editorBody = editorRef.current?.innerHTML ?? '';
+        if (!to && !subject && !editorBody && !cc && !bcc) {
+            clearDraft();
+        }
+        onClose();
+    }, [to, subject, cc, bcc, onClose]);
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSend(); }
-        if (e.key === 'Escape') onClose();
+        if (e.key === 'Escape') handleClose();
     };
 
     const execCommand = (command: string, value: any = null) => {
@@ -270,7 +400,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                             <svg viewBox="0 0 24 24" width="13" height="13"><path d={isMaximized ? "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" : "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"} fill="currentColor" /></svg>
                         </button>
                     )}
-                    <button className="compose-control-btn close-btn" onClick={(e) => { e.stopPropagation(); onClose(); }} title="Save & close">
+                    <button className="compose-control-btn close-btn" onClick={(e) => { e.stopPropagation(); handleClose(); }} title="Save & close">
                         <svg viewBox="0 0 24 24" width="14" height="14"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z" fill="currentColor" /></svg>
                     </button>
                 </div>
@@ -278,6 +408,24 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
 
             {!isMinimized && (
                 <>
+                    {hasDraft && (
+                        <div style={{
+                            padding: '6px 12px',
+                            backgroundColor: 'var(--accent-light, #e8f0fe)',
+                            color: 'var(--text-accent, #1a73e8)',
+                            fontSize: '12px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            borderBottom: '1px solid var(--border, #e0e0e0)'
+                        }}>
+                            <span>Draft restored from {formatTimeAgo(draftRestoredAt)}</span>
+                            <button onClick={discardDraft} style={{
+                                background: 'none', border: 'none', color: 'var(--danger, #ea4335)',
+                                cursor: 'pointer', fontSize: '12px', textDecoration: 'underline'
+                            }}>Discard</button>
+                        </div>
+                    )}
                     <div className="compose-body-container">
                         <div className="compose-row">
                             <span className="compose-inline-label">From</span>
@@ -773,7 +921,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                         </div>
                                     )}
                                 </div>
-                                <button className="compose-icon-btn delete-btn" onClick={onClose} title="Discard draft">
+                                <button className="compose-icon-btn delete-btn" onClick={() => { clearDraft(); onClose(); }} title="Discard draft">
                                     <Trash2 size={20} />
                                 </button>
                             </div>

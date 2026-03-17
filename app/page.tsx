@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Keyboard } from 'lucide-react';
 import ComposeModal from './components/ComposeModal';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import InlineReply from './components/InlineReply';
 import { EmailRow, EmailDetail, PaginationControls, ToastStack } from './components/InboxComponents';
 import { PageLoader } from './components/LoadingStates';
-import { 
+import {
     updateEmailStageAction,
     markAsNotInterestedAction,
     markAsNotSpamAction,
@@ -82,6 +83,9 @@ export default function InboxPage() {
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [searchLoading, setSearchLoading] = useState(false);
     const [isSearchResults, setIsSearchResults] = useState(false);
+    const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+    const [composeDefaultSubject, setComposeDefaultSubject] = useState('');
+    const [composeThreadId, setComposeThreadId] = useState('');
 
     // Settings - read from localStorage to connect with settings page (FE-024)
     const [pollingInterval, setPollingInterval] = useState(() => {
@@ -157,17 +161,157 @@ export default function InboxPage() {
     const isLive = accounts.length > 0;
 
     // ── Keyboard & Shortcuts ──────────────────────────────────────────────────
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setSelectedEmail(null);
-            if (e.key === 'c' && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName === 'BODY') {
-                setComposeDefaultTo('');
-                setIsComposeOpen(true);
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        // Don't fire shortcuts when typing in inputs, textareas, or contentEditable elements
+        const tag = (document.activeElement?.tagName || '').toUpperCase();
+        const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+            || (document.activeElement as HTMLElement)?.isContentEditable;
+
+        // Escape always works
+        if (e.key === 'Escape') {
+            if (showShortcutsHelp) {
+                setShowShortcutsHelp(false);
+                return;
             }
-        };
+            setSelectedEmail(null);
+            // Blur search input if focused
+            const searchInput = document.getElementById('topbar-search') as HTMLInputElement | null;
+            if (searchInput && document.activeElement === searchInput) {
+                searchInput.blur();
+            }
+            return;
+        }
+
+        // All other shortcuts require the user NOT to be in an input
+        if (isEditable) return;
+
+        const emailList = isSearchResults ? searchResults : emails;
+
+        switch (e.key) {
+            case '?': {
+                e.preventDefault();
+                setShowShortcutsHelp(prev => !prev);
+                break;
+            }
+            case 'j': {
+                // Select next email
+                e.preventDefault();
+                if (emailList.length === 0) break;
+                if (!selectedEmail) {
+                    handleSelectEmail(emailList[0]);
+                } else {
+                    const idx = emailList.findIndex((em: any) => em.id === selectedEmail.id);
+                    if (idx < emailList.length - 1) {
+                        handleSelectEmail(emailList[idx + 1]);
+                    }
+                }
+                break;
+            }
+            case 'k': {
+                // Select previous email
+                e.preventDefault();
+                if (emailList.length === 0) break;
+                if (!selectedEmail) {
+                    handleSelectEmail(emailList[emailList.length - 1]);
+                } else {
+                    const idx = emailList.findIndex((em: any) => em.id === selectedEmail.id);
+                    if (idx > 0) {
+                        handleSelectEmail(emailList[idx - 1]);
+                    }
+                }
+                break;
+            }
+            case 'Enter':
+            case 'o': {
+                // Open selected email
+                if (selectedEmail) {
+                    // Already open, do nothing
+                } else if (emailList.length > 0) {
+                    handleSelectEmail(emailList[0]);
+                }
+                break;
+            }
+            case 'r': {
+                // Reply to selected email
+                e.preventDefault();
+                if (selectedEmail) {
+                    setIsReplyingInline(true);
+                }
+                break;
+            }
+            case 'f': {
+                // Forward selected email
+                e.preventDefault();
+                if (selectedEmail) {
+                    const fromEmail = selectedEmail.from_email?.match(/<([^>]+)>/)?.[1] || selectedEmail.from_email;
+                    setComposeDefaultTo(fromEmail);
+                    setComposeDefaultSubject(
+                        selectedEmail.subject?.startsWith('Fwd:') ? selectedEmail.subject : `Fwd: ${selectedEmail.subject || ''}`
+                    );
+                    setComposeThreadId('');
+                    setIsComposeOpen(true);
+                }
+                break;
+            }
+            case 'c': {
+                // New compose
+                if (!e.ctrlKey && !e.metaKey) {
+                    e.preventDefault();
+                    setComposeDefaultTo('');
+                    setComposeDefaultSubject('');
+                    setComposeThreadId('');
+                    setIsComposeOpen(true);
+                }
+                break;
+            }
+            case '/': {
+                // Focus search input
+                e.preventDefault();
+                const searchInput = document.getElementById('topbar-search') as HTMLInputElement | null;
+                if (searchInput) {
+                    searchInput.focus();
+                }
+                break;
+            }
+            case 'e': {
+                // Archive / mark as not interested
+                e.preventDefault();
+                if (selectedEmail) {
+                    const senderEmail = selectedEmail.from_email?.match(/<([^>]+)>/)?.[1] || selectedEmail.from_email;
+                    if (senderEmail) {
+                        handleNotInterested(senderEmail);
+                    }
+                }
+                break;
+            }
+            case 'a': {
+                // Select/deselect all
+                e.preventDefault();
+                toggleSelectAll();
+                break;
+            }
+            case 'x': {
+                // Toggle select current email
+                e.preventDefault();
+                if (selectedEmail) {
+                    toggleSelectEmail(selectedEmail.id);
+                }
+                break;
+            }
+        }
+    }, [
+        selectedEmail, emails, searchResults, isSearchResults,
+        showShortcutsHelp, setSelectedEmail, handleSelectEmail,
+        toggleSelectAll, toggleSelectEmail,
+        // handleNotInterested is intentionally omitted — it's a stable-ish local function
+        // whose only dependencies (loadEmails, currentPage) don't affect shortcut behavior.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    ]);
+
+    useEffect(() => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [setSelectedEmail]);
+    }, [handleKeyDown]);
 
     // Auto-polling — use ref to avoid clearing/restarting interval when handleSync changes
     useEffect(() => {
@@ -301,6 +445,14 @@ export default function InboxPage() {
                                     <path d="M23 4v6h-6M1 20v-6h6" />
                                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                                 </svg>
+                            </button>
+                            <button
+                                className="icon-btn"
+                                onClick={() => setShowShortcutsHelp(prev => !prev)}
+                                title="Keyboard shortcuts (?)"
+                                aria-label="Show keyboard shortcuts"
+                            >
+                                <Keyboard size={18} />
                             </button>
                             <div className="divider-v" />
                             <div className="avatar-btn">A</div>
@@ -448,9 +600,11 @@ export default function InboxPage() {
                             onStageChange={handleChangeStage}
                             onReply={() => setIsReplyingInline(true)}
                             onForward={() => {
-                                setComposeDefaultTo(
-                                    selectedEmail.from_email?.match(/<([^>]+)>/)?.[1] || selectedEmail.from_email
+                                setComposeDefaultTo('');
+                                setComposeDefaultSubject(
+                                    selectedEmail.subject?.startsWith('Fwd:') ? selectedEmail.subject : `Fwd: ${selectedEmail.subject || ''}`
                                 );
+                                setComposeThreadId('');
                                 setIsComposeOpen(true);
                             }}
                             onNotInterested={handleNotInterested}
@@ -476,14 +630,45 @@ export default function InboxPage() {
                     onClose={() => setIsComposeOpen(false)}
                     defaultTo={composeDefaultTo}
                     defaultSubject={
-                        selectedEmail && composeDefaultTo
-                            ? (selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject}`)
-                            : ''
+                        composeDefaultSubject
+                            ? composeDefaultSubject
+                            : selectedEmail && composeDefaultTo
+                                ? (selectedEmail.subject?.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject}`)
+                                : ''
                     }
-                    threadId={selectedEmail && composeDefaultTo ? selectedEmail.thread_id : ''}
+                    threadId={composeThreadId || (selectedEmail && composeDefaultTo ? selectedEmail.thread_id : '')}
                 />
-            )
-            }
+            )}
+
+            {/* Keyboard Shortcuts Help Overlay */}
+            {showShortcutsHelp && (
+                <div className="shortcuts-overlay" onClick={() => setShowShortcutsHelp(false)}>
+                    <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="shortcuts-header">
+                            <h2>Keyboard Shortcuts</h2>
+                            <button className="icon-btn" onClick={() => setShowShortcutsHelp(false)} aria-label="Close shortcuts help">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                    <path d="M18 6L6 18M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="shortcuts-grid">
+                            <div className="shortcut-row"><kbd>j</kbd><span>Next email</span></div>
+                            <div className="shortcut-row"><kbd>k</kbd><span>Previous email</span></div>
+                            <div className="shortcut-row"><kbd>Enter</kbd><span>Open email</span></div>
+                            <div className="shortcut-row"><kbd>r</kbd><span>Reply</span></div>
+                            <div className="shortcut-row"><kbd>f</kbd><span>Forward</span></div>
+                            <div className="shortcut-row"><kbd>c</kbd><span>Compose</span></div>
+                            <div className="shortcut-row"><kbd>/</kbd><span>Search</span></div>
+                            <div className="shortcut-row"><kbd>e</kbd><span>Archive</span></div>
+                            <div className="shortcut-row"><kbd>a</kbd><span>Select all</span></div>
+                            <div className="shortcut-row"><kbd>x</kbd><span>Toggle select</span></div>
+                            <div className="shortcut-row"><kbd>Esc</kbd><span>Close</span></div>
+                            <div className="shortcut-row"><kbd>?</kbd><span>This help</span></div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <style jsx>{`
                 .email-list-scroll {
@@ -507,6 +692,69 @@ export default function InboxPage() {
                 }
                 .empty-state-action {
                     margin-top: 1.5rem;
+                }
+                .shortcuts-overlay {
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(0, 0, 0, 0.5);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 9999;
+                    backdrop-filter: blur(2px);
+                }
+                .shortcuts-modal {
+                    background: var(--bg-elevated);
+                    border-radius: 12px;
+                    border: 1px solid var(--border);
+                    padding: 1.5rem;
+                    min-width: 340px;
+                    max-width: 440px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+                }
+                .shortcuts-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-bottom: 1.25rem;
+                    padding-bottom: 0.75rem;
+                    border-bottom: 1px solid var(--border);
+                }
+                .shortcuts-header h2 {
+                    margin: 0;
+                    font-size: 1rem;
+                    font-weight: 700;
+                    color: var(--text-primary);
+                }
+                .shortcuts-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 0.5rem 1.5rem;
+                }
+                .shortcut-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    padding: 0.35rem 0;
+                }
+                .shortcut-row kbd {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-width: 28px;
+                    padding: 2px 8px;
+                    font-size: 0.75rem;
+                    font-family: inherit;
+                    font-weight: 600;
+                    color: var(--text-secondary);
+                    background: var(--bg-primary);
+                    border: 1px solid var(--border);
+                    border-radius: 5px;
+                    box-shadow: 0 1px 0 var(--border);
+                }
+                .shortcut-row span {
+                    font-size: 0.8rem;
+                    color: var(--text-secondary);
                 }
             `}</style>
         </>

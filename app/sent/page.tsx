@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Keyboard } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import ComposeModal from '../components/ComposeModal';
@@ -55,6 +56,7 @@ export default function SentPage() {
     const [isReplyingInline, setIsReplyingInline] = useState(false);
     const [isComposeOpen, setIsComposeOpen] = useState(false);
     const [toasts, setToasts] = useState<ToastItem[]>([]);
+    const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
     const toastTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -68,6 +70,111 @@ export default function SentPage() {
 
     // Derive live status from whether accounts are loaded
     const isLive = accounts.length > 0;
+
+    const filteredEmails = emails.filter((e: any) => {
+        if (!searchTerm) return true;
+        const sl = searchTerm.toLowerCase();
+        return (
+            (e.subject && e.subject.toLowerCase().includes(sl)) ||
+            (e.to_email && e.to_email.toLowerCase().includes(sl)) ||
+            ((e.body_text || e.body || '').toLowerCase().includes(sl))
+        );
+    });
+
+    // ── Keyboard & Shortcuts ──────────────────────────────────────────────────
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        const tag = (document.activeElement?.tagName || '').toUpperCase();
+        const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+            || (document.activeElement as HTMLElement)?.isContentEditable;
+
+        if (e.key === 'Escape') {
+            if (showShortcutsHelp) {
+                setShowShortcutsHelp(false);
+                return;
+            }
+            setSelectedEmail(null);
+            const searchInput = document.getElementById('topbar-search') as HTMLInputElement | null;
+            if (searchInput && document.activeElement === searchInput) {
+                searchInput.blur();
+            }
+            return;
+        }
+
+        if (isEditable) return;
+
+        switch (e.key) {
+            case '?': {
+                e.preventDefault();
+                setShowShortcutsHelp(prev => !prev);
+                break;
+            }
+            case 'j': {
+                e.preventDefault();
+                if (filteredEmails.length === 0) break;
+                if (!selectedEmail) {
+                    handleSelectEmail(filteredEmails[0]);
+                } else {
+                    const idx = filteredEmails.findIndex((em: any) => em.id === selectedEmail.id);
+                    if (idx < filteredEmails.length - 1) {
+                        handleSelectEmail(filteredEmails[idx + 1]);
+                    }
+                }
+                break;
+            }
+            case 'k': {
+                e.preventDefault();
+                if (filteredEmails.length === 0) break;
+                if (!selectedEmail) {
+                    handleSelectEmail(filteredEmails[filteredEmails.length - 1]);
+                } else {
+                    const idx = filteredEmails.findIndex((em: any) => em.id === selectedEmail.id);
+                    if (idx > 0) {
+                        handleSelectEmail(filteredEmails[idx - 1]);
+                    }
+                }
+                break;
+            }
+            case 'Enter':
+            case 'o': {
+                if (!selectedEmail && filteredEmails.length > 0) {
+                    handleSelectEmail(filteredEmails[0]);
+                }
+                break;
+            }
+            case 'c': {
+                if (!e.ctrlKey && !e.metaKey) {
+                    e.preventDefault();
+                    setIsComposeOpen(true);
+                }
+                break;
+            }
+            case '/': {
+                e.preventDefault();
+                const searchInput = document.getElementById('topbar-search') as HTMLInputElement | null;
+                if (searchInput) {
+                    searchInput.focus();
+                }
+                break;
+            }
+            case 'a': {
+                e.preventDefault();
+                toggleSelectAll();
+                break;
+            }
+            case 'x': {
+                e.preventDefault();
+                if (selectedEmail) {
+                    toggleSelectEmail(selectedEmail.id);
+                }
+                break;
+            }
+        }
+    }, [selectedEmail, filteredEmails, showShortcutsHelp, setSelectedEmail, handleSelectEmail, toggleSelectAll, toggleSelectEmail]);
+
+    useEffect(() => {
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleKeyDown]);
 
     // ── Derived Handlers ──────────────────────────────────────────────────────
     const goToPage = (page: number) => {
@@ -83,16 +190,6 @@ export default function SentPage() {
         if (timer) clearTimeout(timer);
         toastTimerRef.current.delete(toastId);
     };
-
-    const filteredEmails = emails.filter((e: any) => {
-        if (!searchTerm) return true;
-        const sl = searchTerm.toLowerCase();
-        return (
-            (e.subject && e.subject.toLowerCase().includes(sl)) ||
-            (e.to_email && e.to_email.toLowerCase().includes(sl)) ||
-            ((e.body_text || e.body || '').toLowerCase().includes(sl))
-        );
-    });
 
     // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -155,6 +252,14 @@ export default function SentPage() {
                                     <polyline points="1 20 1 14 7 14" />
                                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                                 </svg>
+                            </button>
+                            <button
+                                className="icon-btn"
+                                onClick={() => setShowShortcutsHelp(prev => !prev)}
+                                title="Keyboard shortcuts (?)"
+                                aria-label="Show keyboard shortcuts"
+                            >
+                                <Keyboard size={16} />
                             </button>
                             <div className="avatar-btn" title="Admin">A</div>
                         </div>
@@ -289,6 +394,33 @@ export default function SentPage() {
 
             {isComposeOpen && <ComposeModal onClose={() => setIsComposeOpen(false)} />}
 
+            {/* Keyboard Shortcuts Help Overlay */}
+            {showShortcutsHelp && (
+                <div className="shortcuts-overlay" onClick={() => setShowShortcutsHelp(false)}>
+                    <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="shortcuts-header">
+                            <h2>Keyboard Shortcuts</h2>
+                            <button className="icon-btn" onClick={() => setShowShortcutsHelp(false)} aria-label="Close shortcuts help">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                    <path d="M18 6L6 18M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="shortcuts-grid">
+                            <div className="shortcut-row"><kbd>j</kbd><span>Next email</span></div>
+                            <div className="shortcut-row"><kbd>k</kbd><span>Previous email</span></div>
+                            <div className="shortcut-row"><kbd>Enter</kbd><span>Open email</span></div>
+                            <div className="shortcut-row"><kbd>c</kbd><span>Compose</span></div>
+                            <div className="shortcut-row"><kbd>/</kbd><span>Search</span></div>
+                            <div className="shortcut-row"><kbd>a</kbd><span>Select all</span></div>
+                            <div className="shortcut-row"><kbd>x</kbd><span>Toggle select</span></div>
+                            <div className="shortcut-row"><kbd>Esc</kbd><span>Close</span></div>
+                            <div className="shortcut-row"><kbd>?</kbd><span>This help</span></div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <style jsx>{`
                 .page-title {
                     font-size: 1.25rem;
@@ -310,6 +442,69 @@ export default function SentPage() {
                     overflow-y: auto;
                     display: flex;
                     flex-direction: column;
+                }
+                .shortcuts-overlay {
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(0, 0, 0, 0.5);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 9999;
+                    backdrop-filter: blur(2px);
+                }
+                .shortcuts-modal {
+                    background: var(--bg-elevated);
+                    border-radius: 12px;
+                    border: 1px solid var(--border);
+                    padding: 1.5rem;
+                    min-width: 340px;
+                    max-width: 440px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+                }
+                .shortcuts-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-bottom: 1.25rem;
+                    padding-bottom: 0.75rem;
+                    border-bottom: 1px solid var(--border);
+                }
+                .shortcuts-header h2 {
+                    margin: 0;
+                    font-size: 1rem;
+                    font-weight: 700;
+                    color: var(--text-primary);
+                }
+                .shortcuts-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 0.5rem 1.5rem;
+                }
+                .shortcut-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    padding: 0.35rem 0;
+                }
+                .shortcut-row kbd {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-width: 28px;
+                    padding: 2px 8px;
+                    font-size: 0.75rem;
+                    font-family: inherit;
+                    font-weight: 600;
+                    color: var(--text-secondary);
+                    background: var(--bg-primary);
+                    border: 1px solid var(--border);
+                    border-radius: 5px;
+                    box-shadow: 0 1px 0 var(--border);
+                }
+                .shortcut-row span {
+                    font-size: 0.8rem;
+                    color: var(--text-secondary);
                 }
             `}</style>
         </>
