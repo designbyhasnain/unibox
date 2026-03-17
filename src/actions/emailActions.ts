@@ -761,7 +761,7 @@ export async function searchEmailsAction(
 
     if (q) {
         const escapedQ = escapeIlike(q);
-        rpcQuery = rpcQuery.or(`subject.ilike.%${escapedQ}%,from_email.ilike.%${escapedQ}%,snippet.ilike.%${escapedQ}%,to_email.ilike.%${escapedQ}%,body_text.ilike.%${escapedQ}%`);
+        rpcQuery = rpcQuery.or(`subject.ilike.%${escapedQ}%,from_email.ilike.%${escapedQ}%,snippet.ilike.%${escapedQ}%,to_email.ilike.%${escapedQ}%`);
     }
 
     const { data, error } = await rpcQuery

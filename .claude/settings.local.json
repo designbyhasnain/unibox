@@ -39,7 +39,9 @@
       "Bash(grep -n \"localStorage\\\\|getItem\\\\|setItem\" /d/coding/unibox/app/hooks/*.ts /d/coding/unibox/app/utils/*.ts 2>/dev/null | head -20)",
       "Bash(find /d/coding/unibox -name \"*.ts\" -o -name \"*.tsx\" | xargs wc -l | tail -20)",
       "Bash(cd \"D:/coding/unibox\" && npx prisma generate 2>&1)",
-      "Bash(cd \"D:/coding/unibox\" && npm run build 2>&1)"
+      "Bash(cd \"D:/coding/unibox\" && npm run build 2>&1)",
+      "Bash(find /d/coding/unibox -name \"*analyticsActions*\" -o -name \"*analytics*\" -type f | grep -E \"\\\\.\\(ts|sql\\)$\")",
+      "Bash(find /d/coding/unibox -type f \\\\\\( -name \"*.md\" -o -name \"*.txt\" \\\\\\) | xargs grep -l \"get_inbox_threads\\\\|get_sent_threads\" 2>/dev/null)"
     ]
   },
   "enableAllProjectMcpServers": true,
