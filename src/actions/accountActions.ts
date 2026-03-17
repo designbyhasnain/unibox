@@ -2,6 +2,7 @@
 
 import { google } from 'googleapis';
 import { cookies } from 'next/headers';
+import { unstable_cache, revalidateTag } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { getGoogleAuthUrl, generateOAuthState, handleAuthCallback } from '../services/googleAuthService';
 import { testManualConnection } from '../services/manualEmailService';
@@ -79,6 +80,7 @@ export async function connectManualAccountAction(
             .single();
 
         if (error) throw error;
+        revalidateTag('accounts', 'max');
         return { success: true, account };
     } catch (err: any) {
         console.error('[accountActions] connectManualAccountAction error:', err);
@@ -89,49 +91,68 @@ export async function connectManualAccountAction(
 
 
 
+// Cached DB fetch — keyed per userId, 30-second TTL, invalidated by 'accounts' tag.
+// The stuck-sync side effect is intentionally excluded from the cache boundary so it
+// can still write to the DB and mutate the returned objects.
+async function fetchAccountsFromDb(userId: string) {
+    // 1. Fetch basic account data first
+    const { data: rawData, error } = await supabase
+        .from('gmail_accounts')
+        .select(`
+            *,
+            users ( name )
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error('[accountActions] getAccountsAction database error:', error);
+        return { success: false as const, accounts: [], error: 'An error occurred while processing your request' };
+    }
+
+    // 2. Fetch thread counts per account in a single fast query using denormalized email_threads table
+    const accountIds = (rawData ?? []).map((a: any) => a.id);
+    const countsByAccount: Record<string, number> = {};
+    if (accountIds.length > 0) {
+        const { data: countData } = await supabase.rpc('get_account_thread_counts', {
+            p_account_ids: accountIds
+        });
+        if (countData && typeof countData === 'object') {
+            Object.assign(countsByAccount, countData);
+        }
+    }
+
+    const accountsWithCounts = (rawData ?? []).map((acc: any) => ({
+        ...acc,
+        sent_count_today: acc.sent_count_today || 0,
+        manager_name: acc.users?.name,
+        emails_count: countsByAccount[acc.id] ?? 0
+    }));
+
+    return { success: true as const, accounts: accountsWithCounts };
+}
+
 export async function getAccountsAction(userId: string) {
     if (!userId) {
         return { success: false, accounts: [], error: 'userId is required' };
     }
     try {
+        // Cache the DB round-trip for 30 seconds. Each userId gets its own cache entry.
+        const getCached = unstable_cache(
+            () => fetchAccountsFromDb(userId),
+            [`accounts-${userId}`],
+            { revalidate: 30, tags: ['accounts'] }
+        );
 
-        // 1. Fetch basic account data first
-        const { data: rawData, error } = await supabase
-            .from('gmail_accounts')
-            .select(`
-                *,
-                users ( name )
-            `)
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
+        const result = await getCached();
+        if (!result.success) return result;
 
-        if (error) {
-            console.error('[accountActions] getAccountsAction database error:', error);
-            return { success: false, accounts: [], error: 'An error occurred while processing your request' };
-        }
-
-        // 2. Fetch thread counts per account in a single fast query using denormalized email_threads table
-        const accountIds = (rawData ?? []).map(a => a.id);
-        const countsByAccount: Record<string, number> = {};
-        if (accountIds.length > 0) {
-            const { data: countData } = await supabase.rpc('get_account_thread_counts', {
-                p_account_ids: accountIds
-            });
-            if (countData && typeof countData === 'object') {
-                Object.assign(countsByAccount, countData);
-            }
-        }
-
-        const accountsWithCounts = (rawData ?? []).map((acc) => ({
-            ...acc,
-            sent_count_today: acc.sent_count_today || 0,
-            manager_name: acc.users?.name,
-            emails_count: countsByAccount[acc.id] ?? 0
-        }));
+        const accountsWithCounts = result.accounts;
 
         // 3. Auto-fix stuck syncs (more than 15 mins or 100% progress)
+        // This runs after every cache hit/miss so stuck accounts are always corrected.
         const now = new Date();
-        const stuckAccounts = accountsWithCounts.filter(acc => {
+        const stuckAccounts = accountsWithCounts.filter((acc: any) => {
             if (acc.status !== 'SYNCING') return false;
             if (acc.sync_progress === 100) return true;
             const lastUpdate = new Date(acc.updated_at);
@@ -147,15 +168,15 @@ export async function getAccountsAction(userId: string) {
                     await supabase
                         .from('gmail_accounts')
                         .update({ status: 'ACTIVE', sync_progress: 100 })
-                        .in('id', stuckAccounts.map(a => a.id));
+                        .in('id', stuckAccounts.map((a: any) => a.id));
                 } catch (err) {
                     console.error('[getAccountsAction] Failed to fix stuck syncs:', err);
                 }
             })();
 
             // Reflect in the returned objects
-            stuckAccounts.forEach(sa => {
-                const local = accountsWithCounts.find(a => a.id === sa.id);
+            stuckAccounts.forEach((sa: any) => {
+                const local = accountsWithCounts.find((a: any) => a.id === sa.id);
                 if (local) {
                     local.status = 'ACTIVE';
                     local.sync_progress = 100;
@@ -217,6 +238,7 @@ export async function toggleSyncStatusAction(accountId: string, currentStatus: s
             .eq('id', accountId);
 
         if (error) throw error;
+        revalidateTag('accounts', 'max');
         return { success: true, status: newStatus };
     } catch (err: any) {
         console.error('[accountActions] toggleSyncStatusAction error:', err);
@@ -236,6 +258,7 @@ export async function stopSyncingAction(accountId: string) {
             .eq('id', accountId);
 
         if (error) throw error;
+        revalidateTag('accounts', 'max');
         return { success: true };
     } catch (err: any) {
         console.error('[accountActions] stopSyncingAction error:', err);
@@ -290,5 +313,6 @@ export async function removeAccountAction(accountId: string): Promise<{ success:
         console.error('[accountActions] removeAccountAction error:', error);
         return { success: false, error: 'An error occurred while processing your request' };
     }
+    revalidateTag('accounts', 'max');
     return { success: true };
 }

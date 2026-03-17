@@ -331,6 +331,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     }
 
     const lastSyncTimeRef = useRef<number>(0);
+    const accountsFetchedRef = useRef(false);
     const currentPageRef = useRef(currentPage);
     currentPageRef.current = currentPage;
     const selectedEmailRef = useRef(selectedEmail);
@@ -465,12 +466,15 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     // Initial Load & Account Fetch
     useEffect(() => {
         loadEmails(1);
-        if (accounts.length === 0) {
+        // Guard with a ref so accounts are fetched exactly once per hook instance,
+        // regardless of how many times accounts.length bounces back to 0.
+        if (!accountsFetchedRef.current) {
+            accountsFetchedRef.current = true;
             getAccountsAction(DEFAULT_USER_ID).then(res => {
                 if (res.success) dispatch({ type: 'SET_ACCOUNTS', accounts: res.accounts });
             });
         }
-    }, [loadEmails, accounts.length]);
+    }, [loadEmails]);
 
     // ── Sync Logic ────────────────────────────────────────────────────────────
     const handleSync = useCallback(async () => {

@@ -41,7 +41,19 @@
       "Bash(cd \"D:/coding/unibox\" && npx prisma generate 2>&1)",
       "Bash(cd \"D:/coding/unibox\" && npm run build 2>&1)",
       "Bash(find /d/coding/unibox -name \"*analyticsActions*\" -o -name \"*analytics*\" -type f | grep -E \"\\\\.\\(ts|sql\\)$\")",
-      "Bash(find /d/coding/unibox -type f \\\\\\( -name \"*.md\" -o -name \"*.txt\" \\\\\\) | xargs grep -l \"get_inbox_threads\\\\|get_sent_threads\" 2>/dev/null)"
+      "Bash(find /d/coding/unibox -type f \\\\\\( -name \"*.md\" -o -name \"*.txt\" \\\\\\) | xargs grep -l \"get_inbox_threads\\\\|get_sent_threads\" 2>/dev/null)",
+      "Bash(cd \"D:/coding/unibox\" && npm run dev 2>&1)",
+      "Bash(taskkill /F /PID 7124 2>&1; taskkill /F /IM node.exe 2>&1 | head -5)",
+      "Bash(taskkill //F //PID 7124 2>&1; sleep 1)",
+      "Bash(cmd //c \"taskkill /F /PID 7124\" 2>&1 && sleep 2)",
+      "Bash(powershell -Command \"Stop-Process -Id 7124 -Force\" 2>&1; sleep 2)",
+      "Bash(powershell -Command \"Get-Process node | Stop-Process -Force\" 2>&1; sleep 1)",
+      "Bash(node -e \"const p = require\\('./package.json'\\); console.log\\('next:', p.dependencies.next\\)\")",
+      "Bash(node -e \"const t = require\\('./node_modules/next/dist/server/web/spec-extension/revalidate.js'\\); console.log\\(Object.keys\\(t\\)\\)\" 2>/dev/null || node -e \"const t = require\\('./node_modules/next/dist/server/revalidate.js'\\); console.log\\(Object.keys\\(t\\)\\)\" 2>/dev/null || echo \"module not found directly\")",
+      "Bash(node -e \"const t = require\\('./node_modules/next/dist/server/revalidate.js'\\); console.log\\(t.revalidateTag.toString\\(\\).slice\\(0,300\\)\\)\")",
+      "Bash(grep -r \"revalidateTag\" \"D:/coding/unibox/node_modules/next/dist/server/revalidate.js\" 2>/dev/null | head -5 || grep -r \"export.*revalidateTag\" \"D:/coding/unibox/node_modules/next/dist/cache/index.d.ts\" 2>/dev/null | head -10 || find \"D:/coding/unibox/node_modules/next/dist\" -name \"*.d.ts\" -path \"*/cache*\" 2>/dev/null | head -5)",
+      "Bash(grep -rn \"unstable_cache\\\\|revalidateTag\" \"D:/coding/unibox/node_modules/next/dist/api/after.d.ts\" 2>/dev/null | head -5; grep -rn \"declare function revalidateTag\" \"D:/coding/unibox/node_modules/next/dist\" --include=\"*.d.ts\" 2>/dev/null | head -10)",
+      "Bash(powershell -Command \"Get-Process node | Stop-Process -Force\" 2>&1; sleep 2)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -568,7 +568,7 @@ export function EmailDetail({
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [threadMessages.map((m) => m.id).join(',')]
     );
-    const { bodies, attachments: apiAttachments, isLoading: isBodyLoading, isFallback } = useEmailBody(
+    const { bodies, attachments: apiAttachments, isLoading: isBodyLoading, isFallback, error: bodyError, accountEmail: bodyAccountEmail } = useEmailBody(
         email?.thread_id ?? null,
         email?.gmail_account_id ?? null,
         messageIds
@@ -958,7 +958,20 @@ export function EmailDetail({
                                                     <div className="email-body-skeleton" />
                                                 ) : isFallback && !resolvedBody ? (
                                                     <div className="email-body-fallback">
-                                                        <PlainTextBody text={msg.body_text || msg.snippet || ''} />
+                                                        {bodyError === 'auth_required' ? (
+                                                            <div className="email-body-auth-error">
+                                                                <strong>Account needs reconnection</strong>
+                                                                <p>
+                                                                    {bodyAccountEmail
+                                                                        ? <>Access for <em>{bodyAccountEmail}</em> has expired.</>
+                                                                        : <>This Gmail account&apos;s access has expired.</>
+                                                                    }{' '}
+                                                                    <a href="/accounts" className="email-body-reconnect-link">Reconnect in Settings →</a>
+                                                                </p>
+                                                            </div>
+                                                        ) : (
+                                                            <PlainTextBody text={msg.body_text || msg.snippet || ''} />
+                                                        )}
                                                     </div>
                                                 ) : isHtmlLocal ? (
                                                     <EmailBodyFrame

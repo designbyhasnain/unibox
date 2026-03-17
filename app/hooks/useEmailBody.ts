@@ -16,6 +16,8 @@ interface UseEmailBodyResult {
     isLoading: boolean;
     error: string | null;
     isFallback: boolean;
+    authError: boolean;
+    accountEmail: string | null;
 }
 
 export function useEmailBody(
@@ -28,6 +30,8 @@ export function useEmailBody(
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isFallback, setIsFallback] = useState(false);
+    const [authError, setAuthError] = useState(false);
+    const [accountEmail, setAccountEmail] = useState<string | null>(null);
 
     // Stable ref for AbortController so cleanup is correct across renders
     const abortRef = useRef<AbortController | null>(null);
@@ -40,6 +44,8 @@ export function useEmailBody(
             setIsLoading(false);
             setError(null);
             setIsFallback(false);
+            setAuthError(false);
+            setAccountEmail(null);
             return;
         }
 
@@ -56,6 +62,8 @@ export function useEmailBody(
             setIsLoading(true);
             setError(null);
             setIsFallback(false);
+            setAuthError(false);
+            setAccountEmail(null);
 
             try {
                 // 1. Check IndexedDB cache for all messageIds
@@ -86,6 +94,17 @@ export function useEmailBody(
                 if (cancelled) return;
 
                 if (!res.ok) {
+                    if (res.status === 401) {
+                        const errJson = await res.json().catch(() => ({}));
+                        if (errJson.error === 'auth_required') {
+                            setError('auth_required');
+                            setAuthError(true);
+                            setAccountEmail(errJson.accountEmail ?? null);
+                            setIsFallback(true);
+                            setIsLoading(false);
+                            return;
+                        }
+                    }
                     throw new Error(`API error: ${res.status}`);
                 }
 
@@ -145,5 +164,5 @@ export function useEmailBody(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [threadId, accountId, messageIds.join(',')]);
 
-    return { bodies, attachments, isLoading, error, isFallback };
+    return { bodies, attachments, isLoading, error, isFallback, authError, accountEmail };
 }

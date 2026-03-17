@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getGmailClient } from '../../../../src/services/gmailClientFactory';
 import { getMessageBody, extractAttachmentMetadata } from '../../../../src/utils/gmailBodyParser';
 import { refreshAccessToken } from '../../../../src/services/googleAuthService';
+import { supabase } from '../../../../src/lib/supabase';
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,7 +15,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing threadId or accountId' }, { status: 400 });
     }
 
-    // 2. Get authenticated Gmail client
+    // 2. Look up account email for error messages (best-effort — don't fail if missing)
+    const { data: accountRow } = await supabase
+      .from('gmail_accounts')
+      .select('email')
+      .eq('id', accountId)
+      .single();
+    const accountEmail: string | null = accountRow?.email ?? null;
+
+    /** Mark the account as ERROR and return a 401 auth_required response */
+    async function authRequiredResponse() {
+      await supabase
+        .from('gmail_accounts')
+        .update({ status: 'ERROR' })
+        .eq('id', accountId);
+      return NextResponse.json(
+        { error: 'auth_required', fallback: true, accountEmail },
+        { status: 401 }
+      );
+    }
+
+    // 3. Get authenticated Gmail client
     let gmail;
     try {
       gmail = await getGmailClient(accountId);
@@ -24,11 +45,11 @@ export async function GET(request: NextRequest) {
         await refreshAccessToken(accountId);
         gmail = await getGmailClient(accountId);
       } catch {
-        return NextResponse.json({ error: 'auth_required', fallback: true }, { status: 401 });
+        return authRequiredResponse();
       }
     }
 
-    // 3. Fetch thread from Gmail API (returns ALL messages in one call)
+    // 4. Fetch thread from Gmail API (returns ALL messages in one call)
     let threadData;
     try {
       const res = await gmail.users.threads.get({
@@ -56,14 +77,14 @@ export async function GET(request: NextRequest) {
           });
           threadData = retryRes.data;
         } catch {
-          return NextResponse.json({ error: 'auth_required', fallback: true }, { status: 401 });
+          return authRequiredResponse();
         }
       } else {
         throw err;
       }
     }
 
-    // 4. Extract bodies and attachments from each message
+    // 5. Extract bodies and attachments from each message
     const bodies: Record<string, string> = {};
     const attachments: Record<string, Array<{ id: string; filename: string; mimeType: string; size: number }>> = {};
 
@@ -74,7 +95,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 5. Return with cache headers
+    // 6. Return with cache headers
     const response = NextResponse.json({ bodies, attachments });
     response.headers.set('Cache-Control', 'private, max-age=300');
     return response;

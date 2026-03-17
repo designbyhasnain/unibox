@@ -5575,4 +5575,35 @@ textarea:focus-visible {
     border-radius: 8px;
     margin: 12px 0;
 }
+
+.email-body-auth-error {
+    font-style: normal;
+    color: var(--text-primary);
+}
+
+.email-body-auth-error strong {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+}
+
+.email-body-auth-error p {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0;
+    line-height: 1.5;
+}
+
+.email-body-reconnect-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.email-body-reconnect-link:hover {
+    color: var(--accent-hover);
+    text-decoration: underline;
+}
 

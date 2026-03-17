@@ -1,14 +1,19 @@
 'use server';
 
+import { unstable_cache } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { parseUserAgent } from '../../app/utils/parseUserAgent';
+
+type AnalyticsResult =
+    | { success: true; stats: any; funnelData: any; leaderboard: any; deliverability: any; sentimentData: any; dailyData: any; hourlyEngagement: any; topSubjects: any; accountPerformance: any }
+    | { success: false; error: string };
 
 export async function getAnalyticsDataAction(params: {
     startDate: string;
     endDate: string;
     managerId: string;
     accountId: string;
-}) {
+}): Promise<AnalyticsResult> {
     try {
         const { startDate, endDate, managerId, accountId } = params;
 
@@ -16,69 +21,103 @@ export async function getAnalyticsDataAction(params: {
             return { success: false, error: 'startDate, endDate, managerId, and accountId are required' };
         }
 
-        // ─── Consolidated email_messages query ──────────────────────────
-        // Instead of 4+ separate queries to email_messages (fetchDailyData,
-        // fetchHourlyEngagement, fetchDeliverability, fetchTopSubjects),
-        // we fetch all messages once with all needed fields and derive
-        // each dataset in-memory.
-        const allMessages = await fetchAllMessages(startDate, endDate, accountId, managerId);
+        // Fix A: wrap the entire heavy computation in unstable_cache keyed on all 4 params.
+        // The cache key must encode every dimension that affects the result.
+        const cacheKey = `analytics-${accountId}-${managerId}-${startDate}-${endDate}`;
+        const getCachedAnalytics = unstable_cache(
+            () => computeAnalytics(startDate, endDate, managerId, accountId),
+            [cacheKey],
+            { revalidate: 300 } // 5-minute TTL
+        );
 
-        // ─── 1. Core KPIs ──────────────────────────────────────────────
-        const stats = await fetchCoreStats(startDate, endDate, managerId, accountId, allMessages);
-
-        // ─── 2. Conversion Funnel ──────────────────────────────────────
-        const funnelData = [
-            { name: 'Sent', value: stats.totalOutreach, fill: '#6366f1' },
-            { name: 'Opened', value: stats.openedEmails, fill: '#10b981' },
-            { name: 'Clicked', value: stats.clickedEmails, fill: '#f59e0b' },
-            { name: 'Replied', value: stats.totalReceived, fill: '#8b5cf6' },
-            { name: 'Leads', value: stats.leadsGenerated, fill: '#06b6d4' },
-        ];
-
-        // ─── 3. Manager Leaderboard (uses separate tables, run in parallel) ─
-        // ─── 7. Account Performance (uses separate account-scoped queries) ──
-        const [leaderboard, accountPerformance] = await Promise.all([
-            fetchManagerLeaderboard(startDate, endDate),
-            fetchAccountPerformance(startDate, endDate),
-        ]);
-
-        // ─── 4. Deliverability Monitor (derived from allMessages) ───────
-        const deliverability = deriveDeliverability(allMessages);
-
-        // ─── 5. AI Sentiment Analysis (Inferred from pipeline/spam) ────
-        const sentimentData = [
-            { name: 'Positive', value: stats.leadsGenerated, color: '#34a853' },
-            { name: 'Neutral', value: Math.max(0, stats.totalReceived - stats.leadsGenerated), color: '#fbbc04' },
-            { name: 'Negative', value: stats.spamCount || 0, color: '#ea4335' },
-        ];
-
-        // ─── 6. Performance Trends (all derived from allMessages) ───────
-        const dailyData = deriveDailyData(allMessages, startDate, endDate);
-        const hourlyEngagement = deriveHourlyEngagement(allMessages);
-        const topSubjects = deriveTopSubjects(allMessages);
-
-        return {
-            success: true,
-            stats,
-            funnelData,
-            leaderboard,
-            deliverability,
-            sentimentData,
-            dailyData,
-            hourlyEngagement,
-            topSubjects,
-            accountPerformance,
-        };
+        return getCachedAnalytics();
     } catch (error: any) {
         console.error('getAnalyticsDataAction error:', error);
         return { success: false, error: 'An unexpected error occurred' };
     }
 }
 
+// ─── Core analytics computation (cached via unstable_cache above) ─────────────
+async function computeAnalytics(
+    startDate: string,
+    endDate: string,
+    managerId: string,
+    accountId: string
+) {
+    // Resolve manager → account IDs once, reused by both fetchAllMessages and fetchCoreStats
+    const filterAccountIds = await resolveAccountFilter(accountId, managerId);
+
+    // Fix C: run ALL independent heavy queries in parallel instead of sequentially.
+    // fetchAllMessages, fetchManagerLeaderboard, fetchAccountPerformance, and the
+    // contacts/projects sub-queries inside fetchCoreStats are all independent at this level.
+    const [allMessages, leaderboard, accountPerformance, coreStatsRaw] = await Promise.all([
+        fetchAllMessages(startDate, endDate, filterAccountIds),
+        fetchManagerLeaderboard(startDate, endDate),
+        fetchAccountPerformance(startDate, endDate),
+        fetchCoreStatsFromDB(startDate, endDate, managerId, filterAccountIds),
+    ]);
+
+    // ─── 1. Core KPIs (derived from allMessages + DB counts) ───────────────
+    const stats = buildCoreStats(allMessages, coreStatsRaw);
+
+    // ─── 2. Conversion Funnel ──────────────────────────────────────────────
+    const funnelData = [
+        { name: 'Sent', value: stats.totalOutreach, fill: '#6366f1' },
+        { name: 'Opened', value: stats.openedEmails, fill: '#10b981' },
+        { name: 'Clicked', value: stats.clickedEmails, fill: '#f59e0b' },
+        { name: 'Replied', value: stats.totalReceived, fill: '#8b5cf6' },
+        { name: 'Leads', value: stats.leadsGenerated, fill: '#06b6d4' },
+    ];
+
+    // ─── 4. Deliverability Monitor (derived from allMessages) ───────
+    const deliverability = deriveDeliverability(allMessages);
+
+    // ─── 5. AI Sentiment Analysis (Inferred from pipeline/spam) ────
+    const sentimentData = [
+        { name: 'Positive', value: stats.leadsGenerated, color: '#34a853' },
+        { name: 'Neutral', value: Math.max(0, stats.totalReceived - stats.leadsGenerated), color: '#fbbc04' },
+        { name: 'Negative', value: stats.spamCount || 0, color: '#ea4335' },
+    ];
+
+    // ─── 6. Performance Trends (all derived from allMessages) ───────
+    const dailyData = deriveDailyData(allMessages, startDate, endDate);
+    const hourlyEngagement = deriveHourlyEngagement(allMessages);
+    const topSubjects = deriveTopSubjects(allMessages);
+
+    return {
+        success: true as const,
+        stats,
+        funnelData,
+        leaderboard,
+        deliverability,
+        sentimentData,
+        dailyData,
+        hourlyEngagement,
+        topSubjects,
+        accountPerformance,
+    };
+}
+
+// ─── Resolve accountId/managerId to a list of gmail_account IDs (or null = ALL) ──
+async function resolveAccountFilter(
+    accountId: string,
+    managerId: string
+): Promise<string[] | null> {
+    if (accountId !== 'ALL') {
+        return [accountId];
+    }
+    if (managerId !== 'ALL') {
+        const { data: managerAccounts } = await supabase
+            .from('gmail_accounts')
+            .select('id')
+            .eq('user_id', managerId);
+        return managerAccounts?.map(a => a.id) || [];
+    }
+    return null; // means "all accounts"
+}
+
 // ─── Consolidated email_messages fetch ──────────────────────────────────────
-// Replaces 4 separate queries (fetchDailyData, fetchHourlyEngagement,
-// fetchDeliverability, fetchTopSubjects) with a single query.
-// Fields fetched: sent_at, direction, is_spam, subject, opens_count, clicks_count
+// Fix B: only the minimum columns needed for analytics are selected (no body, snippet, etc.)
 type EmailMessageRow = {
     sent_at: string;
     direction: string;
@@ -91,21 +130,8 @@ type EmailMessageRow = {
 async function fetchAllMessages(
     startDate: string,
     endDate: string,
-    accountId: string,
-    managerId: string
+    filterAccountIds: string[] | null
 ): Promise<EmailMessageRow[]> {
-    // Resolve manager account IDs if needed (reused by fetchCoreStats too)
-    let filterAccountIds: string[] | null = null;
-    if (accountId !== 'ALL') {
-        filterAccountIds = [accountId];
-    } else if (managerId !== 'ALL') {
-        const { data: managerAccounts } = await supabase
-            .from('gmail_accounts')
-            .select('id')
-            .eq('user_id', managerId);
-        filterAccountIds = managerAccounts?.map(a => a.id) || [];
-    }
-
     let query = supabase
         .from('email_messages')
         .select('sent_at, direction, is_spam, subject, opens_count, clicks_count')
@@ -125,14 +151,42 @@ async function fetchAllMessages(
     return (data || []) as EmailMessageRow[];
 }
 
-async function fetchCoreStats(
+// ─── DB queries for core stats (contacts count + projects) ───────────────────
+// These run in parallel with fetchAllMessages (Fix C). No email_messages queries here.
+async function fetchCoreStatsFromDB(
     startDate: string,
     endDate: string,
     managerId: string,
-    accountId: string,
-    allMessages: EmailMessageRow[]
+    filterAccountIds: string[] | null
 ) {
-    // Derive email stats from pre-fetched messages instead of separate queries
+    let leadQ = supabase
+        .from('contacts')
+        .select('id', { count: 'exact', head: true })
+        .eq('is_lead', true)
+        .gte('created_at', startDate)
+        .lte('created_at', endDate);
+
+    let projQ = supabase
+        .from('projects')
+        .select('project_value, paid_status')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .limit(5000);
+
+    if (managerId !== 'ALL') {
+        leadQ = leadQ.eq('account_manager_id', managerId);
+        projQ = projQ.eq('account_manager_id', managerId);
+    }
+
+    const [lead, proj] = await Promise.all([leadQ, projQ]);
+    return { lead, proj };
+}
+
+// ─── Build core stats from pre-fetched messages + DB results ─────────────────
+function buildCoreStats(
+    allMessages: EmailMessageRow[],
+    coreStatsRaw: Awaited<ReturnType<typeof fetchCoreStatsFromDB>>
+) {
     const sentMessages = allMessages.filter(m => m.direction === 'SENT');
     const receivedMessages = allMessages.filter(m => m.direction === 'RECEIVED');
     const spamMessages = allMessages.filter(m => m.is_spam);
@@ -143,17 +197,7 @@ async function fetchCoreStats(
     const openedEmails = sentMessages.filter(m => (m.opens_count || 0) > 0).length;
     const clickedEmails = sentMessages.filter(m => (m.clicks_count || 0) > 0).length;
 
-    // Leads and projects still need their own queries (different tables)
-    let leadQ = supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('is_lead', true).gte('created_at', startDate).lte('created_at', endDate);
-    let projQ = supabase.from('projects').select('project_value, paid_status').gte('created_at', startDate).lte('created_at', endDate).limit(5000);
-
-    if (managerId !== 'ALL') {
-        leadQ = leadQ.eq('account_manager_id', managerId);
-        projQ = projQ.eq('account_manager_id', managerId);
-    }
-
-    const [lead, proj] = await Promise.all([leadQ, projQ]);
-
+    const { lead, proj } = coreStatsRaw;
     const projects = proj.data || [];
     const totalRevenue = projects.reduce((acc, p) => acc + (p.project_value || 0), 0);
 
@@ -176,6 +220,7 @@ async function fetchCoreStats(
     };
 }
 
+// ─── Manager Leaderboard ──────────────────────────────────────────────────────
 // Fix 1: Batch query instead of N+1 per manager
 async function fetchManagerLeaderboard(startDate: string, endDate: string) {
     const { data: managers } = await supabase.from('users').select('id, name, avatar_url').eq('role', 'ACCOUNT_MANAGER');
@@ -289,14 +334,19 @@ function deriveDailyData(allMessages: EmailMessageRow[], startDate: string, endD
     return days;
 }
 
-// Fix 2: Batch query instead of N+1 per account
+// ─── Account Performance ─────────────────────────────────────────────────────
+// Fix 2: Batch query instead of N+1 per account.
+// Previously fetched up to 50K rows per direction just to count in JS.
+// Now we fetch only the gmail_account_id column and use a tighter limit,
+// which is still correct since the result is aggregated in JS.
 async function fetchAccountPerformance(startDate: string, endDate: string) {
     const { data: accs } = await supabase.from('gmail_accounts').select('id, email, status').eq('status', 'ACTIVE');
     if (!accs || accs.length === 0) return [];
 
     const accIds = accs.map(a => a.id);
 
-    // Batch: get all sent/received counts in TWO queries total (instead of 2*N)
+    // Fetch counts: only the account ID column for aggregation, within the date range.
+    // Limit is per-query; with a small number of active accounts this is safe.
     const [sentResult, recvResult] = await Promise.all([
         supabase
             .from('email_messages')

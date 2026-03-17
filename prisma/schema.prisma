@@ -221,6 +221,8 @@ model EmailMessage {
   @@index([fromEmail])
   @@index([toEmail])
   @@index([sentAt])
+  // Analytics range scan: covers sent_at range queries filtered by direction (no account_id)
+  @@index([sentAt, direction], map: "idx_email_messages_sent_at_direction")
   @@index([isSpam])
   @@index([trackingId])
   @@map("email_messages")
