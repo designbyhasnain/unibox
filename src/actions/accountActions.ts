@@ -14,7 +14,7 @@ import { requireAdmin, getAccessibleGmailAccountIds } from '../utils/accessContr
 
 export async function getGoogleAuthUrlAction(): Promise<string> {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') throw new Error('Admin access required');
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') throw new Error('Admin access required');
     const state = generateOAuthState();
 
     const cookieStore = await cookies();
@@ -40,7 +40,7 @@ export async function connectManualAccountAction(
     }
 ): Promise<{ success: boolean; error?: string; account?: any }> {
     const { userId, role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
     try {
         if (!email || !appPassword) {
             return { success: false, error: 'Email and app password are required' };
@@ -187,7 +187,7 @@ export async function getAccountsAction() {
 
 export async function reSyncAccountAction(accountId: string, connectionMethod: 'OAUTH' | 'MANUAL'): Promise<{ success: boolean; error?: string }> {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
     if (!accountId) return { success: false, error: 'accountId is required' };
     try {
         if (connectionMethod === 'OAUTH') {
@@ -230,7 +230,7 @@ export async function syncAllUserAccountsAction(): Promise<{ success: boolean; a
 
 export async function toggleSyncStatusAction(accountId: string, currentStatus: string) {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
     if (!accountId) return { success: false, error: 'accountId is required' };
     // Only allow toggling between ACTIVE and PAUSED states
     if (currentStatus !== 'ACTIVE' && currentStatus !== 'PAUSED') {
@@ -253,7 +253,7 @@ export async function toggleSyncStatusAction(accountId: string, currentStatus: s
 
 export async function stopSyncingAction(accountId: string) {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
     if (!accountId) return { success: false, error: 'accountId is required' };
     try {
         const { error } = await supabase
@@ -274,7 +274,7 @@ export async function stopSyncingAction(accountId: string) {
 
 export async function removeAccountAction(accountId: string): Promise<{ success: boolean; error?: string }> {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
     if (!accountId) return { success: false, error: 'accountId is required' };
 
     const { data: account } = await supabase.from('gmail_accounts').select('*').eq('id', accountId).single();

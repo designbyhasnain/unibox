@@ -100,7 +100,7 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
 
     const navItems = [
         ...NAV_MAIN,
-        ...(userRole === 'ADMIN' ? [{ href: '/team', label: 'Team', icon: <Icons.Team /> }] : []),
+        ...((userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER') ? [{ href: '/team', label: 'Team', icon: <Icons.Team /> }] : []),
     ];
 
 

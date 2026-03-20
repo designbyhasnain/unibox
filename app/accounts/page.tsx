@@ -89,7 +89,7 @@ export default function AccountsPage() {
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [userRole, setUserRole] = useState<string | null>(null);
-    const isAdmin = userRole === 'ADMIN';
+    const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
 
 
     const fetchAccounts = async () => {

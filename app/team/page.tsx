@@ -33,7 +33,7 @@ export default function TeamPage() {
                 listInvitesAction(),
                 getAccountsAction(),
             ]);
-            if (user && user.role !== 'ADMIN') {
+            if (user && user.role !== 'ADMIN' && user.role !== 'ACCOUNT_MANAGER') {
                 router.push('/');
                 return;
             }
