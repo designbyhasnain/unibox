@@ -1,0 +1,36 @@
+{
+    "framework": "nextjs",
+    "buildCommand": "next build",
+    "installCommand": "npm install",
+    "regions": [
+        "iad1"
+    ],
+    "headers": [
+        {
+            "source": "/api/(.*)",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "no-store"
+                }
+            ]
+        }
+    ],
+    "functions": {
+        "app/api/sync/route.ts": {
+            "maxDuration": 60
+        },
+        "app/api/webhooks/gmail/route.ts": {
+            "maxDuration": 30
+        },
+        "app/api/auth/google/callback/route.ts": {
+            "maxDuration": 30
+        }
+    },
+    "crons": [
+        {
+            "path": "/api/cron/cleanup-tracking",
+            "schedule": "0 3 * * *"
+        }
+    ]
+}

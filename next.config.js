@@ -1,0 +1,43 @@
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+    // ─── Server External Packages ─────────────────────────────────────────────
+    // Next.js 15+ / Turbopack way to tell bundler NOT to bundle these heavy
+    // server-only packages — they are available natively at runtime on Vercel.
+    // This replaces the old webpack `externals` approach.
+    serverExternalPackages: [
+        '@prisma/client',
+        'prisma',
+        'nodemailer',
+        'imapflow',
+        'mailparser',
+        'googleapis',
+    ],
+
+    // ─── Compiler ────────────────────────────────────────────────────────────
+    // Remove console.log in production to reduce bundle and avoid log noise on Vercel
+    compiler: {
+        removeConsole: process.env.NODE_ENV === 'production'
+            ? { exclude: ['error', 'warn'] }
+            : false,
+    },
+
+    // ─── Turbopack (Next.js 16 default) ──────────────────────────────────────
+    // Empty config silences the Turbopack warning without breaking anything
+    turbopack: {},
+
+    // ─── Security Headers ─────────────────────────────────────────────────────
+    async headers() {
+        return [
+            {
+                source: '/(.*)',
+                headers: [
+                    { key: 'X-Frame-Options', value: 'DENY' },
+                    { key: 'X-Content-Type-Options', value: 'nosniff' },
+                    { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+                ],
+            },
+        ];
+    },
+};
+
+module.exports = nextConfig;
