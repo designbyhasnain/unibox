@@ -1,18 +1,31 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-// Freshly recreated file to force Turbopack cache refresh
-import { getCrmAuthUrl } from '../../../../../src/services/crmAuthService';
 import { generateOAuthState } from '../../../../../src/services/googleAuthService';
+import { getCrmAuthUrl } from '../../../../../src/services/crmAuthService';
 
-export async function GET() {
-    const state = `crm_${generateOAuthState()}`;
-    
-    (await cookies()).set('crm_oauth_state', state, {
+export async function GET(request: NextRequest) {
+    const state = generateOAuthState();
+    const inviteToken = request.nextUrl.searchParams.get('invite_token');
+
+    const cookieStore = await cookies();
+    cookieStore.set('crm_oauth_state', state, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 60 * 10, // 10 minutes
-        path: '/'
+        sameSite: 'lax',
+        maxAge: 600,
+        path: '/',
     });
+
+    // Store invite token if present
+    if (inviteToken) {
+        cookieStore.set('invite_token', inviteToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 600,
+            path: '/',
+        });
+    }
 
     const url = getCrmAuthUrl(state);
     return NextResponse.redirect(url);

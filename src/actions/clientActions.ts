@@ -4,10 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { normalizeEmail } from '../utils/emailNormalizer';
+import { getAccessibleGmailAccountIds } from '../utils/accessControl';
 
 // 9.0 — Ensure a contact exists for a given email address
 export async function ensureContactAction(email: string, name?: string) {
-    const userId = await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     if (!email || typeof email !== 'string') return null;
     const cleanMail = normalizeEmail(email);
 
@@ -46,7 +47,8 @@ export async function ensureContactAction(email: string, name?: string) {
 // Optimised: no longer joins email_messages (124K rows). Email stats are
 // fetched with a lightweight grouped-count query instead.
 export async function getClientsAction(gmailAccountId?: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
     // 1. Fetch contacts with only small-table joins (projects, users)
     const { data: contacts, error } = await supabase
         .from('contacts')
@@ -81,7 +83,14 @@ export async function getClientsAction(gmailAccountId?: string) {
         .order('sent_at', { ascending: false });
 
     if (gmailAccountId && gmailAccountId !== 'ALL') {
+        // Verify access to the specific account
+        if (accessible !== 'ALL' && !accessible.includes(gmailAccountId)) {
+            return [];
+        }
         emailStatsQuery = emailStatsQuery.eq('gmail_account_id', gmailAccountId);
+    } else if (accessible !== 'ALL') {
+        // RBAC: restrict to accessible accounts only
+        emailStatsQuery = emailStatsQuery.in('gmail_account_id', accessible);
     }
 
     const { data: emailRows } = await emailStatsQuery;
@@ -132,7 +141,7 @@ export async function getClientsAction(gmailAccountId?: string) {
 
 // 9.x — Fetch a single contact by ID
 export async function getContactAction(contactId: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     if (!contactId) return null;
     const { data, error } = await supabase
         .from('contacts')
@@ -150,7 +159,7 @@ export async function getContactAction(contactId: string) {
 
 // 9.2 Tab 2 — Fetch projects for a specific contact
 export async function getClientProjectsAction(contactId: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     if (!contactId) return [];
     const { data, error } = await supabase
         .from('projects')
@@ -184,7 +193,7 @@ export type ClientUpdatePayload = {
 };
 
 export async function updateClientAction(clientId: string, updates: ClientUpdatePayload) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     if (!clientId) return { success: false, error: 'clientId is required' };
 
     // Whitelist allowed fields to prevent mass assignment

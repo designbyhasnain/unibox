@@ -13,11 +13,16 @@ datasource db {
 // --- Enums ---
 
 enum Role {
-  ACCOUNT_MANAGER
-  VIDEO_EDITOR
-  CLIENT
-
+  ADMIN
+  SALES
   @@map("user_role")
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  @@map("invitation_status")
 }
 
 enum UserStatus {
@@ -102,16 +107,18 @@ model User {
   id        String     @id @default(uuid())
   name      String
   email     String     @unique
-  role      Role       @default(ACCOUNT_MANAGER)
+  role      Role       @default(ADMIN)
   invitedBy String?    @map("invited_by")
   status    UserStatus @default(ACTIVE)
   avatarUrl String?    @map("avatar_url")
   createdAt DateTime   @default(now()) @map("created_at")
 
   // Relationships
-  gmailAccounts   GmailAccount[]
-  handledContacts Contact[]      @relation("AccountManager")
-  projects        Project[]
+  gmailAccounts    GmailAccount[]
+  handledContacts  Contact[]              @relation("AccountManager")
+  projects         Project[]
+  invitationsSent  Invitation[]           @relation("InvitedByUser")
+  gmailAssignments UserGmailAssignment[]
 
   @@map("users")
 }
@@ -147,8 +154,8 @@ model Contact {
 
 model GmailAccount {
   id               String           @id @default(uuid())
-  userId           String           @map("user_id")
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdById      String           @map("user_id")
+  createdBy        User             @relation(fields: [createdById], references: [id], onDelete: Cascade)
   email            String           @unique
   connectionMethod ConnectionMethod @default(OAUTH) @map("connection_method")
   accessToken      String?          @map("access_token")
@@ -158,7 +165,7 @@ model GmailAccount {
   // Custom Domain Details
   smtpHost       String? @map("smtp_host")
   smtpPort       Int?    @map("smtp_port")
-  smtpEncryption String? @default("STARTTLS") @map("smtp_encryption") // NOTE: unused in application code — retained to avoid migration issues
+  smtpEncryption String? @default("STARTTLS") @map("smtp_encryption")
   imapHost       String? @map("imap_host")
   imapPort       Int?    @map("imap_port")
 
@@ -169,13 +176,47 @@ model GmailAccount {
   historyId    String?            @map("history_id")
 
   syncProgress   Int @default(0) @map("sync_progress")
-  /// Daily send counter — should be reset to 0 daily via cron job (see DB-039)
   sentCountToday Int @default(0) @map("sent_count_today")
 
-  emails EmailMessage[]
+  emails      EmailMessage[]
+  assignments UserGmailAssignment[]
 
-  @@index([userId])
+  @@index([createdById])
   @@map("gmail_accounts")
+}
+
+model Invitation {
+  id                      String           @id @default(uuid())
+  email                   String           @unique
+  name                    String
+  role                    Role
+  invitedById             String           @map("invited_by")
+  invitedBy               User             @relation("InvitedByUser", fields: [invitedById], references: [id])
+  status                  InvitationStatus @default(PENDING)
+  token                   String           @unique
+  assignedGmailAccountIds String[]         @map("assigned_gmail_account_ids")
+  expiresAt               DateTime         @map("expires_at")
+  createdAt               DateTime         @default(now()) @map("created_at")
+  acceptedAt              DateTime?        @map("accepted_at")
+
+  @@index([token])
+  @@index([email])
+  @@map("invitations")
+}
+
+model UserGmailAssignment {
+  id             String       @id @default(uuid())
+  userId         String       @map("user_id")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gmailAccountId String       @map("gmail_account_id")
+  gmailAccount   GmailAccount @relation(fields: [gmailAccountId], references: [id], onDelete: Cascade)
+  assignedBy     String       @map("assigned_by")
+  assignedAt     DateTime     @default(now()) @map("assigned_at")
+
+  @@unique([userId, gmailAccountId])
+  @@index([userId])
+  @@index([gmailAccountId])
+  @@map("user_gmail_assignments")
 }
 
 model EmailThread {

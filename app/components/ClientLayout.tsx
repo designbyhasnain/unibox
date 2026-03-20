@@ -12,8 +12,8 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
     const pathname = usePathname();
     const { isComposeOpen, setComposeOpen, composeDefaultTo } = useUI();
 
-    // Login page gets its own full-screen layout — no sidebar, compose modal, or trackers
-    if (pathname === '/login') {
+    // Login and invite pages get their own full-screen layout — no sidebar, compose modal, or trackers
+    if (pathname === '/login' || pathname.startsWith('/invite')) {
         return <>{children}</>;
     }
 

@@ -13,6 +13,7 @@ import { transformEmailRow, transformJoinedEmailRow } from '../utils/emailTransf
 import { clampPageSize } from '../utils/pagination';
 import { PAGINATION } from '../constants/limits';
 import { ensureAuthenticated } from '../lib/safe-action';
+import { getAccessibleGmailAccountIds } from '../utils/accessControl';
 
 const PAGE_SIZE = PAGINATION.DEFAULT_PAGE_SIZE;
 
@@ -128,25 +129,23 @@ export async function sendEmailAction(params: {
 }
 
 
-// ─── Get Account IDs for a user ───────────────────────────────────────────────
+// ─── Resolve account IDs from user + optional filter (RBAC-aware) ─────────────
 
-async function getAccountIds(userId: string): Promise<string[] | null> {
-    const { data: accounts, error } = await supabase
-        .from('gmail_accounts')
-        .select('id')
-        .eq('user_id', userId);
-
-    if (error || !accounts || accounts.length === 0) return null;
-    return accounts.map((a) => a.id);
-}
-
-// ─── Resolve account IDs from user + optional filter ──────────────────────────
-
-async function resolveAccountIds(userId: string, gmailAccountId?: string): Promise<string[] | null> {
+async function resolveAccountIds(userId: string, role: string, gmailAccountId?: string): Promise<string[] | null> {
     if (gmailAccountId && gmailAccountId !== 'ALL') {
-        return [gmailAccountId];
+        // If a specific account is requested, verify the user has access
+        const accessible = await getAccessibleGmailAccountIds(userId, role);
+        if (accessible === 'ALL') return [gmailAccountId];
+        if (accessible.includes(gmailAccountId)) return [gmailAccountId];
+        return []; // User doesn't have access to this account
     }
-    return getAccountIds(userId);
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (accessible === 'ALL') {
+        // Admin: get all accounts
+        const { data } = await supabase.from('gmail_accounts').select('id');
+        return data?.map(a => a.id) || null;
+    }
+    return accessible.length > 0 ? accessible : null;
 }
 
 // ─── Inbox Emails (DB-level thread grouping via RPC) ──────────────────────────
@@ -159,14 +158,14 @@ export async function getInboxEmailsAction(
     stage: string = 'ALL',
     gmailAccountId?: string
 ): Promise<PaginatedEmailResult> {
-    const userId = await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     // Clamp page and pageSize to prevent unbounded queries
     if (page < 1 || !Number.isFinite(page)) page = 1;
     if (page > 10000) page = 1;
     const clampedPageSize = clampPageSize(pageSize);
     const empty: PaginatedEmailResult = { emails: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
 
-    const accountIds = await resolveAccountIds(userId, gmailAccountId);
+    const accountIds = await resolveAccountIds(userId, role, gmailAccountId);
     if (!accountIds || accountIds.length === 0) return empty;
 
     const offset = (page - 1) * clampedPageSize;
@@ -233,13 +232,13 @@ export async function getSentEmailsAction(
     pageSize = PAGE_SIZE,
     gmailAccountId?: string
 ): Promise<PaginatedEmailResult> {
-    const userId = await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     if (page < 1 || !Number.isFinite(page)) page = 1;
     if (page > 10000) page = 1;
     const clampedPageSize = clampPageSize(pageSize);
     const empty: PaginatedEmailResult = { emails: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
 
-    const accountIds = await resolveAccountIds(userId, gmailAccountId);
+    const accountIds = await resolveAccountIds(userId, role, gmailAccountId);
     if (!accountIds || accountIds.length === 0) return empty;
 
     const offset = (page - 1) * clampedPageSize;
@@ -312,7 +311,7 @@ export async function getClientEmailsAction(
     maybeTargetEmail?: string,
     gmailAccountId?: string
 ): Promise<any[] | { success: boolean; emails: any[]; total: number; page: number; pageSize: number }> {
-    const userId = await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     // Normalize arguments
     const isLegacy = typeof paramsOrTargetEmail === 'string';
     let clientEmail: string;
@@ -329,7 +328,7 @@ export async function getClientEmailsAction(
     } else {
         // Legacy call: getClientEmailsAction(targetEmail, gmailAccountId?)
         clientEmail = paramsOrTargetEmail;
-        const resolved = await resolveAccountIds(userId, gmailAccountId);
+        const resolved = await resolveAccountIds(userId, role, gmailAccountId);
         if (!resolved || resolved.length === 0) return [];
         accountIds = resolved;
         page = 1;
@@ -661,8 +660,8 @@ export async function markAsNotInterestedAction(email: string) {
 }
 
 export async function getTabCountsAction(gmailAccountId?: string) {
-    const userId = await ensureAuthenticated();
-    const accountIds = await resolveAccountIds(userId, gmailAccountId);
+    const { userId, role } = await ensureAuthenticated();
+    const accountIds = await resolveAccountIds(userId, role, gmailAccountId);
     if (!accountIds || accountIds.length === 0) return {};
 
     try {
@@ -732,12 +731,12 @@ export async function searchEmailsAction(
     limit = 6,
     gmailAccountId?: string
 ) {
-    const userId = await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     if (!query || query.trim().length < 1) return [];
     // Clamp limit to prevent unbounded queries
     const clampedLimit = clampPageSize(limit, PAGINATION.SEARCH_MAX);
 
-    const accountIds = await resolveAccountIds(userId, gmailAccountId);
+    const accountIds = await resolveAccountIds(userId, role, gmailAccountId);
     if (!accountIds || accountIds.length === 0) return [];
 
     let q = query.trim();

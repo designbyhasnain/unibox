@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
+import { getAccessibleGmailAccountIds } from '../utils/accessControl';
 
 export type ProjectUpdatePayload = {
     projectName?: string;
@@ -23,7 +24,14 @@ export type ProjectUpdatePayload = {
 // Fetch all projects with client and manager details
 // Optimised: select only needed columns instead of *, and simplified sourceEmail join.
 export async function getAllProjectsAction(gmailAccountId?: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    // Verify access if specific account requested
+    if (gmailAccountId && gmailAccountId !== 'ALL') {
+        const accessible = await getAccessibleGmailAccountIds(userId, role);
+        if (accessible !== 'ALL' && !accessible.includes(gmailAccountId)) {
+            return [];
+        }
+    }
     let query = supabase
         .from('projects')
         .select(`
@@ -77,7 +85,7 @@ export async function getAllProjectsAction(gmailAccountId?: string) {
 
 // Fetch all account managers for dropdowns
 export async function getManagersAction() {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     const { data, error } = await supabase
         .from('users')
         .select('id, name')
@@ -93,7 +101,7 @@ export async function getManagersAction() {
 
 // Update an existing project
 export async function updateProjectAction(projectId: string, payload: ProjectUpdatePayload) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     if (!projectId) return { success: false, error: 'projectId is required' };
     // Build update object, filtering out undefined values to avoid nullifying existing fields
     const updateData: Record<string, any> = {};
@@ -154,7 +162,7 @@ export async function createProjectFromEmailAction(payload: {
     sourceEmailId: string;
     accountManagerId?: string;
 }) {
-    const userId = await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     if (!payload.clientId || !payload.projectName || !payload.sourceEmailId) {
         return { success: false, error: 'clientId, projectName, and sourceEmailId are required' };
     }
@@ -201,7 +209,7 @@ export async function createProjectAction(payload: {
     finalReview?: string;
     sourceEmailId?: string | null;
 }) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     if (!payload.clientId || !payload.projectName || !payload.projectDate || !payload.dueDate || !payload.accountManagerId) {
         return { success: false, error: 'clientId, projectName, projectDate, dueDate, and accountManagerId are required' };
     }

@@ -2,6 +2,7 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
+import { getAccessibleGmailAccountIds } from '../utils/accessControl';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ export async function getAnalyticsDataAction(params: {
     managerId: string;
     accountId: string;
 }) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
     try {
         const { startDate, endDate, managerId, accountId } = params;
         if (!startDate || !endDate || !managerId || !accountId) {
@@ -52,8 +53,20 @@ export async function getAnalyticsDataAction(params: {
 
         const filterIds = await resolveFilterAccountIds(accountId, managerId);
 
+        // Apply RBAC filter
+        const accessible = await getAccessibleGmailAccountIds(userId, role);
+        let effectiveFilterIds = filterIds;
+        if (accessible !== 'ALL') {
+            if (!effectiveFilterIds) {
+                effectiveFilterIds = accessible;
+            } else {
+                effectiveFilterIds = effectiveFilterIds.filter(id => accessible.includes(id));
+            }
+            if (effectiveFilterIds.length === 0) return emptyAnalytics();
+        }
+
         // If filtered to specific accounts and none found, return empty
-        if (filterIds && filterIds.length === 0) {
+        if (effectiveFilterIds && effectiveFilterIds.length === 0) {
             return emptyAnalytics();
         }
 
@@ -65,8 +78,8 @@ export async function getAnalyticsDataAction(params: {
                 .gte('sent_at', startDate)
                 .lte('sent_at', endDate)
                 .range(from, to);
-            if (filterIds) {
-                q = filterIds.length === 1 ? q.eq('gmail_account_id', filterIds[0]) : q.in('gmail_account_id', filterIds);
+            if (effectiveFilterIds) {
+                q = effectiveFilterIds.length === 1 ? q.eq('gmail_account_id', effectiveFilterIds[0]) : q.in('gmail_account_id', effectiveFilterIds);
             }
             return q;
         });

@@ -14,6 +14,7 @@ import {
     stopSyncingAction
 } from '../../src/actions/accountActions';
 import { PageLoader } from '../components/LoadingStates';
+import { getCurrentUserAction } from '../../src/actions/authActions';
 
 type AccountStatus = 'ACTIVE' | 'ERROR' | 'DISCONNECTED' | 'SYNCING' | 'PAUSED';
 type ConnectionMethod = 'OAUTH' | 'MANUAL';
@@ -87,6 +88,8 @@ export default function AccountsPage() {
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [userRole, setUserRole] = useState<string | null>(null);
+    const isAdmin = userRole === 'ADMIN';
 
 
     const fetchAccounts = async () => {
@@ -96,6 +99,9 @@ export default function AccountsPage() {
     };
 
     useEffect(() => {
+        getCurrentUserAction().then(session => {
+            if (session) setUserRole(session.role);
+        });
         if (accounts.length === 0) {
             fetchAccounts();
         } else {
@@ -296,24 +302,28 @@ export default function AccountsPage() {
                     }
                     rightContent={
                         <div className="topbar-actions">
-                            <button
-                                className="icon-btn"
-                                onClick={handleSync}
-                                disabled={isSyncing}
-                                title={isSyncing ? 'Syncing...' : 'Sync all accounts'}
-                            >
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
-                                    <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
-                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                                </svg>
-                            </button>
-                            <button
-                                className="btn btn-primary btn-sm"
-                                onClick={() => { setShowSelectionModal(true); setError(null); }}
-                            >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14m-7-7h14" /></svg>
-                                Add Account
-                            </button>
+                            {isAdmin && (
+                                <>
+                                    <button
+                                        className="icon-btn"
+                                        onClick={handleSync}
+                                        disabled={isSyncing}
+                                        title={isSyncing ? 'Syncing...' : 'Sync all accounts'}
+                                    >
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
+                                            <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+                                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        className="btn btn-primary btn-sm"
+                                        onClick={() => { setShowSelectionModal(true); setError(null); }}
+                                    >
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14m-7-7h14" /></svg>
+                                        Add Account
+                                    </button>
+                                </>
+                            )}
                             <div className="avatar-btn">A</div>
                         </div>
                     }
@@ -331,6 +341,7 @@ export default function AccountsPage() {
                             <div className="list-toolbar-left">
                                 <span className="count-label">{isHydrated ? accounts.length : 0} linked accounts</span>
                             </div>
+                            {isAdmin && (
                             <div className="list-toolbar-right">
                                 <button className="icon-btn" onClick={handleSync} disabled={isSyncing} title="Sync All">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
@@ -345,6 +356,7 @@ export default function AccountsPage() {
                                     Add Account
                                 </button>
                             </div>
+                            )}
                         </div>
 
                         <div className="list-area" style={{ padding: '0' }}>
@@ -443,6 +455,7 @@ export default function AccountsPage() {
                                                     </div>
                                                 )}
 
+                                                {isAdmin && (
                                                 <div className="acct-card-actions">
                                                     <div className="acct-card-actions-left">
                                                         {acc.status === 'ERROR' ? (
@@ -475,6 +488,7 @@ export default function AccountsPage() {
                                                         </button>
                                                     </div>
                                                 </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>

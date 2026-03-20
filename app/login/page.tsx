@@ -33,13 +33,19 @@ function LoginContent() {
                     {error === 'unauthorized' && (
                         <div className="login-error-box">
                             <strong>Access Denied</strong>
-                            <p>This is an invite-only system. Your email is not whitelisted.</p>
+                            <p>Your account has been deactivated. Contact your admin.</p>
                         </div>
                     )}
                     {error === 'auth_failed' && (
                         <div className="login-error-box">
                             <strong>Authentication Failed</strong>
                             <p>Could not verify your Google account. Please try again.</p>
+                        </div>
+                    )}
+                    {error === 'no_invite' && (
+                        <div className="login-error-box">
+                            <strong>Invite Required</strong>
+                            <p>You need an invitation to access this app. Contact your admin to get invited.</p>
                         </div>
                     )}
 
