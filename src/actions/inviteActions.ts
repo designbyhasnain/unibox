@@ -15,7 +15,7 @@ export async function sendInviteAction(params: {
     assignedGmailAccountIds: string[];
 }) {
     const { userId, role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
     const { email, name, role: inviteRole, assignedGmailAccountIds } = params;
     if (!email || !name || !inviteRole) {
@@ -88,7 +88,7 @@ export async function sendInviteAction(params: {
  */
 export async function listInvitesAction() {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, invitations: [], error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, invitations: [], error: 'Admin access required' };
 
     const { data, error } = await supabase
         .from('invitations')
@@ -113,7 +113,7 @@ export async function listInvitesAction() {
  */
 export async function revokeInviteAction(inviteId: string) {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
     const { error } = await supabase
         .from('invitations')
@@ -134,7 +134,7 @@ export async function revokeInviteAction(inviteId: string) {
  */
 export async function resendInviteAction(inviteId: string) {
     const { userId, role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
     const newToken = crypto.randomBytes(32).toString('hex');
     const newExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();

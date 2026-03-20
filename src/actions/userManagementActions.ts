@@ -8,7 +8,7 @@ import { ensureAuthenticated } from '../lib/safe-action';
  */
 export async function listUsersAction() {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, users: [], error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, users: [], error: 'Admin access required' };
 
     const { data: users, error } = await supabase
         .from('users')
@@ -50,7 +50,7 @@ export async function listUsersAction() {
  */
 export async function assignGmailToUserAction(targetUserId: string, gmailAccountId: string) {
     const { userId, role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
     const { error } = await supabase
         .from('user_gmail_assignments')
@@ -73,7 +73,7 @@ export async function assignGmailToUserAction(targetUserId: string, gmailAccount
  */
 export async function removeGmailFromUserAction(targetUserId: string, gmailAccountId: string) {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
     const { error } = await supabase
         .from('user_gmail_assignments')
@@ -94,7 +94,7 @@ export async function removeGmailFromUserAction(targetUserId: string, gmailAccou
  */
 export async function updateUserRoleAction(targetUserId: string, newRole: 'ADMIN' | 'SALES') {
     const { userId, role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
     if (targetUserId === userId) return { success: false, error: 'Cannot change your own role' };
 
     const { error } = await supabase
@@ -115,7 +115,7 @@ export async function updateUserRoleAction(targetUserId: string, newRole: 'ADMIN
  */
 export async function deactivateUserAction(targetUserId: string) {
     const { userId, role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
     if (targetUserId === userId) return { success: false, error: 'Cannot deactivate yourself' };
 
     const { error } = await supabase
@@ -136,7 +136,7 @@ export async function deactivateUserAction(targetUserId: string) {
  */
 export async function reactivateUserAction(targetUserId: string) {
     const { role } = await ensureAuthenticated();
-    if (role !== 'ADMIN') return { success: false, error: 'Admin access required' };
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
     const { error } = await supabase
         .from('users')
