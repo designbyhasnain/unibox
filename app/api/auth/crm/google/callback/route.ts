@@ -128,14 +128,37 @@ export async function GET(request: NextRequest) {
         }
 
         // 4. Regular login - check if user exists
-        const { data: user } = await supabase
+        let { data: user } = await supabase
             .from('users')
             .select('*')
             .eq('email', googleUser.email.toLowerCase())
             .maybeSingle();
 
         if (!user) {
-            return NextResponse.redirect(new URL('/login?error=no_invite', request.url));
+            // Check if ANY users exist — if not, auto-create first user as ADMIN
+            const { count } = await supabase.from('users').select('id', { count: 'exact', head: true });
+            if (count === 0 || count === null) {
+                // First user ever — auto-create as ADMIN
+                const { data: newUser, error: createErr } = await supabase
+                    .from('users')
+                    .insert({
+                        email: googleUser.email.toLowerCase(),
+                        name: googleUser.name,
+                        role: 'ACCOUNT_MANAGER',
+                        avatar_url: googleUser.avatar || null,
+                        status: 'ACTIVE',
+                    })
+                    .select('*')
+                    .single();
+
+                if (createErr || !newUser) {
+                    console.error('[CRM Auth] Failed to auto-create first user:', createErr);
+                    return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+                }
+                user = newUser;
+            } else {
+                return NextResponse.redirect(new URL('/login?error=no_invite', request.url));
+            }
         }
 
         if (user.status === 'REVOKED') {
