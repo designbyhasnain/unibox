@@ -4,7 +4,7 @@ import { generateOAuthState } from '../../../../../src/services/googleAuthServic
 import { getCrmAuthUrl } from '../../../../../src/services/crmAuthService';
 
 export async function GET(request: NextRequest) {
-    const state = generateOAuthState();
+    const state = 'crm_' + generateOAuthState();
     const inviteToken = request.nextUrl.searchParams.get('invite_token');
 
     const cookieStore = await cookies();
