@@ -6,15 +6,23 @@ import { getCurrentUserAction } from '../../src/actions/authActions';
 import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, updateUserRoleAction, deactivateUserAction, reactivateUserAction } from '../../src/actions/userManagementActions';
 import { sendInviteAction, listInvitesAction, revokeInviteAction, resendInviteAction } from '../../src/actions/inviteActions';
 import { getAccountsAction } from '../../src/actions/accountActions';
+import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import Topbar from '../components/Topbar';
+
+// Cache for instant team page load
+let teamCache: { users: any[]; invitations: any[]; accounts: any[] } | null = null;
+if (typeof window !== 'undefined') {
+    const saved = getFromLocalCache('team_data');
+    if (saved) teamCache = saved;
+}
 
 export default function TeamPage() {
     const router = useRouter();
     const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
-    const [users, setUsers] = useState<any[]>([]);
-    const [invitations, setInvitations] = useState<any[]>([]);
-    const [allAccounts, setAllAccounts] = useState<any[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [users, setUsers] = useState<any[]>(() => teamCache?.users || []);
+    const [invitations, setInvitations] = useState<any[]>(() => teamCache?.invitations || []);
+    const [allAccounts, setAllAccounts] = useState<any[]>(() => teamCache?.accounts || []);
+    const [isLoading, setIsLoading] = useState(!teamCache);
     const [currentUser, setCurrentUser] = useState<any>(null);
 
     // Modal states
@@ -25,7 +33,7 @@ export default function TeamPage() {
     const [actionLoading, setActionLoading] = useState<string | null>(null);
 
     const loadData = useCallback(async () => {
-        setIsLoading(true);
+        if (!teamCache) setIsLoading(true);
         try {
             const [userResult, user, inviteResult, accountResult] = await Promise.all([
                 listUsersAction(),
@@ -38,9 +46,15 @@ export default function TeamPage() {
                 return;
             }
             setCurrentUser(user);
-            if (userResult.success) setUsers(userResult.users);
-            if (inviteResult.success) setInvitations(inviteResult.invitations);
-            if (accountResult.success) setAllAccounts(accountResult.accounts);
+            const newUsers = userResult.success ? userResult.users : [];
+            const newInvites = inviteResult.success ? inviteResult.invitations : [];
+            const newAccounts = accountResult.success ? accountResult.accounts : [];
+            setUsers(newUsers);
+            setInvitations(newInvites);
+            setAllAccounts(newAccounts);
+            // Cache for instant load next time
+            teamCache = { users: newUsers, invitations: newInvites, accounts: newAccounts };
+            saveToLocalCache('team_data', teamCache);
         } catch (err) {
             console.error('Failed to load team data:', err);
         } finally {
