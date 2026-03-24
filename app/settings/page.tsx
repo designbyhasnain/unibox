@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import Topbar from '../components/Topbar';
 import { useRouter } from 'next/navigation';
 import { useGlobalFilter } from '../context/FilterContext';
-import { getAccountsAction } from '../../src/actions/accountActions';
 
 interface SettingRow {
     id: string;
@@ -16,8 +15,7 @@ interface SettingRow {
 
 export default function SettingsPage() {
     const router = useRouter();
-    const { selectedAccountId, setSelectedAccountId } = useGlobalFilter();
-    const [accounts, setAccounts] = useState<any[]>([]);
+    const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
     const [pollingEnabled, setPollingEnabled] = useState(true);
     const [pollingInterval, setPollingInterval] = useState(30);
     const [focusSyncEnabled, setFocusSyncEnabled] = useState(true);
@@ -33,12 +31,6 @@ export default function SettingsPage() {
         if (savedInterval !== null) setPollingInterval(parseInt(savedInterval, 10));
         if (savedFocus !== null) setFocusSyncEnabled(savedFocus === 'true');
         if (savedNotifs !== null) setNotificationsEnabled(savedNotifs === 'true');
-
-        getAccountsAction()
-            .then(result => {
-                if (result.success) setAccounts(result.accounts);
-            })
-            .catch(console.error);
     }, []);
 
     const handleSave = () => {

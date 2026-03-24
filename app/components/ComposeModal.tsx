@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { sendEmailAction } from '../../src/actions/emailActions';
-import { getAccountsAction } from '../../src/actions/accountActions';
+import { useGlobalFilter } from '../context/FilterContext';
 import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Eye, MousePointerClick, FileText, Unlink } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
@@ -20,7 +20,8 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const [subject, setSubject] = useState(defaultSubject);
     const [body, setBody] = useState('');
     const [fromAccount, setFromAccount] = useState('');
-    const [accounts, setAccounts] = useState<any[]>([]);
+    const { accounts: ctxAccounts } = useGlobalFilter();
+    const [accounts, setAccounts] = useState<any[]>(ctxAccounts);
     const [isSending, setIsSending] = useState(false);
     const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
     const [isMinimized, setIsMinimized] = useState(false);
@@ -70,18 +71,11 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     };
 
     useEffect(() => {
-        const fetchAccounts = async () => {
-            try {
-                const result = await getAccountsAction();
-                if (result.success) {
-                    const data = result.accounts;
-                    setAccounts(data);
-                    if (data.length > 0) setFromAccount(data[0].id);
-                }
-            } catch (err) { console.error('Failed to fetch accounts:', err); }
-        };
-        fetchAccounts();
-    }, []);
+        if (ctxAccounts.length > 0) {
+            setAccounts(ctxAccounts);
+            if (!fromAccount) setFromAccount(ctxAccounts[0].id);
+        }
+    }, [ctxAccounts]);
 
     useEffect(() => {
         if (!isMinimized && editorRef.current) {

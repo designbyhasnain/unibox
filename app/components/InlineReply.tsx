@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction } from '../../src/actions/emailActions';
-import { getAccountsAction } from '../../src/actions/accountActions';
+import { useGlobalFilter } from '../context/FilterContext';
 import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Send, User } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
@@ -18,10 +18,11 @@ interface InlineReplyProps {
 }
 
 export default function InlineReply({ threadId, to, subject, accountId, onSuccess, onCancel }: InlineReplyProps) {
+    const { accounts: ctxAccounts } = useGlobalFilter();
     const [body, setBody] = useState('');
     const [isSending, setIsSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [accounts, setAccounts] = useState<any[]>([]);
+    const [accounts, setAccounts] = useState<any[]>(ctxAccounts);
     const [selectedAccountId, setSelectedAccountId] = useState(accountId);
     const editorRef = useRef<HTMLDivElement>(null);
     const [showFormatting, setShowFormatting] = useState(false);
@@ -36,21 +37,10 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
     const selectionRef = useRef<Range | null>(null);
 
     useEffect(() => {
-        const fetchAccounts = async () => {
-            try {
-                const result = await getAccountsAction();
-                if (result.success) {
-                    const data = result.accounts;
-                    setAccounts(data);
-                    // If initial accountId is not in the list (rare), we still keep it or pick first
-                    if (!data.find((a: any) => a.id === accountId) && data.length > 0) {
-                        // We keep current accountId if passed, but make sure it's selectable
-                    }
-                }
-            } catch (err) { console.error('Failed to fetch accounts:', err); }
-        };
-        fetchAccounts();
+        if (ctxAccounts.length > 0) setAccounts(ctxAccounts);
+    }, [ctxAccounts]);
 
+    useEffect(() => {
         if (editorRef.current) {
             editorRef.current.focus();
         }
