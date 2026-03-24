@@ -48,19 +48,15 @@ export default function AnalyticsPage() {
     }, []);
 
     useEffect(() => {
-        const load = async () => {
-            const mgrs = await getManagersAction();
-            setManagers(mgrs);
-        };
-        load();
-    }, []);
-
-    useEffect(() => {
         if (!isHydrated) return;
-        const fetch = async () => {
+        const fetchAll = async () => {
             if (!data) setLoading(true);
             setError(null);
-            const result = await getAnalyticsDataAction({ startDate, endDate, managerId: selectedManager, accountId: selectedAccountId });
+            const [mgrs, result] = await Promise.all([
+                getManagersAction(),
+                getAnalyticsDataAction({ startDate, endDate, managerId: selectedManager, accountId: selectedAccountId }),
+            ]);
+            setManagers(mgrs);
             if (result.success) {
                 setData(result);
                 const now = Date.now();
@@ -73,7 +69,7 @@ export default function AnalyticsPage() {
             }
             setLoading(false);
         };
-        fetch();
+        fetchAll();
     }, [startDate, endDate, selectedManager, selectedAccountId, isHydrated]);
 
     const stats = data?.stats;
