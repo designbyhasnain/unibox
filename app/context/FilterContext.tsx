@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { flushAllMailboxCaches } from '../hooks/useMailbox';
 import { saveToLocalCache } from '../utils/localCache';
@@ -87,19 +87,21 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('unibox_selected_account_id', id);
     };
 
+    const value = useMemo(() => ({
+        selectedAccountId,
+        setSelectedAccountId,
+        startDate,
+        setStartDate,
+        endDate,
+        setEndDate,
+        accounts,
+        isLoadingAccounts,
+        refreshAccounts,
+        setAccounts
+    }), [selectedAccountId, startDate, endDate, accounts, isLoadingAccounts, refreshAccounts, setAccounts]);
+
     return (
-        <FilterContext.Provider value={{ 
-            selectedAccountId, 
-            setSelectedAccountId,
-            startDate,
-            setStartDate,
-            endDate,
-            setEndDate,
-            accounts,
-            isLoadingAccounts,
-            refreshAccounts,
-            setAccounts
-        }}>
+        <FilterContext.Provider value={value}>
             {children}
         </FilterContext.Provider>
     );

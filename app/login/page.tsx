@@ -46,7 +46,6 @@ function LoginContent() {
                         <div className="login-error-box">
                             <strong>Invite Required</strong>
                             <p>You need an invitation to access this app. Contact your admin to get invited.</p>
-                            <p style={{ fontSize: 10, color: '#999', marginTop: 4 }}>Debug: {searchParams.get('debug') || 'no debug info'}</p>
                         </div>
                     )}
 

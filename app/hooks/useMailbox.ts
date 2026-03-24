@@ -384,18 +384,18 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                 const cachedCountsTs = globalTabCountsTimestamp[countsKey] || 0;
                 const countsAreFresh = globalTabCountsCache[countsKey] && (Date.now() - cachedCountsTs < TAB_COUNTS_TTL);
 
-                // Always load emails first (sequential, not parallel) to avoid DB overload
-                result = await getInboxEmailsAction(page, PAGE_SIZE, activeStage, selectedAccountId);
-
                 if (countsAreFresh) {
+                    // Counts are cached, just fetch emails
+                    result = await getInboxEmailsAction(page, PAGE_SIZE, activeStage, selectedAccountId);
                     counts = globalTabCountsCache[countsKey];
                 } else {
-                    // Only fetch counts after emails loaded successfully
-                    try {
-                        counts = await getTabCountsAction(selectedAccountId);
-                    } catch {
-                        counts = globalTabCountsCache[countsKey] || {};
-                    }
+                    // Fetch emails and counts in parallel
+                    const [emailResult, countsResult] = await Promise.all([
+                        getInboxEmailsAction(page, PAGE_SIZE, activeStage, selectedAccountId),
+                        getTabCountsAction(selectedAccountId).catch(() => globalTabCountsCache[countsKey] || {}),
+                    ]);
+                    result = emailResult;
+                    counts = countsResult;
                 }
             } else if (type === 'sent') {
                 result = await getSentEmailsAction(page, PAGE_SIZE, selectedAccountId);
@@ -503,11 +503,8 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                 }))
             );
 
-            // Allow DB to settle
-            setTimeout(() => {
-                dispatch({ type: 'SET_SYNCING', isSyncing: false, syncMessage: '' });
-                loadEmails(currentPageRef.current);
-            }, 1500);
+            dispatch({ type: 'SET_SYNCING', isSyncing: false, syncMessage: '' });
+            loadEmails(currentPageRef.current);
         } catch (err) {
             dispatch({ type: 'SET_SYNCING', isSyncing: false, syncMessage: 'Sync failed' });
         }

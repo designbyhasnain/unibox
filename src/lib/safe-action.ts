@@ -1,20 +1,22 @@
 'use server';
 
+import { cache } from 'react';
 import { getSession, clearSession } from './auth';
 import { supabase } from './supabase';
 import { redirect } from 'next/navigation';
 
 /**
  * Fetches fresh role from database for a given userId.
+ * Cached per-request so multiple server actions in the same request share one DB call.
  */
-async function getFreshRole(userId: string): Promise<string | null> {
+const getFreshRole = cache(async (userId: string): Promise<string | null> => {
     const { data } = await supabase
         .from('users')
         .select('role')
         .eq('id', userId)
         .maybeSingle();
     return data?.role ?? null;
-}
+});
 
 /**
  * Ensures the user is authenticated and returns their userId and role.

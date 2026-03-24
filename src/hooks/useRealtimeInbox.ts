@@ -35,7 +35,7 @@ export function useRealtimeInbox({
     onNewEmail,
     onEmailUpdated,
     onEmailDeleted,
-    pollingIntervalMs = 15_000, // Reduced from 30s to 15s for "instant" feel
+    pollingIntervalMs = 30_000, // 30s backup polling; Realtime subscription handles instant updates
 }: RealtimeInboxOptions) {
     const channelRef = useRef<ReturnType<typeof supabaseClient.channel> | null>(null);
     const pollingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);

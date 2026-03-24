@@ -16,8 +16,6 @@ export default function TeamPage() {
     const [allAccounts, setAllAccounts] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<any>(null);
-    const [debugError, setDebugError] = useState<string | null>(null);
-    const [debugInfo, setDebugInfo] = useState<string | null>(null);
 
     // Modal states
     const [showInviteModal, setShowInviteModal] = useState(false);
@@ -40,9 +38,7 @@ export default function TeamPage() {
                 return;
             }
             setCurrentUser(user);
-            setDebugInfo(`success: ${userResult.success}, users: ${userResult.users?.length}, error: ${userResult.error || 'none'}, role: ${user?.role}`);
             if (userResult.success) setUsers(userResult.users);
-            else setDebugError(`listUsers: ${userResult.error}`);
             if (inviteResult.success) setInvitations(inviteResult.invitations);
             if (accountResult.success) setAllAccounts(accountResult.accounts);
         } catch (err) {
@@ -137,13 +133,6 @@ export default function TeamPage() {
                             + Invite User
                         </button>
                     </div>
-
-                    {/* Debug banner - remove after fixing */}
-                    {debugInfo && (
-                        <div style={{ background: '#fff3cd', border: '1px solid #ffc107', padding: '8px 16px', borderRadius: 8, marginBottom: 12, fontSize: 12, fontFamily: 'monospace' }}>
-                            DEBUG: {debugInfo}
-                        </div>
-                    )}
 
                     {/* Tabs */}
                     <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-color, #e0e0e0)', marginBottom: 20 }}>
@@ -247,7 +236,6 @@ export default function TeamPage() {
                             </table>
                             {users.length === 0 && (
                                 <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                                    {debugError ? <div style={{ color: 'red', marginBottom: 8 }}>{debugError}</div> : null}
                                     No team members yet. Invite someone to get started.
                                 </div>
                             )}
