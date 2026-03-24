@@ -142,10 +142,59 @@ export async function GET(request: NextRequest) {
             .maybeSingle();
 
         if (!user) {
+            // Check if there's a pending invitation for this email (auto-accept)
+            const { data: pendingInvite } = await supabase
+                .from('invitations')
+                .select('*')
+                .eq('email', googleUser.email.toLowerCase())
+                .eq('status', 'PENDING')
+                .maybeSingle();
+
+            if (pendingInvite && new Date(pendingInvite.expires_at) > new Date()) {
+                // Auto-accept the invitation
+                const { data: newUser, error: createErr } = await supabase
+                    .from('users')
+                    .insert({
+                        email: googleUser.email.toLowerCase(),
+                        name: pendingInvite.name,
+                        role: pendingInvite.role,
+                        invited_by: pendingInvite.invited_by,
+                        avatar_url: googleUser.avatar || null,
+                    })
+                    .select('id')
+                    .single();
+
+                if (createErr || !newUser) {
+                    console.error('[CRM Auth] Failed to create invited user:', createErr);
+                    return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+                }
+
+                // Create Gmail assignments
+                if (pendingInvite.assigned_gmail_account_ids?.length > 0) {
+                    const assignments = pendingInvite.assigned_gmail_account_ids.map((accId: string) => ({
+                        user_id: newUser.id,
+                        gmail_account_id: accId,
+                        assigned_by: pendingInvite.invited_by,
+                    }));
+                    await supabase.from('user_gmail_assignments').upsert(assignments, { onConflict: 'user_id,gmail_account_id' });
+                }
+
+                // Mark invitation as accepted
+                await supabase.from('invitations').update({ status: 'ACCEPTED', accepted_at: new Date().toISOString() }).eq('id', pendingInvite.id);
+
+                await createSession({
+                    id: newUser.id,
+                    email: googleUser.email,
+                    name: pendingInvite.name,
+                    role: pendingInvite.role,
+                });
+
+                return NextResponse.redirect(new URL('/', request.url));
+            }
+
             // Check if ANY users exist — if not, auto-create first user as ADMIN
             const { count } = await supabase.from('users').select('id', { count: 'exact', head: true });
             if (count === 0 || count === null) {
-                // First user ever — auto-create as ADMIN
                 const { data: newUser, error: createErr } = await supabase
                     .from('users')
                     .insert({
@@ -153,7 +202,6 @@ export async function GET(request: NextRequest) {
                         name: googleUser.name,
                         role: 'ACCOUNT_MANAGER',
                         avatar_url: googleUser.avatar || null,
-                        status: 'ACTIVE',
                     })
                     .select('*')
                     .single();
@@ -164,8 +212,7 @@ export async function GET(request: NextRequest) {
                 }
                 user = newUser;
             } else {
-                console.error('[CRM Auth] No invite token, user not found:', googleUser.email, 'inviteToken was:', inviteToken ? 'present' : 'missing');
-                return NextResponse.redirect(new URL(`/login?error=no_invite&debug=token_${inviteToken ? 'found' : 'missing'}_email_${encodeURIComponent(googleUser.email)}`, request.url));
+                return NextResponse.redirect(new URL('/login?error=no_invite', request.url));
             }
         }
 
