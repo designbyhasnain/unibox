@@ -8,18 +8,14 @@ import { ensureAuthenticated } from '../lib/safe-action';
  */
 export async function listUsersAction() {
     const { role } = await ensureAuthenticated();
-    console.log('[userManagement] listUsersAction called, role:', role);
     if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') {
-        console.log('[userManagement] Access denied for role:', role);
         return { success: false, users: [], error: `Admin access required (your role: ${role})` };
     }
 
     const { data: users, error } = await supabase
         .from('users')
-        .select('id, name, email, role, avatar_url, created_at')
+        .select('*')
         .order('created_at', { ascending: true });
-
-    console.log('[userManagement] Query result:', { users: users?.length, error });
 
     if (error) {
         console.error('[userManagement] listUsersAction error:', JSON.stringify(error));

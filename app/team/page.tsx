@@ -16,6 +16,7 @@ export default function TeamPage() {
     const [allAccounts, setAllAccounts] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const [debugError, setDebugError] = useState<string | null>(null);
 
     // Modal states
     const [showInviteModal, setShowInviteModal] = useState(false);
@@ -39,7 +40,7 @@ export default function TeamPage() {
             }
             setCurrentUser(user);
             if (userResult.success) setUsers(userResult.users);
-            else console.error('[Team] listUsers failed:', userResult.error);
+            else setDebugError(`listUsers: ${userResult.error}`);
             if (inviteResult.success) setInvitations(inviteResult.invitations);
             if (accountResult.success) setAllAccounts(accountResult.accounts);
         } catch (err) {
@@ -236,7 +237,10 @@ export default function TeamPage() {
                                 </tbody>
                             </table>
                             {users.length === 0 && (
-                                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>No team members yet. Invite someone to get started.</div>
+                                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                                    {debugError ? <div style={{ color: 'red', marginBottom: 8 }}>{debugError}</div> : null}
+                                    No team members yet. Invite someone to get started.
+                                </div>
                             )}
                         </div>
                     )}
