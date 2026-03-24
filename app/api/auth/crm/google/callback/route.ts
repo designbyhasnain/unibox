@@ -14,6 +14,10 @@ export async function GET(request: NextRequest) {
     const expectedState = cookieStore.get('crm_oauth_state')?.value;
     const inviteToken = cookieStore.get('invite_token')?.value;
 
+    // DEBUG: Log all cookie names to trace invite_token
+    const allCookies = cookieStore.getAll().map(c => c.name);
+    console.error('[CRM Callback] DEBUG: inviteToken=' + (inviteToken ? 'FOUND' : 'MISSING') + ', cookies=' + JSON.stringify(allCookies) + ', state=' + state?.substring(0, 10));
+
     // 1. Validate state
     if (!validateOAuthState(state, expectedState || null)) {
         return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
@@ -157,7 +161,8 @@ export async function GET(request: NextRequest) {
                 }
                 user = newUser;
             } else {
-                return NextResponse.redirect(new URL('/login?error=no_invite', request.url));
+                console.error('[CRM Auth] No invite token, user not found:', googleUser.email, 'inviteToken was:', inviteToken ? 'present' : 'missing');
+                return NextResponse.redirect(new URL(`/login?error=no_invite&debug=token_${inviteToken ? 'found' : 'missing'}_email_${encodeURIComponent(googleUser.email)}`, request.url));
             }
         }
 
