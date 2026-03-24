@@ -12,10 +12,10 @@ export async function GET(request: NextRequest) {
 
     // Extract invite token from state parameter (format: crm_xxx.invite.TOKEN)
     let inviteToken: string | undefined;
-    let baseState = state;
+    let baseState: string | null = state;
     if (state && state.includes('.invite.')) {
         const parts = state.split('.invite.');
-        baseState = parts[0];
+        baseState = parts[0] ?? null;
         inviteToken = parts[1];
     }
 
