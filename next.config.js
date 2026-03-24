@@ -24,11 +24,6 @@ const nextConfig = {
     // ─── Turbopack (Next.js 16 default) ──────────────────────────────────────
     turbopack: {},
 
-    // ─── Experimental Performance ──────────────────────────────────────────────
-    experimental: {
-        optimizeCss: true,
-    },
-
     // ─── Security & Performance Headers ────────────────────────────────────────
     async headers() {
         return [
