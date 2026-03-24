@@ -298,10 +298,13 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
             // On account change: aggressively clear everything — no stale data
             dispatch({ type: 'CLEAR_FOR_NEW_KEY', prevCacheKey: cacheKey, isLoading: enabled, accountChanged: true });
         } else {
-            // Same account, different tab/stage — try FRESH memory cache only (not stale localStorage)
-            const syncCache = globalMailboxCache[cacheKey];
-            if (syncCache && (Date.now() - syncCache.timestamp < 30_000)) {
-                // Only use cache if less than 30 seconds old
+            // Same account, different tab/stage — show cached data instantly, refresh in background
+            let syncCache = globalMailboxCache[cacheKey];
+            if (!syncCache && typeof window !== 'undefined' && type !== 'search') {
+                syncCache = getFromLocalCache(`mailbox_${cacheKey}`);
+            }
+            if (syncCache) {
+                globalMailboxCache[cacheKey] = syncCache;
                 dispatch({
                     type: 'RESTORE_FROM_CACHE',
                     prevCacheKey: cacheKey,
@@ -310,6 +313,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                     totalPages: syncCache.totalPages,
                     page: syncCache.page,
                 });
+                // Fresh data will load via useEffect → loadEmails (requestId prevents race condition)
             } else {
                 dispatch({ type: 'CLEAR_FOR_NEW_KEY', prevCacheKey: cacheKey, isLoading: enabled, accountChanged: false });
             }
