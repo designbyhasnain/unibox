@@ -12,7 +12,7 @@ export async function listUsersAction() {
 
     const { data: users, error } = await supabase
         .from('users')
-        .select('id, name, email, role, status, avatar_url, created_at')
+        .select('id, name, email, role, avatar_url, created_at')
         .order('created_at', { ascending: true });
 
     if (error) {

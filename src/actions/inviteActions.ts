@@ -40,11 +40,14 @@ export async function sendInviteAction(params: {
         .from('invitations')
         .select('id, status')
         .eq('email', normalizedEmail)
-        .eq('status', 'PENDING')
         .maybeSingle();
 
     if (existingInvite) {
-        return { success: false, error: 'A pending invitation already exists for this email' };
+        if (existingInvite.status === 'PENDING') {
+            return { success: false, error: 'A pending invitation already exists for this email' };
+        }
+        // Remove old expired/accepted invitation so we can create a fresh one
+        await supabase.from('invitations').delete().eq('id', existingInvite.id);
     }
 
     // Generate token
@@ -67,8 +70,8 @@ export async function sendInviteAction(params: {
         .single();
 
     if (error) {
-        console.error('[inviteActions] sendInviteAction error:', error);
-        return { success: false, error: 'Failed to create invitation' };
+        console.error('[inviteActions] sendInviteAction error:', JSON.stringify(error));
+        return { success: false, error: `Failed to create invitation: ${error.message}` };
     }
 
     // Try to send invite email via first available OAuth account
