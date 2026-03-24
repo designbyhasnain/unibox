@@ -45,8 +45,18 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         return new Date().toISOString().split('T')[0] as string;
     });
 
-    // Accounts global state — always start empty to avoid hydration mismatch
-    const [accounts, setAccountsInternal] = useState<any[]>([]);
+    // Accounts global state — load from localStorage cache for instant display
+    const [accounts, setAccountsInternal] = useState<any[]>(() => {
+        if (typeof window === 'undefined') return [];
+        try {
+            const cached = localStorage.getItem('unibox_cache_accounts_data');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed?.data)) return parsed.data;
+            }
+        } catch {}
+        return [];
+    });
     const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
 
     const setAccounts = useCallback((newAccounts: any[] | ((prev: any[]) => any[])) => {

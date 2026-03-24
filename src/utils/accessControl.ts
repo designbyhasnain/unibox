@@ -1,12 +1,14 @@
 import 'server-only';
+import { cache } from 'react';
 import { supabase } from '../lib/supabase';
 
 /**
  * Returns the list of Gmail account IDs this user can access.
  * ADMIN → 'ALL' (no filter needed)
  * SALES → array of assigned gmail account IDs from UserGmailAssignment
+ * Cached per-request to avoid redundant DB queries.
  */
-export async function getAccessibleGmailAccountIds(
+export const getAccessibleGmailAccountIds = cache(async function getAccessibleGmailAccountIds(
     userId: string,
     role: string
 ): Promise<string[] | 'ALL'> {
@@ -31,7 +33,7 @@ export async function getAccessibleGmailAccountIds(
         // Fallback: grant full access if anything goes wrong
         return 'ALL';
     }
-}
+});
 
 /**
  * Throws an error if the user is not an ADMIN.

@@ -84,11 +84,17 @@ interface SidebarProps {
 export default function Sidebar({ onOpenCompose }: SidebarProps) {
     const pathname = usePathname();
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
-    const [userRole, setUserRole] = React.useState<string | null>(null);
+    const [userRole, setUserRole] = React.useState<string | null>(() => {
+        if (typeof window === 'undefined') return null;
+        try { return localStorage.getItem('unibox_user_role'); } catch { return null; }
+    });
 
     React.useEffect(() => {
         getCurrentUserAction().then(session => {
-            if (session) setUserRole(session.role);
+            if (session) {
+                setUserRole(session.role);
+                try { localStorage.setItem('unibox_user_role', session.role); } catch {}
+            }
         });
     }, []);
 
