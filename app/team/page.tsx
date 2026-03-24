@@ -39,6 +39,7 @@ export default function TeamPage() {
             }
             setCurrentUser(user);
             if (userResult.success) setUsers(userResult.users);
+            else console.error('[Team] listUsers failed:', userResult.error);
             if (inviteResult.success) setInvitations(inviteResult.invitations);
             if (accountResult.success) setAllAccounts(accountResult.accounts);
         } catch (err) {
