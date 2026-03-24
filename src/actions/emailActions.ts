@@ -131,20 +131,33 @@ export async function sendEmailAction(params: {
 
 // ─── Resolve account IDs from user + optional filter (RBAC-aware) ─────────────
 
+// Cache all account IDs for 60 seconds to avoid repeated DB queries
+let _allAccountIdsCache: { ids: string[]; ts: number } | null = null;
+const ALL_ACCOUNTS_CACHE_TTL = 60_000;
+
+async function getAllAccountIds(): Promise<string[]> {
+    if (_allAccountIdsCache && (Date.now() - _allAccountIdsCache.ts < ALL_ACCOUNTS_CACHE_TTL)) {
+        return _allAccountIdsCache.ids;
+    }
+    const { data } = await supabase.from('gmail_accounts').select('id');
+    const ids = data?.map(a => a.id) || [];
+    _allAccountIdsCache = { ids, ts: Date.now() };
+    return ids;
+}
+
 async function resolveAccountIds(userId: string, role: string, gmailAccountId?: string): Promise<string[] | null> {
     if (gmailAccountId && gmailAccountId !== 'ALL') {
-        // If a specific account is requested, verify the user has access
+        if (role === 'ADMIN' || role === 'ACCOUNT_MANAGER') return [gmailAccountId];
         const accessible = await getAccessibleGmailAccountIds(userId, role);
         if (accessible === 'ALL') return [gmailAccountId];
         if (accessible.includes(gmailAccountId)) return [gmailAccountId];
-        return []; // User doesn't have access to this account
+        return [];
+    }
+    if (role === 'ADMIN' || role === 'ACCOUNT_MANAGER') {
+        return await getAllAccountIds();
     }
     const accessible = await getAccessibleGmailAccountIds(userId, role);
-    if (accessible === 'ALL') {
-        // Admin: get all accounts
-        const { data } = await supabase.from('gmail_accounts').select('id');
-        return data?.map(a => a.id) || null;
-    }
+    if (accessible === 'ALL') return await getAllAccountIds();
     return accessible.length > 0 ? accessible : null;
 }
 
@@ -223,6 +236,35 @@ export async function getInboxEmailsAction(
     });
 
     return { emails, totalCount, page, pageSize: clampedPageSize, totalPages };
+}
+
+// ─── Combined Inbox + Tab Counts (single server action = 1 network round trip) ─
+
+export async function getInboxWithCountsAction(
+    page = 1,
+    pageSize = PAGE_SIZE,
+    stage: string = 'ALL',
+    gmailAccountId?: string
+): Promise<{ emails: PaginatedEmailResult; counts: Record<string, number> }> {
+    const { userId, role } = await ensureAuthenticated();
+    const accountIds = await resolveAccountIds(userId, role, gmailAccountId);
+
+    // Run emails and counts in parallel within single server action
+    const [emailResult, counts] = await Promise.all([
+        getInboxEmailsAction(page, pageSize, stage, gmailAccountId),
+        (async () => {
+            if (!accountIds || accountIds.length === 0) return {};
+            try {
+                const { data, error } = await supabase.rpc('get_tab_counts', { p_account_ids: accountIds });
+                if (error || !data) return {};
+                const c: Record<string, number> = {};
+                data.forEach((r: any) => { if (r.stage) c[r.stage] = Number(r.cnt); });
+                return c;
+            } catch { return {}; }
+        })(),
+    ]);
+
+    return { emails: emailResult, counts };
 }
 
 // ─── Sent Emails (DB-level thread grouping via RPC) ───────────────────────────

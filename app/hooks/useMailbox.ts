@@ -3,6 +3,7 @@
 import { useReducer, useEffect, useCallback, useRef } from 'react';
 import {
     getInboxEmailsAction,
+    getInboxWithCountsAction,
     getSentEmailsAction,
     getClientEmailsAction,
     getThreadMessagesAction,
@@ -393,13 +394,10 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                     result = await getInboxEmailsAction(page, PAGE_SIZE, activeStage, selectedAccountId);
                     counts = globalTabCountsCache[countsKey];
                 } else {
-                    // Fetch emails and counts in parallel
-                    const [emailResult, countsResult] = await Promise.all([
-                        getInboxEmailsAction(page, PAGE_SIZE, activeStage, selectedAccountId),
-                        getTabCountsAction(selectedAccountId).catch(() => globalTabCountsCache[countsKey] || {}),
-                    ]);
-                    result = emailResult;
-                    counts = countsResult;
+                    // Single server action = 1 network round trip for both emails + counts
+                    const combined = await getInboxWithCountsAction(page, PAGE_SIZE, activeStage, selectedAccountId);
+                    result = combined.emails;
+                    counts = combined.counts;
                 }
             } else if (type === 'sent') {
                 result = await getSentEmailsAction(page, PAGE_SIZE, selectedAccountId);
