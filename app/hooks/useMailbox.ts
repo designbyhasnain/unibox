@@ -298,13 +298,10 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
             // On account change: aggressively clear everything — no stale data
             dispatch({ type: 'CLEAR_FOR_NEW_KEY', prevCacheKey: cacheKey, isLoading: enabled, accountChanged: true });
         } else {
-            // Same account, different tab/stage — try cache
-            let syncCache = globalMailboxCache[cacheKey];
-            if (!syncCache && typeof window !== 'undefined' && type !== 'search') {
-                syncCache = getFromLocalCache(`mailbox_${cacheKey}`);
-            }
-            if (syncCache) {
-                globalMailboxCache[cacheKey] = syncCache;
+            // Same account, different tab/stage — try FRESH memory cache only (not stale localStorage)
+            const syncCache = globalMailboxCache[cacheKey];
+            if (syncCache && (Date.now() - syncCache.timestamp < 30_000)) {
+                // Only use cache if less than 30 seconds old
                 dispatch({
                     type: 'RESTORE_FROM_CACHE',
                     prevCacheKey: cacheKey,
@@ -337,6 +334,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     currentPageRef.current = currentPage;
     const selectedEmailRef = useRef(selectedEmail);
     selectedEmailRef.current = selectedEmail;
+    const loadRequestIdRef = useRef(0);
 
     // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -345,6 +343,8 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         if (type === 'client' && !clientEmail) return;
         if (type === 'search' && !searchTerm) return;
 
+        // Increment request ID to cancel stale in-flight requests
+        const requestId = ++loadRequestIdRef.current;
         const currentCacheKey = getCacheKey();
         const cached = globalMailboxCache[currentCacheKey];
 
@@ -417,8 +417,8 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                 }
             }
 
-            // Verify we are still on the same view
-            if (getCacheKey() !== currentCacheKey) return;
+            // Verify we are still on the same view (cancel stale requests)
+            if (requestId !== loadRequestIdRef.current || getCacheKey() !== currentCacheKey) return;
 
             // If an error occurred in the action, don't overwrite the cache/state with empty data
             if (result && result.error) {
@@ -469,7 +469,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
             console.error('[useMailbox] Load failed:', err);
             // On error, keep existing emails if they came from cache
         } finally {
-            if (getCacheKey() === currentCacheKey) {
+            if (requestId === loadRequestIdRef.current && getCacheKey() === currentCacheKey) {
                 dispatch({ type: 'SET_LOADING', isLoading: false });
             }
         }
