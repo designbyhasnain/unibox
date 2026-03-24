@@ -10,22 +10,25 @@ export async function GET(request: NextRequest) {
     const code = searchParams.get('code');
     const state = searchParams.get('state');
 
+    // Extract invite token from state parameter (format: crm_xxx.invite.TOKEN)
+    let inviteToken: string | undefined;
+    let baseState = state;
+    if (state && state.includes('.invite.')) {
+        const parts = state.split('.invite.');
+        baseState = parts[0];
+        inviteToken = parts[1];
+    }
+
     const cookieStore = await cookies();
     const expectedState = cookieStore.get('crm_oauth_state')?.value;
-    const inviteToken = cookieStore.get('invite_token')?.value;
 
-    // DEBUG: Log all cookie names to trace invite_token
-    const allCookies = cookieStore.getAll().map(c => c.name);
-    console.error('[CRM Callback] DEBUG: inviteToken=' + (inviteToken ? 'FOUND' : 'MISSING') + ', cookies=' + JSON.stringify(allCookies) + ', state=' + state?.substring(0, 10));
-
-    // 1. Validate state
-    if (!validateOAuthState(state, expectedState || null)) {
+    // 1. Validate state (compare base state without invite token)
+    if (!validateOAuthState(baseState, expectedState || null)) {
         return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
     }
 
     // Cleanup cookies
     cookieStore.delete('crm_oauth_state');
-    if (inviteToken) cookieStore.delete('invite_token');
 
     if (!code) {
         return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
