@@ -12,14 +12,16 @@ export async function listUsersAction() {
         return { success: false, users: [], error: `Admin access required (your role: ${role})` };
     }
 
-    const { data: users, error } = await supabase
+    const { data: users, error, count } = await supabase
         .from('users')
-        .select('*')
-        .order('created_at', { ascending: true });
+        .select('*', { count: 'exact' });
 
     if (error) {
-        console.error('[userManagement] listUsersAction error:', JSON.stringify(error));
-        return { success: false, users: [], error: `Failed to fetch users: ${error.message}` };
+        return { success: false, users: [], error: `DB error: ${error.message} (code: ${error.code})` };
+    }
+
+    if (!users || users.length === 0) {
+        return { success: false, users: [], error: `No users found (count: ${count}, role: ${role})` };
     }
 
     // Fetch assignments for all users
