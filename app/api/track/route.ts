@@ -20,44 +20,18 @@ const PIXEL_HEADERS = {
 };
 
 /**
- * Detect if the request is coming from within our own app (self-open).
- * Email clients and image proxies (Gmail, Outlook) do NOT send referer/origin headers.
- * Our app's iframe DOES send these headers since it's same-origin.
- */
-function isSelfOpen(request: NextRequest): boolean {
-    const referer = request.headers.get('referer') || '';
-    const origin = request.headers.get('origin') || '';
-    const secFetchSite = request.headers.get('sec-fetch-site') || '';
-
-    // If sec-fetch-site is 'same-origin' or 'same-site', it's from our app
-    if (secFetchSite === 'same-origin' || secFetchSite === 'same-site') {
-        return true;
-    }
-
-    // If referer or origin matches our app URL, it's from our app
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
-    if (appUrl && (referer.startsWith(appUrl) || origin.startsWith(appUrl))) {
-        return true;
-    }
-
-    // Also check for localhost in development
-    if (referer.includes('localhost') || origin.includes('localhost')) {
-        return true;
-    }
-
-    return false;
-}
-
-/**
  * GET /api/track?t={trackingId}
- * Simple open tracking — sets opened_at on first load (blue tick).
- * Skips update if request is a self-open (from within the app).
+ * Open tracking — sets opened_at on first real recipient open (blue tick).
+ *
+ * When the email is viewed inside our own app, the pixel URL is rewritten
+ * to include &self=1, so we know to skip the update. Recipient email
+ * clients load the original URL (without &self=1), so those count.
  */
 export async function GET(request: NextRequest) {
     const trackingId = request.nextUrl.searchParams.get('t');
+    const isSelfOpen = request.nextUrl.searchParams.get('self') === '1';
 
-    if (trackingId && /^[a-f0-9]{32}$/i.test(trackingId) && !isSelfOpen(request)) {
-        // Only set opened_at if not already set (first open wins)
+    if (trackingId && /^[a-f0-9]{32}$/i.test(trackingId) && !isSelfOpen) {
         void supabase
             .from('email_messages')
             .update({ opened_at: new Date().toISOString() })

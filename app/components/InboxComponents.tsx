@@ -980,6 +980,7 @@ export function EmailDetail({
                                                 {(isHtmlLocal && msg.body && cleanBody !== msg.snippet) ? (
                                                     <EmailBodyFrame
                                                         html={cleanBody
+                                                            .replace(/\/api\/track\?t=([a-f0-9]+)/gi, '/api/track?t=$1&self=1')
                                                             .replace(/<img /gi, '<img referrerpolicy="no-referrer" ')
                                                             .replace(/data-src=/gi, 'src=')}
                                                     />
