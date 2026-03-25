@@ -214,8 +214,8 @@ function EmailBodyFrame({ html }: { html: string }) {
         const toSanitize = rawContent.length > 800000 ? rawContent.substring(0, 800000) : rawContent;
 
         const sanitized = toSanitize
-            // Strip tracking pixels to prevent self-opens from triggering blue ticks
-            .replace(/<img[^>]*\/api\/track\?t=[a-f0-9]+[^>]*\/?>/gi, '')
+            // Strip ALL tracking pixel images (any img containing api/track)
+            .replace(/<img[^>]*api\/track[^>]*>/gi, '')
             .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
             .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
             .replace(/<iframe[^>]*\/?\s*>/gi, '')
@@ -254,6 +254,9 @@ function EmailBodyFrame({ html }: { html: string }) {
                 }, true);
             </script>
         `;
+
+        // Block tracking pixel from loading inside the iframe by replacing src with empty
+        const pixelSafe = sanitized.replace(/src=["'][^"']*api\/track[^"']*["']/gi, 'src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"');
 
         const doc = `
             <!DOCTYPE html>
@@ -305,7 +308,7 @@ function EmailBodyFrame({ html }: { html: string }) {
                 </style>
             </head>
             <body>
-                ${sanitized}
+                ${pixelSafe}
                 ${resizeScript}
             </body>
             </html>
@@ -980,7 +983,7 @@ export function EmailDetail({
                                                 {(isHtmlLocal && msg.body && cleanBody !== msg.snippet) ? (
                                                     <EmailBodyFrame
                                                         html={cleanBody
-                                                            .replace(/\/api\/track\?t=([a-f0-9]+)/gi, '/api/track?t=$1&self=1')
+                                                            .replace(/<img[^>]*api\/track[^>]*>/gi, '')
                                                             .replace(/<img /gi, '<img referrerpolicy="no-referrer" ')
                                                             .replace(/data-src=/gi, 'src=')}
                                                     />

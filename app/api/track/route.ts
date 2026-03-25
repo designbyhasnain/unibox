@@ -21,17 +21,15 @@ const PIXEL_HEADERS = {
 
 /**
  * GET /api/track?t={trackingId}
- * Open tracking — sets opened_at on first real recipient open (blue tick).
- *
- * When the email is viewed inside our own app, the pixel URL is rewritten
- * to include &self=1, so we know to skip the update. Recipient email
- * clients load the original URL (without &self=1), so those count.
+ * Open tracking — sets opened_at on first load (blue tick).
+ * Self-opens are prevented by stripping the pixel from the email body
+ * before rendering in the app (see InboxComponents.tsx EmailBodyFrame).
  */
 export async function GET(request: NextRequest) {
     const trackingId = request.nextUrl.searchParams.get('t');
-    const isSelfOpen = request.nextUrl.searchParams.get('self') === '1';
 
-    if (trackingId && /^[a-f0-9]{32}$/i.test(trackingId) && !isSelfOpen) {
+    if (trackingId && /^[a-f0-9]{32}$/i.test(trackingId)) {
+        // Only set opened_at if not already set (first open wins)
         void supabase
             .from('email_messages')
             .update({ opened_at: new Date().toISOString() })
