@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { CheckCheck, Check } from 'lucide-react';
+import { CheckCheck } from 'lucide-react';
 import { avatarColor, formatDate, cleanPreview } from '../utils/helpers';
 import AddProjectModal from './AddProjectModal';
 import { useHydrated } from '../utils/useHydration';
@@ -108,20 +108,16 @@ export const EmailRow = React.memo(function EmailRow({
                 )}
             </div>
 
-            {/* WhatsApp-style ticks: 1 grey=sent, 2 grey=delivered, 2 blue=opened */}
+            {/* WhatsApp-style ticks: sent=double grey, opened=double blue */}
             {email.direction === 'SENT' && (
                 <div className="gmail-row-tracking">
                     {email.opened_at ? (
                         <div className="tracking-tick-blue">
                             <CheckCheck size={16} color="var(--accent)" strokeWidth={3} />
                         </div>
-                    ) : email.delivered_at ? (
-                        <div className="tracking-tick">
-                            <CheckCheck size={16} color="var(--text-tertiary)" strokeWidth={2.5} />
-                        </div>
                     ) : (
                         <div className="tracking-tick">
-                            <Check size={16} color="var(--text-tertiary)" strokeWidth={2.5} />
+                            <CheckCheck size={16} color="var(--text-tertiary)" strokeWidth={2.5} />
                         </div>
                     )}
                 </div>
@@ -892,15 +888,13 @@ export function EmailDetail({
                                         </div>
 
                                         <div className="gmail-msg-date">
-                                            {/* WhatsApp-style ticks */}
+                                            {/* WhatsApp-style ticks: sent=double grey, opened=double blue */}
                                             {isSent && (
                                                 <span className="inline-flex-center-gap-sm" style={{ marginRight: '8px' }}>
                                                     {msg.opened_at ? (
                                                         <CheckCheck size={14} color="var(--accent)" strokeWidth={3} />
-                                                    ) : msg.delivered_at ? (
-                                                        <CheckCheck size={14} color="var(--text-tertiary)" strokeWidth={2.5} />
                                                     ) : (
-                                                        <Check size={14} color="var(--text-tertiary)" strokeWidth={2.5} />
+                                                        <CheckCheck size={14} color="var(--text-tertiary)" strokeWidth={2.5} />
                                                     )}
                                                 </span>
                                             )}
