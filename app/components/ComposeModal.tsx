@@ -478,9 +478,25 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                         </div>
                     </div>
 
-                    <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', flexDirection: 'column', borderTop: '1px solid #e0e0e0', overflow: 'visible', position: 'relative' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                            <div className="compose-footer-left" style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', flexDirection: 'column', borderTop: '1px solid #e0e0e0', position: 'relative', gap: '6px' }}>
+                        {sendResult && (
+                            <div style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                borderRadius: '4px',
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                textAlign: 'center',
+                                background: sendResult.success ? '#e6f4ea' : '#fce8e6',
+                                color: sendResult.success ? '#137333' : '#c5221f',
+                                border: `1px solid ${sendResult.success ? '#ceead6' : '#f5c6cb'}`,
+                                boxSizing: 'border-box'
+                            }}>
+                                {sendResult.message}
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', minWidth: 0 }}>
+                            <div className="compose-footer-left" style={{ display: 'flex', alignItems: 'center', gap: '2px', flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
                                 <div className="compose-send-group" style={{ marginRight: '8px' }}>
                                     <button
                                         className="compose-send-btn"
@@ -499,15 +515,15 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     title="Formatting options"
                                     onClick={() => setShowFormatting(!showFormatting)}
                                 >
-                                    <Type size={20} />
+                                    <Type size={18} />
                                 </button>
 
                                 <button className="compose-icon-btn" title="Attach files" onClick={handleAttachmentClick}>
-                                    <Paperclip size={20} />
+                                    <Paperclip size={18} />
                                 </button>
 
                                 <button className="compose-icon-btn" title="Insert link" onClick={handleInsertLink}>
-                                    <Link size={20} />
+                                    <Link size={18} />
                                 </button>
 
                                 <div style={{ position: 'relative' }}>
@@ -516,7 +532,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                         title="Insert emoji"
                                         onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                                     >
-                                        <Smile size={20} />
+                                        <Smile size={18} />
                                     </button>
 
                                     {showEmojiPicker && (
@@ -590,35 +606,30 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                 </div>
 
                                 <button className="compose-icon-btn" title="Insert files using Drive">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.34 10.5l-4-7h-6.7l4 7h6.7zM14 11.5l-4 7h6.7l4-7H14zM12 11.1L8.3 4.5H1.6l4 7H12zM12.7 12.5H6l-4 7h6.7l4-7z" /></svg>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.34 10.5l-4-7h-6.7l4 7h6.7zM14 11.5l-4 7h6.7l4-7H14zM12 11.1L8.3 4.5H1.6l4 7H12zM12.7 12.5H6l-4 7h6.7l4-7z" /></svg>
                                 </button>
 
                                 <button className="compose-icon-btn" title="Insert photo" onClick={handleAttachmentClick}>
-                                    <Image size={20} />
+                                    <Image size={18} />
                                 </button>
 
                                 <button className="compose-icon-btn" title="Toggle confidential mode">
-                                    <Shield size={20} />
+                                    <Shield size={18} />
                                 </button>
 
                                 <button className="compose-icon-btn" title="Insert signature" onClick={handleInsertSignature}>
-                                    <Highlighter size={20} />
+                                    <Highlighter size={18} />
                                 </button>
                             </div>
 
-                            <div className="compose-footer-right" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                {sendResult && (
-                                    <span style={{ fontSize: '12px', color: sendResult.success ? '#81c995' : '#f28b82', paddingRight: '8px' }}>
-                                        {sendResult.message}
-                                    </span>
-                                )}
+                            <div className="compose-footer-right" style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                                 <div style={{ position: 'relative' }}>
                                     <button
                                         className={`compose-icon-btn compose-more-options ${showMoreOptions ? 'active' : ''}`}
                                         title="More options"
                                         onClick={() => setShowMoreOptions(!showMoreOptions)}
                                     >
-                                        <MoreVertical size={20} />
+                                        <MoreVertical size={18} />
                                     </button>
                                     {showMoreOptions && (
                                         <div className="gmail-msg-popover more-options" ref={moreOptionsRef} style={{ bottom: 'calc(100% + 10px)', top: 'auto', right: 0, left: 'auto', width: '180px', padding: '6px 0', background: 'var(--bg-elevated)', border: '1px solid var(--border-strong)' }}>
@@ -636,7 +647,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     )}
                                 </div>
                                 <button className="compose-icon-btn delete-btn" onClick={onClose} title="Discard draft">
-                                    <Trash2 size={20} />
+                                    <Trash2 size={18} />
                                 </button>
                             </div>
                         </div>

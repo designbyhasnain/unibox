@@ -2952,7 +2952,7 @@ select.form-input option {
     display: flex;
     flex-direction: column;
     color: #111827;
-    overflow: visible;
+    overflow: hidden;
     transition: width var(--slow) var(--ease), height var(--slow) var(--ease), right var(--slow) var(--ease), bottom var(--slow) var(--ease);
 }
 
@@ -3128,18 +3128,24 @@ select.compose-input option {
     justify-content: space-between;
     flex-shrink: 0;
     border-top: 1px solid rgba(0, 0, 0, 0.08);
+    box-sizing: border-box;
+    max-width: 100%;
 }
 
 .compose-footer-left {
     display: flex;
     align-items: center;
     gap: 0;
+    flex: 1;
+    min-width: 0;
+    flex-wrap: wrap;
 }
 
 .compose-footer-right {
     display: flex;
     align-items: center;
     gap: 0;
+    flex-shrink: 0;
 }
 
 /* Send Button Group */
@@ -3188,8 +3194,9 @@ select.compose-input option {
 }
 
 .compose-icon-btn {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
     border-radius: 50%;
     background: transparent;
     border: none;
@@ -3199,6 +3206,7 @@ select.compose-input option {
     justify-content: center;
     cursor: pointer;
     transition: background var(--duration-fast);
+    flex-shrink: 0;
 }
 
 .compose-icon-btn:hover {
@@ -3207,8 +3215,8 @@ select.compose-input option {
 }
 
 .compose-icon-btn svg {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
 }
 
 .compose-format-toggle {
