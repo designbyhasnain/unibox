@@ -214,6 +214,8 @@ function EmailBodyFrame({ html }: { html: string }) {
         const toSanitize = rawContent.length > 800000 ? rawContent.substring(0, 800000) : rawContent;
 
         const sanitized = toSanitize
+            // Strip tracking pixels to prevent self-opens from triggering blue ticks
+            .replace(/<img[^>]*\/api\/track\?t=[a-f0-9]+[^>]*\/?>/gi, '')
             .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
             .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
             .replace(/<iframe[^>]*\/?\s*>/gi, '')
