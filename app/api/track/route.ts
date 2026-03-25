@@ -19,17 +19,33 @@ const PIXEL_HEADERS = {
     'Expires': '0',
 };
 
+// Email providers that pre-fetch/proxy images on delivery (NOT a real open)
+const IMAGE_PROXY_PATTERNS = [
+    'GoogleImageProxy',
+    'YahooMailProxy',
+    'Outlook-iOS-Android',
+    'Microsoft Office',
+    'Windows-RSS-Platform',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Googlebot',
+];
+
 /**
  * GET /api/track?t={trackingId}
- * Open tracking — sets opened_at on first load (blue tick).
- * Self-opens are prevented by stripping the pixel from the email body
- * before rendering in the app (see InboxComponents.tsx EmailBodyFrame).
+ * Open tracking — sets opened_at on first real recipient open (blue tick).
+ *
+ * Skips:
+ * - Gmail/Yahoo/Outlook image proxies (pre-fetch on delivery, not a real open)
+ * - Self-opens are handled client-side by stripping pixel from rendered HTML
  */
 export async function GET(request: NextRequest) {
     const trackingId = request.nextUrl.searchParams.get('t');
+    const userAgent = request.headers.get('user-agent') || '';
 
-    if (trackingId && /^[a-f0-9]{32}$/i.test(trackingId)) {
-        // Only set opened_at if not already set (first open wins)
+    // Skip image proxy pre-fetches — these happen on delivery, not when recipient opens
+    const isProxy = IMAGE_PROXY_PATTERNS.some(p => userAgent.includes(p));
+
+    if (trackingId && /^[a-f0-9]{32}$/i.test(trackingId) && !isProxy) {
+        // Only set opened_at if not already set (first real open wins)
         void supabase
             .from('email_messages')
             .update({ opened_at: new Date().toISOString() })
