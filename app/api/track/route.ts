@@ -22,12 +22,18 @@ const PIXEL_HEADERS = {
 /**
  * GET /api/track?t={trackingId}
  * Simple open tracking — sets opened_at on first load (blue tick).
+ * Skips update if request comes from an app user (has session cookie)
+ * to prevent self-opens from triggering blue ticks.
  */
 export async function GET(request: NextRequest) {
     const trackingId = request.nextUrl.searchParams.get('t');
 
-    if (trackingId && /^[a-f0-9]{32}$/i.test(trackingId)) {
+    // Check if request is from the app itself (logged-in user viewing their own email)
+    const isAppUser = request.cookies.has('unibox_session');
+
+    if (trackingId && /^[a-f0-9]{32}$/i.test(trackingId) && !isAppUser) {
         // Only set opened_at if not already set (first open wins)
+        // and only if the request is NOT from the app (real recipient open)
         void supabase
             .from('email_messages')
             .update({ opened_at: new Date().toISOString() })
