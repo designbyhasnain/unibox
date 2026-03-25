@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Topbar from '../components/Topbar';
 import { useUI } from '../context/UIContext';
 import AddProjectModal from '../components/AddProjectModal';
@@ -70,6 +70,65 @@ export default function ClientsPage() {
     const [viewMode, setViewMode] = useState<'list' | 'grid' | 'board'>('list');
     const [filterType, setFilterType] = useState<'ALL' | 'LEADS' | 'CLIENTS'>('ALL');
 
+    // ── Inline Editing State ─────────────────────────────────────────────────
+    const [editingCell, setEditingCell] = useState<{ clientId: string; field: string } | null>(null);
+    const [editValue, setEditValue] = useState('');
+    const editInputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+
+    const startEditing = (clientId: string, field: string, currentValue: string, e: React.MouseEvent) => {
+        e.stopPropagation(); // Don't trigger row click (detail view)
+        setEditingCell({ clientId, field });
+        setEditValue(currentValue || '');
+    };
+
+    useEffect(() => {
+        if (editingCell && editInputRef.current) {
+            editInputRef.current.focus();
+            if (editInputRef.current instanceof HTMLInputElement) {
+                editInputRef.current.select();
+            }
+        }
+    }, [editingCell]);
+
+    const saveEdit = async () => {
+        if (!editingCell) return;
+        const { clientId, field } = editingCell;
+        const client = clients.find((c: any) => c.id === clientId);
+        if (!client) { setEditingCell(null); return; }
+
+        // Check if value actually changed
+        const oldValue = String(client[field] || '');
+        if (editValue === oldValue) { setEditingCell(null); return; }
+
+        const updates: any = {};
+        if (field === 'estimated_value') {
+            updates[field] = editValue ? parseFloat(editValue) : null;
+        } else if (field === 'expected_close_date') {
+            updates[field] = editValue || null;
+        } else {
+            updates[field] = editValue || null;
+        }
+
+        // Optimistic update
+        setClients(prev => prev.map(c => c.id === clientId ? { ...c, ...updates, ...(field === 'account_manager_id' ? { manager_name: managers.find(m => m.id === editValue)?.name || 'Unassigned' } : {}) } : c));
+        setEditingCell(null);
+
+        // Save to server
+        const res = await updateClientAction(clientId, updates);
+        if (!res.success) {
+            // Revert on failure
+            setClients(prev => prev.map(c => c.id === clientId ? { ...c, [field]: client[field] } : c));
+        }
+    };
+
+    const cancelEdit = () => setEditingCell(null);
+
+    const handleEditKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+        if (e.key === 'Escape') cancelEdit();
+        if (e.key === 'Tab') { e.preventDefault(); saveEdit(); }
+    };
+
     // ── Use Universal Mailbox Hook ───────────────────────────────────────────
     const {
         emails: clientEmails,
@@ -118,6 +177,18 @@ export default function ClientsPage() {
     }, [selectedAccountId]);
 
     useEffect(() => { loadClients(); }, [loadClients]);
+
+    // Reset to list view when sidebar nav is clicked on same page
+    useEffect(() => {
+        const handleNavReset = () => {
+            setSelectedClient(null);
+            setSelectedEmail(null);
+            setFilterType('ALL');
+            setViewMode('list');
+        };
+        window.addEventListener('nav-reset', handleNavReset);
+        return () => window.removeEventListener('nav-reset', handleNavReset);
+    }, []);
 
     const handleSelectClient = async (client: any) => {
         setSelectedClient(client);
@@ -176,25 +247,215 @@ export default function ClientsPage() {
             const sl = searchTerm.toLowerCase().trim();
             return !sl ||
                 (c.name && c.name.toLowerCase().includes(sl)) ||
-                (c.email && c.email.toLowerCase().includes(sl));
+                (c.email && c.email.toLowerCase().includes(sl)) ||
+                (c.company && c.company.toLowerCase().includes(sl));
         });
 
-        if (filterType === 'LEADS') {
-            result = result.filter((c: any) => c.pipeline_stage && c.pipeline_stage !== 'CLOSED');
-        } else if (filterType === 'CLIENTS') {
-            result = result.filter((c: any) => c.project_count > 0 || c.pipeline_stage === 'WON');
-        }
-
         return result;
-    }, [clients, searchTerm, filterType]);
+    }, [clients, searchTerm]);
+
+    const STAGE_ORDER = ['COLD_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
+
+    const groupedByStatus = useMemo(() => {
+        if (filterType !== 'LEADS') return [];
+        const groups: { stage: string; label: string; color: string; clients: any[] }[] = [];
+        for (const stage of STAGE_ORDER) {
+            const items = filteredClients.filter((c: any) => (c.pipeline_stage || 'COLD_LEAD') === stage);
+            if (items.length > 0) {
+                groups.push({
+                    stage,
+                    label: STAGE_LABELS[stage] || stage,
+                    color: STAGE_COLORS[stage] || 'badge-gray',
+                    clients: items,
+                });
+            }
+        }
+        // Catch any with unknown stages
+        const knownStages = new Set(STAGE_ORDER);
+        const unknown = filteredClients.filter((c: any) => c.pipeline_stage && !knownStages.has(c.pipeline_stage));
+        if (unknown.length > 0) {
+            groups.push({ stage: 'OTHER', label: 'Other', color: 'badge-gray', clients: unknown });
+        }
+        return groups;
+    }, [filteredClients, filterType]);
 
     const priorityColors: Record<string, string> = {
-        HIGH: 'badge-red', MEDIUM: 'badge-yellow', LOW: 'badge-green',
+        HIGH: 'badge-red', MEDIUM: 'badge-yellow', LOW: 'badge-green', URGENT: 'badge-red',
     };
 
-    const statusColors: Record<string, string> = {
-        ACTIVE: 'badge-green', COMPLETED: 'badge-blue', ON_HOLD: 'badge-yellow', CANCELLED: 'badge-red',
+    const totalEstimatedValue = useMemo(() => {
+        return filteredClients.reduce((sum: number, c: any) => sum + (c.estimated_value || 0), 0);
+    }, [filteredClients]);
+
+    const formatCurrency = (val: number | null | undefined) => {
+        if (!val) return '';
+        return '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
+
+    const formatShortDate = (dateStr: string | null | undefined) => {
+        if (!dateStr) return '';
+        return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+
+    const isEditing = (clientId: string, field: string) => editingCell?.clientId === clientId && editingCell?.field === field;
+
+    const renderEditableText = (client: any, field: string, display: string, placeholder?: string) => {
+        if (isEditing(client.id, field)) {
+            return (
+                <input
+                    ref={editInputRef as React.RefObject<HTMLInputElement>}
+                    className="ncell-input"
+                    value={editValue}
+                    onChange={e => setEditValue(e.target.value)}
+                    onBlur={saveEdit}
+                    onKeyDown={handleEditKeyDown}
+                    placeholder={placeholder}
+                    onClick={e => e.stopPropagation()}
+                />
+            );
+        }
+        return (
+            <span className={`cell-text cell-editable ${!display ? 'cell-placeholder' : ''}`} onClick={e => startEditing(client.id, field, client[field] || '', e)}>
+                {display || placeholder || '\u2014'}
+            </span>
+        );
+    };
+
+    const renderEditableSelect = (client: any, field: string, options: { value: string; label: string }[], display: React.ReactNode) => {
+        if (isEditing(client.id, field)) {
+            return (
+                <select
+                    ref={editInputRef as React.RefObject<HTMLSelectElement>}
+                    className="ncell-select"
+                    value={editValue}
+                    onChange={e => { setEditValue(e.target.value); setTimeout(saveEdit, 0); }}
+                    onBlur={saveEdit}
+                    onKeyDown={handleEditKeyDown}
+                    onClick={e => e.stopPropagation()}
+                >
+                    <option value="">None</option>
+                    {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+            );
+        }
+        return (
+            <span className="cell-editable" onClick={e => startEditing(client.id, field, client[field] || '', e)}>
+                {display}
+            </span>
+        );
+    };
+
+    const renderClientRow = (client: any) => (
+        <div
+            key={client.id}
+            className={`notion-row ${client.unread_count > 0 ? 'unread' : ''}`}
+            onClick={() => handleSelectClient(client)}
+        >
+            <div className="notion-cell ncell-date">
+                <span className="cell-text">{formatShortDate(client.created_at)}</span>
+            </div>
+            <div className="notion-cell ncell-name">
+                <div className="avatar avatar-sm" style={{ background: avatarColor(client.email || client.name || 'x') }}>
+                    {initials(client.name || client.email || '?')}
+                </div>
+                {renderEditableText(client, 'name', client.name || client.email, 'Name')}
+            </div>
+            <div className="notion-cell ncell-company">
+                {renderEditableText(client, 'company', client.company, 'Company')}
+            </div>
+            <div className="notion-cell ncell-status">
+                {renderEditableSelect(client, 'pipeline_stage',
+                    [{ value: 'COLD_LEAD', label: 'Cold' }, { value: 'LEAD', label: 'Lead' }, { value: 'OFFER_ACCEPTED', label: 'Offer Accepted' }, { value: 'CLOSED', label: 'Closed' }, { value: 'NOT_INTERESTED', label: 'Not Interested' }],
+                    client.pipeline_stage ? (
+                        <span className={`notion-badge ${STAGE_COLORS[client.pipeline_stage] || 'badge-gray'}`}>
+                            {STAGE_LABELS[client.pipeline_stage] || client.pipeline_stage}
+                        </span>
+                    ) : <span className="cell-placeholder">{'\u2014'}</span>
+                )}
+            </div>
+            <div className="notion-cell ncell-priority">
+                {renderEditableSelect(client, 'priority',
+                    [{ value: 'LOW', label: 'Low' }, { value: 'MEDIUM', label: 'Medium' }, { value: 'HIGH', label: 'High' }, { value: 'URGENT', label: 'Urgent' }],
+                    client.priority ? (
+                        <span className={`notion-badge ${priorityColors[client.priority] || 'badge-gray'}`}>
+                            {client.priority}
+                        </span>
+                    ) : <span className="cell-placeholder">{'\u2014'}</span>
+                )}
+            </div>
+            <div className="notion-cell ncell-value">
+                {isEditing(client.id, 'estimated_value') ? (
+                    <input
+                        ref={editInputRef as React.RefObject<HTMLInputElement>}
+                        className="ncell-input"
+                        type="number"
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        onBlur={saveEdit}
+                        onKeyDown={handleEditKeyDown}
+                        placeholder="0.00"
+                        onClick={e => e.stopPropagation()}
+                    />
+                ) : (
+                    <span className={`cell-text cell-editable ${!client.estimated_value ? 'cell-placeholder' : ''}`} onClick={e => startEditing(client.id, 'estimated_value', client.estimated_value ? String(client.estimated_value) : '', e)}>
+                        {formatCurrency(client.estimated_value) || '\u2014'}
+                    </span>
+                )}
+            </div>
+            <div className="notion-cell ncell-manager">
+                {isEditing(client.id, 'account_manager_id') ? (
+                    <select
+                        ref={editInputRef as React.RefObject<HTMLSelectElement>}
+                        className="ncell-select"
+                        value={editValue}
+                        onChange={e => { setEditValue(e.target.value); setTimeout(saveEdit, 0); }}
+                        onBlur={saveEdit}
+                        onKeyDown={handleEditKeyDown}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <option value="">Unassigned</option>
+                        {managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                ) : (
+                    <div className="manager-chip cell-editable" onClick={e => startEditing(client.id, 'account_manager_id', client.account_manager_id || '', e)}>
+                        <div className="avatar avatar-xs" style={{ background: avatarColor(client.manager_name || 'U') }}>
+                            {initials(client.manager_name || 'U')}
+                        </div>
+                        <span>{client.manager_name || 'Unassigned'}</span>
+                    </div>
+                )}
+            </div>
+            <div className="notion-cell ncell-email">
+                {renderEditableText(client, 'email', client.email, 'Email')}
+            </div>
+            <div className="notion-cell ncell-phone">
+                {renderEditableText(client, 'phone', client.phone, 'Phone')}
+            </div>
+            <div className="notion-cell ncell-close">
+                {isEditing(client.id, 'expected_close_date') ? (
+                    <input
+                        ref={editInputRef as React.RefObject<HTMLInputElement>}
+                        className="ncell-input"
+                        type="date"
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        onBlur={saveEdit}
+                        onKeyDown={handleEditKeyDown}
+                        onClick={e => e.stopPropagation()}
+                    />
+                ) : (
+                    <span className={`cell-text cell-editable ${!client.expected_close_date ? 'cell-placeholder' : ''}`} onClick={e => startEditing(client.id, 'expected_close_date', client.expected_close_date ? new Date(client.expected_close_date).toISOString().split('T')[0] || '' : '', e)}>
+                        {formatShortDate(client.expected_close_date) || '\u2014'}
+                    </span>
+                )}
+            </div>
+            <div className="notion-cell ncell-gmail">
+                <span className="cell-text cell-email-text">
+                    {client.account_email && client.account_email !== 'No Recent Mail' ? client.account_email : ''}
+                </span>
+            </div>
+        </div>
+    );
 
     return (
         <div className="mailbox-wrapper">
@@ -203,11 +464,11 @@ export default function ClientsPage() {
                 <Topbar
                     searchTerm={searchTerm}
                     setSearchTerm={setSearchTerm}
-                    placeholder="Search by name, email or manager..."
+                    placeholder="Search by name, email or company..."
                     onSearch={() => { }}
                     onClearSearch={() => setSearchTerm('')}
                     leftContent={
-                        <h1 className="page-title">Clients</h1>
+                        <h1 className="clients-page-title">Clients</h1>
                     }
                     rightContent={
                         <div className="topbar-actions">
@@ -220,85 +481,46 @@ export default function ClientsPage() {
                     }
                 />
 
-                {/* Filter Tabs & Toolbar */}
-                <div className="filter-toolbar-wrapper">
-                    <div className="tabs-bar tabs-bar-inner" role="tablist" aria-label="Client filter tabs">
-                        <div
-                            className={`tab ${filterType === 'ALL' ? 'active' : ''}`}
-                            onClick={() => setFilterType('ALL')}
+                {/* Notion-style Filter Tabs */}
+                <div className="notion-toolbar">
+                    <div className="notion-tabs" role="tablist" aria-label="Client view tabs">
+                        <button
+                            className={`notion-tab ${filterType === 'ALL' ? 'active' : ''}`}
+                            onClick={() => { setFilterType('ALL'); setSelectedClient(null); setSelectedEmail(null); }}
                             role="tab"
                             aria-selected={filterType === 'ALL'}
                         >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-                            All Contacts
-                            <span className="tab-count-inline">{clients.length}</span>
-                        </div>
-                        <div
-                            className={`tab ${filterType === 'LEADS' ? 'active' : ''}`}
-                            onClick={() => setFilterType('LEADS')}
+                            All Records
+                        </button>
+                        <button
+                            className={`notion-tab ${filterType === 'LEADS' ? 'active' : ''}`}
+                            onClick={() => { setFilterType('LEADS'); setSelectedClient(null); setSelectedEmail(null); }}
                             role="tab"
                             aria-selected={filterType === 'LEADS'}
                         >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-                            Leads
-                        </div>
-                        <div
-                            className={`tab ${filterType === 'CLIENTS' ? 'active' : ''}`}
-                            onClick={() => setFilterType('CLIENTS')}
+                            By Status
+                        </button>
+                        <button
+                            className={`notion-tab ${viewMode === 'board' ? 'active' : ''}`}
+                            onClick={() => { setFilterType('ALL'); setViewMode(viewMode === 'board' ? 'list' : 'board'); setSelectedClient(null); setSelectedEmail(null); }}
                             role="tab"
-                            aria-selected={filterType === 'CLIENTS'}
+                            aria-selected={viewMode === 'board'}
                         >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-                            Active Clients
-                        </div>
+                            Board View
+                        </button>
                     </div>
-
-                    <div className="list-toolbar toolbar-sub">
-                        <div className="list-toolbar-left toolbar-left-flex">
-                            <span className="count-label toolbar-count">
-                                Showing {filteredClients.length} results
-                            </span>
-                        </div>
-                        <div className="list-toolbar-right toolbar-right-flex">
-                            <div className="view-mode-switcher">
-                                <button
-                                    className={`icon-btn sm ${viewMode === 'list' ? 'active' : ''}`}
-                                    onClick={() => setViewMode('list')}
-                                    title="List View"
-                                    aria-label="List view"
-                                    style={{ width: 32, height: 32 }}
-                                >
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>
-                                </button>
-                                <button
-                                    className={`icon-btn sm ${viewMode === 'grid' ? 'active' : ''}`}
-                                    onClick={() => setViewMode('grid')}
-                                    title="Grid View"
-                                    aria-label="Grid view"
-                                    style={{ width: 32, height: 32 }}
-                                >
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
-                                </button>
-                                <button
-                                    className={`icon-btn sm ${viewMode === 'board' ? 'active' : ''}`}
-                                    onClick={() => setViewMode('board')}
-                                    title="Board View"
-                                    aria-label="Board view"
-                                    style={{ width: 32, height: 32 }}
-                                >
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
-                                </button>
-                            </div>
-                            <div className="divider-v" />
-                            <button className="icon-btn sm" onClick={loadClients} title="Refresh" aria-label="Refresh clients">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>
-                            </button>
-                        </div>
+                    <div className="notion-toolbar-right">
+                        <button className="notion-icon-btn" onClick={loadClients} title="Refresh" aria-label="Refresh clients">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>
+                        </button>
+                        <button className="notion-icon-btn" title="Search" aria-label="Search">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
+                        </button>
                     </div>
                 </div>
 
                 <div className="content-split content-split-bg">
-                    {/* Client List */}
+                    {/* Client List — Notion Table */}
                     {!selectedClient ? (
                         <div className="list-panel list-panel-flex">
                             <PageLoader isLoading={!isHydrated || isLoading} type="list" count={12}>
@@ -312,102 +534,7 @@ export default function ClientsPage() {
                                         <div className="empty-state-title">No contacts found</div>
                                         <div className="empty-state-desc">Try a different search term or adjust your filters to find contacts.</div>
                                     </div>
-                                ) : viewMode === 'list' ? (
-                                    <div className="list-view-container">
-                                        <div className="universal-grid grid-table grid-header list-grid-header">
-                                            <div className="grid-col col-client">Client / Contact</div>
-                                            <div className="grid-col col-account">Latest Gmail Account</div>
-                                            <div className="grid-col col-manager">Account Manager</div>
-                                            <div className="grid-col col-metrics right">Projects & Activity</div>
-                                        </div>
-                                        <div className="list-scroll-area">
-                                            {filteredClients.map((client: any) => (
-                                                <div
-                                                    key={client.id}
-                                                    className={`universal-grid grid-table grid-row ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
-                                                    onClick={() => handleSelectClient(client)}
-                                                >
-                                                    <div className="grid-col col-client">
-                                                        <div className="avatar avatar-list" style={{ background: avatarColor(client.email || client.name || 'x') }} title={client.name || client.email}>
-                                                            {initials(client.name || client.email || '?')}
-                                                        </div>
-                                                        <div className="sender-info">
-                                                            <div className="sender-name" title={client.name || client.email}>{client.name || client.email}</div>
-                                                            <div className="sender-email" title={client.email}>{client.email}</div>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="grid-col col-account account-col-text">
-                                                        {client.account_email && client.account_email !== 'No Recent Mail' ? (
-                                                            <span className="text-secondary" title={client.account_email}>{client.account_email}</span>
-                                                        ) : (
-                                                            <span className="text-faded">&mdash;</span>
-                                                        )}
-                                                    </div>
-
-                                                    <div className="grid-col col-manager">
-                                                        <span className="badge badge-gray">
-                                                            {client.manager_name || 'Unassigned'}
-                                                        </span>
-                                                    </div>
-
-                                                    <div className="grid-col col-metrics right">
-                                                        <div className="metrics-row">
-                                                            {client.project_count > 0 && (
-                                                                <div className="metric-item">
-                                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3h18v18H3zM9 3v18m6-18v18" /></svg>
-                                                                    <span>{client.project_count}</span>
-                                                                </div>
-                                                            )}
-                                                            {client.unread_count > 0 && (
-                                                                <span className="nav-badge" style={{ margin: 0 }}>{client.unread_count}</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ) : viewMode === 'grid' ? (
-                                    <div className="grid-view-container">
-                                        {filteredClients.map((client: any) => (
-                                            <div
-                                                key={client.id}
-                                                className={`client-tile-card ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
-                                                onClick={() => handleSelectClient(client)}
-                                            >
-                                                <div className="tile-header-row">
-                                                    <div className="avatar avatar-grid" style={{ background: avatarColor(client.email || client.name || 'x') }} title={client.name || client.email}>
-                                                        {initials(client.name || client.email || '?')}
-                                                    </div>
-                                                    <div className="tile-info">
-                                                        <div className="tile-name" title={client.name}>{client.name}</div>
-                                                        <div className="tile-email" title={client.email}>{client.email}</div>
-                                                    </div>
-                                                </div>
-                                                <div className="tile-badges">
-                                                    <span className="badge badge-gray">{client.manager_name}</span>
-                                                    {client.account_email && client.account_email !== 'No Recent Mail' && (
-                                                        <span className="badge badge-gray" title={client.account_email}>{client.account_email}</span>
-                                                    )}
-                                                     {client.pipeline_stage && (
-                                                         <span className={`badge ${STAGE_COLORS[client.pipeline_stage] || 'badge-blue'}`}>
-                                                             {STAGE_LABELS[client.pipeline_stage] || client.pipeline_stage}
-                                                         </span>
-                                                     )}
-                                                    {client.project_count > 0 && (
-                                                        <span className="badge badge-purple">{client.project_count} Projects</span>
-                                                    )}
-                                                </div>
-                                                {client.unread_count > 0 && (
-                                                    <div className="tile-unread-badge">
-                                                        <span className="nav-badge">{client.unread_count}</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
+                                ) : viewMode === 'board' ? (
                                     <div className="board-view">
                                         {(['COLD_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'WON', 'CLOSED'] as const).map(stage => (
                                             <div key={stage} className="board-column">
@@ -423,33 +550,101 @@ export default function ClientsPage() {
                                                     {filteredClients.filter((c: any) => (c.pipeline_stage === stage) || (stage === 'WON' && !c.pipeline_stage && c.project_count > 0)).map((client: any) => (
                                                         <div
                                                             key={client.id}
-                                                            className={`board-card ${selectedClient?.id === client.id ? 'selected' : ''} ${client.unread_count > 0 ? 'unread' : ''}`}
+                                                            className="board-card"
                                                             onClick={() => handleSelectClient(client)}
                                                         >
                                                             <div className="board-card-header">
-                                                                <div className="avatar avatar-board" style={{ background: avatarColor(client.email || client.name || 'x') }} title={client.name || client.email}>
+                                                                <div className="avatar avatar-board" style={{ background: avatarColor(client.email || client.name || 'x') }}>
                                                                     {initials(client.name || client.email || '?')}
                                                                 </div>
                                                                 <div className="board-card-info">
-                                                                    <div className="board-card-name" title={client.name}>{client.name}</div>
-                                                                    <div className="board-card-email" title={client.email}>{client.email}</div>
-                                                                    <div className="board-card-manager" title={`${client.manager_name}${client.account_email && client.account_email !== 'No Recent Mail' ? ` - ${client.account_email}` : ''}`}>
-                                                                        {client.manager_name}
-                                                                        {client.account_email && client.account_email !== 'No Recent Mail' && ` \u2022 ${client.account_email}`}
-                                                                    </div>
+                                                                    <div className="board-card-name">{client.name}</div>
+                                                                    <div className="board-card-email">{client.email}</div>
                                                                 </div>
                                                             </div>
-                                                            {client.project_count > 0 && (
-                                                                <div className="board-card-footer">
-                                                                    <span>Projects</span>
-                                                                    <span className="board-card-count">{client.project_count}</span>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                     ))}
                                                 </div>
                                             </div>
                                         ))}
+                                    </div>
+                                ) : (
+                                    <div className="notion-table-wrapper">
+                                        <div className="notion-table">
+                                            {/* Table Header */}
+                                            <div className="notion-header">
+                                                <div className="notion-cell ncell-date">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+                                                    Date
+                                                </div>
+                                                <div className="notion-cell ncell-name">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                                                    Name
+                                                </div>
+                                                <div className="notion-cell ncell-company">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+                                                    Company
+                                                </div>
+                                                <div className="notion-cell ncell-status">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /></svg>
+                                                    Status
+                                                </div>
+                                                <div className="notion-cell ncell-priority">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
+                                                    Priority
+                                                </div>
+                                                <div className="notion-cell ncell-value">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></svg>
+                                                    Estimated Value
+                                                </div>
+                                                <div className="notion-cell ncell-manager">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
+                                                    Account Manager
+                                                </div>
+                                                <div className="notion-cell ncell-email">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+                                                    Email
+                                                </div>
+                                                <div className="notion-cell ncell-phone">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
+                                                    Phone
+                                                </div>
+                                                <div className="notion-cell ncell-close">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+                                                    Expected Close
+                                                </div>
+                                                <div className="notion-cell ncell-gmail">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+                                                    Gmail Account
+                                                </div>
+                                            </div>
+
+                                            {/* Table Rows */}
+                                            <div className="notion-body">
+                                                {filterType === 'LEADS' ? (
+                                                    /* Grouped by Status */
+                                                    groupedByStatus.map(group => (
+                                                        <div key={group.stage} className="notion-group">
+                                                            <div className="notion-group-header">
+                                                                <span className={`notion-badge ${group.color}`}>{group.label}</span>
+                                                                <span className="notion-group-count">{group.clients.length}</span>
+                                                            </div>
+                                                            {group.clients.map((client: any) => renderClientRow(client))}
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    /* Flat list */
+                                                    filteredClients.map((client: any) => renderClientRow(client))
+                                                )}
+                                            </div>
+
+                                            {/* Table Footer — SUM */}
+                                            {totalEstimatedValue > 0 && (
+                                                <div className="notion-footer">
+                                                    <span className="notion-sum">SUM {formatCurrency(totalEstimatedValue)}</span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </PageLoader>
@@ -767,500 +962,6 @@ export default function ClientsPage() {
                 />
             )}
 
-            <style jsx>{`
-                .page-title {
-                    font-size: 1.25rem;
-                    font-weight: 700;
-                    color: var(--text-primary);
-                    margin: 0;
-                }
-                .filter-toolbar-wrapper {
-                    background: var(--bg-surface);
-                    border-bottom: 1px solid var(--border);
-                }
-                .tabs-bar-inner {
-                    padding: 0 1.5rem;
-                    border-bottom: none;
-                }
-                .tab-count-inline {
-                    font-size: 0.75rem;
-                    opacity: 0.5;
-                    margin-left: 2px;
-                }
-                .toolbar-sub {
-                    border-top: 1px solid var(--border-subtle);
-                    padding: 0.6rem 1.5rem;
-                }
-                .toolbar-left-flex {
-                    display: flex;
-                    align-items: center;
-                    gap: 1rem;
-                }
-                .toolbar-count {
-                    font-size: 0.8125rem;
-                    color: var(--text-muted);
-                    font-weight: 500;
-                }
-                .toolbar-right-flex {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.75rem;
-                }
-                .view-mode-switcher {
-                    display: flex;
-                    background: var(--bg-elevated);
-                    padding: 3px;
-                    border-radius: 8px;
-                    border: 1px solid var(--border);
-                }
-                .content-split-bg {
-                    background: var(--bg-base);
-                }
-                .list-panel-flex {
-                    display: flex;
-                    flex-direction: column;
-                }
-                .list-view-container {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                    min-height: 0;
-                }
-                .list-grid-header {
-                    padding: 0.75rem 1.5rem;
-                    background: var(--bg-surface);
-                    border-bottom: 1px solid var(--border);
-                    font-size: 0.75rem;
-                    text-transform: uppercase;
-                    letter-spacing: 0.05em;
-                    font-weight: 700;
-                    color: var(--text-muted);
-                }
-                .list-scroll-area {
-                    flex: 1;
-                    overflow-y: auto;
-                }
-                .avatar-list {
-                    width: 34px;
-                    height: 34px;
-                    font-size: 0.86rem;
-                }
-                .avatar-grid {
-                    width: 44px;
-                    height: 44px;
-                    font-size: 1rem;
-                }
-                .avatar-board {
-                    width: 28px;
-                    height: 28px;
-                    font-size: 0.75rem;
-                }
-                .account-col-text {
-                    font-size: 0.8125rem;
-                }
-                .text-secondary {
-                    color: var(--text-secondary);
-                }
-                .text-faded {
-                    opacity: 0.3;
-                }
-                .text-muted {
-                    color: var(--text-muted);
-                }
-                .metrics-row {
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    justify-content: flex-end;
-                }
-                .metric-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    font-size: 0.75rem;
-                    color: var(--text-muted);
-                }
-                .grid-view-container {
-                    padding: 1.5rem;
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-                    gap: 1.25rem;
-                    overflow-y: auto;
-                }
-                .tile-header-row {
-                    display: flex;
-                    align-items: center;
-                    gap: 1rem;
-                }
-                .tile-info {
-                    min-width: 0;
-                }
-                .tile-name {
-                    font-weight: 700;
-                    font-size: 1rem;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-                .tile-email {
-                    font-size: 0.8125rem;
-                    color: var(--text-muted);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-                .tile-badges {
-                    margin-top: 0.5rem;
-                    display: flex;
-                    gap: 0.5rem;
-                    flex-wrap: wrap;
-                }
-                .tile-unread-badge {
-                    position: absolute;
-                    top: 12px;
-                    right: 12px;
-                }
-                .board-card-header {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.75rem;
-                }
-                .board-card-info {
-                    min-width: 0;
-                }
-                .board-card-name {
-                    font-weight: 600;
-                    font-size: 0.85rem;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-                .board-card-email {
-                    font-size: 0.75rem;
-                    color: var(--text-muted);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-                .board-card-manager {
-                    font-size: 0.7rem;
-                    color: var(--text-accent);
-                    margin-top: 2px;
-                    font-weight: 500;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-                .board-card-footer {
-                    margin-top: 0.75rem;
-                    padding-top: 0.5rem;
-                    border-top: 1px solid var(--border);
-                    font-size: 0.7rem;
-                    color: var(--text-secondary);
-                    display: flex;
-                    justify-content: space-between;
-                }
-                .board-card-count {
-                    font-weight: 700;
-                }
-                .detail-header-styled {
-                    padding: 1.25rem 2rem;
-                    border-bottom: 1px solid var(--border);
-                    background: var(--bg-surface);
-                }
-                .detail-actions-layout {
-                    margin-bottom: 1.5rem;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                }
-                .detail-actions-left-flex {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.875rem;
-                }
-                .detail-section-label {
-                    font-size: 0.75rem;
-                    font-weight: 600;
-                    color: var(--text-muted);
-                    text-transform: uppercase;
-                    letter-spacing: 0.05em;
-                }
-                .detail-actions-buttons {
-                    display: flex;
-                    gap: 0.75rem;
-                }
-                .hero-layout {
-                    display: flex;
-                    align-items: center;
-                    gap: 2rem;
-                    margin-bottom: 0.5rem;
-                }
-                .avatar-hero {
-                    width: 72px;
-                    height: 72px;
-                    font-size: 1.75rem;
-                    border-radius: 20px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    color: white;
-                    font-weight: 700;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                }
-                .avatar-hero:hover {
-                    transform: scale(1.05) rotate(2deg);
-                }
-                .hero-info {
-                    flex: 1;
-                    min-width: 0;
-                }
-                .hero-name-row {
-                    display: flex;
-                    align-items: center;
-                    gap: 1rem;
-                    flex-wrap: wrap;
-                }
-                .hero-name {
-                    font-size: 2rem;
-                    font-weight: 800;
-                    margin: 0;
-                    color: var(--text-primary);
-                    letter-spacing: -0.04em;
-                    line-height: 1;
-                }
-                .hero-badges {
-                    display: flex;
-                    gap: 0.5rem;
-                }
-                .hero-meta-row {
-                    display: flex;
-                    align-items: center;
-                    gap: 1.25rem;
-                    margin-top: 0.75rem;
-                }
-                .hero-meta-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
-                    color: var(--text-secondary);
-                    font-size: 0.875rem;
-                }
-                .manager-select-modern {
-                    background: none;
-                    border: none;
-                    color: var(--text-primary);
-                    font-size: 0.875rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    padding: 0;
-                    outline: none;
-                }
-                .manager-select-modern:hover {
-                    color: var(--accent);
-                }
-                .manager-select-modern option {
-                    background: var(--bg-surface);
-                    color: var(--text-primary);
-                }
-                .tab-content-area {
-                    flex: 1;
-                    overflow-y: auto;
-                    position: relative;
-                    display: flex;
-                    flex-direction: column;
-                }
-                .loading-state {
-                    padding-top: 3rem;
-                }
-                .loading-text {
-                    font-size: 0.8125rem;
-                    color: var(--text-muted);
-                    margin-top: 8px;
-                }
-                .inner-split-flex {
-                    flex: 1;
-                    min-height: 0;
-                    display: flex;
-                    position: relative;
-                    overflow: hidden;
-                }
-                .inner-list-full {
-                    display: flex;
-                    flex-direction: column;
-                    height: 100%;
-                    width: 100%;
-                }
-                .email-list-scroll {
-                    flex: 1;
-                    overflow-y: auto;
-                }
-                .inner-detail-flex {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                }
-                .inner-projects-styled {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                    background: var(--bg-base);
-                }
-                .empty-state-padded {
-                    padding-top: 5rem;
-                }
-                .empty-state-icon-large {
-                    background: var(--bg-elevated);
-                    padding: 1.5rem;
-                    border-radius: 50%;
-                }
-                .projects-grid {
-                    padding: 2rem;
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-                    gap: 1.5rem;
-                    overflow-y: auto;
-                }
-                .project-card-premium {
-                    background: var(--bg-surface);
-                    border: 1px solid var(--border);
-                    border-radius: 16px;
-                    padding: 1.5rem;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                    box-shadow: var(--shadow-sm);
-                }
-                .project-card-premium:hover {
-                    border-color: var(--accent);
-                    transform: translateY(-4px);
-                    box-shadow: 0 12px 24px -10px rgba(0,0,0,0.15);
-                }
-                .project-card-top {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    margin-bottom: 1rem;
-                }
-                .project-card-title {
-                    font-size: 1.125rem;
-                    font-weight: 700;
-                    margin: 0;
-                    color: var(--text-primary);
-                    letter-spacing: -0.02em;
-                }
-                .project-card-meta {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 0.75rem;
-                    margin-bottom: 1.5rem;
-                }
-                .project-meta-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.625rem;
-                    font-size: 0.8125rem;
-                    color: var(--text-secondary);
-                }
-                .meta-value {
-                    color: var(--text-primary);
-                    font-weight: 600;
-                }
-                .project-card-bottom {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding-top: 1rem;
-                    border-top: 1px solid var(--border-subtle);
-                }
-                .project-card-link {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
-                }
-                .link-text {
-                    font-size: 0.75rem;
-                    font-weight: 600;
-                    color: var(--text-muted);
-                }
-
-                /* ── Layout helpers ── */
-                .list-toolbar { padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--bg-surface); display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
-                .list-toolbar-right { display: flex; align-items: center; gap: 1rem; }
-                .filter-tabs { display: flex; gap: 0.5rem; }
-                .filter-tab { padding: 0.5rem 1rem; font-size: 0.875rem; font-weight: 500; color: var(--text-muted); cursor: pointer; border-radius: var(--radius-md); transition: all 0.2s; border: 1px solid transparent; }
-                .filter-tab:hover { background: var(--bg-hover); color: var(--text-secondary); }
-                .filter-tab.active { background: var(--accent-light); color: var(--accent); }
-
-                .search-input { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.625rem 1rem; color: var(--text-primary); font-size: 0.875rem; width: 280px; transition: all 0.2s; outline: none; }
-                .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
-
-                .client-tile-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; transition: all 0.2s; cursor: pointer; position: relative; display: flex; flex-direction: column; gap: 0.75rem; }
-                .client-tile-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
-                .client-tile-card.selected { border-color: var(--accent); background: var(--bg-selected); }
-
-                .board-view { background: var(--bg-base); flex: 1; display: flex; overflow-x: auto; padding: 1.5rem; gap: 1.5rem; }
-                .board-column { flex: 0 0 300px; display: flex; flex-direction: column; background: var(--bg-surface); border-radius: var(--radius-lg); border: 1px solid var(--border); max-height: 100%; }
-                .column-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
-                .column-title { font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); }
-                .column-count { background: var(--bg-tertiary); padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; color: var(--text-secondary); }
-                .column-content { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
-
-                .board-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; cursor: pointer; transition: all 0.2s; box-shadow: var(--shadow-sm); }
-                .board-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
-                .board-card.selected { border-color: var(--accent); background: var(--bg-selected); }
-                .client-tile-card.unread, .board-card.unread { background: rgba(59, 130, 246, 0.12); border-left: 4px solid var(--accent) !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.15); }
-
-                .avatar { display: flex; align-items: center; justify-content: center; border-radius: 50%; color: white; font-weight: 700; border: 2px solid var(--bg-main); flex-shrink: 0; }
-                .avatar-lg { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: white; font-weight: 700; border: 3px solid var(--bg-main); }
-                .avatar-md { width: 40px; height: 40px; }
-                .avatar-sm { width: 32px; height: 32px; font-size: 0.75rem; }
-
-                /* ── Compact mode for split view ── */
-                .is-split .list-toolbar { padding: 0.5rem 0.75rem; }
-                .is-split .list-toolbar-right .icon-btn.sm { display: none; }
-
-                .detail-header .divider-v {
-                    background: var(--border-subtle);
-                    width: 1px;
-                }
-
-                .inner-list-panel .list-toolbar {
-                    background: var(--bg-surface);
-                    border-top: none;
-                    padding: 0.75rem 1.75rem;
-                }
-
-                /* ── Universal Grid Definitions ── */
-                .universal-grid.grid-table {
-                    display: grid;
-                    grid-template-columns: 340px 1fr 180px 160px;
-                    align-items: center;
-                    padding: 0 1.5rem;
-                }
-                .grid-row {
-                    height: 64px;
-                    border-bottom: 1px solid var(--border-subtle);
-                    background: var(--bg-surface);
-                    cursor: pointer;
-                    transition: all 0.2s;
-                }
-                .grid-row:hover {
-                    background: var(--bg-hover);
-                }
-                .grid-row.selected {
-                    background: var(--bg-selected);
-                    border-left: 3px solid var(--accent);
-                }
-
-                .grid-col { display: flex; align-items: center; gap: 0.75rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-                .grid-col.right { justify-content: flex-end; }
-                .col-client { min-width: 0; }
-                .col-account { color: var(--text-muted); }
-                .sender-info { display: flex; flex-direction: column; line-height: 1.2; overflow: hidden; }
-                .sender-name { color: var(--text-primary); font-size: 0.875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-                .sender-email { color: var(--text-muted); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            `}</style>
         </div>
     );
 }

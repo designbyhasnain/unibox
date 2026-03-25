@@ -43,6 +43,67 @@ export async function ensureContactAction(email: string, name?: string) {
     return newContact;
 }
 
+// 9.0b — Create a new client/lead with all fields
+export type CreateClientPayload = {
+    name: string;
+    email: string;
+    company?: string;
+    phone?: string;
+    priority?: string;
+    estimated_value?: number;
+    expected_close_date?: string;
+    pipeline_stage?: string;
+    account_manager_id?: string;
+    source?: string;
+    notes?: string;
+};
+
+export async function createClientAction(payload: CreateClientPayload) {
+    const { userId, role } = await ensureAuthenticated();
+    if (!payload.email || !payload.name) return { success: false, error: 'Name and email are required' };
+
+    const cleanMail = normalizeEmail(payload.email);
+
+    // Check if contact already exists
+    const { data: existing } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('email', cleanMail)
+        .maybeSingle();
+
+    if (existing) return { success: false, error: 'A contact with this email already exists' };
+
+    const insertData: Record<string, any> = {
+        email: cleanMail,
+        name: payload.name,
+        pipeline_stage: payload.pipeline_stage || 'LEAD',
+        account_manager_id: payload.account_manager_id || userId,
+        updated_at: new Date().toISOString(),
+    };
+
+    if (payload.company) insertData.company = payload.company;
+    if (payload.phone) insertData.phone = payload.phone;
+    if (payload.priority) insertData.priority = payload.priority;
+    if (payload.estimated_value) insertData.estimated_value = payload.estimated_value;
+    if (payload.expected_close_date) insertData.expected_close_date = payload.expected_close_date;
+    if (payload.source) insertData.source = payload.source;
+    if (payload.notes) insertData.notes = payload.notes;
+
+    const { data, error } = await supabase
+        .from('contacts')
+        .insert(insertData)
+        .select('id, name, email')
+        .single();
+
+    if (error) {
+        console.error('createClientAction error:', error);
+        return { success: false, error: 'Failed to create client' };
+    }
+
+    revalidatePath('/clients');
+    return { success: true, client: data };
+}
+
 // 9.1 — Fetch all clients with project count for list view
 // Optimised: no longer joins email_messages (124K rows). Email stats are
 // fetched with a lightweight grouped-count query instead.
@@ -56,7 +117,13 @@ export async function getClientsAction(gmailAccountId?: string) {
             id,
             name,
             email,
+            company,
+            phone,
+            priority,
+            estimated_value,
+            expected_close_date,
             pipeline_stage,
+            created_at,
             updated_at,
             account_manager_id,
             account_manager:users(name),
@@ -125,7 +192,13 @@ export async function getClientsAction(gmailAccountId?: string) {
             id: c.id,
             name: c.name,
             email: c.email,
+            company: c.company,
+            phone: c.phone,
+            priority: c.priority,
+            estimated_value: c.estimated_value,
+            expected_close_date: c.expected_close_date,
             pipeline_stage: c.pipeline_stage,
+            created_at: c.created_at,
             updated_at: c.updated_at,
             account_manager_id: c.account_manager_id,
             manager_name: c.account_manager?.name || 'Unassigned',
@@ -187,6 +260,11 @@ export async function getClientProjectsAction(contactId: string) {
 export type ClientUpdatePayload = {
     name?: string;
     email?: string;
+    company?: string;
+    phone?: string;
+    priority?: string;
+    estimated_value?: number;
+    expected_close_date?: string;
     pipeline_stage?: string;
     contact_status?: string;
     account_manager_id?: string;
@@ -197,7 +275,7 @@ export async function updateClientAction(clientId: string, updates: ClientUpdate
     if (!clientId) return { success: false, error: 'clientId is required' };
 
     // Whitelist allowed fields to prevent mass assignment
-    const allowedFields: (keyof ClientUpdatePayload)[] = ['name', 'email', 'pipeline_stage', 'contact_status', 'account_manager_id'];
+    const allowedFields: (keyof ClientUpdatePayload)[] = ['name', 'email', 'company', 'phone', 'priority', 'estimated_value', 'expected_close_date', 'pipeline_stage', 'contact_status', 'account_manager_id'];
     const payload: Record<string, any> = { updated_at: new Date().toISOString() };
     for (const field of allowedFields) {
         if (updates[field] !== undefined) {

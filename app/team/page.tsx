@@ -11,18 +11,14 @@ import Topbar from '../components/Topbar';
 
 // Cache for instant team page load
 let teamCache: { users: any[]; invitations: any[]; accounts: any[] } | null = null;
-if (typeof window !== 'undefined') {
-    const saved = getFromLocalCache('team_data');
-    if (saved) teamCache = saved;
-}
 
 export default function TeamPage() {
     const router = useRouter();
     const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
-    const [users, setUsers] = useState<any[]>(() => teamCache?.users || []);
-    const [invitations, setInvitations] = useState<any[]>(() => teamCache?.invitations || []);
-    const [allAccounts, setAllAccounts] = useState<any[]>(() => teamCache?.accounts || []);
-    const [isLoading, setIsLoading] = useState(!teamCache);
+    const [users, setUsers] = useState<any[]>([]);
+    const [invitations, setInvitations] = useState<any[]>([]);
+    const [allAccounts, setAllAccounts] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<any>(null);
 
     // Modal states
@@ -62,7 +58,20 @@ export default function TeamPage() {
         }
     }, [router]);
 
-    useEffect(() => { loadData(); }, [loadData]);
+    useEffect(() => {
+        // Restore from localStorage cache for instant render
+        if (!teamCache) {
+            const saved = getFromLocalCache('team_data');
+            if (saved) teamCache = saved;
+        }
+        if (teamCache) {
+            setUsers(teamCache.users);
+            setInvitations(teamCache.invitations);
+            setAllAccounts(teamCache.accounts);
+            setIsLoading(false);
+        }
+        loadData();
+    }, [loadData]);
 
     const handleSendInvite = async () => {
         setActionLoading('invite');

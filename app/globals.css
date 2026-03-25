@@ -5536,121 +5536,78 @@ textarea:focus-visible {
    ═══════════════════════════════════════════════════════════════════ */
 
 /* Tablet */
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Laptop (≤ 1024px): Sidebar collapses to icons ── */
 @media (max-width: 1024px) {
-    :root {
-        --sidebar-width: 72px;
-    }
-
-    .sidebar .sidebar-label,
-    .sidebar .compose-text {
-        display: none;
-    }
-
-    .sidebar .compose-btn {
-        padding: 12px;
-        border-radius: 50%;
-    }
-
-    .topbar {
-        grid-template-columns: 200px 1fr 200px;
-    }
+    :root { --sidebar-width: 72px; }
+    .sidebar .sidebar-label, .sidebar .compose-text { display: none; }
+    .sidebar .compose-btn { padding: 12px; border-radius: 50%; }
+    .sidebar .sidebar-section-title { font-size: 0; overflow: hidden; height: 0; margin: 0; padding: 0; }
+    .sidebar .account-filter-container { display: none; }
+    .topbar { grid-template-columns: 160px 1fr 160px; }
+    .is-split .list-panel { width: 340px; }
 }
 
-/* Small laptop / large tablet */
+/* ── Tablet (≤ 768px): Sidebar hidden, full-width layout ── */
 @media (max-width: 768px) {
-    :root {
-        --sidebar-width: 0px;
-        --topbar-height: 56px;
-    }
-
-    .sidebar {
-        transform: translateX(-100%);
-        position: fixed;
-        z-index: 200;
-        width: 256px;
-    }
-
-    .sidebar.open {
-        transform: translateX(0);
-    }
-
-    .topbar {
-        grid-template-columns: 1fr;
-    }
-
-    .compose-modal {
-        width: calc(100vw - 32px);
-        right: 16px;
-    }
-
-    .gmail-lh-account,
-    .gmail-lh-manager {
-        display: none;
-    }
+    :root { --sidebar-width: 0px; --topbar-height: 56px; }
+    .sidebar { transform: translateX(-100%); position: fixed; z-index: 200; width: 256px; }
+    .sidebar.open { transform: translateX(0); }
+    .topbar { grid-template-columns: 1fr; }
+    .topbar-left { display: none; }
+    .compose-modal { width: calc(100vw - 32px); right: 16px; }
+    .gmail-lh-account, .gmail-lh-manager { display: none; }
+    .is-split .list-panel { width: 300px; }
+    .detail-panel { min-width: 0; }
+    .hero-name { font-size: 1.25rem; }
+    .avatar-hero { width: 48px; height: 48px; font-size: 1.25rem; border-radius: 12px; }
+    .projects-grid { grid-template-columns: 1fr; padding: 1rem; }
+    .form-row { grid-template-columns: 1fr !important; }
 }
 
-/* Mobile */
+/* ── Small tablet / large phone (≤ 640px) ── */
+@media (max-width: 640px) {
+    .topbar-right { display: none; }
+    .is-split .list-panel { width: 100%; }
+    .is-split .detail-panel { display: none; }
+    .gmail-row-account, .gmail-lh-account { display: none; }
+    .gmail-row-manager, .gmail-lh-manager { display: none; }
+    .gmail-row-sender { width: 140px !important; flex: 0 0 140px !important; }
+}
+
+/* ── Mobile (≤ 480px) ── */
 @media (max-width: 480px) {
-    .sidebar {
-        display: none;
-    }
-
-    .main-area {
-        margin-left: 0;
-    }
-
-    .topbar {
-        grid-template-columns: 1fr;
-        padding: 0 0.75rem;
-    }
-
-    .topbar-left,
-    .topbar-right {
-        display: none;
-    }
-
-    .search-bar-wrap {
-        max-width: 100%;
-    }
-
-    .gmail-row-account,
-    .gmail-lh-account,
-    .gmail-row-manager,
-    .gmail-lh-manager,
-    .gmail-row-date,
-    .gmail-lh-date {
-        display: none;
-    }
-
-    .gmail-row-sender {
-        width: 120px !important;
-        flex: 0 0 120px !important;
-    }
-
-    .is-split .list-panel {
-        width: 100%;
-    }
+    .sidebar { display: none; }
+    .main-area { margin-left: 0; }
+    .topbar { grid-template-columns: 1fr; padding: 0 0.75rem; }
+    .topbar-left, .topbar-right { display: none; }
+    .search-bar-wrap { max-width: 100%; }
+    .gmail-row-account, .gmail-lh-account,
+    .gmail-row-manager, .gmail-lh-manager,
+    .gmail-row-date, .gmail-lh-date { display: none; }
+    .gmail-row-sender { width: 100px !important; flex: 0 0 100px !important; }
+    .is-split .list-panel { width: 100%; }
+    .hero-layout { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+    .hero-meta-row { flex-direction: column; align-items: flex-start; gap: 0.375rem; }
+    .detail-header-styled { padding: 0.875rem; }
+    .detail-actions-layout { flex-direction: column; gap: 0.75rem; align-items: flex-start; }
+    .detail-actions-buttons { width: 100%; }
+    .detail-actions-buttons .btn { flex: 1; justify-content: center; }
+    .tabs-bar { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .page-title, .clients-page-title { font-size: 1rem; }
 }
 
-/* Modal responsiveness for small screens */
+/* ── Modal responsiveness ── */
 @media (max-width: 600px) {
-    .modal-container,
-    .modal-box {
-        width: 95vw !important;
-        max-width: none;
-        padding: 1.25rem;
-    }
-
-    .compose-modal {
-        width: calc(100vw - 16px) !important;
-        right: 8px !important;
-    }
-
-    .compose-modal.maximized {
-        width: 100vw !important;
-        height: 100vh !important;
-        border-radius: 0;
-    }
+    .modal-container, .modal-box { width: 95vw !important; max-width: none; padding: 1rem; }
+    .modal-header { padding: 0.875rem 1rem; }
+    .modal-form { padding: 0.875rem 1rem; gap: 0.75rem; }
+    .modal-actions { padding: 0.875rem 1rem; }
+    .compose-modal { width: calc(100vw - 16px) !important; right: 8px !important; }
+    .compose-modal.maximized { width: 100vw !important; height: 100vh !important; border-radius: 0; }
 }
 
 /* ─── Login Page ─────────────────────────────────────────────────── */
@@ -5755,5 +5712,286 @@ textarea:focus-visible {
     border-top-color: #1a73e8;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Clients Page — Notion-style Table
+   ══════════════════════════════════════════════════════════════ */
+.clients-page-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+.content-split-bg { background: var(--bg-base); }
+.list-panel-flex { display: flex; flex-direction: column; }
+
+/* ── Notion Toolbar ── */
+.notion-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--space-lg); border-bottom: 1px solid var(--border);
+    background: var(--bg-surface); min-height: 44px; gap: var(--space-sm);
+}
+.notion-tabs { display: flex; align-items: center; gap: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.notion-tabs::-webkit-scrollbar { display: none; }
+.notion-tab {
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 14px; font-size: var(--text-sm); font-weight: 500;
+    color: var(--text-muted); background: none; border: none;
+    border-bottom: 2px solid transparent; cursor: pointer;
+    transition: all var(--duration-fast) var(--ease); white-space: nowrap;
+}
+.notion-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+.notion-tab.active { color: var(--text-primary); border-bottom-color: var(--accent); font-weight: 600; }
+.notion-toolbar-right { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.notion-icon-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: var(--radius-xs);
+    border: none; background: none; color: var(--text-muted);
+    cursor: pointer; transition: all var(--duration-fast) var(--ease);
+}
+.notion-icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ── Notion Table ── */
+.notion-table-wrapper { flex: 1; overflow: auto; background: var(--bg-surface); }
+.notion-table { min-width: 900px; }
+.notion-header {
+    display: flex; border-bottom: 1px solid var(--border);
+    background: var(--bg-base); position: sticky; top: 0; z-index: 2;
+}
+.notion-header .notion-cell {
+    font-size: 0.7rem; font-weight: 600; color: var(--text-tertiary);
+    text-transform: uppercase; letter-spacing: 0.03em;
+    display: flex; align-items: center; gap: 5px;
+    padding: 8px 12px; border-right: 1px solid transparent; user-select: none;
+}
+.notion-body { display: flex; flex-direction: column; }
+.notion-row {
+    display: flex; border-bottom: 1px solid var(--border-subtle);
+    cursor: pointer; transition: background var(--duration-fast) var(--ease);
+}
+.notion-row:hover { background: var(--bg-hover); }
+.notion-row.unread { background: rgba(26, 115, 232, 0.04); font-weight: 500; }
+.notion-row.unread:hover { background: rgba(26, 115, 232, 0.08); }
+.notion-cell {
+    padding: 10px 12px; font-size: var(--text-sm); color: var(--text-primary);
+    display: flex; align-items: center; gap: 8px;
+    border-right: 1px solid transparent; overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis; flex-shrink: 0;
+}
+
+/* Column widths — flex-based for responsiveness */
+.ncell-date { width: 110px; color: var(--text-muted); font-size: var(--text-xs); }
+.ncell-name { flex: 1; min-width: 150px; }
+.ncell-company { width: 130px; }
+.ncell-status { width: 115px; }
+.ncell-priority { width: 105px; }
+.ncell-value { width: 130px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.ncell-manager { width: 155px; }
+.ncell-email { width: 190px; }
+.ncell-phone { width: 130px; }
+.ncell-close { width: 120px; }
+.ncell-gmail { width: 185px; border-right: none; }
+.notion-header .ncell-gmail { border-right: none; }
+
+/* Cell content */
+.cell-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-name-text { font-weight: 600; color: var(--text-primary); }
+.cell-email-text { color: var(--text-muted); font-size: var(--text-xs); }
+.cell-empty { color: var(--text-muted); opacity: 0.3; }
+.cell-placeholder { color: var(--text-tertiary); opacity: 0.5; cursor: text; font-style: normal; }
+.cell-editable {
+    cursor: text; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    border-radius: 3px; padding: 2px 4px; margin: -2px -4px;
+    transition: background var(--duration-fast) var(--ease);
+}
+.cell-editable:hover { background: var(--accent-light); }
+
+/* Inline edit inputs */
+.ncell-input {
+    width: 100%; border: 1.5px solid var(--accent); border-radius: var(--radius-xs);
+    padding: 4px 8px; font-size: var(--text-sm); color: var(--text-primary);
+    background: var(--bg-surface); outline: none; font-family: inherit;
+    box-shadow: 0 0 0 3px var(--accent-light);
+}
+.ncell-select {
+    width: 100%; border: 1.5px solid var(--accent); border-radius: var(--radius-xs);
+    padding: 4px 6px; font-size: var(--text-sm); color: var(--text-primary);
+    background: var(--bg-surface); outline: none; font-family: inherit;
+    cursor: pointer; box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+/* Notion badges (table cells) */
+.notion-badge {
+    display: inline-flex; align-items: center;
+    padding: 2px 8px; border-radius: 3px;
+    font-size: 0.7rem; font-weight: 600;
+    white-space: nowrap; letter-spacing: 0.01em;
+}
+
+/* Manager chip */
+.manager-chip {
+    display: flex; align-items: center; gap: 6px;
+    font-size: var(--text-sm); color: var(--text-secondary);
+}
+
+/* Avatar sizes (clients) */
+.avatar-sm { width: 24px; height: 24px; font-size: 0.6rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; flex-shrink: 0; }
+.avatar-xs { width: 20px; height: 20px; font-size: 0.55rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; flex-shrink: 0; }
+.avatar-board { width: 28px; height: 28px; font-size: 0.75rem; }
+
+/* Notion Group (By Status) */
+.notion-group { border-bottom: 1px solid var(--border); }
+.notion-group:last-child { border-bottom: none; }
+.notion-group-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; background: var(--bg-base);
+    border-bottom: 1px solid var(--border-subtle);
+    position: sticky; top: 35px; z-index: 1;
+}
+.notion-group-count {
+    font-size: 0.7rem; color: var(--text-muted);
+    background: var(--bg-tertiary); padding: 1px 8px;
+    border-radius: var(--radius-full); font-weight: 600;
+}
+
+/* Notion Footer / SUM */
+.notion-footer {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    display: flex; justify-content: center; background: var(--bg-base);
+}
+.notion-sum { font-size: var(--text-sm); color: var(--text-muted); font-weight: 600; letter-spacing: 0.02em; }
+
+/* ── Responsive: hide less important columns ── */
+@media (max-width: 1400px) {
+    .ncell-phone { display: none; }
+    .ncell-close { display: none; }
+}
+@media (max-width: 1200px) {
+    .ncell-gmail { display: none; }
+    .ncell-date { width: 95px; }
+}
+@media (max-width: 1024px) {
+    .ncell-email { display: none; }
+    .ncell-value { width: 110px; }
+    .notion-table { min-width: 600px; }
+}
+@media (max-width: 768px) {
+    .ncell-manager { display: none; }
+    .ncell-company { display: none; }
+    .notion-table { min-width: 400px; }
+    .notion-toolbar { padding: 0 var(--space-sm); }
+    .notion-tab { padding: 8px 10px; font-size: var(--text-xs); }
+}
+
+/* ── Board View ── */
+.board-card-header { display: flex; align-items: center; gap: 0.75rem; }
+.board-card-info { min-width: 0; }
+.board-card-name { font-weight: 600; font-size: var(--text-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.board-card-email { font-size: var(--text-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Client Detail ── */
+.detail-header-styled { padding: 1.5rem 2rem; border-bottom: 1px solid var(--border); background: var(--bg-surface); }
+.detail-actions-layout { margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; }
+.detail-actions-left-flex { display: flex; align-items: center; gap: var(--space-md); }
+.detail-section-label { font-size: 0.7rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.08em; }
+.detail-actions-buttons { display: flex; gap: var(--space-sm); }
+.hero-layout { display: flex; align-items: center; gap: 1.5rem; margin-bottom: 0.5rem; }
+.avatar-hero {
+    width: 64px; height: 64px; font-size: 1.5rem; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-weight: 700;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transition: all var(--duration-slow) var(--ease);
+}
+.avatar-hero:hover { transform: scale(1.04); }
+.hero-info { flex: 1; min-width: 0; }
+.hero-name-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.hero-name { font-size: 1.5rem; font-weight: 800; margin: 0; color: var(--text-primary); letter-spacing: -0.03em; line-height: 1.2; }
+.hero-badges { display: flex; gap: 0.375rem; }
+.hero-meta-row { display: flex; align-items: center; gap: 1rem; margin-top: 0.5rem; flex-wrap: wrap; }
+.hero-meta-item { display: flex; align-items: center; gap: 0.375rem; color: var(--text-secondary); font-size: var(--text-sm); }
+.manager-select-modern { background: none; border: none; color: var(--text-primary); font-size: var(--text-sm); font-weight: 600; cursor: pointer; padding: 0; outline: none; }
+.manager-select-modern:hover { color: var(--accent); }
+.manager-select-modern option { background: var(--bg-surface); color: var(--text-primary); }
+.tab-content-area { flex: 1; overflow-y: auto; position: relative; display: flex; flex-direction: column; }
+.loading-state { padding-top: 3rem; }
+.loading-text { font-size: var(--text-sm); color: var(--text-muted); margin-top: 8px; }
+.inner-split-flex { flex: 1; min-height: 0; display: flex; position: relative; overflow: hidden; }
+.inner-list-full { display: flex; flex-direction: column; height: 100%; width: 100%; }
+.email-list-scroll { flex: 1; overflow-y: auto; }
+.inner-detail-flex { flex: 1; display: flex; flex-direction: column; }
+.inner-projects-styled { flex: 1; display: flex; flex-direction: column; background: var(--bg-base); }
+.empty-state-padded { padding-top: 4rem; }
+.empty-state-icon-large { background: var(--bg-elevated); padding: 1.25rem; border-radius: 50%; }
+
+/* ── Project Cards ── */
+.projects-grid {
+    padding: 1.5rem; display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem; overflow-y: auto;
+}
+.project-card-premium {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 1.25rem;
+    cursor: pointer; transition: all var(--duration-normal) var(--ease);
+}
+.project-card-premium:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.project-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.875rem; }
+.project-card-title { font-size: 1rem; font-weight: 700; margin: 0; color: var(--text-primary); letter-spacing: -0.01em; }
+.project-card-meta { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+.project-meta-item { display: flex; align-items: center; gap: 0.5rem; font-size: var(--text-sm); color: var(--text-secondary); }
+.meta-value { color: var(--text-primary); font-weight: 600; }
+.project-card-bottom { display: flex; justify-content: space-between; align-items: center; padding-top: 0.875rem; border-top: 1px solid var(--border-subtle); }
+.project-card-link { display: flex; align-items: center; gap: 0.375rem; color: var(--text-muted); transition: color var(--duration-fast); }
+.project-card-link:hover { color: var(--accent); }
+.link-text { font-size: var(--text-xs); font-weight: 600; }
+
+/* ── Client Detail responsive ── */
+@media (max-width: 768px) {
+    .detail-header-styled { padding: 1rem; }
+    .hero-layout { gap: 1rem; }
+    .avatar-hero { width: 48px; height: 48px; font-size: 1.25rem; border-radius: 12px; }
+    .hero-name { font-size: 1.25rem; }
+    .hero-meta-row { gap: 0.5rem; }
+    .detail-actions-buttons .btn { font-size: var(--text-xs); padding: 0.25rem 0.75rem; }
+    .projects-grid { grid-template-columns: 1fr; padding: 1rem; }
+}
+
+/* ── Board View ── */
+.board-view {
+    background: var(--bg-base); flex: 1; display: flex;
+    overflow-x: auto; padding: 1.25rem; gap: 1rem;
+    -webkit-overflow-scrolling: touch;
+}
+.board-column {
+    flex: 0 0 280px; display: flex; flex-direction: column;
+    background: var(--bg-surface); border-radius: var(--radius-sm);
+    border: 1px solid var(--border); max-height: 100%;
+}
+.column-header { padding: 0.875rem 1rem; border-bottom: 1px solid var(--border); }
+.column-title {
+    font-weight: 700; font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.06em; display: flex; justify-content: space-between;
+    align-items: center; color: var(--text-tertiary);
+}
+.column-count {
+    background: var(--bg-tertiary); padding: 1px 8px;
+    border-radius: var(--radius-full); font-size: 0.65rem;
+    color: var(--text-secondary); font-weight: 600;
+}
+.column-content { flex: 1; overflow-y: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.625rem; }
+.board-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-xs); padding: 1rem;
+    cursor: pointer; transition: all var(--duration-normal) var(--ease);
+}
+.board-card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.detail-header .divider-v { background: var(--border-subtle); width: 1px; }
+.inner-list-panel .list-toolbar { background: var(--bg-surface); border-top: none; padding: 0.75rem 1.5rem; }
+
+@media (max-width: 768px) {
+    .board-column { flex: 0 0 240px; }
+    .board-view { padding: 0.75rem; gap: 0.75rem; }
 }
 

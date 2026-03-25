@@ -182,6 +182,17 @@ export default function InboxPage() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [setSelectedEmail]);
 
+    // Reset to list view when sidebar nav is clicked on same page
+    useEffect(() => {
+        const handleNavReset = () => {
+            setSelectedEmail(null);
+            setSearchTerm('');
+            setIsSearchResults(false);
+        };
+        window.addEventListener('nav-reset', handleNavReset);
+        return () => window.removeEventListener('nav-reset', handleNavReset);
+    }, [setSelectedEmail]);
+
     // Auto-polling — use ref to avoid clearing/restarting interval when handleSync changes
     useEffect(() => {
         if (!isPollingEnabled) return;

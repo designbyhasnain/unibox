@@ -84,12 +84,16 @@ interface SidebarProps {
 export default function Sidebar({ onOpenCompose }: SidebarProps) {
     const pathname = usePathname();
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
-    const [userRole, setUserRole] = React.useState<string | null>(() => {
-        if (typeof window === 'undefined') return null;
-        try { return localStorage.getItem('unibox_user_role'); } catch { return null; }
-    });
+    const [userRole, setUserRole] = React.useState<string | null>(null);
+    const [mounted, setMounted] = React.useState(false);
 
     React.useEffect(() => {
+        setMounted(true);
+        // Restore from localStorage first for instant render, then verify from server
+        try {
+            const cached = localStorage.getItem('unibox_user_role');
+            if (cached) setUserRole(cached);
+        } catch {}
         getCurrentUserAction().then(session => {
             if (session) {
                 setUserRole(session.role);
@@ -138,6 +142,11 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                         className={`nav-item${pathname === href ? ' active' : ''}`}
                         {...(pathname === href ? { 'aria-current': 'page' as const } : {})}
                         title={label}
+                        onClick={() => {
+                            if (pathname === href) {
+                                window.dispatchEvent(new CustomEvent('nav-reset'));
+                            }
+                        }}
                     >
                         {icon}
                         {label}
@@ -147,15 +156,16 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                 {/* Account Filter Section */}
                 <div className="sidebar-section">
                     <div className="sidebar-section-title">FILTER BY ACCOUNT</div>
-                    <div className="account-filter-container">
+                    <div className="account-filter-container" suppressHydrationWarning>
                         <select
                             className="sidebar-account-select"
                             value={selectedAccountId}
                             onChange={(e) => setSelectedAccountId(e.target.value)}
                             aria-label="Filter by account"
+                            suppressHydrationWarning
                         >
                             <option value="ALL">All Accounts</option>
-                            {accounts.map(acc => (
+                            {mounted && accounts.map(acc => (
                                 <option key={acc.id} value={acc.id}>{acc.email}</option>
                             ))}
                         </select>

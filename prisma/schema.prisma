@@ -135,6 +135,12 @@ model Contact {
 
   isClient Boolean @default(false) @map("is_client")
 
+  company            String?    @map("company")
+  phone              String?    @map("phone")
+  priority           Priority?  @map("priority")
+  estimatedValue     Float?     @map("estimated_value")
+  expectedCloseDate  DateTime?  @map("expected_close_date")
+
   accountManagerId String? @map("account_manager_id")
   accountManager   User?   @relation("AccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
 

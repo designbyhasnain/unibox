@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { sendEmailAction } from '../../src/actions/emailActions';
 import { useGlobalFilter } from '../context/FilterContext';
-import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Eye, MousePointerClick, FileText, Unlink } from 'lucide-react';
+import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Shield } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
 import { DEFAULT_USER_ID } from '../constants/config';
@@ -38,9 +38,6 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const [fontSize, setFontSize] = useState('Normal');
     const [showMoreOptions, setShowMoreOptions] = useState(false);
     const [showFromDropdown, setShowFromDropdown] = useState(false);
-    const [isTrackingEnabled, setIsTrackingEnabled] = useState(true);
-    const [showTrackingMenu, setShowTrackingMenu] = useState(false);
-    const trackingMenuRef = useRef<HTMLDivElement>(null);
 
     const editorRef = useRef<HTMLDivElement>(null);
     const moreOptionsRef = useRef<HTMLDivElement>(null);
@@ -51,8 +48,8 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const [activeEmojiCategory, setActiveEmojiCategory] = useState('Faces');
 
     // Ref to track dropdown/picker state for the click-outside handler (avoids listener leak)
-    const dropdownStateRef = useRef({ showEmojiPicker, showMoreOptions, showFromDropdown, showTrackingMenu });
-    dropdownStateRef.current = { showEmojiPicker, showMoreOptions, showFromDropdown, showTrackingMenu };
+    const dropdownStateRef = useRef({ showEmojiPicker, showMoreOptions, showFromDropdown });
+    dropdownStateRef.current = { showEmojiPicker, showMoreOptions, showFromDropdown };
 
     const saveSelection = () => {
         const sel = window.getSelection();
@@ -96,7 +93,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             const s = dropdownStateRef.current;
-            if (!s.showEmojiPicker && !s.showMoreOptions && !s.showFromDropdown && !s.showTrackingMenu) return;
+            if (!s.showEmojiPicker && !s.showMoreOptions && !s.showFromDropdown) return;
 
             if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
                 setShowEmojiPicker(false);
@@ -106,9 +103,6 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             }
             if (fromDropdownRef.current && !fromDropdownRef.current.contains(event.target as Node)) {
                 setShowFromDropdown(false);
-            }
-            if (trackingMenuRef.current && !trackingMenuRef.current.contains(event.target as Node)) {
-                setShowTrackingMenu(false);
             }
         };
 
@@ -123,7 +117,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         setIsSending(true);
         setSendResult(null);
         try {
-            const payload = { to, subject, body, accountId: fromAccount, isTracked: isTrackingEnabled, ...(threadId ? { threadId } : {}) };
+            const payload = { to, subject, body, accountId: fromAccount, isTracked: true, ...(threadId ? { threadId } : {}) };
             const result = await sendEmailAction(payload) as { success: boolean, error?: string, messageId?: string };
             if (result.success) {
                 setSendResult({ success: true, message: 'Message sent.' });
@@ -138,39 +132,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         }
     };
 
-    const sanitizeUrl = (raw: string): string | null => {
-        const trimmed = raw.trim();
-        if (/^https?:\/\//i.test(trimmed)) return trimmed;
-        if (/^[a-z0-9]/i.test(trimmed) && !trimmed.includes(':')) return `https://${trimmed}`;
-        return null; // reject javascript:, data:, etc.
-    };
 
-    const escapeHtml = (str: string): string =>
-        str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-
-    const handleInsertTrackedLink = () => {
-        const rawUrl = prompt('Enter the URL to track:');
-        if (!rawUrl) { setShowTrackingMenu(false); return; }
-        const url = sanitizeUrl(rawUrl);
-        if (!url) { alert('Invalid URL. Please enter an http:// or https:// URL.'); setShowTrackingMenu(false); return; }
-        restoreSelection();
-        const linkText = window.getSelection()?.toString() || url;
-        document.execCommand('insertHTML', false, `<a href="${escapeHtml(url)}" style="color:#1a73e8;text-decoration:underline;">${escapeHtml(linkText)}</a>`);
-        if (editorRef.current) setBody(editorRef.current.innerHTML);
-        setShowTrackingMenu(false);
-    };
-
-    const handleInsertTrackedButton = () => {
-        const rawUrl = prompt('Enter the button URL:');
-        const label = prompt('Enter the button text:', 'Click Here');
-        if (!rawUrl || !label) { setShowTrackingMenu(false); return; }
-        const url = sanitizeUrl(rawUrl);
-        if (!url) { alert('Invalid URL. Please enter an http:// or https:// URL.'); setShowTrackingMenu(false); return; }
-        restoreSelection();
-        document.execCommand('insertHTML', false, `<a href="${escapeHtml(url)}" style="display:inline-block;padding:10px 24px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:4px;font-weight:500;font-size:14px;">${escapeHtml(label)}</a>&nbsp;`);
-        if (editorRef.current) setBody(editorRef.current.innerHTML);
-        setShowTrackingMenu(false);
-    };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSend(); }
@@ -517,32 +479,6 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                     </div>
 
                     <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', flexDirection: 'column', borderTop: '1px solid #e0e0e0', overflow: 'visible', position: 'relative' }}>
-                        {/* Tracking Indicator Bar — Mailsuite style */}
-                        {isTrackingEnabled && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 0 6px', borderBottom: '1px solid #e8eaed', marginBottom: '6px' }}>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-                                    <path d="M1 12l5 5L18 5" stroke="#34a853" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d="M7 12l5 5L24 5" stroke="#34a853" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                                <span style={{ fontSize: '11px', color: '#5f6368', letterSpacing: '0.2px' }}>
-                                    Email tracked with <strong style={{ color: '#34a853' }}>Unibox</strong>
-                                </span>
-                                <span style={{ margin: '0 2px', color: '#dadce0', fontSize: '11px' }}>·</span>
-                                <span
-                                    style={{ fontSize: '11px', color: '#ea4335', cursor: 'pointer' }}
-                                    onClick={() => setIsTrackingEnabled(false)}
-                                >
-                                    Opt out
-                                </span>
-                                <span
-                                    style={{ fontSize: '13px', color: '#ea4335', cursor: 'pointer', marginLeft: '1px', fontWeight: 600 }}
-                                    onClick={() => setIsTrackingEnabled(false)}
-                                >
-                                    ✕
-                                </span>
-                            </div>
-                        )}
-
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                             <div className="compose-footer-left" style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                                 <div className="compose-send-group" style={{ marginRight: '8px' }}>
@@ -556,77 +492,6 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                     <button className="compose-send-caret" disabled={isSending || !to.trim()}>
                                         <ChevronDown size={14} />
                                     </button>
-                                </div>
-
-                                {/* Tracking Toggle Icon — green double check like Mailsuite */}
-                                <div style={{ position: 'relative' }} ref={trackingMenuRef}>
-                                    <button
-                                        className={`compose-icon-btn ${isTrackingEnabled ? 'tracking-active' : ''}`}
-                                        title={isTrackingEnabled ? 'Tracking enabled (click for options)' : 'Enable email tracking'}
-                                        onClick={() => {
-                                            if (!isTrackingEnabled) {
-                                                setIsTrackingEnabled(true);
-                                            } else {
-                                                setShowTrackingMenu(!showTrackingMenu);
-                                            }
-                                        }}
-                                        style={{
-                                            background: isTrackingEnabled ? 'rgba(52,168,83,0.12)' : 'transparent',
-                                            borderRadius: '50%',
-                                            width: '32px',
-                                            height: '32px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                        }}
-                                    >
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                                            <path d="M1 12l5 5L18 5" stroke={isTrackingEnabled ? '#34a853' : '#9aa0a6'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                            <path d="M7 12l5 5L24 5" stroke={isTrackingEnabled ? '#34a853' : '#9aa0a6'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
-                                    </button>
-
-                                    {/* Tracking Popup Menu */}
-                                    {showTrackingMenu && (
-                                        <div style={{
-                                            position: 'fixed',
-                                            bottom: '52px',
-                                            left: 'auto',
-                                            width: '220px',
-                                            padding: '6px 0',
-                                            background: '#fff',
-                                            border: '1px solid #dadce0',
-                                            borderRadius: '8px',
-                                            boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                                            zIndex: 9999,
-                                        }}>
-                                            <div style={{ padding: '8px 16px 6px', fontSize: '11px', fontWeight: 600, color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                Insert
-                                            </div>
-                                            <div onClick={handleInsertTrackedLink} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124', fontSize: '13px' }}
-                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f1f3f4')}
-                                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                                            >
-                                                <Link size={16} style={{ color: '#1a73e8' }} />
-                                                <span>Tracked link</span>
-                                            </div>
-                                            <div onClick={handleInsertTrackedButton} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#202124', fontSize: '13px' }}
-                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f1f3f4')}
-                                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                                            >
-                                                <MousePointerClick size={16} style={{ color: '#1a73e8' }} />
-                                                <span>Tracked button</span>
-                                            </div>
-                                            <div style={{ borderTop: '1px solid #e8eaed', margin: '4px 0' }} />
-                                            <div onClick={() => { setIsTrackingEnabled(false); setShowTrackingMenu(false); }} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', cursor: 'pointer', color: '#ea4335', fontSize: '13px' }}
-                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#fce8e6')}
-                                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                                            >
-                                                <Unlink size={16} />
-                                                <span>Disable tracking</span>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
 
                                 <button
