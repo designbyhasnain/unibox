@@ -36,6 +36,19 @@ const Icons = {
             <rect x="3" y="14" width="7" height="7" rx="1" />
         </svg>
     ),
+    Campaigns: () => (
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m3 11 18-5v12L3 14v-3z" />
+            <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+        </svg>
+    ),
+    Templates: () => (
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <line x1="3" y1="9" x2="21" y2="9" />
+            <line x1="9" y1="21" x2="9" y2="9" />
+        </svg>
+    ),
     BarChart: () => (
         <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="18" y1="20" x2="18" y2="10" />
@@ -69,6 +82,8 @@ const NAV_MAIN = [
     { href: '/clients', label: 'Clients', icon: <Icons.Clients /> },
     { href: '/accounts', label: 'Accounts', icon: <Icons.Accounts /> },
     { href: '/projects', label: 'Projects', icon: <Icons.Projects /> },
+    { href: '/campaigns', label: 'Campaigns', icon: <Icons.Campaigns /> },
+    { href: '/templates', label: 'Templates', icon: <Icons.Templates /> },
     { href: '/analytics', label: 'Analytics', icon: <Icons.BarChart /> },
 ];
 
@@ -139,6 +154,7 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                     <Link
                         key={href}
                         href={href}
+                        prefetch={true}
                         className={`nav-item${pathname === href ? ' active' : ''}`}
                         {...(pathname === href ? { 'aria-current': 'page' as const } : {})}
                         title={label}
@@ -182,6 +198,7 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                     <Link
                         key={href}
                         href={href}
+                        prefetch={true}
                         className={`nav-item${pathname === href ? ' active' : ''}`}
                         {...(pathname === href ? { 'aria-current': 'page' as const } : {})}
                         title={label}

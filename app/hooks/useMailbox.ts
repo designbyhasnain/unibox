@@ -482,6 +482,62 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         loadEmails(1);
     }, [loadEmails]);
 
+    // ── Prefetch next page silently ──────────────────────────────────────────
+    const prefetchCacheRef = useRef<Map<string, any[]>>(new Map());
+
+    useEffect(() => {
+        if (!enabled || type === 'search') return;
+        if (emails.length < PAGE_SIZE) return; // not a full page, no next page likely
+
+        const nextPage = currentPage + 1;
+        const nextKey = `${getCacheKey()}_page${nextPage}`;
+        if (prefetchCacheRef.current.has(nextKey)) return;
+        if (globalMailboxCache[`${getCacheKey()}_p${nextPage}`]) return;
+
+        // Prefetch next page silently in background
+        const prefetch = async () => {
+            try {
+                let result: any;
+                if (type === 'inbox') {
+                    result = await getInboxEmailsAction(nextPage, PAGE_SIZE, activeStage, selectedAccountId);
+                } else if (type === 'sent') {
+                    result = await getSentEmailsAction(nextPage, PAGE_SIZE, selectedAccountId);
+                }
+                if (result?.emails?.length > 0) {
+                    prefetchCacheRef.current.set(nextKey, result.emails);
+                    // Store in global cache for instant access
+                    const nextCacheKey = getCacheKey();
+                    globalMailboxCache[`${nextCacheKey}_p${nextPage}`] = {
+                        emails: result.emails,
+                        totalCount: result.totalCount,
+                        totalPages: result.totalPages,
+                        page: nextPage,
+                        timestamp: Date.now(),
+                    };
+                }
+            } catch {
+                // Silent fail — prefetch is non-critical
+            }
+        };
+        prefetch();
+    }, [emails.length, currentPage, type, activeStage, selectedAccountId, getCacheKey, enabled]);
+
+    // ── Tab visibility — sync on refocus ─────────────────────────────────────
+    useEffect(() => {
+        if (!enabled) return;
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                // User came back — refresh data in background (no loading state)
+                const timeSinceSync = Date.now() - lastSyncTimeRef.current;
+                if (timeSinceSync > 30_000) { // only if >30s since last sync
+                    loadEmails(currentPageRef.current);
+                }
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => document.removeEventListener('visibilitychange', handleVisibility);
+    }, [enabled, loadEmails]);
+
     // Sync accounts from FilterProvider (single source of truth — no duplicate fetch)
     useEffect(() => {
         if (initialAccounts && initialAccounts.length > 0) {
@@ -682,8 +738,30 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     }, []);
 
     const setCurrentPage = useCallback((page: number) => {
-        dispatch({ type: 'SET_EMAILS', emails, totalCount, totalPages, page });
-    }, [emails, totalCount, totalPages]);
+        // Check if we have prefetched data for this page
+        const prefetchKey = `${getCacheKey()}_page${page}`;
+        const globalKey = `${getCacheKey()}_p${page}`;
+        const prefetched = prefetchCacheRef.current.get(prefetchKey);
+        const globalPrefetch = globalMailboxCache[globalKey];
+
+        if (prefetched) {
+            dispatch({ type: 'SET_EMAILS', emails: prefetched, totalCount, totalPages, page });
+            prefetchCacheRef.current.delete(prefetchKey);
+            return;
+        }
+        if (globalPrefetch) {
+            dispatch({
+                type: 'SET_EMAILS',
+                emails: globalPrefetch.emails,
+                totalCount: globalPrefetch.totalCount,
+                totalPages: globalPrefetch.totalPages,
+                page,
+            });
+            return;
+        }
+        // No prefetch available — do normal load
+        loadEmails(page);
+    }, [totalCount, totalPages, getCacheKey, loadEmails]);
 
     const toggleSelectEmail = useCallback((id: string) => {
         dispatch({

@@ -110,7 +110,7 @@ export async function createClientAction(payload: CreateClientPayload) {
 export async function getClientsAction(gmailAccountId?: string) {
     const { userId, role } = await ensureAuthenticated();
     const accessible = await getAccessibleGmailAccountIds(userId, role);
-    // 1. Fetch contacts with only small-table joins (projects, users)
+    // 1. Fetch contacts with only small-table joins (projects, users, lastGmailAccount)
     const { data: contacts, error } = await supabase
         .from('contacts')
         .select(`
@@ -123,10 +123,15 @@ export async function getClientsAction(gmailAccountId?: string) {
             estimated_value,
             expected_close_date,
             pipeline_stage,
+            is_client,
+            is_lead,
             created_at,
             updated_at,
+            last_email_at,
+            last_gmail_account_id,
             account_manager_id,
             account_manager:users(name),
+            last_gmail_account:gmail_accounts!last_gmail_account_id(id, email, name),
             projects ( id )
         `)
         .order('updated_at', { ascending: false })
@@ -141,42 +146,115 @@ export async function getClientsAction(gmailAccountId?: string) {
 
     const contactIds = contacts.map((c: any) => c.id);
 
-    // 2. Fetch email stats per contact in a single lightweight query.
-    //    We only pull the minimal columns needed for counts + last-account display.
-    let emailStatsQuery = supabase
-        .from('email_messages')
-        .select('contact_id, is_unread, sent_at, gmail_account_id, gmail_accounts ( email )')
-        .in('contact_id', contactIds)
-        .order('sent_at', { ascending: false });
-
-    if (gmailAccountId && gmailAccountId !== 'ALL') {
-        // Verify access to the specific account
-        if (accessible !== 'ALL' && !accessible.includes(gmailAccountId)) {
-            return [];
-        }
-        emailStatsQuery = emailStatsQuery.eq('gmail_account_id', gmailAccountId);
-    } else if (accessible !== 'ALL') {
-        // RBAC: restrict to accessible accounts only
-        emailStatsQuery = emailStatsQuery.in('gmail_account_id', accessible);
+    // 2a. Build a gmail account ID → email lookup map
+    const { data: gmailAccounts } = await supabase
+        .from('gmail_accounts')
+        .select('id, email');
+    const accountEmailMap = new Map<string, string>();
+    for (const acc of gmailAccounts ?? []) {
+        accountEmailMap.set(acc.id, acc.email);
     }
 
-    const { data: emailRows } = await emailStatsQuery;
+    // 2b. Build contact email lookup
+    const emailToContactId = new Map<string, string>();
+    for (const c of contacts) {
+        if (c.email) emailToContactId.set(c.email.toLowerCase(), c.id);
+    }
+    const contactEmails = [...emailToContactId.keys()];
 
-    // 3. Build a per-contact stats map
-    const statsMap = new Map<string, { total: number; unread: number; lastAccountEmail: string }>();
-    for (const row of emailRows ?? []) {
-        const cid = (row as any).contact_id;
-        if (!statsMap.has(cid)) {
-            // First row per contact is the most recent (query ordered by sent_at desc)
-            statsMap.set(cid, {
-                total: 0,
-                unread: 0,
-                lastAccountEmail: (row as any).gmail_accounts?.email || 'No Recent Mail',
-            });
+    // 2c. Fetch emails matching contacts — two strategies combined:
+    //     Strategy A: by contact_id (works when FK is set)
+    //     Strategy B: by from_email/to_email ilike (works always)
+    const statsMap = new Map<string, { total: number; unread: number; lastAccountEmail: string; lastEmailDate: string | null }>();
+
+    // Helper to extract clean email from "Name <email>" format
+    const extractEmail = (raw: string): string => {
+        const match = raw.match(/<([^>]+)>/);
+        return match?.[1] ? match[1].toLowerCase() : raw.toLowerCase().trim();
+    };
+
+    // Strategy A: fetch by contact_id (fast, indexed)
+    if (contactIds.length > 0) {
+        let queryA = supabase
+            .from('email_messages')
+            .select('contact_id, is_unread, sent_at, gmail_account_id')
+            .in('contact_id', contactIds)
+            .order('sent_at', { ascending: false })
+            .limit(5000);
+
+        if (gmailAccountId && gmailAccountId !== 'ALL') {
+            if (accessible !== 'ALL' && !accessible.includes(gmailAccountId)) return [];
+            queryA = queryA.eq('gmail_account_id', gmailAccountId);
+        } else if (accessible !== 'ALL') {
+            queryA = queryA.in('gmail_account_id', accessible);
         }
-        const s = statsMap.get(cid)!;
-        s.total += 1;
-        if ((row as any).is_unread) s.unread += 1;
+
+        const { data: rowsA } = await queryA;
+        for (const row of rowsA ?? []) {
+            const cid = (row as any).contact_id;
+            if (!cid) continue;
+            if (!statsMap.has(cid)) {
+                const accId = (row as any).gmail_account_id;
+                statsMap.set(cid, {
+                    total: 0, unread: 0,
+                    lastAccountEmail: accId ? (accountEmailMap.get(accId) || 'No Recent Mail') : 'No Recent Mail',
+                    lastEmailDate: (row as any).sent_at || null,
+                });
+            }
+            const s = statsMap.get(cid)!;
+            s.total += 1;
+            if ((row as any).is_unread) s.unread += 1;
+        }
+    }
+
+    // Strategy B: for contacts not found via contact_id, search by email address
+    const missingContactEmails = contactEmails.filter(email => {
+        const cid = emailToContactId.get(email);
+        return cid && !statsMap.has(cid);
+    });
+
+    if (missingContactEmails.length > 0) {
+        // Batch in groups of 20 to avoid query size limits
+        const BATCH = 20;
+        for (let i = 0; i < missingContactEmails.length; i += BATCH) {
+            const batch = missingContactEmails.slice(i, i + BATCH);
+            // Build OR filter: from_email or to_email contains each email
+            const orFilters = batch.map(e => `from_email.ilike.%${e}%,to_email.ilike.%${e}%`).join(',');
+
+            let queryB = supabase
+                .from('email_messages')
+                .select('from_email, to_email, is_unread, sent_at, gmail_account_id')
+                .or(orFilters)
+                .order('sent_at', { ascending: false })
+                .limit(2000);
+
+            if (gmailAccountId && gmailAccountId !== 'ALL') {
+                queryB = queryB.eq('gmail_account_id', gmailAccountId);
+            } else if (accessible !== 'ALL') {
+                queryB = queryB.in('gmail_account_id', accessible);
+            }
+
+            const { data: rowsB } = await queryB;
+            for (const row of rowsB ?? []) {
+                const from = extractEmail((row as any).from_email || '');
+                const to = extractEmail((row as any).to_email || '');
+
+                let cid = emailToContactId.get(from) || emailToContactId.get(to);
+                if (!cid) continue;
+
+                if (!statsMap.has(cid)) {
+                    const accId = (row as any).gmail_account_id;
+                    statsMap.set(cid, {
+                        total: 0, unread: 0,
+                        lastAccountEmail: accId ? (accountEmailMap.get(accId) || 'No Recent Mail') : 'No Recent Mail',
+                        lastEmailDate: (row as any).sent_at || null,
+                    });
+                }
+                const s = statsMap.get(cid)!;
+                s.total += 1;
+                if ((row as any).is_unread) s.unread += 1;
+            }
+        }
     }
 
     // 4. Merge and return
@@ -188,6 +266,8 @@ export async function getClientsAction(gmailAccountId?: string) {
             return null;
         }
 
+        const lastGmail = c.last_gmail_account as any;
+
         return {
             id: c.id,
             name: c.name,
@@ -196,13 +276,16 @@ export async function getClientsAction(gmailAccountId?: string) {
             phone: c.phone,
             priority: c.priority,
             estimated_value: c.estimated_value,
-            expected_close_date: c.expected_close_date,
+            expected_close_date: stats?.lastEmailDate || c.last_email_at || c.expected_close_date,
             pipeline_stage: c.pipeline_stage,
+            is_client: c.is_client ?? false,
+            is_lead: c.is_lead ?? false,
             created_at: c.created_at,
             updated_at: c.updated_at,
+            last_email_at: c.last_email_at,
             account_manager_id: c.account_manager_id,
             manager_name: c.account_manager?.name || 'Unassigned',
-            account_email: stats?.lastAccountEmail || 'No Recent Mail',
+            account_email: stats?.lastAccountEmail || lastGmail?.email || 'No Recent Mail',
             project_count: c.projects?.length ?? 0,
             unread_count: stats?.unread ?? 0,
             message_count: stats?.total ?? 0,
@@ -269,6 +352,29 @@ export type ClientUpdatePayload = {
     contact_status?: string;
     account_manager_id?: string;
 };
+
+// Remove clients — moves them back to LEAD (does NOT delete data)
+export async function removeClientsAction(contactIds: string[]) {
+    const { userId, role } = await ensureAuthenticated();
+    if (!contactIds || contactIds.length === 0) return { success: false, error: 'No contacts selected' };
+
+    const { error } = await supabase
+        .from('contacts')
+        .update({
+            is_client: false,
+            pipeline_stage: 'COLD_LEAD',
+            updated_at: new Date().toISOString(),
+        })
+        .in('id', contactIds);
+
+    if (error) {
+        console.error('removeClientsAction error:', error);
+        return { success: false, error: 'Failed to remove clients' };
+    }
+
+    revalidatePath('/clients');
+    return { success: true, removed: contactIds.length };
+}
 
 export async function updateClientAction(clientId: string, updates: ClientUpdatePayload) {
     const { userId, role } = await ensureAuthenticated();

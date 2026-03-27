@@ -7,6 +7,7 @@ import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List
 import DOMPurify from 'dompurify';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
 import { DEFAULT_USER_ID } from '../constants/config';
+import TemplatePickerModal from './TemplatePickerModal';
 
 interface ComposeModalProps {
     onClose: () => void;
@@ -46,6 +47,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const savedSelection = useRef<Range | null>(null);
     const [emojiSearch, setEmojiSearch] = useState('');
     const [activeEmojiCategory, setActiveEmojiCategory] = useState('Faces');
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
     // Ref to track dropdown/picker state for the click-outside handler (avoids listener leak)
     const dropdownStateRef = useRef({ showEmojiPicker, showMoreOptions, showFromDropdown });
@@ -340,7 +342,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                             </div>
                         )}
 
-                        <div className="compose-row">
+                        <div className="compose-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <input
                                 className="compose-input"
                                 type="text"
@@ -348,8 +350,37 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                                 value={subject}
                                 onChange={(e) => setSubject(e.target.value)}
                                 aria-label="Subject"
+                                style={{ flex: 1 }}
                             />
+                            <button
+                                onClick={() => setShowTemplatePicker(true)}
+                                style={{
+                                    padding: '0.25rem 0.625rem', borderRadius: 'var(--radius-full)',
+                                    border: '1px solid var(--border)', background: 'transparent',
+                                    cursor: 'pointer', fontSize: '10px', fontWeight: 500,
+                                    color: 'var(--text-secondary)', whiteSpace: 'nowrap',
+                                    flexShrink: 0,
+                                }}
+                                title="Use Template"
+                                type="button"
+                            >
+                                Use Template
+                            </button>
                         </div>
+
+                        <TemplatePickerModal
+                            isOpen={showTemplatePicker}
+                            onClose={() => setShowTemplatePicker(false)}
+                            onSelect={(tmpl) => {
+                                const hasContent = subject.trim() || body.trim();
+                                if (hasContent && !confirm('Replace current content with template?')) return;
+                                setSubject(tmpl.subject);
+                                setBody(tmpl.body);
+                                if (editorRef.current) {
+                                    editorRef.current.innerHTML = tmpl.body;
+                                }
+                            }}
+                        />
 
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
                             <div

@@ -11,7 +11,8 @@ import {
     removeAccountAction,
     reSyncAccountAction,
     toggleSyncStatusAction,
-    stopSyncingAction
+    stopSyncingAction,
+    renewAllWatchesAction,
 } from '../../src/actions/accountActions';
 import { PageLoader } from '../components/LoadingStates';
 import { getCurrentUserAction } from '../../src/actions/authActions';
@@ -27,6 +28,8 @@ interface GmailAccount {
     last_synced_at: string | Date | null;
     emails_count?: number;
     sync_progress?: number;
+    watch_expiry?: string | null;
+    watch_status?: string | null;
 }
 
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
@@ -69,6 +72,44 @@ function StatusBadge({ status }: { status: AccountStatus }) {
     return <span className={`badge ${cls}`}>{label}</span>;
 }
 
+function WatchStatusBadge({ watchStatus, watchExpiry, connectionMethod }: {
+    watchStatus?: string | null;
+    watchExpiry?: string | null;
+    connectionMethod: ConnectionMethod;
+}) {
+    if (connectionMethod !== 'OAUTH') return null;
+
+    const hoursLeft = watchExpiry
+        ? Math.round((new Date(watchExpiry).getTime() - Date.now()) / (1000 * 60 * 60))
+        : null;
+
+    if (watchStatus === 'ACTIVE' && hoursLeft && hoursLeft > 36) {
+        return (
+            <span className="badge badge-sm badge-green" title={`Watch expires in ${Math.round(hoursLeft / 24)} days`}>
+                Push active
+            </span>
+        );
+    }
+
+    if (watchStatus === 'ACTIVE' && hoursLeft && hoursLeft <= 36 && hoursLeft > 0) {
+        return (
+            <span className="badge badge-sm badge-yellow" title={`Watch expires in ${hoursLeft} hours`}>
+                Expiring soon
+            </span>
+        );
+    }
+
+    if (watchStatus === 'ERROR') {
+        return <span className="badge badge-sm badge-red">Watch error</span>;
+    }
+
+    return (
+        <span className="badge badge-sm badge-gray" title="No push notifications — emails sync via polling only">
+            No push
+        </span>
+    );
+}
+
 export default function AccountsPage() {
     const isHydrated = useHydrated();
     const { selectedAccountId, setSelectedAccountId, accounts, refreshAccounts, isLoadingAccounts, setAccounts } = useGlobalFilter();
@@ -90,6 +131,7 @@ export default function AccountsPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [userRole, setUserRole] = useState<string | null>(null);
     const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
+    const [isRenewingWatches, setIsRenewingWatches] = useState(false);
 
 
     const fetchAccounts = async () => {
@@ -316,6 +358,36 @@ export default function AccountsPage() {
                                         </svg>
                                     </button>
                                     <button
+                                        className="icon-btn"
+                                        onClick={async () => {
+                                            if (!confirm('Renew Gmail push notification watches for all accounts?')) return;
+                                            setIsRenewingWatches(true);
+                                            try {
+                                                const result = await renewAllWatchesAction();
+                                                if (result.success) {
+                                                    const msg = `Renewed: ${result.renewed}, Failed: ${result.failed}` +
+                                                        (result.errors && result.errors.length > 0
+                                                            ? `\n\nErrors:\n${result.errors.join('\n')}`
+                                                            : '');
+                                                    alert(msg);
+                                                    await fetchAccounts();
+                                                } else {
+                                                    alert(result.error || 'Failed to renew watches');
+                                                }
+                                            } finally {
+                                                setIsRenewingWatches(false);
+                                            }
+                                        }}
+                                        disabled={isRenewingWatches}
+                                        title="Renew all Gmail push notification watches"
+                                        style={{ opacity: isRenewingWatches ? 0.5 : 1 }}
+                                    >
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="m3 11 18-5v12L3 14v-3z" />
+                                            <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+                                        </svg>
+                                    </button>
+                                    <button
                                         className="btn btn-primary btn-sm"
                                         onClick={() => { setShowSelectionModal(true); setError(null); }}
                                     >
@@ -416,6 +488,11 @@ export default function AccountsPage() {
                                                         </div>
                                                         <div className="acct-card-meta">
                                                             <StatusBadge status={acc.status} />
+                                                            <WatchStatusBadge
+                                                                watchStatus={acc.watch_status}
+                                                                watchExpiry={acc.watch_expiry}
+                                                                connectionMethod={acc.connection_method}
+                                                            />
                                                             <span className="acct-card-method">
                                                                 {acc.connection_method === 'MANUAL' ? 'Manual/IMAP' : 'Google OAuth'}
                                                             </span>

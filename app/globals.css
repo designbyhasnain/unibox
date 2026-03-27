@@ -1420,6 +1420,8 @@ a {
     border-bottom: 1px solid var(--border);
     transition: background var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
     background: #f2f6fc;
+    content-visibility: auto;
+    contain-intrinsic-size: 0 56px;
 }
 
 .email-row:hover {
@@ -5762,7 +5764,7 @@ textarea:focus-visible {
 
 /* ── Notion Table ── */
 .notion-table-wrapper { flex: 1; overflow: auto; background: var(--bg-surface); }
-.notion-table { min-width: 900px; }
+.notion-table { min-width: 1050px; }
 .notion-header {
     display: flex; border-bottom: 1px solid var(--border);
     background: var(--bg-base); position: sticky; top: 0; z-index: 2;
@@ -5788,18 +5790,55 @@ textarea:focus-visible {
     white-space: nowrap; text-overflow: ellipsis; flex-shrink: 0;
 }
 
-/* Column widths — flex-based for responsiveness */
-.ncell-date { width: 110px; color: var(--text-muted); font-size: var(--text-xs); }
-.ncell-name { flex: 1; min-width: 150px; }
-.ncell-company { width: 130px; }
-.ncell-status { width: 115px; }
-.ncell-priority { width: 105px; }
-.ncell-value { width: 130px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
-.ncell-manager { width: 155px; }
-.ncell-email { width: 190px; }
-.ncell-phone { width: 130px; }
-.ncell-close { width: 120px; }
-.ncell-gmail { width: 185px; border-right: none; }
+/* Checkbox column */
+.ncell-check { width: 36px; justify-content: center; flex-shrink: 0; }
+.notion-checkbox { width: 16px; height: 16px; cursor: pointer; accent-color: var(--blue-primary, #1a73e8); border-radius: 3px; }
+.notion-row .ncell-check { opacity: 0; transition: opacity 0.15s ease; }
+.notion-row:hover .ncell-check,
+.notion-row-selected .ncell-check { opacity: 1; }
+.notion-header .ncell-check { opacity: 1; }
+
+/* Selected row highlight */
+.notion-row-selected { background: rgba(26, 115, 232, 0.06) !important; }
+.notion-row-selected:hover { background: rgba(26, 115, 232, 0.1) !important; }
+
+/* Selection bar */
+.notion-selection-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 12px; background: var(--bg-base);
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-sm);
+}
+.notion-selection-count { color: var(--text-secondary); font-weight: 500; }
+.notion-remove-btn {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 12px; font-size: var(--text-xs); font-weight: 500;
+    background: rgba(220, 38, 38, 0.08); color: #dc2626;
+    border: 1px solid rgba(220, 38, 38, 0.2); border-radius: 6px;
+    cursor: pointer; transition: all 0.15s ease;
+}
+.notion-remove-btn:hover { background: rgba(220, 38, 38, 0.15); }
+.notion-remove-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.notion-cancel-btn {
+    padding: 4px 10px; font-size: var(--text-xs); font-weight: 500;
+    background: transparent; color: var(--text-tertiary);
+    border: 1px solid var(--border); border-radius: 6px;
+    cursor: pointer; transition: all 0.15s ease;
+}
+.notion-cancel-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* Column widths — adjusted for checkbox column */
+.ncell-date { width: 100px; color: var(--text-muted); font-size: var(--text-xs); }
+.ncell-name { flex: 1; min-width: 130px; }
+.ncell-company { width: 120px; }
+.ncell-status { width: 110px; }
+.ncell-priority { width: 95px; }
+.ncell-value { width: 115px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.ncell-manager { width: 140px; }
+.ncell-email { width: 170px; }
+.ncell-phone { width: 120px; }
+.ncell-close { width: 110px; }
+.ncell-gmail { width: 170px; border-right: none; }
 .notion-header .ncell-gmail { border-right: none; }
 
 /* Cell content */

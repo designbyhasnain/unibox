@@ -20,9 +20,18 @@ interface EmailRowProps {
     onPrefetch?: () => void;
 }
 
-export const EmailRow = React.memo(function EmailRow({ 
-    email, isSelected, isRowChecked, showBadge, onClick, onToggleSelect, onPrefetch 
+export const EmailRow = React.memo(function EmailRow({
+    email, isSelected, isRowChecked, showBadge, onClick, onToggleSelect, onPrefetch
 }: EmailRowProps) {
+    const prefetchTimer = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+    const handleMouseEnter = React.useCallback(() => {
+        if (!onPrefetch) return;
+        prefetchTimer.current = setTimeout(onPrefetch, 150);
+    }, [onPrefetch]);
+    const handleMouseLeave = React.useCallback(() => {
+        clearTimeout(prefetchTimer.current);
+    }, []);
+
     let senderName = 'Unknown';
     if (email.direction === 'SENT') {
         const toRaw = email.to_email || '';
@@ -50,7 +59,8 @@ export const EmailRow = React.memo(function EmailRow({
         <div
             className={`gmail-email-row ${isUnread ? 'unread' : 'read'} ${isSelected ? 'selected' : ''}`}
             onClick={onClick}
-            onMouseEnter={onPrefetch}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
             role="row"
             aria-label={`Email from ${senderName} - ${subject}`}
             tabIndex={0}

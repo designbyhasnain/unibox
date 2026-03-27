@@ -2,6 +2,7 @@
 // This prevents accidental client-side imports that could leak secrets.
 import { supabase } from '../lib/supabase';
 import { classifySentEmail, classifyReceivedEmail } from './emailClassificationService';
+import { extractPhoneFromText } from '../utils/phoneExtractor';
 
 const ACCEPTANCE_KEYWORDS = ['yes', "let's proceed", 'agreed', 'sounds good', 'deal', 'approve', 'accepted'];
 
@@ -19,6 +20,70 @@ function extractEmail(raw: string): string {
     return match?.[1] ? match[1].toLowerCase() : raw.toLowerCase().trim();
 }
 
+// Cache own Gmail account emails to avoid repeated lookups
+let ownEmailsCache: Set<string> | null = null;
+let ownEmailsCacheTime = 0;
+const OWN_EMAILS_TTL = 60_000; // 1 minute
+
+async function getOwnEmails(): Promise<Set<string>> {
+    if (ownEmailsCache && Date.now() - ownEmailsCacheTime < OWN_EMAILS_TTL) return ownEmailsCache;
+    const { data: accounts } = await supabase.from('gmail_accounts').select('email');
+    ownEmailsCache = new Set((accounts || []).map(a => a.email.toLowerCase()));
+    ownEmailsCacheTime = Date.now();
+    return ownEmailsCache;
+}
+
+/**
+ * Mark a contact as client, update lastEmailAt / lastGmailAccountId,
+ * and extract phone from email body if missing.
+ */
+async function markAsClient(
+    contactId: string,
+    emailDate: Date,
+    gmailAccountId: string,
+    emailBody?: string
+): Promise<void> {
+    const { data: contact } = await supabase
+        .from('contacts')
+        .select('id, is_client, contact_type, phone, last_email_at')
+        .eq('id', contactId)
+        .single();
+
+    if (!contact) return;
+
+    // Extract phone if contact doesn't have one
+    let extractedPhone: string | undefined;
+    if (!contact.phone && emailBody) {
+        const phone = extractPhoneFromText(emailBody);
+        if (phone) extractedPhone = phone;
+    }
+
+    const isNewer = !contact.last_email_at || emailDate > new Date(contact.last_email_at);
+    const isFirstTime = contact.contact_type !== 'CLIENT';
+
+    const updateData: Record<string, any> = {
+        is_client: true,
+        is_lead: true,
+        contact_type: 'CLIENT',
+        updated_at: new Date().toISOString(),
+    };
+
+    if (isFirstTime) {
+        updateData.became_client_at = emailDate.toISOString();
+    }
+
+    if (isNewer) {
+        updateData.last_email_at = emailDate.toISOString();
+        updateData.last_gmail_account_id = gmailAccountId;
+    }
+
+    if (extractedPhone) {
+        updateData.phone = extractedPhone;
+    }
+
+    await supabase.from('contacts').update(updateData).eq('id', contactId);
+}
+
 export async function handleEmailSent(data: {
     gmailAccountId: string;
     threadId: string;
@@ -34,15 +99,39 @@ export async function handleEmailSent(data: {
     const { toEmail, messageId, threadId } = data;
     const cleanToEmail = extractEmail(toEmail);
 
-    // 1. Find or create contact
+    // Skip own Gmail accounts
+    const ownEmails = await getOwnEmails();
+
+    // 1. Find or create contact — anyone we email = client
     let { data: contact } = await supabase
         .from('contacts')
         .select('id, email, is_lead, is_client, pipeline_stage')
         .eq('email', cleanToEmail)
         .maybeSingle();
 
-    // Removed automatic contact creation for random outbound emails
-    // As per user request: only existing leads/clients should remain in the Client list.
+    if (!contact && !ownEmails.has(cleanToEmail)) {
+        const nameMatch = toEmail.match(/^([^<]+)</);
+        const parsedName = nameMatch ? nameMatch[1]?.trim().replace(/"/g, '') : cleanToEmail.split('@')[0];
+
+        const { data: newContact } = await supabase
+            .from('contacts')
+            .insert({
+                email: cleanToEmail,
+                name: parsedName || cleanToEmail.split('@')[0],
+                is_lead: true,
+                is_client: true,
+                contact_type: 'CLIENT',
+                became_client_at: data.sentAt.toISOString(),
+                pipeline_stage: 'COLD_LEAD',
+                last_email_at: data.sentAt.toISOString(),
+                last_gmail_account_id: data.gmailAccountId,
+                updated_at: new Date().toISOString(),
+            })
+            .select('id, email, is_lead, is_client, pipeline_stage')
+            .single();
+
+        if (newContact) contact = newContact;
+    }
 
     // 3. Identify the current stage of this thread and prior messages for classification
     const { data: threadMessages } = await supabase
@@ -97,6 +186,14 @@ export async function handleEmailSent(data: {
         .single();
 
     if (error) throw error;
+
+    // 6. Mark recipient as client (OUTBOUND = client)
+    if (contact && !ownEmails.has(cleanToEmail)) {
+        markAsClient(contact.id, data.sentAt, data.gmailAccountId, data.body).catch(err => {
+            console.error('[emailSyncLogic] markAsClient (sent) error:', err.message);
+        });
+    }
+
     return emailMsg;
 }
 
@@ -122,8 +219,49 @@ export async function handleEmailReceived(data: {
         .eq('email', cleanFromEmail)
         .maybeSingle();
 
-    // Removed auto-creation of contact. Random incoming emails will no longer populate the Clients page.
-    // They will only be processed into the Inbox without creating a CRM Client entry unless they already were one.
+    // Auto-create contact ONLY if this is a reply to our outreach (thread has outgoing emails).
+    // Random incoming emails still don't create contacts.
+    if (!contact) {
+        const { data: threadMsgs } = await supabase
+            .from('email_messages')
+            .select('direction')
+            .eq('thread_id', threadId)
+            .eq('direction', 'SENT')
+            .limit(1);
+
+        if (threadMsgs && threadMsgs.length > 0) {
+            // This person replied to our email — create them as a client
+            const nameMatch = fromEmail.match(/^([^<]+)</);
+            const parsedName = nameMatch ? nameMatch[1]?.trim().replace(/"/g, '') : cleanFromEmail.split('@')[0];
+
+            const { data: newContact } = await supabase
+                .from('contacts')
+                .insert({
+                    email: cleanFromEmail,
+                    name: parsedName || cleanFromEmail.split('@')[0],
+                    is_lead: true,
+                    is_client: true,
+                    contact_type: 'CLIENT',
+                    became_client_at: data.receivedAt.toISOString(),
+                    pipeline_stage: 'LEAD',
+                    last_email_at: data.receivedAt.toISOString(),
+                    last_gmail_account_id: data.gmailAccountId,
+                    updated_at: new Date().toISOString(),
+                })
+                .select('id, email, is_lead, is_client, pipeline_stage')
+                .single();
+
+            if (newContact) {
+                contact = newContact;
+
+                await supabase.from('activity_logs').insert({
+                    action: 'Auto-created as client: replied to outreach email.',
+                    performed_by: 'System',
+                    contact_id: newContact.id,
+                });
+            }
+        }
+    }
 
     // 2. Identify the current stage of this thread and fetch thread metadata
     const [{ data: threadStatus }, { data: threadRecord }] = await Promise.all([
@@ -185,7 +323,17 @@ export async function handleEmailReceived(data: {
         });
     }
 
-    // 4. Auto-Update Status for Contact & Backfill Thread if it's a genuine lead
+    // 4. Auto-mark as client (INBOUND = sender is client)
+    if (contact) {
+        const ownEmails = await getOwnEmails();
+        if (!ownEmails.has(cleanFromEmail)) {
+            markAsClient(contact.id, data.receivedAt, data.gmailAccountId, data.body).catch(err => {
+                console.error('[emailSyncLogic] markAsClient (received) error:', err.message);
+            });
+        }
+    }
+
+    // 5. Auto-Update Status for Contact & Backfill Thread if it's a genuine lead
     if (newEmailStage === 'LEAD' && contact && contact.pipeline_stage === 'COLD_LEAD') {
         await supabase
             .from('contacts')
@@ -256,5 +404,66 @@ export async function handleEmailReceived(data: {
         .single();
 
     if (error) throw error;
+
+    // 8. Campaign reply detection — if this thread matches a campaign email, stop the contact
+    checkCampaignReply(threadId, cleanFromEmail).catch(err => {
+        console.error('[emailSyncLogic] Campaign reply check error:', err.message);
+    });
+
     return emailMsg;
+}
+
+/**
+ * Checks if an incoming email is a reply to a campaign email.
+ * If so, stops the campaign contact and optionally promotes pipeline stage.
+ */
+async function checkCampaignReply(threadId: string, _fromEmail: string) {
+    // Find any campaign emails sent in this thread
+    const { data: threadEmails } = await supabase
+        .from('email_messages')
+        .select('id')
+        .eq('thread_id', threadId)
+        .eq('direction', 'SENT');
+
+    if (!threadEmails || threadEmails.length === 0) return;
+
+    const emailIds = threadEmails.map(e => e.id);
+
+    // Check if any of these emails are campaign emails
+    const { data: campaignEmails } = await supabase
+        .from('campaign_emails')
+        .select('campaign_id, contact_id')
+        .in('email_id', emailIds)
+        .limit(1);
+
+    if (!campaignEmails || campaignEmails.length === 0) return;
+
+    const ce = campaignEmails[0]!;
+
+    // Fetch campaign settings
+    const { data: campaign } = await supabase
+        .from('campaigns')
+        .select('auto_stop_on_reply')
+        .eq('id', ce.campaign_id)
+        .single();
+
+    if (!campaign?.auto_stop_on_reply) return;
+
+    // Stop the campaign contact
+    await supabase
+        .from('campaign_contacts')
+        .update({
+            status: 'STOPPED',
+            stopped_reason: 'REPLIED',
+        })
+        .eq('campaign_id', ce.campaign_id)
+        .eq('contact_id', ce.contact_id)
+        .in('status', ['PENDING', 'IN_PROGRESS']);
+
+    // Promote contact from COLD_LEAD to LEAD
+    await supabase
+        .from('contacts')
+        .update({ pipeline_stage: 'LEAD' })
+        .eq('id', ce.contact_id)
+        .eq('pipeline_stage', 'COLD_LEAD');
 }

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OAuth2Client } from 'google-auth-library';
 import { supabase } from '../../../../src/lib/supabase';
-import { syncAccountHistory } from '../../../../src/services/gmailSyncService';
 
 const oauthClient = new OAuth2Client();
 
 /**
  * Webhook receiver for Google Cloud Pub/Sub Push Notifications.
- * Google will hit this URL every time there is a new email or change in the watched Gmail account.
+ * Writes to webhook_events table for reliable deferred processing.
+ * Returns 200 immediately — never calls syncAccountHistory directly.
  */
 export async function POST(request: NextRequest) {
     try {
@@ -40,8 +40,7 @@ export async function POST(request: NextRequest) {
         // ── Reject stale messages ─────────────────────────────────────────────
         const messageAge = Date.now() - new Date(body.message?.publishTime || body.message?.publish_time).getTime();
         if (messageAge > 5 * 60 * 1000) {
-            console.log('[Webhook] Stale message, ignoring');
-            return NextResponse.json({ ok: true }); // Ack to prevent redelivery
+            return NextResponse.json({ ok: true }); // Ack stale
         }
 
         // Google Pub/Sub sends data in the message.data field as a base64url encoded JSON string
@@ -65,34 +64,28 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Invalid historyId' }, { status: 400 });
         }
 
-        console.log(`[Webhook] Push received for historyId ${newHistoryId}`);
-
-        // Find the matching account in our database (normalize email for lookup)
+        // ── Write to webhook_events for deferred processing ──────────────────
         const normalizedEmail = String(emailAddress).toLowerCase().trim();
-        const { data: account, error } = await supabase
-            .from('gmail_accounts')
-            .select('id, status')
-            .eq('email', normalizedEmail)
-            .single();
 
-        if (error || !account) {
-            console.error('[Webhook] Account not found for incoming push');
-            // Acknowledge anyway so Google stops retrying
-            return NextResponse.json({ success: true });
-        }
+        await supabase
+            .from('webhook_events')
+            .insert({
+                source: 'GMAIL_PUBSUB',
+                payload: payload,
+                email_address: normalizedEmail,
+                history_id: String(newHistoryId),
+                status: 'PENDING',
+                attempts: 0,
+                max_attempts: 5,
+                updated_at: new Date().toISOString(),
+            });
 
-        // Trigger the specific history sync asynchronously so we can quickly ack the webhook (HTTP 200)
-        syncAccountHistory(account.id, String(newHistoryId)).catch(err => {
-            console.error(`[Webhook Background Sync Error]:`, err?.message);
-        });
-
-        // Acknowledge the notification successfully
+        // Acknowledge immediately — sync is deferred to cron processor
         return NextResponse.json({ success: true });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[PubSub Webhook Error]', error);
         // Return 200 to acknowledge receipt and prevent Google Pub/Sub from retrying
-        // indefinitely on permanently malformed payloads
         return NextResponse.json({ error: 'Acknowledged with error' }, { status: 200 });
     }
 }

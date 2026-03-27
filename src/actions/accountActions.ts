@@ -323,3 +323,37 @@ export async function removeAccountAction(accountId: string): Promise<{ success:
     }
     return { success: true };
 }
+
+// ─── Force Renew All Gmail Watches (Admin only) ─────────────────────────────
+
+export async function renewAllWatchesAction(): Promise<{
+    success: boolean;
+    renewed?: number;
+    failed?: number;
+    errors?: string[];
+    error?: string;
+}> {
+    try {
+        const { role } = await ensureAuthenticated();
+        requireAdmin(role);
+
+        // Mark all OAuth accounts' watches as expired to force renewal
+        await supabase
+            .from('gmail_accounts')
+            .update({ watch_status: 'EXPIRED' })
+            .eq('connection_method', 'OAUTH')
+            .eq('status', 'ACTIVE');
+
+        const { renewExpiringWatches } = await import('../services/watchRenewalService');
+        const result = await renewExpiringWatches();
+
+        return { success: true, ...result };
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error('[renewAllWatchesAction] error:', msg);
+        return {
+            success: false,
+            error: msg === 'ADMIN_REQUIRED' ? 'Only admins can renew watches' : 'An error occurred',
+        };
+    }
+}

@@ -346,20 +346,26 @@ async function processBatch(
  * Should be called on account connect and renewed every 7 days.
  * Stores the returned historyId for future partial syncs.
  */
-export async function startGmailWatch(accountId: string) {
+export async function startGmailWatch(accountId: string): Promise<{
+    success: boolean;
+    expiry?: Date;
+    error?: string;
+}> {
     const { data: account } = await supabase
         .from('gmail_accounts')
         .select('*')
         .eq('id', accountId)
         .single();
 
-    if (!account || account.connection_method !== 'OAUTH') return;
-
-    const topicName = process.env.GOOGLE_PUBSUB_TOPIC;
-    if (!topicName) {
-        console.warn('[Watch] GOOGLE_PUBSUB_TOPIC not set. Skipping push notification registration.');
-        return;
+    if (!account || account.connection_method !== 'OAUTH') {
+        return { success: false, error: 'Account not found or not OAuth' };
     }
+
+    const HARDCODED_TOPIC = 'projects/my-unibox/topics/gmail-push';
+    const rawEnv = process.env.GOOGLE_PUBSUB_TOPIC;
+    const topicName = (rawEnv?.trim() || HARDCODED_TOPIC);
+
+    console.warn(`[Watch] Topic debug — env raw: "${rawEnv}" (len=${rawEnv?.length}), resolved: "${topicName}" (len=${topicName.length})`);
 
     const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
 
@@ -368,20 +374,36 @@ export async function startGmailWatch(accountId: string) {
             userId: 'me',
             requestBody: {
                 topicName,
-                // Per labels doc: INBOX for incoming, SENT for outgoing
                 labelIds: ['INBOX', 'SENT'],
                 labelFilterBehavior: 'INCLUDE',
             },
         });
 
+        // Gmail watch expires in 7 days — save exact expiry
+        const expiry = watchRes.data.expiration
+            ? new Date(parseInt(String(watchRes.data.expiration)))
+            : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
         await supabase
             .from('gmail_accounts')
-            .update({ history_id: watchRes.data.historyId?.toString() })
+            .update({
+                history_id: watchRes.data.historyId?.toString(),
+                watch_expiry: expiry.toISOString(),
+                watch_status: 'ACTIVE',
+            })
             .eq('id', accountId);
 
-        console.log(`[Watch] Registered for ${account.email}. historyId: ${watchRes.data.historyId}`);
+        console.warn(`[Watch] Registered for ${account.email}. historyId: ${watchRes.data.historyId}, expires: ${expiry.toISOString()}`);
+        return { success: true, expiry };
     } catch (error: any) {
-        console.error(`[Watch] Failed for ${account.email}:`, error.message);
+        console.error(`[Watch] Failed for ${account.email}. topicName used: "${topicName}". Error:`, error.message);
+
+        await supabase
+            .from('gmail_accounts')
+            .update({ watch_status: 'ERROR' })
+            .eq('id', accountId);
+
+        return { success: false, error: error.message };
     }
 }
 

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Topbar from '../components/Topbar';
 import { useUI } from '../context/UIContext';
 import AddProjectModal from '../components/AddProjectModal';
-import { getClientsAction, getClientProjectsAction, updateClientAction } from '../../src/actions/clientActions';
+import { getClientsAction, getClientProjectsAction, updateClientAction, removeClientsAction } from '../../src/actions/clientActions';
 import { getManagersAction } from '../../src/actions/projectActions';
 import { EmailRow, EmailDetail } from '../components/InboxComponents';
 import InlineReply from '../components/InlineReply';
@@ -69,6 +69,53 @@ export default function ClientsPage() {
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     const [viewMode, setViewMode] = useState<'list' | 'grid' | 'board'>('list');
     const [filterType, setFilterType] = useState<'ALL' | 'LEADS' | 'CLIENTS'>('ALL');
+
+    // ── Selection State (Notion-style checkboxes) ────────────────────────────
+    const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
+    const [isRemoving, setIsRemoving] = useState(false);
+
+    const toggleClientSelect = (id: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        setSelectedClientIds(prev => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
+    };
+
+    const toggleSelectAllClients = () => {
+        if (selectedClientIds.size === filteredClients.length) {
+            setSelectedClientIds(new Set());
+        } else {
+            setSelectedClientIds(new Set(filteredClients.map((c: any) => c.id)));
+        }
+    };
+
+    const handleRemoveClients = async () => {
+        if (selectedClientIds.size === 0) return;
+        if (!confirm(`Remove ${selectedClientIds.size} contact(s)? They will be moved back to Cold Lead status.`)) return;
+        setIsRemoving(true);
+        try {
+            const result = await removeClientsAction(Array.from(selectedClientIds));
+            if (result.success) {
+                setClients(prev => prev.filter(c => !selectedClientIds.has(c.id)));
+                setSelectedClientIds(new Set());
+            }
+        } catch (err) {
+            console.error('Remove failed:', err);
+        } finally {
+            setIsRemoving(false);
+        }
+    };
+
+    // Escape clears selection
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setSelectedClientIds(new Set());
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, []);
 
     // ── Inline Editing State ─────────────────────────────────────────────────
     const [editingCell, setEditingCell] = useState<{ clientId: string; field: string } | null>(null);
@@ -244,6 +291,11 @@ export default function ClientsPage() {
 
     const filteredClients = useMemo(() => {
         let result = clients.filter((c: any) => {
+            // Filter by type (LEADS / CLIENTS / ALL)
+            if (filterType === 'CLIENTS' && !c.is_client) return false;
+            if (filterType === 'LEADS' && c.is_client) return false;
+
+            // Search filter
             const sl = searchTerm.toLowerCase().trim();
             return !sl ||
                 (c.name && c.name.toLowerCase().includes(sl)) ||
@@ -252,7 +304,7 @@ export default function ClientsPage() {
         });
 
         return result;
-    }, [clients, searchTerm]);
+    }, [clients, searchTerm, filterType]);
 
     const STAGE_ORDER = ['COLD_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
 
@@ -348,9 +400,18 @@ export default function ClientsPage() {
     const renderClientRow = (client: any) => (
         <div
             key={client.id}
-            className={`notion-row ${client.unread_count > 0 ? 'unread' : ''}`}
+            className={`notion-row ${client.unread_count > 0 ? 'unread' : ''} ${selectedClientIds.has(client.id) ? 'notion-row-selected' : ''}`}
             onClick={() => handleSelectClient(client)}
         >
+            <div className="notion-cell ncell-check">
+                <input
+                    type="checkbox"
+                    checked={selectedClientIds.has(client.id)}
+                    onChange={() => {}}
+                    onClick={e => toggleClientSelect(client.id, e as unknown as React.MouseEvent)}
+                    className="notion-checkbox"
+                />
+            </div>
             <div className="notion-cell ncell-date">
                 <span className="cell-text">{formatShortDate(client.created_at)}</span>
             </div>
@@ -432,26 +493,13 @@ export default function ClientsPage() {
                 {renderEditableText(client, 'phone', client.phone, 'Phone')}
             </div>
             <div className="notion-cell ncell-close">
-                {isEditing(client.id, 'expected_close_date') ? (
-                    <input
-                        ref={editInputRef as React.RefObject<HTMLInputElement>}
-                        className="ncell-input"
-                        type="date"
-                        value={editValue}
-                        onChange={e => setEditValue(e.target.value)}
-                        onBlur={saveEdit}
-                        onKeyDown={handleEditKeyDown}
-                        onClick={e => e.stopPropagation()}
-                    />
-                ) : (
-                    <span className={`cell-text cell-editable ${!client.expected_close_date ? 'cell-placeholder' : ''}`} onClick={e => startEditing(client.id, 'expected_close_date', client.expected_close_date ? new Date(client.expected_close_date).toISOString().split('T')[0] || '' : '', e)}>
-                        {formatShortDate(client.expected_close_date) || '\u2014'}
-                    </span>
-                )}
+                <span className={`cell-text ${!(client.last_email_at || client.expected_close_date) ? 'cell-placeholder' : ''}`}>
+                    {formatShortDate(client.last_email_at || client.expected_close_date) || '\u2014'}
+                </span>
             </div>
             <div className="notion-cell ncell-gmail">
-                <span className="cell-text cell-email-text">
-                    {client.account_email && client.account_email !== 'No Recent Mail' ? client.account_email : ''}
+                <span className={`cell-text cell-email-text ${!client.account_email || client.account_email === 'No Recent Mail' ? 'cell-placeholder' : ''}`}>
+                    {client.account_email && client.account_email !== 'No Recent Mail' ? client.account_email : '\u2014'}
                 </span>
             </div>
         </div>
@@ -571,8 +619,43 @@ export default function ClientsPage() {
                                 ) : (
                                     <div className="notion-table-wrapper">
                                         <div className="notion-table">
+                                            {/* Selection Bar */}
+                                            {selectedClientIds.size > 0 && (
+                                                <div className="notion-selection-bar">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedClientIds.size === filteredClients.length && filteredClients.length > 0}
+                                                        onChange={toggleSelectAllClients}
+                                                        className="notion-checkbox"
+                                                    />
+                                                    <span className="notion-selection-count">{selectedClientIds.size} selected</span>
+                                                    <button
+                                                        onClick={handleRemoveClients}
+                                                        disabled={isRemoving}
+                                                        className="notion-remove-btn"
+                                                    >
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
+                                                        {isRemoving ? 'Removing...' : 'Remove'}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setSelectedClientIds(new Set())}
+                                                        className="notion-cancel-btn"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            )}
+
                                             {/* Table Header */}
                                             <div className="notion-header">
+                                                <div className="notion-cell ncell-check">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedClientIds.size === filteredClients.length && filteredClients.length > 0}
+                                                        onChange={toggleSelectAllClients}
+                                                        className="notion-checkbox"
+                                                    />
+                                                </div>
                                                 <div className="notion-cell ncell-date">
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
                                                     Date
@@ -611,7 +694,7 @@ export default function ClientsPage() {
                                                 </div>
                                                 <div className="notion-cell ncell-close">
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-                                                    Expected Close
+                                                    Last Email
                                                 </div>
                                                 <div className="notion-cell ncell-gmail">
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
