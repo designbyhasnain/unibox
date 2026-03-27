@@ -110,7 +110,7 @@ export async function createClientAction(payload: CreateClientPayload) {
 export async function getClientsAction(gmailAccountId?: string) {
     const { userId, role } = await ensureAuthenticated();
     const accessible = await getAccessibleGmailAccountIds(userId, role);
-    // 1. Fetch contacts with only small-table joins (projects, users, lastGmailAccount)
+    // 1. Fetch contacts with only small-table joins (projects, users)
     const { data: contacts, error } = await supabase
         .from('contacts')
         .select(`
@@ -131,7 +131,6 @@ export async function getClientsAction(gmailAccountId?: string) {
             last_gmail_account_id,
             account_manager_id,
             account_manager:users(name),
-            last_gmail_account:gmail_accounts!last_gmail_account_id(id, email, name),
             projects ( id )
         `)
         .order('updated_at', { ascending: false })
@@ -266,7 +265,8 @@ export async function getClientsAction(gmailAccountId?: string) {
             return null;
         }
 
-        const lastGmail = c.last_gmail_account as any;
+        // Resolve Gmail account email from the map
+        const lastGmailEmail = c.last_gmail_account_id ? accountEmailMap.get(c.last_gmail_account_id) : null;
 
         return {
             id: c.id,
@@ -285,7 +285,7 @@ export async function getClientsAction(gmailAccountId?: string) {
             last_email_at: c.last_email_at,
             account_manager_id: c.account_manager_id,
             manager_name: c.account_manager?.name || 'Unassigned',
-            account_email: stats?.lastAccountEmail || lastGmail?.email || 'No Recent Mail',
+            account_email: stats?.lastAccountEmail || lastGmailEmail || 'No Recent Mail',
             project_count: c.projects?.length ?? 0,
             unread_count: stats?.unread ?? 0,
             message_count: stats?.total ?? 0,
