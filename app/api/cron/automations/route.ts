@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runAllAutomations } from '../../../../src/services/salesAutomationService';
 import { resetDailySendCounts, incrementWarmupDays } from '../../../../src/services/accountRotationService';
 import { updateAllAccountHealth } from '../../../../src/services/accountHealthService';
+import { refreshAllTokens } from '../../../../src/services/tokenRefreshService';
 
 export async function GET(request: NextRequest) {
     // Verify cron secret
@@ -12,8 +13,9 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        // Run all automations in parallel
-        const [automations, healthResult] = await Promise.all([
+        // Run token refresh + automations + health check in parallel
+        const [tokenResult, automations, healthResult] = await Promise.all([
+            refreshAllTokens(),
             runAllAutomations(),
             updateAllAccountHealth(),
         ]);
@@ -29,6 +31,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             success: true,
+            tokens: tokenResult,
             automations,
             health: {
                 accountsChecked: healthResult.updated,

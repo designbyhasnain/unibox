@@ -538,6 +538,23 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         return () => document.removeEventListener('visibilitychange', handleVisibility);
     }, [enabled, loadEmails]);
 
+    // ── Auto-poll every 60s — catches emails webhooks miss ─────────────────
+    useEffect(() => {
+        if (!enabled || type !== 'inbox') return;
+        const pollInterval = setInterval(async () => {
+            if (document.visibilityState !== 'visible') return;
+            try {
+                const res = await fetch('/api/sync/poll');
+                const data = await res.json();
+                if (data.synced > 0) {
+                    // New emails were synced — refresh inbox silently
+                    loadEmails(currentPageRef.current);
+                }
+            } catch { /* silent fail */ }
+        }, 60_000);
+        return () => clearInterval(pollInterval);
+    }, [enabled, type, loadEmails]);
+
     // Sync accounts from FilterProvider (single source of truth — no duplicate fetch)
     useEffect(() => {
         if (initialAccounts && initialAccounts.length > 0) {
