@@ -2,24 +2,68 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // ── IP Whitelist (hardcoded — no env dependency) ─────────────────────────────
+// Exact IPs
 const ALLOWED_IPS = [
-    // Public IPs
+    '111.88.9.3',
     '111.88.8.27',
     '182.189.96.103',
     '202.47.33.132',
-    // IPv6
-    '2001:4860:7:622::fa',
-    // LAN
-    '192.168.18.27',
+    '192.168.100.215',
+    '192.168.100.22',
     '192.168.100.32',
     '192.168.100.40',
-    // Localhost
+    '192.168.18.27',
     '127.0.0.1',
     '::1',
-    // Current
-    '192.168.100.22',
-    '2400:adc1:1ef:7a00:2055:fba1:f4ce:ed04',
 ];
+
+// IP prefixes — matches any IP starting with these (covers ISP range + mobile 5G)
+const ALLOWED_PREFIXES = [
+    '111.88.',       // PTCL / Stormfiber
+    '182.189.',      // PTCL range
+    '202.47.',       // Pakistan range
+    '39.32.',        // Jazz 4G/5G
+    '39.33.',        // Jazz 4G/5G
+    '39.34.',        // Jazz 4G/5G
+    '39.35.',        // Jazz 4G/5G
+    '39.36.',        // Jazz 4G/5G
+    '39.37.',        // Jazz 4G/5G
+    '39.40.',        // Jazz 4G/5G
+    '39.41.',        // Jazz 4G/5G
+    '39.42.',        // Jazz 4G/5G
+    '39.43.',        // Jazz 4G/5G
+    '39.44.',        // Jazz 4G/5G
+    '39.45.',        // Jazz 4G/5G
+    '39.46.',        // Jazz 4G/5G
+    '39.47.',        // Jazz 4G/5G
+    '39.48.',        // Jazz 4G/5G
+    '39.49.',        // Jazz 4G/5G
+    '39.50.',        // Jazz 4G/5G
+    '39.51.',        // Jazz 4G/5G
+    '39.52.',        // Jazz 4G/5G
+    '39.53.',        // Jazz 4G/5G
+    '39.54.',        // Jazz 4G/5G
+    '39.55.',        // Jazz 4G/5G
+    '39.56.',        // Jazz 4G/5G
+    '39.57.',        // Jazz 4G/5G
+    '39.58.',        // Jazz 4G/5G
+    '39.59.',        // Jazz 4G/5G
+    '39.60.',        // Jazz 4G/5G
+    '39.61.',        // Jazz 4G/5G
+    '59.103.',       // PTCL mobile
+    '119.73.',       // Zong
+    '119.160.',      // Telenor PK
+    '175.107.',      // Nayatel
+    '192.168.',      // All LAN
+    '2406:d00:',     // Pakistan IPv6
+    '2400:adc1:',    // Pakistan IPv6
+    '2001:4860:',    // Google IPv6
+];
+
+function isAllowedIP(ip: string): boolean {
+    if (ALLOWED_IPS.includes(ip)) return true;
+    return ALLOWED_PREFIXES.some(prefix => ip.startsWith(prefix));
+}
 
 function getClientIP(request: NextRequest): string {
     const forwarded = request.headers.get('x-forwarded-for');
@@ -40,7 +84,7 @@ export function middleware(request: NextRequest) {
 
     // ── Step 1: IP Whitelist Check ───────────────────────────────────────────
     const clientIP = getClientIP(request);
-    if (!ALLOWED_IPS.includes(clientIP)) {
+    if (!isAllowedIP(clientIP)) {
         return new NextResponse(
             `<!DOCTYPE html><html><head><title>Access Denied</title></head>` +
             `<body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0a0a0a">` +
