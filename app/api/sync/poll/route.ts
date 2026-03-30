@@ -27,7 +27,7 @@ export async function GET() {
     const now = Date.now();
     const toSync = accounts.filter(a => {
         if (!a.last_synced_at) return true;
-        return now - new Date(a.last_synced_at).getTime() > 10_000; // skip if synced <10s ago
+        return now - new Date(a.last_synced_at).getTime() > 3_000; // skip if synced <3s ago
     });
 
     // Process in parallel — much faster than sequential
