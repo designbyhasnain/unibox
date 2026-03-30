@@ -1,0 +1,59 @@
+# Dependencies
+node_modules
+
+# Environment variables — NEVER commit secrets
+.env
+.env.local
+.env.production
+
+# Next.js build output
+.next
+out
+
+# Prisma generated client
+/generated/prisma
+node_modules/.prisma
+
+# TypeScript compiled output — Next.js compiles TS itself, no need for manual JS output
+src/**/*.js
+app/**/*.js
+!/next.config.js
+
+# Misc
+.DS_Store
+*.log
+sync_debug.log
+tsconfig.tsbuildinfo
+
+# Test files (keep in local only)
+test-*.ts
+test-*.mjs
+test-*.js
+test-scripts/
+temp_script/
+prisma_*.txt
+typescript-errors.txt
+gen_output.txt
+lint/
+
+# Temporary planning/debug/documentation files
+all_diff.txt
+old_diff.txt
+log.txt
+build_output*.txt
+debug_action.ts
+*_plan.md
+*_doc.md
+*_roadmap.md
+analytics_design_doc.md
+tmp/
+
+.vercel
+.env*.local
+
+# Scripts with hardcoded credentials
+import-notion.js
+match-projects.js
+deploy-summary-rpc.js
+clean_orphans.mjs
+cleanup-*.js

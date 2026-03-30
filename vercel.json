@@ -1,0 +1,61 @@
+{
+    "framework": "nextjs",
+    "buildCommand": "next build",
+    "installCommand": "npm install",
+    "regions": [
+        "iad1"
+    ],
+    "headers": [
+        {
+            "source": "/api/(.*)",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "no-store"
+                }
+            ]
+        }
+    ],
+    "functions": {
+        "app/api/sync/route.ts": {
+            "maxDuration": 60
+        },
+        "app/api/webhooks/gmail/route.ts": {
+            "maxDuration": 30
+        },
+        "app/api/auth/google/callback/route.ts": {
+            "maxDuration": 30
+        },
+        "app/api/campaigns/process/route.ts": {
+            "maxDuration": 60
+        },
+        "app/api/cron/process-webhooks/route.ts": {
+            "maxDuration": 30
+        },
+        "app/api/cron/renew-gmail-watches/route.ts": {
+            "maxDuration": 60
+        }
+    },
+    "crons": [
+        {
+            "path": "/api/cron/cleanup-tracking",
+            "schedule": "0 3 * * *"
+        },
+        {
+            "path": "/api/campaigns/process",
+            "schedule": "0 6 * * *"
+        },
+        {
+            "path": "/api/cron/process-webhooks",
+            "schedule": "0 0 * * *"
+        },
+        {
+            "path": "/api/cron/renew-gmail-watches",
+            "schedule": "0 3 */6 * *"
+        },
+        {
+            "path": "/api/cron/automations",
+            "schedule": "0 */6 * * *"
+        }
+    ]
+}
