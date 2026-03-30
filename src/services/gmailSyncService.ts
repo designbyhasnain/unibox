@@ -306,7 +306,7 @@ async function processBatch(
                 .eq('id', account.id)
                 .single();
 
-            if (currentAcc && currentAcc.status !== 'SYNCING') {
+            if (currentAcc && !['SYNCING', 'ACTIVE'].includes(currentAcc.status)) {
                 console.log(`[Sync] Aborting background sync for ${account.email} because status is ${currentAcc.status}`);
                 return; // Graceful stop
             }

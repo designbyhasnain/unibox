@@ -12,10 +12,11 @@ export async function GET() {
     const { data: accounts, error } = await supabase
         .from('gmail_accounts')
         .select('id, email, status, last_synced_at')
-        .in('status', ['ACTIVE', 'RECONNECT_REQUIRED']);
+        .eq('status', 'ACTIVE');
 
     if (error || !accounts) {
-        return NextResponse.json({ error: 'Failed to fetch accounts' }, { status: 500 });
+        console.error('[Poll] Failed to fetch accounts:', error?.message, error?.code);
+        return NextResponse.json({ error: 'Failed to fetch accounts', detail: error?.message }, { status: 500 });
     }
 
     const now = Date.now();

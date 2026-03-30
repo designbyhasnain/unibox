@@ -16,7 +16,7 @@ export async function refreshAllTokens() {
 
     for (const account of accounts) {
         // Skip accounts that already need reconnect
-        if (account.status === 'RECONNECT_REQUIRED') { skipped++; continue; }
+        if (account.status === 'ERROR') { skipped++; continue; }
 
         try {
             await refreshAccessToken(account.id);
@@ -35,7 +35,7 @@ export async function refreshAllTokens() {
                 await supabase
                     .from('gmail_accounts')
                     .update({
-                        status: 'RECONNECT_REQUIRED',
+                        status: 'ERROR',
                         last_error_message: 'Token expired — reconnect via Accounts page',
                     })
                     .eq('id', account.id);
