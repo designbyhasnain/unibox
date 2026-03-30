@@ -27,7 +27,7 @@ export async function GET() {
         // Skip if synced in the last 45 seconds (rate limit)
         if (account.last_synced_at) {
             const lastSync = new Date(account.last_synced_at).getTime();
-            if (now - lastSync < 45_000) { skipped++; continue; }
+            if (now - lastSync < 3_000) { skipped++; continue; }
         }
 
         // Skip accounts needing reconnect

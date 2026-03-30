@@ -551,7 +551,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                     loadEmails(currentPageRef.current);
                 }
             } catch { /* silent fail */ }
-        }, 15_000);
+        }, 5_000);
         return () => clearInterval(pollInterval);
     }, [enabled, type, loadEmails]);
 
