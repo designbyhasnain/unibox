@@ -443,66 +443,142 @@ export async function syncAccountHistory(accountId: string, newHistoryId?: strin
         const historyRes = await gmail.users.history.list({
             userId: 'me',
             startHistoryId: account.history_id,
-            // Per docs: filter to only new messages, not label changes
             historyTypes: ['messageAdded'],
         });
 
         const histories = historyRes.data.history || [];
 
-        // Collect all newly added message IDs
-        const addedMessageIds: Array<{ id: string }> = [];
+        // Collect unique message IDs (dedup — history can report same message multiple times)
+        const seenIds = new Set<string>();
+        const addedMessageIds: string[] = [];
         for (const historyItem of histories) {
             for (const msg of historyItem.messagesAdded || []) {
-                if (msg.message?.id) {
-                    addedMessageIds.push({ id: msg.message.id });
+                if (msg.message?.id && !seenIds.has(msg.message.id)) {
+                    seenIds.add(msg.message.id);
+                    addedMessageIds.push(msg.message.id);
                 }
             }
         }
 
-        // Process in parallel batches
-        if (addedMessageIds.length > 0) {
-            // Reuse the existing gmail client to avoid creating a redundant OAuth client
-            // OPTIMIZATION: pre-fetch threads that have SENT messages
-            const { data: sentThreads } = await supabase
-                .from('email_messages')
-                .select('thread_id')
-                .eq('gmail_account_id', accountId)
-                .eq('direction', 'SENT');
-            const sentThreadIds = new Set((sentThreads || []).map((t: any) => t.thread_id));
-
-            // OPTIMIZATION: pre-fetch ignored senders
-            const { data: ignoredData } = await supabase.from('ignored_senders').select('email');
-            const ignoredSenders = new Set((ignoredData || []).map((i: any) => i.email.toLowerCase()));
-
-            await processBatch(gmail, account, addedMessageIds, undefined, 5, sentThreadIds, ignoredSenders, addedMessageIds.length);
+        // Skip if nothing new — just update last_synced_at
+        if (addedMessageIds.length === 0) {
+            await supabase.from('gmail_accounts')
+                .update({ last_synced_at: new Date().toISOString() })
+                .eq('id', accountId);
+            return;
         }
 
-        // Advance stored historyId — only if the new value is greater (prevent regression)
+        console.log(`[History Sync] ${account.email}: ${addedMessageIds.length} new messages`);
+
+        // Pre-check which messages already exist in DB (skip re-processing)
+        const { data: existingMsgs } = await supabase
+            .from('email_messages')
+            .select('id')
+            .in('id', addedMessageIds.slice(0, 100));
+        const existingIds = new Set((existingMsgs || []).map((m: any) => m.id));
+        const newIds = addedMessageIds.filter(id => !existingIds.has(id));
+
+        if (newIds.length === 0) {
+            // All already synced — just advance historyId
+            const newIdToStore = newHistoryId || historyRes.data.historyId || account.history_id;
+            await supabase.from('gmail_accounts')
+                .update({ history_id: newIdToStore?.toString(), last_synced_at: new Date().toISOString() })
+                .eq('id', accountId);
+            return;
+        }
+
+        // Fetch all new messages from Gmail in parallel (fast)
+        const fetchResults = await Promise.allSettled(
+            newIds.slice(0, 50).map(id =>
+                gmail.users.messages.get({ userId: 'me', id, format: 'full' })
+                    .then((res: any) => res.data)
+            )
+        );
+
+        // Filter out "not found" (deleted/draft messages) — these are normal
+        const messages = fetchResults
+            .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+            .map(r => r.value);
+
+        // Process each message through the existing sync logic
+        for (const detail of messages) {
+            try {
+                const headers: Array<{ name: string; value: string }> = detail.payload?.headers || [];
+                const labelIds: string[] = detail.labelIds || [];
+
+                // Skip Gmail categories
+                const skipLabels = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'];
+                if (labelIds.some((l: string) => skipLabels.includes(l))) continue;
+
+                const getHeader = (name: string) =>
+                    headers.find((h) => h.name && h.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+                const from = getHeader('from');
+                const senderEmail = (from.match(/<([^>]+)>/)?.[1] || from || '').toLowerCase();
+                const senderDomain = senderEmail.split('@')[1] || '';
+
+                // Skip blocked domains
+                const blockedDomains = [
+                    'facebookmail.com', 'facebook.com', 'mail.instagram.com', 'instagram.com',
+                    'twitter.com', 'x.com', 'linkedin.com', 'linkedinmail.com',
+                    'youtube.com', 'accounts.google.com', 'foodpanda.com', 'foodpanda.pk',
+                ];
+                if (blockedDomains.some(d => senderDomain.endsWith(d))) continue;
+
+                // Skip noreply
+                const senderLocal = senderEmail.split('@')[0] || '';
+                if (['noreply', 'no-reply', 'donotreply', 'do-not-reply'].includes(senderLocal)) continue;
+
+                const to = getHeader('to');
+                const subject = getHeader('subject') || '(No Subject)';
+                const dateStr = getHeader('date');
+                const body = getMessageBody(detail.payload) || detail.snippet || '';
+                const isSent = labelIds.includes('SENT');
+                const isUnread = labelIds.includes('UNREAD');
+                const parsedDate = dateStr ? new Date(dateStr) : new Date();
+
+                if (isSent) {
+                    await handleEmailSent({
+                        gmailAccountId: account.id,
+                        threadId: detail.threadId || '',
+                        messageId: detail.id || '',
+                        fromEmail: from, toEmail: to, subject, body,
+                        isUnread, sentAt: parsedDate,
+                    });
+                } else {
+                    await handleEmailReceived({
+                        gmailAccountId: account.id,
+                        threadId: detail.threadId || '',
+                        messageId: detail.id || '',
+                        fromEmail: from, toEmail: to || account.email, subject, body,
+                        isUnread, receivedAt: parsedDate,
+                        isSpam: labelIds.includes('SPAM'),
+                    });
+                }
+            } catch (e: any) {
+                // Log but don't fail the whole sync
+                console.error(`[History Sync] Message ${detail.id}:`, e?.message?.slice(0, 80));
+            }
+        }
+
+        // Only advance historyId AFTER all messages are processed
         const newIdToStore = newHistoryId || historyRes.data.historyId || account.history_id;
         const newIdNum = parseInt(newIdToStore?.toString() || '0', 10);
         const currentIdNum = parseInt(account.history_id?.toString() || '0', 10);
 
-        const updateData: any = {
-            last_synced_at: new Date().toISOString(),
-            sync_progress: 100
-        };
-        // Only advance historyId, never regress
+        const updateData: any = { last_synced_at: new Date().toISOString(), sync_progress: 100 };
         if (newIdNum > currentIdNum) {
             updateData.history_id = newIdToStore?.toString();
         }
 
-        await supabase
-            .from('gmail_accounts')
-            .update(updateData)
-            .eq('id', accountId);
+        await supabase.from('gmail_accounts').update(updateData).eq('id', accountId);
+
+        console.log(`[History Sync] ${account.email}: synced ${messages.length} messages`);
 
     } catch (error: any) {
-        // Per docs: 404 means historyId is too old → fall back to full sync
         if (error.code === 404 || error.status === 404) {
             console.warn(`[History Sync] historyId expired for ${account.email}, running full sync.`);
-            // Reset history_id so we don't loop
-            await supabase
-                .from('gmail_accounts')
+            await supabase.from('gmail_accounts')
                 .update({ history_id: null })
                 .eq('id', accountId);
             return syncGmailEmails(accountId);
