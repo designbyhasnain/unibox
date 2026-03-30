@@ -4,52 +4,46 @@ import { syncAccountHistory } from '../../../../src/services/gmailSyncService';
 
 /**
  * GET /api/sync/poll
- * Lightweight polling endpoint — checks all active accounts for new emails.
- * Called by the client every 60 seconds.
- * Uses Gmail historyId to detect changes with minimal API usage.
+ * Fallback polling endpoint — syncs all active accounts in parallel.
+ * Called by the client every 30 seconds as a safety net for missed webhooks.
  */
 export async function GET() {
+    // Reset stale SYNCING accounts (stuck for >10 minutes)
+    await supabase
+        .from('gmail_accounts')
+        .update({ status: 'ACTIVE' })
+        .eq('status', 'SYNCING')
+        .lt('last_synced_at', new Date(Date.now() - 10 * 60 * 1000).toISOString());
+
     const { data: accounts, error } = await supabase
         .from('gmail_accounts')
         .select('id, email, status, last_synced_at')
         .eq('status', 'ACTIVE');
 
     if (error || !accounts) {
-        console.error('[Poll] Failed to fetch accounts:', error?.message, error?.code);
-        return NextResponse.json({ error: 'Failed to fetch accounts', detail: error?.message }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to fetch accounts' }, { status: 500 });
     }
 
     const now = Date.now();
-    let synced = 0, skipped = 0, errors = 0;
-    const newEmails: string[] = [];
+    const toSync = accounts.filter(a => {
+        if (!a.last_synced_at) return true;
+        return now - new Date(a.last_synced_at).getTime() > 10_000; // skip if synced <10s ago
+    });
 
-    for (const account of accounts) {
-        // Skip if synced in the last 45 seconds (rate limit)
-        if (account.last_synced_at) {
-            const lastSync = new Date(account.last_synced_at).getTime();
-            if (now - lastSync < 3_000) { skipped++; continue; }
-        }
+    // Process in parallel — much faster than sequential
+    const results = await Promise.allSettled(
+        toSync.map(a => syncAccountHistory(a.id))
+    );
 
-        // Skip accounts needing reconnect
-        if (account.status === 'RECONNECT_REQUIRED') { skipped++; continue; }
-
-        try {
-            await syncAccountHistory(account.id);
-            synced++;
-        } catch (err: any) {
-            errors++;
-            console.error(`[Poll] ${account.email}:`, err.message?.slice(0, 80));
-        }
-    }
+    const synced = results.filter(r => r.status === 'fulfilled').length;
+    const errors = results.filter(r => r.status === 'rejected').length;
 
     return NextResponse.json({
         synced,
-        skipped,
+        skipped: accounts.length - toSync.length,
         errors,
         total: accounts.length,
-        timestamp: new Date().toISOString(),
     });
 }
 
-// Allow up to 30s for this endpoint (syncing multiple accounts)
 export const maxDuration = 30;

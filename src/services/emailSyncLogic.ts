@@ -115,7 +115,7 @@ export async function handleEmailSent(data: {
 
         const { data: newContact } = await supabase
             .from('contacts')
-            .insert({
+            .upsert({
                 email: cleanToEmail,
                 name: parsedName || cleanToEmail.split('@')[0],
                 is_lead: true,
@@ -126,7 +126,7 @@ export async function handleEmailSent(data: {
                 last_email_at: data.sentAt.toISOString(),
                 last_gmail_account_id: data.gmailAccountId,
                 updated_at: new Date().toISOString(),
-            })
+            }, { onConflict: 'email' })
             .select('id, email, is_lead, is_client, pipeline_stage')
             .single();
 
@@ -242,7 +242,7 @@ export async function handleEmailReceived(data: {
 
             const { data: newContact } = await supabase
                 .from('contacts')
-                .insert({
+                .upsert({
                     email: cleanFromEmail,
                     name: parsedName || cleanFromEmail.split('@')[0],
                     is_lead: true,
@@ -253,7 +253,7 @@ export async function handleEmailReceived(data: {
                     last_email_at: data.receivedAt.toISOString(),
                     last_gmail_account_id: data.gmailAccountId,
                     updated_at: new Date().toISOString(),
-                })
+                }, { onConflict: 'email' })
                 .select('id, email, is_lead, is_client, pipeline_stage')
                 .single();
 
