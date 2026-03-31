@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Topbar from '../components/Topbar';
-import { getIntelligenceDashboardAction } from '../../src/actions/intelligenceActions';
+import { getIntelligenceDashboardAction, getPricingAnalyticsAction } from '../../src/actions/intelligenceActions';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import { avatarColor, initials } from '../utils/helpers';
@@ -14,6 +14,11 @@ export default function IntelligencePage() {
     const { data, isLoading, isStale, refresh: loadData } = useSWRData(
         'intelligence',
         () => getIntelligenceDashboardAction()
+    );
+
+    const { data: pricing } = useSWRData(
+        'pricing_analytics',
+        () => getPricingAnalyticsAction()
     );
 
     const fmt = (v: number) => '$' + (v || 0).toLocaleString();
@@ -168,6 +173,152 @@ export default function IntelligencePage() {
                                             </div>
                                         </div>
                                     )}
+                                </>
+                            )}
+
+                            {/* ═══ PRICING ANALYTICS ═══ */}
+                            {pricing && (
+                                <>
+                                    {/* Overall KPIs */}
+                                    <div style={{ marginBottom: 24 }}>
+                                        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Pricing Analytics</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
+                                            <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 16, border: '1px solid var(--border-subtle)' }}>
+                                                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Total Revenue</div>
+                                                <div style={{ fontSize: 28, fontWeight: 700, color: '#10B981' }}>{fmt(pricing.overall.totalRevenue)}</div>
+                                                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{pricing.overall.totalProjects} projects</div>
+                                            </div>
+                                            <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 16, border: '1px solid var(--border-subtle)' }}>
+                                                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Avg Project Value</div>
+                                                <div style={{ fontSize: 28, fontWeight: 700, color: '#1a73e8' }}>{fmt(pricing.overall.avgValue)}</div>
+                                                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>Median: {fmt(pricing.overall.medianValue)}</div>
+                                            </div>
+                                            <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 16, border: '1px solid var(--border-subtle)' }}>
+                                                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Winning Client Avg</div>
+                                                <div style={{ fontSize: 28, fontWeight: 700, color: '#8B5CF6' }}>{fmt(pricing.winningProfile.avgPaid)}</div>
+                                                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{pricing.winningProfile.paidCount} paid clients</div>
+                                            </div>
+                                            <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 16, border: '1px solid var(--border-subtle)' }}>
+                                                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Unpaid Avg</div>
+                                                <div style={{ fontSize: 28, fontWeight: 700, color: '#EF4444' }}>{fmt(pricing.winningProfile.avgUnpaid)}</div>
+                                                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{pricing.winningProfile.unpaidCount} unpaid</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Monthly Trend */}
+                                    <div style={{ marginBottom: 24 }}>
+                                        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Monthly Avg Project Value</h3>
+                                        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 16, border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
+                                            <ResponsiveContainer width="100%" height={220}>
+                                                <BarChart data={[...pricing.monthly].reverse()}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+                                                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'var(--text-tertiary)' }} />
+                                                    <YAxis tick={{ fontSize: 10, fill: 'var(--text-tertiary)' }} />
+                                                    <Tooltip formatter={(v: any) => ['$' + v, '']} />
+                                                    <Bar dataKey="avgValue" fill="#8B5CF6" radius={[4, 4, 0, 0]} name="Avg Value" />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+                                            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                                                <thead>
+                                                    <tr style={{ background: 'var(--bg-tertiary)' }}>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Month</th>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Projects</th>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Revenue</th>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Avg Value</th>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Collection</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {pricing.monthly.map((m: any) => (
+                                                        <tr key={m.month} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                                                            <td style={{ padding: '8px 12px', fontWeight: 600 }}>{m.month}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{m.projects}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#10B981' }}>{fmt(m.totalRevenue)}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>{fmt(m.avgValue)}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                                                <span style={{ color: m.collectionRate > 70 ? '#10B981' : m.collectionRate > 40 ? '#F59E0B' : '#EF4444' }}>
+                                                                    {m.collectionRate}%
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    {/* Price Brackets */}
+                                    <div style={{ marginBottom: 24 }}>
+                                        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Price Brackets</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 8 }}>
+                                            {pricing.brackets.map((b: any) => (
+                                                <div key={b.label} style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: 12, border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                                                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 4 }}>{b.label}</div>
+                                                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>{b.count}</div>
+                                                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{b.percentage}%</div>
+                                                    <div style={{ height: 4, background: 'var(--border-subtle)', borderRadius: 2, marginTop: 6, overflow: 'hidden' }}>
+                                                        <div style={{ height: '100%', width: `${b.percentage}%`, background: '#8B5CF6', borderRadius: 2 }} />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Top Clients */}
+                                    <div style={{ marginBottom: 24 }}>
+                                        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Top 10 Clients by Revenue</h3>
+                                        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+                                            {pricing.topClients.map((c: any, i: number) => (
+                                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: i < 3 ? '#F59E0B' : 'var(--bg-tertiary)', color: i < 3 ? '#fff' : 'var(--text-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                                                        {i + 1}
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
+                                                        <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{c.projects} projects | avg {fmt(c.avgValue)}</div>
+                                                    </div>
+                                                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#10B981' }}>{fmt(c.totalRevenue)}</div>
+                                                        <div style={{ fontSize: 10, color: c.collectionRate > 80 ? '#10B981' : '#F59E0B' }}>
+                                                            {fmt(c.collected)} collected ({c.collectionRate}%)
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* AM Performance */}
+                                    <div style={{ marginBottom: 24 }}>
+                                        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Account Manager Performance</h3>
+                                        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+                                            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                                                <thead>
+                                                    <tr style={{ background: 'var(--bg-tertiary)' }}>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Manager</th>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Projects</th>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Revenue</th>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Avg</th>
+                                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Collected</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {pricing.amPerformance.map((am: any) => (
+                                                        <tr key={am.name} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                                                            <td style={{ padding: '8px 12px', fontWeight: 600 }}>{am.name}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{am.projects}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#10B981' }}>{fmt(am.totalRevenue)}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>{fmt(am.avgValue)}</td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmt(am.collected)}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </>
                             )}
                         </PageLoader>
