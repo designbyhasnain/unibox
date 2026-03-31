@@ -62,6 +62,16 @@ async function setupSchedules() {
   });
   console.log(`Watch renewal cron created: ${watches.scheduleId}`);
 
+  // Automations — every hour
+  const automations = await client.schedules.create({
+    destination: `${BASE_URL}/api/cron/automations`,
+    cron: "0 * * * *",
+    method: "POST",
+    body: JSON.stringify({ source: "qstash" }),
+    headers: { "Content-Type": "application/json" },
+  });
+  console.log(`Automations cron created: ${automations.scheduleId}`);
+
   console.log("\n✅ QStash schedules setup complete!");
 }
 
