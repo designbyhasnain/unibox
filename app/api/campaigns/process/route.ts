@@ -26,16 +26,30 @@ async function processCampaigns() {
 // ── POST handler (QStash) ────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-    const signature = request.headers.get('upstash-signature') ?? '';
-    const body = await request.text();
+    const signature = request.headers.get('upstash-signature');
+    const rawBody = await request.text();
 
-    const isValid = await qstashReceiver.verify({ signature, body }).catch(() => false);
-    if (!isValid) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Allow bypass in development OR with debug header
+    const isDebug = process.env.NODE_ENV === 'development' ||
+        request.headers.get('x-debug-key') === process.env.CRON_SECRET;
+
+    if (!isDebug) {
+        const isValid = await qstashReceiver.verify({
+            signature: signature ?? '',
+            body: rawBody,
+        }).catch(() => false);
+
+        if (!isValid) {
+            console.error('[CampaignCron] QStash signature verification FAILED');
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
     }
+
+    console.log('[CampaignCron] Triggered, bypass:', isDebug);
 
     try {
         const result = await processCampaigns();
+        console.log('[CampaignCron] Result:', JSON.stringify(result));
         return NextResponse.json({ success: true, ...result });
     } catch (error: unknown) {
         console.error('[CampaignCron] Fatal error:', error);
