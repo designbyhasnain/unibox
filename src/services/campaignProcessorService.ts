@@ -56,10 +56,11 @@ export function isAutoReply(subject: string, body: string): boolean {
 
 // ─── Stop for Company ────────────────────────────────────────────────────────
 
-async function shouldStopForCompany(campaignId: string, contactEmail: string): Promise<boolean> {
-    const domain = contactEmail.split('@')[1];
-    if (!domain) return false;
-
+/**
+ * Pre-fetch all stopped company domains for a campaign (one query per campaign).
+ * Returns a Set of domains that have already been stopped.
+ */
+async function getStoppedCompanyDomains(campaignId: string): Promise<Set<string>> {
     const { data } = await supabase
         .from('campaign_contacts')
         .select('id, contact:contacts ( email )')
@@ -67,11 +68,14 @@ async function shouldStopForCompany(campaignId: string, contactEmail: string): P
         .eq('status', 'COMPLETED')
         .not('stopped_reason', 'is', null);
 
-    if (!data) return false;
-    return data.some((cc: any) => {
-        const email = cc.contact?.email;
-        return email && email.split('@')[1] === domain;
-    });
+    const domains = new Set<string>();
+    if (!data) return domains;
+    for (const cc of data) {
+        const email = (cc.contact as any)?.email;
+        const domain = email?.split('@')[1];
+        if (domain) domains.add(domain);
+    }
+    return domains;
 }
 
 // ─── Stagger Delay ───────────────────────────────────────────────────────────
@@ -112,15 +116,20 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
     const accountDailyCounts = new Map<string, number>();
     const accountIds = [...new Set(campaigns.map(c => c.sending_gmail_account_id))];
 
-    for (const accountId of accountIds) {
-        const { count } = await supabase
-            .from('campaign_send_queue')
-            .select('id', { count: 'exact', head: true })
-            .eq('gmail_account_id', accountId)
-            .in('status', ['QUEUED', 'SENDING', 'SENT'])
-            .gte('scheduled_for', todayStart.toISOString());
-
-        accountDailyCounts.set(accountId, count || 0);
+    // Batch-fetch today's counts for ALL accounts in parallel
+    const countResults = await Promise.all(
+        accountIds.map(accountId =>
+            supabase
+                .from('campaign_send_queue')
+                .select('id', { count: 'exact', head: true })
+                .eq('gmail_account_id', accountId)
+                .in('status', ['QUEUED', 'SENDING', 'SENT'])
+                .gte('scheduled_for', todayStart.toISOString())
+                .then(({ count }) => ({ accountId, count: count || 0 }))
+        )
+    );
+    for (const { accountId, count } of countResults) {
+        accountDailyCounts.set(accountId, count);
     }
 
     for (const campaign of campaigns) {
@@ -149,39 +158,47 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
 
         if (!readyContacts || readyContacts.length === 0) continue;
 
-        // Check for already-queued contacts
+        // Batch pre-fetch: already-queued, unsubscribes, steps, and stopped domains
+        // All 4 queries run in parallel — replaces per-contact queries in the loop
         const contactIds = readyContacts.map(c => c.id);
-        const { data: alreadyQueued } = await supabase
-            .from('campaign_send_queue')
-            .select('campaign_contact_id')
-            .eq('campaign_id', campaign.id)
-            .in('campaign_contact_id', contactIds)
-            .in('status', ['QUEUED', 'SENDING']);
+        const contactEmails = readyContacts.map(c => (c.contact as any)?.email).filter(Boolean);
+
+        const [
+            { data: alreadyQueued },
+            { data: unsubscribed },
+            { data: steps },
+            stoppedDomains,
+        ] = await Promise.all([
+            supabase
+                .from('campaign_send_queue')
+                .select('campaign_contact_id')
+                .eq('campaign_id', campaign.id)
+                .in('campaign_contact_id', contactIds)
+                .in('status', ['QUEUED', 'SENDING']),
+            supabase
+                .from('unsubscribes')
+                .select('email')
+                .in('email', contactEmails),
+            supabase
+                .from('campaign_steps')
+                .select(`
+                    id,
+                    step_number,
+                    delay_days,
+                    subject,
+                    body,
+                    is_subsequence,
+                    variants:campaign_variants ( id, variant_label, subject, body )
+                `)
+                .eq('campaign_id', campaign.id)
+                .order('step_number', { ascending: true }),
+            campaign.stop_for_company
+                ? getStoppedCompanyDomains(campaign.id)
+                : Promise.resolve(new Set<string>()),
+        ]);
 
         const alreadyQueuedSet = new Set((alreadyQueued || []).map(q => q.campaign_contact_id));
-
-        // Check unsubscribe list
-        const contactEmails = readyContacts.map(c => (c.contact as any)?.email).filter(Boolean);
-        const { data: unsubscribed } = await supabase
-            .from('unsubscribes')
-            .select('email')
-            .in('email', contactEmails);
         const unsubSet = new Set((unsubscribed || []).map(u => u.email));
-
-        // Fetch steps
-        const { data: steps } = await supabase
-            .from('campaign_steps')
-            .select(`
-                id,
-                step_number,
-                delay_days,
-                subject,
-                body,
-                is_subsequence,
-                variants:campaign_variants ( id, variant_label, subject, body )
-            `)
-            .eq('campaign_id', campaign.id)
-            .order('step_number', { ascending: true });
 
         if (!steps || steps.length === 0) continue;
 
@@ -206,10 +223,10 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
                 continue;
             }
 
-            // Stop for company check
+            // Stop for company check (uses pre-fetched domains — zero queries)
             if (campaign.stop_for_company) {
-                const stop = await shouldStopForCompany(campaign.id, contact.email);
-                if (stop) {
+                const domain = contact.email.split('@')[1];
+                if (domain && stoppedDomains.has(domain)) {
                     await supabase
                         .from('campaign_contacts')
                         .update({ status: 'COMPLETED', stopped_reason: 'REPLIED' })

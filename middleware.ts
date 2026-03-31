@@ -89,7 +89,7 @@ export function middleware(request: NextRequest) {
             `<!DOCTYPE html><html><head><title>Access Denied</title></head>` +
             `<body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0a0a0a">` +
             `<div style="text-align:center"><h1 style="color:#e53e3e;font-size:2rem">403 — Access Denied</h1>` +
-            `<p style="color:#888">Your IP (${clientIP}) is not authorized.</p></div></body></html>`,
+            `<p style="color:#888">Your IP is not authorized.</p></div></body></html>`,
             { status: 403, headers: { 'Content-Type': 'text/html' } }
         );
     }
@@ -107,6 +107,24 @@ export function middleware(request: NextRequest) {
         loginUrl.searchParams.set('callbackUrl', pathname);
         const response = NextResponse.redirect(loginUrl);
         if (sessionToken) response.cookies.delete('unibox_session');
+        return response;
+    }
+
+    // Validate session token is actually decryptable and not expired
+    // (lightweight check: verify the IV is valid hex and ciphertext is non-empty)
+    const parts = sessionToken.split(':');
+    const ivHex = parts[0] ?? '';
+    const cipherHex = parts[1] ?? '';
+    if (
+        ivHex.length !== 32 ||           // AES IV = 16 bytes = 32 hex chars
+        !/^[0-9a-f]+$/i.test(ivHex) ||   // Must be valid hex
+        cipherHex.length < 16 ||          // Ciphertext must be non-trivial
+        !/^[0-9a-f]+$/i.test(cipherHex)   // Must be valid hex
+    ) {
+        const loginUrl = new URL('/login', request.url);
+        loginUrl.searchParams.set('callbackUrl', pathname);
+        const response = NextResponse.redirect(loginUrl);
+        response.cookies.delete('unibox_session');
         return response;
     }
 

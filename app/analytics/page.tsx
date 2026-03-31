@@ -11,6 +11,7 @@ import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 import DateRangePicker from '../components/DateRangePicker';
 import { getFromLocalCache, saveToLocalCache } from '../utils/localCache';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 /* ── Lazy-load the heavy Recharts bundle ──────────────────────────── */
 const AnalyticsCharts = dynamic(() => import('../components/AnalyticsCharts'), {
@@ -158,12 +159,14 @@ export default function AnalyticsPage() {
 
                     <PageLoader isLoading={!isHydrated || (loading && !data)} type="grid">
                         {hasData && (
-                            <AnalyticsCharts
-                                data={data}
-                                deviceData={null}
-                                stats={stats}
-                                kpis={kpis}
-                            />
+                            <ErrorBoundary section="Analytics Charts">
+                                <AnalyticsCharts
+                                    data={data}
+                                    deviceData={null}
+                                    stats={stats}
+                                    kpis={kpis}
+                                />
+                            </ErrorBoundary>
                         )}
                     </PageLoader>
                 </div>

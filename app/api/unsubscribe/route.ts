@@ -48,12 +48,20 @@ export async function GET(request: Request) {
         }
     }
 
+    // Escape HTML entities to prevent XSS injection via crafted email addresses
+    const safeEmail = email
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
     return new NextResponse(
         `<!DOCTYPE html><html><head><title>Unsubscribed</title></head>
         <body style="font-family:system-ui;text-align:center;padding:80px;color:#333;background:#fafafa">
         <div style="max-width:400px;margin:0 auto;background:white;padding:40px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
         <h2 style="color:#e53e3e;margin-bottom:12px">Unsubscribed</h2>
-        <p style="color:#666"><strong>${email}</strong> has been removed from future emails.</p>
+        <p style="color:#666"><strong>${safeEmail}</strong> has been removed from future emails.</p>
         </div></body></html>`,
         { headers: { 'Content-Type': 'text/html' } }
     );

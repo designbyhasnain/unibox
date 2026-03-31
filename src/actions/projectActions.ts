@@ -54,7 +54,7 @@ export async function getAllProjectsAction(
     // Account filter not applicable for Notion-imported projects
 
     if (search && search.trim()) {
-        const s = search.trim();
+        const s = search.trim().replace(/[%_\\]/g, '\\$&');
         query = query.or(`project_name.ilike.%${s}%`);
     }
 

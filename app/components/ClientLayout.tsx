@@ -6,6 +6,7 @@ import { useGlobalFilter } from '../context/FilterContext';
 import { usePrefetch } from '../hooks/usePrefetch';
 import Sidebar from './Sidebar';
 import ComposeModal from './ComposeModal';
+import { ErrorBoundary } from './ErrorBoundary';
 interface ClientLayoutProps {
     children: React.ReactNode;
 }
@@ -27,13 +28,17 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
         <>
             <Sidebar onOpenCompose={() => setComposeOpen(true)} />
             <div className="layout-content">
-                {children}
+                <ErrorBoundary section="Page">
+                    {children}
+                </ErrorBoundary>
             </div>
             {isComposeOpen && (
-                <ComposeModal
-                    onClose={() => setComposeOpen(false)}
-                    defaultTo={composeDefaultTo}
-                />
+                <ErrorBoundary section="Compose">
+                    <ComposeModal
+                        onClose={() => setComposeOpen(false)}
+                        defaultTo={composeDefaultTo}
+                    />
+                </ErrorBoundary>
             )}
         </>
     );

@@ -10,6 +10,7 @@ import { EmailRow, EmailDetail, PaginationControls } from '../components/InboxCo
 import InlineReply from '../components/InlineReply';
 import AddLeadModal from '../components/AddLeadModal';
 import CSVImportModal from '../components/CSVImportModal';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { getRelationshipInsightAction, type RelationshipInsight } from '../../src/actions/relationshipActions';
 import { generateContactSummaryAction, generateAISummaryAction, type ContactSummary } from '../../src/actions/summaryActions';
 import { useGlobalFilter } from '../context/FilterContext';
@@ -1305,34 +1306,38 @@ export default function ClientsPage() {
             </div>
 
             {isAddClientOpen && (
-                <AddLeadModal
-                    onClose={() => setIsAddClientOpen(false)}
-                    onAddLead={() => {
-                        setIsAddClientOpen(false);
-                        loadClients();
-                    }}
-                />
+                <ErrorBoundary section="Add Lead">
+                    <AddLeadModal
+                        onClose={() => setIsAddClientOpen(false)}
+                        onAddLead={() => {
+                            setIsAddClientOpen(false);
+                            loadClients();
+                        }}
+                    />
+                </ErrorBoundary>
             )}
 
-            <CSVImportModal
-                isOpen={isCSVImportOpen}
-                onClose={() => setIsCSVImportOpen(false)}
-                onImportComplete={() => loadClients()}
-            />
-
-
+            <ErrorBoundary section="CSV Import">
+                <CSVImportModal
+                    isOpen={isCSVImportOpen}
+                    onClose={() => setIsCSVImportOpen(false)}
+                    onImportComplete={() => loadClients()}
+                />
+            </ErrorBoundary>
 
             {isAddProjectOpen && selectedClient && (
-                <AddProjectModal
-                    client={selectedClient}
-                    initialProjectName={projectDefaultName}
-                    onClose={() => setIsAddProjectOpen(false)}
-                    onCreated={() => {
-                        setIsAddProjectOpen(false);
-                        // Refresh projects after creation
-                        getClientProjectsAction(selectedClient.id).then(setClientProjects).catch(console.error);
-                    }}
-                />
+                <ErrorBoundary section="Add Project">
+                    <AddProjectModal
+                        client={selectedClient}
+                        initialProjectName={projectDefaultName}
+                        onClose={() => setIsAddProjectOpen(false)}
+                        onCreated={() => {
+                            setIsAddProjectOpen(false);
+                            // Refresh projects after creation
+                            getClientProjectsAction(selectedClient.id).then(setClientProjects).catch(console.error);
+                        }}
+                    />
+                </ErrorBoundary>
             )}
 
         </div>

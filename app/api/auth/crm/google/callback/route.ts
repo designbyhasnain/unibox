@@ -192,28 +192,9 @@ export async function GET(request: NextRequest) {
                 return NextResponse.redirect(new URL('/', request.url));
             }
 
-            // Check if ANY users exist — if not, auto-create first user as ADMIN
-            const { count } = await supabase.from('users').select('id', { count: 'exact', head: true });
-            if (count === 0 || count === null) {
-                const { data: newUser, error: createErr } = await supabase
-                    .from('users')
-                    .insert({
-                        email: googleUser.email.toLowerCase(),
-                        name: googleUser.name,
-                        role: 'ACCOUNT_MANAGER',
-                        avatar_url: googleUser.avatar || null,
-                    })
-                    .select('*')
-                    .single();
-
-                if (createErr || !newUser) {
-                    console.error('[CRM Auth] Failed to auto-create first user:', createErr);
-                    return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
-                }
-                user = newUser;
-            } else {
-                return NextResponse.redirect(new URL('/login?error=no_invite', request.url));
-            }
+            // No invitation found — reject. First user must also be invited
+            // (seed an admin user via DB or use the invite flow).
+            return NextResponse.redirect(new URL('/login?error=no_invite', request.url));
         }
 
         if (user.status === 'REVOKED') {

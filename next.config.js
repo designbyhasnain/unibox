@@ -21,6 +21,13 @@ const nextConfig = {
             : false,
     },
 
+    // ─── Server Actions ──────────────────────────────────────────────────────
+    experimental: {
+        serverActions: {
+            bodySizeLimit: '10mb',
+        },
+    },
+
     // ─── Turbopack (Next.js 16 default) ──────────────────────────────────────
     turbopack: {},
 

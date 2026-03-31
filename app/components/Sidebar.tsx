@@ -81,7 +81,7 @@ const NAV_MAIN = [
     { href: '/', label: 'Inbox', icon: <Icons.Inbox /> },
     { href: '/clients', label: 'Clients', icon: <Icons.Clients /> },
     { href: '/accounts', label: 'Accounts', icon: <Icons.Accounts /> },
-    { href: '/projects', label: 'Projects', icon: <Icons.Projects /> },
+    { href: '/projects', label: 'Projects', icon: <span style={{ fontSize: 18 }}>🎬</span> },
     { href: '/campaigns', label: 'Campaigns', icon: <Icons.Campaigns /> },
     { href: '/templates', label: 'Templates', icon: <Icons.Templates /> },
     { href: '/analytics', label: 'Analytics', icon: <Icons.BarChart /> },

@@ -96,7 +96,7 @@ export async function generateAISummaryAction(contactId: string): Promise<string
     const { data: emails } = await supabase
         .from('email_messages')
         .select('direction, subject, body, snippet, sent_at, from_email, to_email')
-        .or(`contact_id.eq.${contactId},from_email.ilike.%${email}%,to_email.ilike.%${email}%`)
+        .or(`contact_id.eq.${contactId},from_email.ilike.%${email.replace(/[%_\\]/g, '\\$&')}%,to_email.ilike.%${email.replace(/[%_\\]/g, '\\$&')}%`)
         .order('sent_at', { ascending: true })
         .limit(100);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useMemo, type ReactNode } from 'react';
 
 interface UIContextType {
     isComposeOpen: boolean;
@@ -15,13 +15,15 @@ export function UIProvider({ children }: { children: ReactNode }) {
     const [isComposeOpen, setComposeOpen] = useState(false);
     const [composeDefaultTo, setComposeDefaultTo] = useState('');
 
+    const value = useMemo(() => ({
+        isComposeOpen,
+        setComposeOpen,
+        composeDefaultTo,
+        setComposeDefaultTo
+    }), [isComposeOpen, composeDefaultTo]);
+
     return (
-        <UIContext.Provider value={{
-            isComposeOpen,
-            setComposeOpen,
-            composeDefaultTo,
-            setComposeDefaultTo
-        }}>
+        <UIContext.Provider value={value}>
             {children}
         </UIContext.Provider>
     );
