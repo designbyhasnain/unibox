@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "./node_modules/.bin/next dev",
-    "build": "./node_modules/.bin/next build",
-    "start": "./node_modules/.bin/next start",
-    "lint": "./node_modules/.bin/next lint",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
     "postinstall": "prisma generate"
   },
   "keywords": [],
@@ -14,6 +14,7 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^25.3.0",
     "@types/nodemailer": "^7.0.11",
@@ -38,6 +39,7 @@
     "@tanstack/react-virtual": "^3.13.23",
     "@types/dompurify": "^3.0.5",
     "@upstash/qstash": "^2.10.1",
+    "bcryptjs": "^3.0.3",
     "date-fns": "^4.1.0",
     "dompurify": "^3.3.3",
     "googleapis": "^171.4.0",

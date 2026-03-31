@@ -5719,6 +5719,74 @@ textarea:focus-visible {
     opacity: 0.7;
     cursor: not-allowed;
 }
+.login-divider {
+    display: flex;
+    align-items: center;
+    margin: 24px 0;
+    gap: 16px;
+}
+.login-divider::before,
+.login-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #dadce0;
+}
+.login-divider span {
+    font-size: 13px;
+    color: #9aa0a6;
+    font-weight: 500;
+}
+.login-email-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.login-input {
+    width: 100%;
+    padding: 13px 16px;
+    border-radius: 12px;
+    border: 1px solid #dadce0;
+    background: white;
+    color: #202124;
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    box-sizing: border-box;
+}
+.login-input:focus {
+    border-color: #1a73e8;
+    box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
+}
+.login-input::placeholder {
+    color: #9aa0a6;
+}
+.login-email-btn {
+    width: 100%;
+    padding: 14px;
+    border-radius: 12px;
+    border: none;
+    background: #1a73e8;
+    color: white;
+    font-weight: 500;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+}
+.login-email-btn:hover {
+    background: #1557b0;
+    box-shadow: 0 1px 3px 0 rgba(26,115,232,.30), 0 2px 6px 2px rgba(26,115,232,.15);
+}
+.login-email-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
 .login-footer-text {
     margin-top: 36px;
     font-size: 13px;

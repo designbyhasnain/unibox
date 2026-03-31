@@ -6,12 +6,48 @@ import { useSearchParams } from 'next/navigation';
 function LoginContent() {
     const searchParams = useSearchParams();
     const error = searchParams.get('error');
+    const callbackUrl = searchParams.get('callbackUrl');
     const [isLoading, setIsLoading] = useState(false);
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [emailError, setEmailError] = useState('');
+    const [isEmailLoading, setIsEmailLoading] = useState(false);
 
     const handleGoogleLogin = () => {
         setIsLoading(true);
-        // Redirect to our CRM Google Auth entry point
         window.location.href = '/api/auth/crm/google';
+    };
+
+    const handleEmailLogin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setEmailError('');
+
+        if (!email || !password) {
+            setEmailError('Please enter both email and password');
+            return;
+        }
+
+        setIsEmailLoading(true);
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                setEmailError(data.error || 'Login failed');
+                setIsEmailLoading(false);
+                return;
+            }
+
+            window.location.href = callbackUrl || '/';
+        } catch {
+            setEmailError('Something went wrong. Please try again.');
+            setIsEmailLoading(false);
+        }
     };
 
     return (
@@ -49,8 +85,8 @@ function LoginContent() {
                         </div>
                     )}
 
-                    <button 
-                        className="google-login-btn" 
+                    <button
+                        className="google-login-btn"
                         onClick={handleGoogleLogin}
                         disabled={isLoading}
                     >
@@ -68,7 +104,46 @@ function LoginContent() {
                             </>
                         )}
                     </button>
-                    
+
+                    <div className="login-divider">
+                        <span>or</span>
+                    </div>
+
+                    <form onSubmit={handleEmailLogin} className="login-email-form">
+                        {emailError && (
+                            <div className="login-error-box">
+                                <p>{emailError}</p>
+                            </div>
+                        )}
+                        <input
+                            type="email"
+                            placeholder="Email address"
+                            value={email}
+                            onChange={e => setEmail(e.target.value)}
+                            className="login-input"
+                            autoComplete="email"
+                        />
+                        <input
+                            type="password"
+                            placeholder="Password"
+                            value={password}
+                            onChange={e => setPassword(e.target.value)}
+                            className="login-input"
+                            autoComplete="current-password"
+                        />
+                        <button
+                            type="submit"
+                            className="login-email-btn"
+                            disabled={isEmailLoading}
+                        >
+                            {isEmailLoading ? (
+                                <div className="login-spinner"></div>
+                            ) : (
+                                'Sign in with Email'
+                            )}
+                        </button>
+                    </form>
+
                     <p className="login-footer-text">
                         Protected by Unibox Guard
                     </p>
