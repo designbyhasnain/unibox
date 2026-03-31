@@ -640,6 +640,13 @@ export async function launchCampaignAction(campaignId: string) {
             return { success: false, error: 'Only DRAFT or SCHEDULED campaigns can be launched' };
         }
 
+        // Fetch schedule fields for next_send_at calculation
+        const { data: campaignFull } = await supabase
+            .from('campaigns')
+            .select('schedule_enabled, schedule_days, schedule_start_time, schedule_end_time, schedule_timezone, schedule_start_date, schedule_end_date')
+            .eq('id', campaignId)
+            .single();
+
         // Validate campaign has steps
         const { count: stepCount } = await supabase
             .from('campaign_steps')
@@ -662,7 +669,7 @@ export async function launchCampaignAction(campaignId: string) {
 
         // Set all PENDING contacts to IN_PROGRESS with nextSendAt = next valid schedule time
         const now = new Date();
-        const nextSend = getNextValidSendTime(campaign, now);
+        const nextSend = campaignFull?.schedule_enabled ? getNextValidSendTime(campaignFull, now) : now;
         await supabase
             .from('campaign_contacts')
             .update({

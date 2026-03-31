@@ -11,12 +11,22 @@ import { qstashReceiver } from '../../../../lib/qstash';
 // ── POST handler (QStash) ────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-    const signature = request.headers.get('upstash-signature') ?? '';
-    const body = await request.text();
+    const signature = request.headers.get('upstash-signature');
+    const rawBody = await request.text();
 
-    const isValid = await qstashReceiver.verify({ signature, body }).catch(() => false);
-    if (!isValid) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const isDebug = process.env.NODE_ENV === 'development' ||
+        request.headers.get('x-debug-key') === process.env.CRON_SECRET;
+
+    if (!isDebug) {
+        const isValid = await qstashReceiver.verify({
+            signature: signature ?? '',
+            body: rawBody,
+        }).catch(() => false);
+
+        if (!isValid) {
+            console.error('[WatchCron] QStash signature verification FAILED');
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
     }
 
     try {

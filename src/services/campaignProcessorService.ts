@@ -7,10 +7,12 @@ import { injectUnsubscribeLink } from '../utils/unsubscribe';
 // ─── Schedule Check ──────────────────────────────────────────────────────────
 
 function isWithinSchedule(campaign: any): boolean {
-    if (!campaign.schedule_enabled) return true;
+    if (!campaign.schedule_enabled) {
+        console.log(`    [Schedule] ${campaign.id}: schedule_enabled=false → allowed`);
+        return true;
+    }
 
     const tz = campaign.schedule_timezone || 'UTC';
-    // Use Intl to get current time in the campaign's timezone
     const formatter = new Intl.DateTimeFormat('en-US', {
         timeZone: tz,
         hour: 'numeric', minute: 'numeric', hour12: false,
@@ -27,18 +29,28 @@ function isWithinSchedule(campaign: any): boolean {
     const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     const dayOfWeek = dayMap[get('weekday')] ?? new Date().getDay();
     const allowedDays: number[] = campaign.schedule_days ?? [1, 2, 3, 4, 5];
-    if (!allowedDays.includes(dayOfWeek)) return false;
+
+    console.log(`    [Schedule] ${campaign.id}: tz=${tz}, currentTime=${currentTime}, weekday=${get('weekday')}(${dayOfWeek}), allowedDays=${JSON.stringify(allowedDays)}`);
+
+    if (!allowedDays.includes(dayOfWeek)) {
+        console.log(`    [Schedule] ${campaign.id}: day ${dayOfWeek} NOT in allowedDays → blocked`);
+        return false;
+    }
 
     // Time window check
     const startTime = campaign.schedule_start_time || '09:00';
     const endTime = campaign.schedule_end_time || '17:00';
-    if (currentTime < startTime || currentTime > endTime) return false;
+    if (currentTime < startTime || currentTime > endTime) {
+        console.log(`    [Schedule] ${campaign.id}: time ${currentTime} outside ${startTime}-${endTime} → blocked`);
+        return false;
+    }
 
     // Date range check
     const now = new Date();
     if (campaign.schedule_start_date && now < new Date(campaign.schedule_start_date)) return false;
     if (campaign.schedule_end_date && now > new Date(campaign.schedule_end_date)) return false;
 
+    console.log(`    [Schedule] ${campaign.id}: within schedule → allowed`);
     return true;
 }
 
@@ -151,7 +163,18 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
         `)
         .eq('status', 'RUNNING');
 
-    if (!campaigns || campaigns.length === 0) return { enqueued };
+    console.log('=== CAMPAIGN PROCESSOR START ===');
+    console.log('Current time:', now.toISOString());
+    console.log('Running campaigns found:', campaigns?.length ?? 0);
+
+    if (!campaigns || campaigns.length === 0) {
+        console.log('=== CAMPAIGN PROCESSOR END (no campaigns) ===');
+        return { enqueued };
+    }
+
+    for (const c of campaigns) {
+        console.log(`  Campaign ${c.id}: schedule_enabled=${c.schedule_enabled}, schedule_days=${JSON.stringify(c.schedule_days)}, tz=${c.schedule_timezone}, window=${c.schedule_start_time}-${c.schedule_end_time}`);
+    }
 
     // Pre-fetch today's queued/sent counts per account
     const todayStart = new Date(now);
@@ -178,7 +201,9 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
 
     for (const campaign of campaigns) {
         // Schedule check
-        if (!isWithinSchedule(campaign)) continue;
+        const withinSchedule = isWithinSchedule(campaign);
+        console.log(`  Campaign ${campaign.id}: isWithinSchedule=${withinSchedule}`);
+        if (!withinSchedule) continue;
 
         // 2. Find contacts ready to send
         const orderCol = campaign.prioritize_new_leads ? 'enrolled_at' : 'next_send_at';
@@ -200,7 +225,21 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
             .order(orderCol, { ascending: true })
             .limit(100);
 
-        if (!readyContacts || readyContacts.length === 0) continue;
+        console.log(`  Campaign ${campaign.id}: readyContacts=${readyContacts?.length ?? 0} (filter: next_send_at <= ${now.toISOString()})`);
+
+        // Also log ALL IN_PROGRESS contacts to see their next_send_at values
+        if (!readyContacts || readyContacts.length === 0) {
+            const { data: allInProgress } = await supabase
+                .from('campaign_contacts')
+                .select('id, next_send_at, status')
+                .eq('campaign_id', campaign.id)
+                .eq('status', 'IN_PROGRESS')
+                .limit(5);
+            if (allInProgress && allInProgress.length > 0) {
+                console.log(`  Campaign ${campaign.id}: IN_PROGRESS contacts (sample):`, allInProgress.map(c => ({ id: c.id, next_send_at: c.next_send_at })));
+            }
+            continue;
+        }
 
         // Batch pre-fetch: already-queued, unsubscribes, steps, and stopped domains
         // All 4 queries run in parallel — replaces per-contact queries in the loop
@@ -345,5 +384,6 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
         }
     }
 
+    console.log(`=== CAMPAIGN PROCESSOR END (enqueued: ${enqueued}) ===`);
     return { enqueued };
 }
