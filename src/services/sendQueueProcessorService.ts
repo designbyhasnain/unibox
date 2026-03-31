@@ -34,23 +34,49 @@ export async function processSendQueue(): Promise<{ sent: number; failed: number
         }
     }
 
+    // Pre-fetch all accounts needed for this batch (1 query instead of per-account)
+    const allAccountIds = [...byAccount.keys()];
+    const { data: accountsList } = await supabase
+        .from('gmail_accounts')
+        .select('id, email, connection_method, status')
+        .in('id', allAccountIds);
+
+    const accountMap = new Map((accountsList || []).map(a => [a.id, a]));
+
+    // Pre-fetch all campaign_contact → contact_id mappings for this batch
+    const allCcIds = queueItems.map(i => i.campaign_contact_id);
+    const { data: ccList } = await supabase
+        .from('campaign_contacts')
+        .select('id, contact_id')
+        .in('id', allCcIds);
+
+    const ccContactMap = new Map((ccList || []).map(cc => [cc.id, cc.contact_id]));
+
+    // Pre-fetch all variant labels for this batch
+    const allVariantIds = queueItems.map(i => i.variant_id).filter(Boolean) as string[];
+    const variantMap = new Map<string, string>();
+    if (allVariantIds.length > 0) {
+        const { data: variants } = await supabase
+            .from('campaign_variants')
+            .select('id, variant_label')
+            .in('id', allVariantIds);
+
+        for (const v of (variants || [])) {
+            variantMap.set(v.id, v.variant_label);
+        }
+    }
+
     for (const [accountId, items] of byAccount) {
-        // Fetch account details
-        const { data: account } = await supabase
-            .from('gmail_accounts')
-            .select('id, email, connection_method, status')
-            .eq('id', accountId)
-            .single();
+        const account = accountMap.get(accountId);
 
         if (!account || account.status !== 'ACTIVE') {
-            // Mark all items as failed
-            for (const item of items) {
-                await supabase
-                    .from('campaign_send_queue')
-                    .update({ status: 'FAILED', last_error: 'Account inactive' })
-                    .eq('id', item.id);
-                failed++;
-            }
+            // Batch-mark all items as failed
+            const failIds = items.map(i => i.id);
+            await supabase
+                .from('campaign_send_queue')
+                .update({ status: 'FAILED', last_error: 'Account inactive' })
+                .in('id', failIds);
+            failed += items.length;
             continue;
         }
 
@@ -100,23 +126,9 @@ export async function processSendQueue(): Promise<{ sent: number; failed: number
                         })
                         .eq('id', cleanMsgId);
 
-                    // Resolve contact_id from campaign_contacts
-                    const { data: cc } = await supabase
-                        .from('campaign_contacts')
-                        .select('contact_id')
-                        .eq('id', item.campaign_contact_id)
-                        .single();
-
-                    // Resolve variant_label if a variant was used
-                    let variantLabel: string | null = null;
-                    if (item.variant_id) {
-                        const { data: variant } = await supabase
-                            .from('campaign_variants')
-                            .select('variant_label')
-                            .eq('id', item.variant_id)
-                            .single();
-                        variantLabel = variant?.variant_label ?? null;
-                    }
+                    // Use pre-fetched contact_id and variant_label (zero queries)
+                    const contactId = ccContactMap.get(item.campaign_contact_id) ?? item.campaign_contact_id;
+                    const variantLabel = item.variant_id ? (variantMap.get(item.variant_id) ?? null) : null;
 
                     // Create CampaignEmail record
                     await supabase
@@ -124,7 +136,7 @@ export async function processSendQueue(): Promise<{ sent: number; failed: number
                         .insert({
                             campaign_id: item.campaign_id,
                             step_id: item.campaign_step_id,
-                            contact_id: cc?.contact_id ?? item.campaign_contact_id,
+                            contact_id: contactId,
                             email_id: cleanMsgId,
                             variant_label: variantLabel,
                             sent_at: now.toISOString(),
@@ -184,11 +196,33 @@ export async function processSendQueue(): Promise<{ sent: number; failed: number
         }
     }
 
+    // Clear per-cycle cache
+    stepsCache.clear();
+
     return { sent, failed };
+}
+
+// ─── Steps Cache (per processing cycle) ─────────────────────────────────────
+// Avoids re-fetching identical campaign steps for every email in the same batch.
+const stepsCache = new Map<string, { step_number: number; delay_days: number; is_subsequence: boolean }[]>();
+
+async function getCachedSteps(campaignId: string) {
+    if (stepsCache.has(campaignId)) return stepsCache.get(campaignId)!;
+
+    const { data } = await supabase
+        .from('campaign_steps')
+        .select('id, step_number, delay_days, is_subsequence')
+        .eq('campaign_id', campaignId)
+        .order('step_number', { ascending: true });
+
+    const steps = data || [];
+    stepsCache.set(campaignId, steps);
+    return steps;
 }
 
 /**
  * Advance a campaign contact to the next step after successful send.
+ * Uses cached steps to avoid repeated queries for the same campaign.
  */
 async function advanceCampaignContact(
     campaignId: string,
@@ -206,16 +240,12 @@ async function advanceCampaignContact(
 
     if (!cc) return;
 
-    // Get all steps for this campaign
-    const { data: steps } = await supabase
-        .from('campaign_steps')
-        .select('id, step_number, delay_days, is_subsequence')
-        .eq('campaign_id', campaignId)
-        .order('step_number', { ascending: true });
+    // Get steps from cache (1 query per campaign, not per email)
+    const steps = await getCachedSteps(campaignId);
+    if (steps.length === 0) return;
 
-    if (!steps) return;
-
-    const maxStepNumber = Math.max(...steps.filter(s => !s.is_subsequence).map(s => s.step_number));
+    const mainSteps = steps.filter(s => !s.is_subsequence);
+    const maxStepNumber = Math.max(...mainSteps.map(s => s.step_number));
     const isLastStep = cc.current_step_number >= maxStepNumber;
 
     if (isLastStep) {
@@ -228,9 +258,7 @@ async function advanceCampaignContact(
             })
             .eq('id', campaignContactId);
     } else {
-        const nextStep = steps.find(s =>
-            s.step_number === cc.current_step_number + 1 && !s.is_subsequence
-        );
+        const nextStep = mainSteps.find(s => s.step_number === cc.current_step_number + 1);
         const delayDays = nextStep?.delay_days || 1;
         const nextSendAt = new Date(now);
         nextSendAt.setDate(nextSendAt.getDate() + delayDays);

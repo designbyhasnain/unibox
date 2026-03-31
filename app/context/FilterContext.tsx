@@ -90,12 +90,12 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         refreshAccounts();
     }, [pathname, refreshAccounts]);
 
-    const setSelectedAccountId = (id: string) => {
+    const setSelectedAccountId = useCallback((id: string) => {
         // Flush ALL mailbox caches BEFORE updating state — no stale data survives
         flushAllMailboxCaches();
         setSelectedAccountIdState(id);
         localStorage.setItem('unibox_selected_account_id', id);
-    };
+    }, []);
 
     const value = useMemo(() => ({
         selectedAccountId,
@@ -108,7 +108,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         isLoadingAccounts,
         refreshAccounts,
         setAccounts
-    }), [selectedAccountId, startDate, endDate, accounts, isLoadingAccounts, refreshAccounts, setAccounts]);
+    }), [selectedAccountId, setSelectedAccountId, startDate, endDate, accounts, isLoadingAccounts, refreshAccounts, setAccounts]);
 
     return (
         <FilterContext.Provider value={value}>

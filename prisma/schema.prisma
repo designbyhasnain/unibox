@@ -135,6 +135,7 @@ model User {
   gmailAccounts    GmailAccount[]
   handledContacts  Contact[]              @relation("AccountManager")
   projects         Project[]
+  editProjects     EditProject[]
   invitationsSent  Invitation[]           @relation("InvitedByUser")
   gmailAssignments UserGmailAssignment[]
   campaigns        Campaign[]
@@ -304,7 +305,7 @@ model EmailMessage {
   fromEmail     String         @map("from_email")
   toEmail       String         @map("to_email")
   subject       String         @db.Text
-  body          String         @db.Text
+  body          String?        @db.Text
   snippet       String?        @db.Text
   direction     EmailDirection
   emailType     EmailType?     @map("email_type")
@@ -340,16 +341,16 @@ model EmailMessage {
 }
 
 model Project {
-  id       String  @id @default(uuid())
-  clientId String  @map("client_id")
-  client   Contact @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  id       String   @id @default(uuid())
+  clientId String?  @map("client_id")
+  client   Contact? @relation(fields: [clientId], references: [id], onDelete: Restrict)
 
-  projectName String   @map("project_name")
-  projectDate DateTime @map("project_date")
-  dueDate     DateTime @map("due_date")
+  projectName String    @map("project_name")
+  projectDate DateTime? @map("project_date")
+  dueDate     DateTime? @map("due_date")
 
-  accountManagerId String @map("account_manager_id")
-  accountManager   User   @relation(fields: [accountManagerId], references: [id], onDelete: Restrict)
+  accountManagerId String? @map("account_manager_id")
+  accountManager   User?   @relation(fields: [accountManagerId], references: [id], onDelete: Restrict)
 
   paidStatus       PaidStatus        @default(UNPAID) @map("paid_status")
   quote            Float?
@@ -731,5 +732,114 @@ model EmailTemplate {
   @@index([createdById])
   @@index([category])
   @@map("email_templates")
+}
+
+// --- Edit Projects (Notion-style CRM) ---
+
+enum ProjectProgress {
+  ON_HOLD
+  IN_PROGRESS
+  DOWNLOADING
+  DOWNLOADED
+  IN_REVISION
+  APPROVED
+  DONE
+
+  @@map("project_progress")
+}
+
+enum ProjectPriority {
+  HIGH
+  MEDIUM
+  LOW
+
+  @@map("project_priority")
+}
+
+enum AMReview {
+  NO_ISSUE
+  HAS_ISSUE
+
+  @@map("am_review")
+}
+
+model EditProject {
+  id                  String           @id @default(cuid())
+
+  date                DateTime?
+  clientName          String?          @map("client_name")
+  name                String
+  progress            ProjectProgress  @default(ON_HOLD)
+  isChecked           Boolean          @default(false) @map("is_checked")
+  initialProjectValue Float?           @map("initial_project_value")
+  dueDate             DateTime?        @map("due_date")
+  startDate           DateTime?        @map("start_date")
+  approvedDate        DateTime?        @map("approved_date")
+  completionDate      DateTime?        @map("completion_date")
+  tags                String[]         @default([])
+
+  editor              String?
+  accountManager      String?          @map("account_manager")
+  reviewedBy          String?          @map("reviewed_by")
+  team                String?
+
+  sizeInGbs           String?          @map("size_in_gbs")
+  hardDrive           String?          @map("hard_drive")
+  rawDataUrl          String?          @map("raw_data_url")
+  fileNeeded          String?          @map("file_needed")
+  dataChecked         Boolean          @default(false) @map("data_checked")
+
+  priority            ProjectPriority?
+
+  briefDueDate        String?          @map("brief_due_date")
+  briefLength         String?          @map("brief_length")
+  songPreferences     String?          @map("song_preferences")
+  software            String?
+  notes               String?          @db.Text
+
+  ratedByEditor       Float?           @map("rated_by_editor")
+  ratedByCH           Float?           @map("rated_by_ch")
+  reviewerValue       Float?           @map("reviewer_value")
+  actualHours         Float            @default(0) @map("actual_hours")
+  workingHours        Float            @default(0) @map("working_hours")
+  reviewerFeedback    String?          @map("reviewer_feedback")
+
+  totalProjectValue   Float?           @map("total_project_value")
+  formulaPercent      Float            @default(0) @map("formula_percent")
+  deductionOnDel      String?          @default("no deduction/date") @map("deduction_on_del")
+
+  amReview            AMReview         @default(NO_ISSUE) @map("am_review")
+
+  // Revenue fields
+  totalAmount         Float?           @map("total_amount")
+  paid                String?
+  received1           Float?           @map("received_1")
+
+  userId              String           @map("user_id")
+  user                User             @relation(fields: [userId], references: [id])
+
+  comments            ProjectComment[]
+
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([progress])
+  @@index([createdAt])
+  @@map("edit_projects")
+}
+
+model ProjectComment {
+  id         String      @id @default(cuid())
+  content    String      @db.Text
+  authorName String      @map("author_name")
+  authorId   String?     @map("author_id")
+  imageUrl   String?     @map("image_url")
+  projectId  String      @map("project_id")
+  project    EditProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@map("project_comments")
 }
 

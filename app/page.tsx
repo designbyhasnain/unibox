@@ -6,6 +6,7 @@ import Topbar from './components/Topbar';
 import InlineReply from './components/InlineReply';
 import { EmailRow, EmailDetail, PaginationControls, ToastStack } from './components/InboxComponents';
 import { PageLoader } from './components/LoadingStates';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import {
     updateEmailStageAction,
     markAsNotInterestedAction,
@@ -167,7 +168,8 @@ export default function InboxPage() {
     }, [searchTerm, selectedAccountId]);
 
     // Derive live status from whether accounts are loaded (real indicator)
-    const isLive = accounts.length > 0;
+    // Only check after hydration to avoid SSR/client mismatch
+    const isLive = isHydrated && accounts.length > 0;
 
     // ── Keyboard & Shortcuts ──────────────────────────────────────────────────
     useEffect(() => {
@@ -458,6 +460,7 @@ export default function InboxPage() {
                         </div>
                     ) : (
                         /* Email Detail Panel */
+                        <ErrorBoundary section="Email Detail">
                         <EmailDetail
                             email={selectedEmail}
                             threadMessages={threadMessages}
@@ -487,6 +490,7 @@ export default function InboxPage() {
                                 />
                             }
                         />
+                        </ErrorBoundary>
                     )}
                 </div>
             </div>
