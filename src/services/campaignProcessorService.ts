@@ -42,6 +42,49 @@ function isWithinSchedule(campaign: any): boolean {
     return true;
 }
 
+// ─── Next Valid Send Time (exported for use in launch) ───────────────────────
+
+export function getNextValidSendTime(campaign: any, fromDate: Date = new Date()): Date {
+    if (!campaign.schedule_enabled) return fromDate;
+
+    const tz = campaign.schedule_timezone || 'UTC';
+    const startTime = campaign.schedule_start_time || '09:00';
+    const endTime = campaign.schedule_end_time || '17:00';
+    const allowedDays: number[] = campaign.schedule_days ?? [1, 2, 3, 4, 5];
+
+    // Check up to 14 days ahead to find a valid slot
+    for (let offset = 0; offset < 14 * 24; offset++) {
+        const candidate = new Date(fromDate.getTime() + offset * 60 * 60 * 1000);
+
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            hour: 'numeric', minute: 'numeric', hour12: false,
+            weekday: 'short',
+        });
+        const parts = formatter.formatToParts(candidate);
+        const get = (type: string) => parts.find(p => p.type === type)?.value ?? '';
+
+        const hour = parseInt(get('hour'));
+        const minute = parseInt(get('minute'));
+        const currentTime = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+
+        const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+        const dayOfWeek = dayMap[get('weekday')] ?? candidate.getDay();
+
+        if (!allowedDays.includes(dayOfWeek)) continue;
+        if (currentTime < startTime || currentTime > endTime) continue;
+
+        // Date range check
+        if (campaign.schedule_start_date && candidate < new Date(campaign.schedule_start_date)) continue;
+        if (campaign.schedule_end_date && candidate > new Date(campaign.schedule_end_date)) continue;
+
+        return candidate;
+    }
+
+    // Fallback: if no valid slot in 14 days, use now
+    return fromDate;
+}
+
 // ─── Auto-Reply Detection ────────────────────────────────────────────────────
 
 export function isAutoReply(subject: string, body: string): boolean {
@@ -84,7 +127,8 @@ function getStaggerDelay(campaign: any, position: number, totalInBatch: number):
     const baseGapMs = (campaign.email_gap_minutes || 10) * 60 * 1000;
     const randomMaxMs = (campaign.random_wait_max || 5) * 60 * 1000;
     const randomMs = Math.random() * randomMaxMs;
-    return (baseGapMs * position) + randomMs;
+    const maxStaggerMs = 60 * 60 * 1000; // Cap at 60 minutes max
+    return Math.min((baseGapMs * position) + randomMs, maxStaggerMs);
 }
 
 // ─── Main Enqueue Function ───────────────────────────────────────────────────

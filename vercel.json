@@ -42,30 +42,5 @@
             "maxDuration": 60
         }
     },
-    "crons": [
-        {
-            "path": "/api/cron/cleanup-tracking",
-            "schedule": "0 3 * * *"
-        },
-        {
-            "path": "/api/campaigns/process",
-            "schedule": "0 6 * * *"
-        },
-        {
-            "path": "/api/cron/process-webhooks",
-            "schedule": "0 0 * * *"
-        },
-        {
-            "path": "/api/cron/renew-gmail-watches",
-            "schedule": "0 3 */3 * *"
-        },
-        {
-            "path": "/api/cron/automations",
-            "schedule": "0 8 * * *"
-        },
-        {
-            "path": "/api/sync/health",
-            "schedule": "0 12 * * *"
-        }
-    ]
+    "crons": []
 }

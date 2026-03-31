@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { getAccessibleGmailAccountIds, requireAdmin } from '../utils/accessControl';
+import { getNextValidSendTime } from '../services/campaignProcessorService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -659,13 +660,14 @@ export async function launchCampaignAction(campaignId: string) {
             return { success: false, error: 'Campaign must have at least one contact enrolled before launching' };
         }
 
-        // Set all PENDING contacts to IN_PROGRESS with nextSendAt = now
-        const now = new Date().toISOString();
+        // Set all PENDING contacts to IN_PROGRESS with nextSendAt = next valid schedule time
+        const now = new Date();
+        const nextSend = getNextValidSendTime(campaign, now);
         await supabase
             .from('campaign_contacts')
             .update({
                 status: 'IN_PROGRESS',
-                next_send_at: now,
+                next_send_at: nextSend.toISOString(),
             })
             .eq('campaign_id', campaignId)
             .eq('status', 'PENDING');
@@ -673,7 +675,7 @@ export async function launchCampaignAction(campaignId: string) {
         // Update campaign status
         const { error } = await supabase
             .from('campaigns')
-            .update({ status: 'RUNNING', updated_at: now })
+            .update({ status: 'RUNNING', updated_at: now.toISOString() })
             .eq('id', campaignId);
 
         if (error) {
