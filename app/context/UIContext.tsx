@@ -7,6 +7,10 @@ interface UIContextType {
     setComposeOpen: (open: boolean) => void;
     composeDefaultTo: string;
     setComposeDefaultTo: (to: string) => void;
+    composeDefaultSubject: string;
+    setComposeDefaultSubject: (subject: string) => void;
+    composeDefaultBody: string;
+    setComposeDefaultBody: (body: string) => void;
 }
 
 const UIContext = createContext<UIContextType | undefined>(undefined);
@@ -14,13 +18,19 @@ const UIContext = createContext<UIContextType | undefined>(undefined);
 export function UIProvider({ children }: { children: ReactNode }) {
     const [isComposeOpen, setComposeOpen] = useState(false);
     const [composeDefaultTo, setComposeDefaultTo] = useState('');
+    const [composeDefaultSubject, setComposeDefaultSubject] = useState('');
+    const [composeDefaultBody, setComposeDefaultBody] = useState('');
 
     return (
         <UIContext.Provider value={{
             isComposeOpen,
             setComposeOpen,
             composeDefaultTo,
-            setComposeDefaultTo
+            setComposeDefaultTo,
+            composeDefaultSubject,
+            setComposeDefaultSubject,
+            composeDefaultBody,
+            setComposeDefaultBody,
         }}>
             {children}
         </UIContext.Provider>

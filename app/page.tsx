@@ -81,7 +81,7 @@ export default function InboxPage() {
         accounts
     });
 
-    const { setComposeOpen, setComposeDefaultTo } = useUI();
+    const { setComposeOpen, setComposeDefaultTo, setComposeDefaultSubject, setComposeDefaultBody } = useUI();
     const [isReplyingInline, setIsReplyingInline] = useState(false);
     const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -175,6 +175,8 @@ export default function InboxPage() {
             if (e.key === 'Escape') setSelectedEmail(null);
             if (e.key === 'c' && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName === 'BODY') {
                 setComposeDefaultTo('');
+                setComposeDefaultSubject('');
+                setComposeDefaultBody('');
                 setComposeOpen(true);
             }
         };
@@ -465,9 +467,10 @@ export default function InboxPage() {
                             onStageChange={handleChangeStage}
                             onReply={() => setIsReplyingInline(true)}
                             onForward={() => {
-                                setComposeDefaultTo(
-                                    selectedEmail.from_email?.match(/<([^>]+)>/)?.[1] || selectedEmail.from_email
-                                );
+                                setComposeDefaultTo('');
+                                setComposeDefaultSubject('Fwd: ' + (selectedEmail.subject || ''));
+                                const fwdBody = `<br/><br/>---------- Forwarded message ----------<br/>From: ${selectedEmail.from_email || ''}<br/>Date: ${new Date(selectedEmail.sent_at).toLocaleString()}<br/>Subject: ${selectedEmail.subject || ''}<br/>To: ${selectedEmail.to_email || ''}<br/><br/>${selectedEmail.body || selectedEmail.snippet || ''}`;
+                                setComposeDefaultBody(fwdBody);
                                 setComposeOpen(true);
                             }}
                             onNotInterested={handleNotInterested}

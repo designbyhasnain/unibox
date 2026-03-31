@@ -1,8 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Simple WhatsApp-style tick tracking.
- * Only injects a 1x1 pixel — no link rewriting, no click tracking.
+ * Email tracking: open pixel + click tracking via link rewriting.
  */
 
 export function generateTrackingId(): string {
@@ -27,7 +26,25 @@ function getTrackingPixelHtml(trackingId: string): string {
 }
 
 /**
- * Injects a tracking pixel into the email body.
+ * Rewrites links in HTML to go through click tracking.
+ * Skips mailto:, unsubscribe, and anchor (#) links.
+ */
+function rewriteLinks(html: string, trackingId: string): string {
+    const baseUrl = getBaseUrl();
+    return html.replace(/<a\s([^>]*?)href=["']([^"']+)["']([^>]*?)>/gi, (match, before, url, after) => {
+        // Skip non-trackable links
+        if (url.startsWith('mailto:') || url.startsWith('#') || url.startsWith('tel:') ||
+            url.includes('unsubscribe') || url.includes('/api/track') ||
+            url.startsWith('javascript:')) {
+            return match;
+        }
+        const trackedUrl = `${baseUrl}/api/track/click?t=${trackingId}&url=${encodeURIComponent(url)}`;
+        return `<a ${before}href="${trackedUrl}"${after}>`;
+    });
+}
+
+/**
+ * Injects a tracking pixel and rewrites links for click tracking.
  * Returns { body, trackingId }
  */
 export function prepareTrackedEmail(body: string, isTrackingEnabled: boolean = true): {
@@ -41,7 +58,10 @@ export function prepareTrackedEmail(body: string, isTrackingEnabled: boolean = t
     const trackingId = generateTrackingId();
     const pixelHtml = getTrackingPixelHtml(trackingId);
 
-    let trackedBody = body;
+    // Rewrite links for click tracking
+    let trackedBody = rewriteLinks(body, trackingId);
+
+    // Inject open tracking pixel
     if (trackedBody.includes('</body>')) {
         trackedBody = trackedBody.replace('</body>', pixelHtml + '</body>');
     } else if (trackedBody.includes('</html>')) {

@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import Topbar from '../components/Topbar';
 import { useUI } from '../context/UIContext';
 import AddProjectModal from '../components/AddProjectModal';
@@ -55,6 +56,7 @@ function isClientsCacheValid(): boolean {
 }
 
 export default function ClientsPage() {
+    const router = useRouter();
     const isHydrated = useHydrated();
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
     const [clients, setClients] = useState<any[]>(() => Array.isArray(globalClientsCache) ? globalClientsCache : []);
@@ -816,6 +818,15 @@ export default function ClientsPage() {
                                         <span className="detail-section-label">Client Profile</span>
                                     </div>
                                     <div className="detail-actions-buttons">
+                                        <button
+                                            className="btn btn-secondary sm"
+                                            onClick={() => router.push(`/clients/${selectedClient.id}`)}
+                                            aria-label="Full profile"
+                                            style={{ height: 34, padding: '0 1rem', borderRadius: '8px' }}
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 6 }}><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
+                                            Profile
+                                        </button>
                                         <button
                                             className="btn btn-secondary sm"
                                             onClick={() => { setProjectDefaultName(''); setIsAddProjectOpen(true); }}

@@ -13,13 +13,14 @@ interface ComposeModalProps {
     onClose: () => void;
     defaultTo?: string;
     defaultSubject?: string;
+    defaultBody?: string;
     threadId?: string;
 }
 
-export default function ComposeModal({ onClose, defaultTo = '', defaultSubject = '', threadId = '' }: ComposeModalProps) {
+export default function ComposeModal({ onClose, defaultTo = '', defaultSubject = '', defaultBody = '', threadId = '' }: ComposeModalProps) {
     const [to, setTo] = useState(defaultTo);
     const [subject, setSubject] = useState(defaultSubject);
-    const [body, setBody] = useState('');
+    const [body, setBody] = useState(defaultBody);
     const [fromAccount, setFromAccount] = useState('');
     const { accounts: ctxAccounts } = useGlobalFilter();
     const [accounts, setAccounts] = useState<any[]>(ctxAccounts);

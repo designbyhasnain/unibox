@@ -12,7 +12,7 @@ interface ClientLayoutProps {
 
 export default function ClientLayout({ children }: ClientLayoutProps) {
     const pathname = usePathname();
-    const { isComposeOpen, setComposeOpen, composeDefaultTo } = useUI();
+    const { isComposeOpen, setComposeOpen, composeDefaultTo, composeDefaultSubject, composeDefaultBody } = useUI();
     const { selectedAccountId } = useGlobalFilter();
 
     // Prefetch data for other pages in background
@@ -33,6 +33,8 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
                 <ComposeModal
                     onClose={() => setComposeOpen(false)}
                     defaultTo={composeDefaultTo}
+                    defaultSubject={composeDefaultSubject}
+                    defaultBody={composeDefaultBody}
                 />
             )}
         </>
