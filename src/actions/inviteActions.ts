@@ -266,6 +266,10 @@ async function sendInviteEmail(toEmail: string, toName: string, inviteUrl: strin
         </div>
     `;
 
+    console.error('[INVITE EMAIL] Attempting send to:', toEmail);
+    console.error('[INVITE EMAIL] API key exists:', !!process.env.RESEND_API_KEY);
+    console.error('[INVITE EMAIL] API key prefix:', process.env.RESEND_API_KEY?.substring(0, 8));
+
     const { data, error } = await resend.emails.send({
         from: 'Unibox <onboarding@resend.dev>',
         to: toEmail,
