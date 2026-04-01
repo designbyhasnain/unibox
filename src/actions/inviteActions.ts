@@ -267,7 +267,7 @@ async function sendInviteEmail(toEmail: string, toName: string, inviteUrl: strin
     `;
 
     const { data, error } = await resend.emails.send({
-        from: 'Unibox <noreply@txb-unibox.vercel.app>',
+        from: 'Unibox <onboarding@resend.dev>',
         to: toEmail,
         subject: `${adminName} invited you to Unibox`,
         html: emailBody,
