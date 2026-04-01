@@ -11,6 +11,7 @@ import { EmailRow, EmailDetail, PaginationControls } from '../components/InboxCo
 import InlineReply from '../components/InlineReply';
 import AddLeadModal from '../components/AddLeadModal';
 import CSVImportModal from '../components/CSVImportModal';
+import DownloadExtensionModal from '../components/clients/DownloadExtensionModal';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { getRelationshipInsightAction, type RelationshipInsight } from '../../src/actions/relationshipActions';
 import { generateContactSummaryAction, generateAISummaryAction, type ContactSummary } from '../../src/actions/summaryActions';
@@ -74,6 +75,7 @@ export default function ClientsPage() {
     const [isReplyingInline, setIsReplyingInline] = useState(false);
     const [isAddClientOpen, setIsAddClientOpen] = useState(false);
     const [isCSVImportOpen, setIsCSVImportOpen] = useState(false);
+    const [isExtensionModalOpen, setIsExtensionModalOpen] = useState(false);
     const [relationshipInsight, setRelationshipInsight] = useState<RelationshipInsight | null>(null);
     const [contactSummary, setContactSummary] = useState<ContactSummary | null>(null);
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -571,6 +573,10 @@ export default function ClientsPage() {
                     }
                     rightContent={
                         <div className="topbar-actions">
+                            <button className="btn btn-secondary sm" onClick={() => setIsExtensionModalOpen(true)} aria-label="Get Extension">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                                Extension
+                            </button>
                             <button className="btn btn-secondary sm" onClick={() => setIsCSVImportOpen(true)} aria-label="Import CSV">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
                                 Import CSV
@@ -1349,6 +1355,10 @@ export default function ClientsPage() {
                         }}
                     />
                 </ErrorBoundary>
+            )}
+
+            {isExtensionModalOpen && (
+                <DownloadExtensionModal onClose={() => setIsExtensionModalOpen(false)} />
             )}
 
         </div>

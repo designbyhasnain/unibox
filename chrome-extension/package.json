@@ -1,0 +1,13 @@
+{
+  "name": "unibox-client-finder",
+  "version": "1.0.0",
+  "description": "Unibox Chrome Extension - Client Finder",
+  "scripts": {
+    "build": "node build.js",
+    "zip": "node build.js && node zip.js"
+  },
+  "dependencies": {
+    "@types/archiver": "^7.0.0",
+    "archiver": "^7.0.1"
+  }
+}

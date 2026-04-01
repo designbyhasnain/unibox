@@ -105,7 +105,7 @@ export async function sendGmailEmail(params: {
             error.response?.data?.error === 'invalid_grant';
 
         if (isAuthError) {
-            console.log(`[Gmail Send] Token expired for ${account.email}, attempting refresh...`);
+            console.error(`[Gmail Send] Token expired for ${account.email}, attempting refresh...`);
             try {
                 const newAccessToken = await refreshAccessToken(accountId);
                 const sentData = await performSend(newAccessToken);

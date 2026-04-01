@@ -58,7 +58,6 @@ export async function POST(request: NextRequest) {
             await supabase.from('users').update({
                 password: hashedPassword,
                 role: invitation.role,
-                status: 'ACTIVE',
             }).eq('id', userId);
         } else {
             const { data: newUser, error: createError } = await supabase
@@ -69,7 +68,6 @@ export async function POST(request: NextRequest) {
                     password: hashedPassword,
                     role: invitation.role,
                     invited_by: invitation.invited_by,
-                    status: 'ACTIVE',
                 })
                 .select('id')
                 .single();

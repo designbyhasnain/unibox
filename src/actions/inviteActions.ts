@@ -1,8 +1,44 @@
 'use server';
 
 import * as crypto from 'crypto';
+import { Resend } from 'resend';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+function buildInviteHtml(inviteUrl: string) {
+    return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2>You're Invited!</h2>
+      <p>You have been invited to join Unibox CRM.</p>
+      <p>Click the link below to accept your invitation:</p>
+      <a href="${inviteUrl}" style="background: #2563eb; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block;">
+        Accept Invitation
+      </a>
+      <p>This link expires in 7 days.</p>
+    </div>
+  `;
+}
+
+async function sendInviteViaResend(toEmail: string, inviteUrl: string) {
+    console.error('[RESEND] Sending invite to:', toEmail);
+    console.error('[RESEND] API key exists:', !!process.env.RESEND_API_KEY);
+
+    const { data, error } = await resend.emails.send({
+        from: 'Unibox <noreply@texasbrains.com>',
+        to: [toEmail],
+        subject: 'You have been invited to join Unibox',
+        html: buildInviteHtml(inviteUrl),
+    });
+
+    if (error) {
+        console.error('[RESEND FAILED]', JSON.stringify(error));
+        throw new Error('Email failed: ' + error.message);
+    }
+
+    console.error('[RESEND SUCCESS] id:', data?.id);
+}
 
 /**
  * Send an invitation to join the app.
@@ -14,6 +50,7 @@ export async function sendInviteAction(params: {
     role: 'ADMIN' | 'SALES';
     assignedGmailAccountIds: string[];
 }) {
+    console.error('[INVITE] sendInviteAction called for:', params.email);
     const { userId, role } = await ensureAuthenticated();
     if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
@@ -52,7 +89,7 @@ export async function sendInviteAction(params: {
 
     // Generate token
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: invitation, error } = await supabase
         .from('invitations')
@@ -70,17 +107,16 @@ export async function sendInviteAction(params: {
         .single();
 
     if (error) {
-        console.error('[inviteActions] sendInviteAction error:', JSON.stringify(error));
+        console.error('[INVITE] DB insert error:', JSON.stringify(error));
         return { success: false, error: `Failed to create invitation: ${error.message}` };
     }
 
-    // Try to send invite email via first available OAuth account
     const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/invite/accept?token=${token}`;
 
     try {
-        await sendInviteEmail(normalizedEmail, name, inviteUrl, userId);
-    } catch (emailErr) {
-        console.warn('[inviteActions] Could not send invite email, link available in dashboard:', emailErr);
+        await sendInviteViaResend(normalizedEmail, inviteUrl);
+    } catch (emailErr: any) {
+        console.error('[INVITE] Email send failed:', emailErr?.message);
     }
 
     return { success: true, invitation, inviteUrl };
@@ -100,7 +136,6 @@ export async function listInvitesAction() {
 
     if (error) {
         console.error('[inviteActions] listInvitesAction error:', error);
-        // Fallback: try without the join
         const { data: fallbackData } = await supabase
             .from('invitations')
             .select('*')
@@ -136,11 +171,12 @@ export async function revokeInviteAction(inviteId: string) {
  * Resend a pending invitation. ADMIN only.
  */
 export async function resendInviteAction(inviteId: string) {
+    console.error('[INVITE] resendInviteAction called for id:', inviteId);
     const { userId, role } = await ensureAuthenticated();
     if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
     const newToken = crypto.randomBytes(32).toString('hex');
-    const newExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: invitation, error } = await supabase
         .from('invitations')
@@ -154,15 +190,16 @@ export async function resendInviteAction(inviteId: string) {
         .single();
 
     if (error || !invitation) {
+        console.error('[INVITE] resend DB update failed:', JSON.stringify(error));
         return { success: false, error: 'Failed to resend invitation' };
     }
 
     const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/invite/accept?token=${newToken}`;
 
     try {
-        await sendInviteEmail(invitation.email, invitation.name, inviteUrl, userId);
-    } catch (emailErr) {
-        console.warn('[inviteActions] Could not send invite email:', emailErr);
+        await sendInviteViaResend(invitation.email, inviteUrl);
+    } catch (emailErr: any) {
+        console.error('[INVITE] Email resend failed:', emailErr?.message);
     }
 
     return { success: true, inviteUrl };
@@ -172,11 +209,7 @@ export async function resendInviteAction(inviteId: string) {
  * Validate an invite token (public - used by invite accept page).
  */
 export async function validateInviteTokenAction(token: string) {
-    console.log('[validateInvite] Token received:', token);
-    console.log('[validateInvite] Token length:', token?.length);
-
     if (!token || token.length !== 64) {
-        console.log('[validateInvite] REJECTED: bad token length');
         return { valid: false, error: 'Invalid token' };
     }
 
@@ -186,22 +219,15 @@ export async function validateInviteTokenAction(token: string) {
         .eq('token', token)
         .maybeSingle();
 
-    console.log('[validateInvite] DB result:', JSON.stringify(invitation));
-    console.log('[validateInvite] DB error:', JSON.stringify(error));
-
     if (error || !invitation) {
-        console.log('[validateInvite] REJECTED: not found in DB');
         return { valid: false, error: 'Invitation not found' };
     }
 
     if (invitation.status !== 'PENDING') {
-        console.log('[validateInvite] REJECTED: status is', invitation.status);
         return { valid: false, error: `Invitation has already been ${invitation.status.toLowerCase()}` };
     }
 
     if (new Date(invitation.expires_at) < new Date()) {
-        console.log('[validateInvite] REJECTED: expired at', invitation.expires_at, 'now:', new Date().toISOString());
-        // Auto-expire
         await supabase.from('invitations').update({ status: 'EXPIRED' }).eq('id', invitation.id);
         return { valid: false, error: 'Invitation has expired' };
     }
@@ -213,8 +239,6 @@ export async function validateInviteTokenAction(token: string) {
         .eq('id', invitation.invited_by)
         .maybeSingle();
 
-    console.log('[validateInvite] SUCCESS — invitation valid for', invitation.email);
-
     return {
         valid: true,
         invitation: {
@@ -222,61 +246,4 @@ export async function validateInviteTokenAction(token: string) {
             inviterName: inviter?.name || 'An admin',
         },
     };
-}
-
-// ─── Helper: Send invite email ──────────────────────────────────────────────
-
-async function sendInviteEmail(toEmail: string, toName: string, inviteUrl: string, adminUserId: string) {
-    // Get admin info
-    const { data: admin } = await supabase
-        .from('users')
-        .select('name, email')
-        .eq('id', adminUserId)
-        .maybeSingle();
-
-    const adminName = admin?.name || 'Admin';
-
-    // Try to find first active OAuth account to send from
-    const { data: senderAccount } = await supabase
-        .from('gmail_accounts')
-        .select('id, connection_method')
-        .eq('status', 'ACTIVE')
-        .eq('connection_method', 'OAUTH')
-        .limit(1)
-        .maybeSingle();
-
-    if (!senderAccount) {
-        console.log(`[inviteActions] No sender account available. Invite URL: ${inviteUrl}`);
-        return;
-    }
-
-    // Use the gmail sender service
-    const { sendGmailEmail } = await import('../services/gmailSenderService');
-
-    const emailBody = `
-        <div style="font-family: 'Google Sans', Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 40px 20px;">
-            <div style="text-align: center; margin-bottom: 32px;">
-                <div style="display: inline-block; width: 48px; height: 48px; background: #1a73e8; border-radius: 12px; line-height: 48px; text-align: center;">
-                    <span style="color: white; font-size: 24px; font-weight: bold;">U</span>
-                </div>
-                <h1 style="color: #202124; font-size: 24px; margin: 16px 0 4px;">You're invited to Unibox</h1>
-                <p style="color: #5f6368; font-size: 14px; margin: 0;">${adminName} has invited you to join the team</p>
-            </div>
-            <div style="background: #f8f9fa; border-radius: 12px; padding: 24px; margin-bottom: 32px;">
-                <p style="color: #202124; font-size: 14px; margin: 0 0 4px;">Hello <strong>${toName}</strong>,</p>
-                <p style="color: #5f6368; font-size: 14px; margin: 0;">Click the button below to accept your invitation and get started.</p>
-            </div>
-            <div style="text-align: center; margin-bottom: 32px;">
-                <a href="${inviteUrl}" style="display: inline-block; background: #1a73e8; color: white; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 500;">Accept Invitation</a>
-            </div>
-            <p style="color: #80868b; font-size: 12px; text-align: center;">This invitation expires in 72 hours. If you didn't expect this, you can ignore this email.</p>
-        </div>
-    `;
-
-    await sendGmailEmail({
-        accountId: senderAccount.id,
-        to: toEmail,
-        subject: `${adminName} invited you to Unibox`,
-        body: emailBody,
-    });
 }
