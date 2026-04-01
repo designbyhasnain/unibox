@@ -79,8 +79,9 @@ export async function sendInviteAction(params: {
 
     try {
         await sendInviteEmail(normalizedEmail, name, inviteUrl, userId);
-    } catch (emailErr) {
-        console.warn('[inviteActions] Could not send invite email, link available in dashboard:', emailErr);
+    } catch (emailErr: any) {
+        console.error('[INVITE EMAIL FAILED]', emailErr?.message || emailErr);
+        console.error('[INVITE EMAIL FAILED] Stack:', emailErr?.stack);
     }
 
     return { success: true, invitation, inviteUrl };
@@ -236,17 +237,16 @@ async function sendInviteEmail(toEmail: string, toName: string, inviteUrl: strin
 
     const adminName = admin?.name || 'Admin';
 
-    // Try to find first active OAuth account to send from
-    const { data: senderAccount } = await supabase
+    // Fetch active OAuth accounts to try sending from (try multiple in case tokens are expired)
+    const { data: senderAccounts } = await supabase
         .from('gmail_accounts')
-        .select('id, connection_method')
+        .select('id, email, connection_method')
         .eq('status', 'ACTIVE')
         .eq('connection_method', 'OAUTH')
-        .limit(1)
-        .maybeSingle();
+        .limit(5);
 
-    if (!senderAccount) {
-        console.log(`[inviteActions] No sender account available. Invite URL: ${inviteUrl}`);
+    if (!senderAccounts || senderAccounts.length === 0) {
+        console.error('[INVITE EMAIL FAILED] No active OAuth sender accounts found');
         return;
     }
 
@@ -259,7 +259,7 @@ async function sendInviteEmail(toEmail: string, toName: string, inviteUrl: strin
                 <div style="display: inline-block; width: 48px; height: 48px; background: #1a73e8; border-radius: 12px; line-height: 48px; text-align: center;">
                     <span style="color: white; font-size: 24px; font-weight: bold;">U</span>
                 </div>
-                <h1 style="color: #202124; font-size: 24px; margin: 16px 0 4px;">You're invited to Unibox</h1>
+                <h1 style="color: #202124; font-size: 24px; margin: 16px 0 4px;">You've been invited to join Unibox</h1>
                 <p style="color: #5f6368; font-size: 14px; margin: 0;">${adminName} has invited you to join the team</p>
             </div>
             <div style="background: #f8f9fa; border-radius: 12px; padding: 24px; margin-bottom: 32px;">
@@ -273,10 +273,22 @@ async function sendInviteEmail(toEmail: string, toName: string, inviteUrl: strin
         </div>
     `;
 
-    await sendGmailEmail({
-        accountId: senderAccount.id,
-        to: toEmail,
-        subject: `${adminName} invited you to Unibox`,
-        body: emailBody,
-    });
+    // Try each account until one succeeds (handles expired/revoked tokens)
+    for (const senderAccount of senderAccounts) {
+        try {
+            await sendGmailEmail({
+                accountId: senderAccount.id,
+                to: toEmail,
+                subject: `${adminName} invited you to Unibox`,
+                body: emailBody,
+            });
+            console.error('[INVITE EMAIL] Sent successfully via', senderAccount.email);
+            return; // Success — stop trying
+        } catch (sendErr: any) {
+            console.error(`[INVITE EMAIL] Failed via ${senderAccount.email}:`, sendErr?.message);
+            // Try next account
+        }
+    }
+    // All accounts failed
+    console.error('[INVITE EMAIL FAILED] All sender accounts failed');
 }
