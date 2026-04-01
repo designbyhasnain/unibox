@@ -84,7 +84,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     // Fetch accounts once on mount — skip on login page
     const hasInitialized = React.useRef(false);
     React.useEffect(() => {
-        if (pathname === '/login') return;
+        if (pathname === '/login' || pathname.startsWith('/invite')) return;
         if (hasInitialized.current) return;
         hasInitialized.current = true;
         refreshAccounts();
