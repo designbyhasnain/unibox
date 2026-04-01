@@ -6,6 +6,7 @@ export type EditProjectType = {
   id: string;
   date: string | null;
   clientName: string | null;
+  clientEmail: string | null;
   name: string;
   progress: ProjectProgress;
   isChecked: boolean;

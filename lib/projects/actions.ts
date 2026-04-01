@@ -55,7 +55,7 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
   const projects = (data || []).map((p: Record<string, unknown>) => {
     const comments = Array.isArray(p.comments) ? p.comments : [];
     return {
-      id: p.id, date: p.date, clientName: p.client_name, name: p.name,
+      id: p.id, date: p.date, clientName: p.client_name, clientEmail: p.client_email, name: p.name,
       progress: p.progress, isChecked: p.is_checked,
       initialProjectValue: p.initial_project_value, dueDate: p.due_date,
       startDate: p.start_date, approvedDate: p.approved_date,

@@ -46,6 +46,7 @@ export const TABLE_COLUMNS = [
   { id: "select",              label: "",                   width: 32,  type: "checkbox" as const,  fixed: true },
   { id: "date",                label: "Date",               width: 130, type: "date" as const },
   { id: "clientName",          label: "Client name",        width: 160, type: "text" as const },
+  { id: "clientEmail",         label: "Client email",       width: 200, type: "text" as const },
   { id: "name",                label: "Name",               width: 260, type: "text" as const,     primary: true },
   { id: "progress",            label: "progress",           width: 130, type: "progress" as const },
   { id: "isChecked",           label: "✓",                  width: 40,  type: "checkbox" as const },
