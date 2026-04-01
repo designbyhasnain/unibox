@@ -905,3 +905,36 @@ export async function getEmailTrackingAction(messageId: string) {
         return null;
     }
 }
+
+// ─── Bulk Actions ────────────────────────────────────────────────────────────
+
+export async function bulkUpdateStageAction(contactIds: string[], stage: string) {
+    await ensureAuthenticated();
+    const { error } = await supabase
+        .from('contacts')
+        .update({ pipeline_stage: stage })
+        .in('id', contactIds);
+    if (error) throw new Error(error.message);
+    revalidatePath('/');
+    return { updated: contactIds.length };
+}
+
+export async function bulkMarkReadAction(messageIds: string[]) {
+    await ensureAuthenticated();
+    const { error } = await supabase
+        .from('email_messages')
+        .update({ is_unread: false })
+        .in('id', messageIds);
+    if (error) throw new Error(error.message);
+    return { updated: messageIds.length };
+}
+
+export async function bulkMarkUnreadAction(messageIds: string[]) {
+    await ensureAuthenticated();
+    const { error } = await supabase
+        .from('email_messages')
+        .update({ is_unread: true })
+        .in('id', messageIds);
+    if (error) throw new Error(error.message);
+    return { updated: messageIds.length };
+}

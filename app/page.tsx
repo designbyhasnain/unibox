@@ -12,10 +12,13 @@ import {
     markAsNotInterestedAction,
     markAsNotSpamAction,
     searchEmailsAction,
+    bulkUpdateStageAction,
+    bulkMarkReadAction,
+    bulkMarkUnreadAction,
 } from '../src/actions/emailActions';
 import { useMailbox } from './hooks/useMailbox';
 import { useGlobalFilter } from './context/FilterContext';
-import { shouldShowStageBadge } from './constants/stages';
+import { shouldShowStageBadge, STAGE_OPTIONS } from './constants/stages';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -85,6 +88,44 @@ export default function InboxPage() {
     const { setComposeOpen, setComposeDefaultTo, setComposeDefaultSubject, setComposeDefaultBody } = useUI();
     const [isReplyingInline, setIsReplyingInline] = useState(false);
     const [toasts, setToasts] = useState<ToastItem[]>([]);
+    const [bulkLoading, setBulkLoading] = useState(false);
+
+    // ─── Bulk Action Handlers ───────────────────────────────────────────────
+    const handleBulkStageChange = async (stage: string) => {
+        if (selectedEmailIds.size === 0) return;
+        setBulkLoading(true);
+        try {
+            const contactIds = emails
+                .filter((e: any) => selectedEmailIds.has(e.id) && e.contact_id)
+                .map((e: any) => e.contact_id);
+            const unique = [...new Set(contactIds)];
+            if (unique.length > 0) {
+                await bulkUpdateStageAction(unique, stage);
+            }
+            loadEmails(currentPage);
+        } catch (e) { console.error('Bulk stage change failed:', e); }
+        setBulkLoading(false);
+    };
+
+    const handleBulkRead = async () => {
+        if (selectedEmailIds.size === 0) return;
+        setBulkLoading(true);
+        try {
+            await bulkMarkReadAction([...selectedEmailIds]);
+            loadEmails(currentPage);
+        } catch (e) { console.error('Bulk mark read failed:', e); }
+        setBulkLoading(false);
+    };
+
+    const handleBulkUnread = async () => {
+        if (selectedEmailIds.size === 0) return;
+        setBulkLoading(true);
+        try {
+            await bulkMarkUnreadAction([...selectedEmailIds]);
+            loadEmails(currentPage);
+        } catch (e) { console.error('Bulk mark unread failed:', e); }
+        setBulkLoading(false);
+    };
 
     // Settings - read from localStorage to connect with settings page (FE-024)
     const [pollingInterval, setPollingInterval] = useState(() => {
@@ -387,10 +428,51 @@ export default function InboxPage() {
                                 </div>
                             </div>
 
+                            {/* Bulk Action Bar */}
+                            {selectedEmailIds.size > 0 && (
+                                <div style={{
+                                    position: 'sticky', top: 0, zIndex: 10,
+                                    display: 'flex', alignItems: 'center', gap: 10,
+                                    padding: '8px 16px',
+                                    background: 'rgba(26,115,232,0.08)',
+                                    backdropFilter: 'blur(8px)',
+                                    borderBottom: '1px solid rgba(26,115,232,0.2)',
+                                }}>
+                                    <span style={{ fontSize: 12, fontWeight: 600, color: '#1a73e8' }}>
+                                        {selectedEmailIds.size} selected
+                                    </span>
+                                    <select
+                                        onChange={(e) => { if (e.target.value) handleBulkStageChange(e.target.value); e.target.value = ''; }}
+                                        defaultValue=""
+                                        disabled={bulkLoading}
+                                        style={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: 'pointer' }}
+                                    >
+                                        <option value="" disabled>Change Stage...</option>
+                                        {STAGE_OPTIONS.map((s: any) => (
+                                            <option key={s.value} value={s.value}>{s.label}</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={handleBulkRead} disabled={bulkLoading}
+                                        style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                                        Mark Read
+                                    </button>
+                                    <button onClick={handleBulkUnread} disabled={bulkLoading}
+                                        style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                                        Mark Unread
+                                    </button>
+                                    <button onClick={() => toggleSelectAll()}
+                                        style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-tertiary)', cursor: 'pointer', marginLeft: 'auto' }}>
+                                        Deselect All
+                                    </button>
+                                </div>
+                            )}
+
                             {/* Email Rows */}
                             <div id="email-list-scroll" className="email-list-scroll" aria-live="polite">
                                 <div className="gmail-list-header">
-                                    <div className="gmail-lh-check" />
+                                    <div className="gmail-lh-check">
+                                        <input type="checkbox" checked={selectedEmailIds.size > 0 && selectedEmailIds.size === emails.length} onChange={() => toggleSelectAll()} style={{ cursor: 'pointer' }} />
+                                    </div>
                                     <div className="gmail-lh-star" />
                                     <div className="gmail-lh-sender">SENDER</div>
                                     <div className="gmail-lh-body">SUBJECT / PREVIEW</div>
