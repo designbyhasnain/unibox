@@ -53,6 +53,7 @@
     "react-dom": "^19.2.4",
     "react-dropzone": "^15.0.0",
     "recharts": "^3.8.0",
+    "resend": "^6.10.0",
     "server-only": "^0.0.1",
     "uuid": "^13.0.0"
   }

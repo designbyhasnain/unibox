@@ -225,9 +225,18 @@ export async function validateInviteTokenAction(token: string) {
     };
 }
 
-// ─── Helper: Send invite email ──────────────────────────────────────────────
+// ─── Helper: Send invite email via Resend ──────────────────────────────────
 
 async function sendInviteEmail(toEmail: string, toName: string, inviteUrl: string, adminUserId: string) {
+    const { Resend } = await import('resend');
+
+    if (!process.env.RESEND_API_KEY) {
+        console.error('[INVITE EMAIL FAILED] RESEND_API_KEY is not set');
+        return;
+    }
+
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
     // Get admin info
     const { data: admin } = await supabase
         .from('users')
@@ -236,22 +245,6 @@ async function sendInviteEmail(toEmail: string, toName: string, inviteUrl: strin
         .maybeSingle();
 
     const adminName = admin?.name || 'Admin';
-
-    // Fetch active OAuth accounts to try sending from (try multiple in case tokens are expired)
-    const { data: senderAccounts } = await supabase
-        .from('gmail_accounts')
-        .select('id, email, connection_method')
-        .eq('status', 'ACTIVE')
-        .eq('connection_method', 'OAUTH')
-        .limit(5);
-
-    if (!senderAccounts || senderAccounts.length === 0) {
-        console.error('[INVITE EMAIL FAILED] No active OAuth sender accounts found');
-        return;
-    }
-
-    // Use the gmail sender service
-    const { sendGmailEmail } = await import('../services/gmailSenderService');
 
     const emailBody = `
         <div style="font-family: 'Google Sans', Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 40px 20px;">
@@ -273,22 +266,17 @@ async function sendInviteEmail(toEmail: string, toName: string, inviteUrl: strin
         </div>
     `;
 
-    // Try each account until one succeeds (handles expired/revoked tokens)
-    for (const senderAccount of senderAccounts) {
-        try {
-            await sendGmailEmail({
-                accountId: senderAccount.id,
-                to: toEmail,
-                subject: `${adminName} invited you to Unibox`,
-                body: emailBody,
-            });
-            console.error('[INVITE EMAIL] Sent successfully via', senderAccount.email);
-            return; // Success — stop trying
-        } catch (sendErr: any) {
-            console.error(`[INVITE EMAIL] Failed via ${senderAccount.email}:`, sendErr?.message);
-            // Try next account
-        }
+    const { data, error } = await resend.emails.send({
+        from: 'Unibox <noreply@txb-unibox.vercel.app>',
+        to: toEmail,
+        subject: `${adminName} invited you to Unibox`,
+        html: emailBody,
+    });
+
+    if (error) {
+        console.error('[INVITE EMAIL FAILED] Resend error:', JSON.stringify(error));
+        throw new Error(error.message);
     }
-    // All accounts failed
-    console.error('[INVITE EMAIL FAILED] All sender accounts failed');
+
+    console.error('[INVITE EMAIL] Sent successfully via Resend, id:', data?.id);
 }
