@@ -14,6 +14,7 @@ export async function sendInviteAction(params: {
     role: 'ADMIN' | 'SALES';
     assignedGmailAccountIds: string[];
 }) {
+    console.error('[INVITE] sendInviteAction CALLED for:', params.email);
     const { userId, role } = await ensureAuthenticated();
     if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
@@ -137,6 +138,7 @@ export async function revokeInviteAction(inviteId: string) {
  * Resend a pending invitation. ADMIN only.
  */
 export async function resendInviteAction(inviteId: string) {
+    console.error('[INVITE] resendInviteAction CALLED for id:', inviteId);
     const { userId, role } = await ensureAuthenticated();
     if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
@@ -162,10 +164,11 @@ export async function resendInviteAction(inviteId: string) {
 
     try {
         await sendInviteEmail(invitation.email, invitation.name, inviteUrl, userId);
-    } catch (emailErr) {
-        console.warn('[inviteActions] Could not send invite email:', emailErr);
+    } catch (emailErr: any) {
+        console.error('[INVITE EMAIL FAILED] resendInviteAction:', emailErr?.message || emailErr);
     }
 
+    console.error('[INVITE] resendInviteAction completed, inviteUrl:', inviteUrl);
     return { success: true, inviteUrl };
 }
 
