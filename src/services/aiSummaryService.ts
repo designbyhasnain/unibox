@@ -1,5 +1,9 @@
 /**
- * AI-Powered Relationship Summary
+ * AI-Powered Relationship Audit
+ *
+ * The Boardroom: Alex Hormozi (value/offer strategy) + Gary Vee (attention/hustle)
+ * + Jeremy Miner (NEPQ sales methodology) analyze every email and craft the perfect next move.
+ *
  * Primary: Groq (Llama 3.3 70B — free, fast)
  * Fallback: Google Gemini
  */
@@ -25,9 +29,12 @@ async function callGroq(prompt: string): Promise<string | null> {
             },
             body: JSON.stringify({
                 model: 'llama-3.3-70b-versatile',
-                messages: [{ role: 'user', content: prompt }],
-                max_tokens: 2000,
-                temperature: 0.7,
+                messages: [
+                    { role: 'system', content: SYSTEM_PROMPT },
+                    { role: 'user', content: prompt },
+                ],
+                max_tokens: 4000,
+                temperature: 0.8,
             }),
         });
         if (!res.ok) {
@@ -51,8 +58,8 @@ async function callGemini(prompt: string): Promise<string | null> {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
+                    contents: [{ parts: [{ text: SYSTEM_PROMPT + '\n\n' + prompt }] }],
+                    generationConfig: { temperature: 0.8, maxOutputTokens: 4000 },
                 }),
             }
         );
@@ -65,6 +72,24 @@ async function callGemini(prompt: string): Promise<string | null> {
     }
 }
 
+const SYSTEM_PROMPT = `You are THREE people sitting at a boardroom table, analyzing a sales relationship for a wedding video editing agency. This is not a casual review — this is a WAR ROOM. Every email is revenue on the table.
+
+PERSON 1 — ALEX HORMOZI (Value Architect):
+You see every interaction through the lens of VALUE. What value was offered? What value was received? Where is the Grand Slam Offer? Where did we leave money on the table? You calculate the lifetime value of this client and what it SHOULD be. You find the gap between what we're charging and what we could charge. You identify where we failed to stack value or create irresistible offers. You think in terms of: "How do we make this so good they feel stupid saying no?"
+
+PERSON 2 — GARY VEE (Attention & Hustle Strategist):
+You see every interaction through the lens of ATTENTION and SPEED. Did we reply fast enough? Did we lose their attention? Are we creating enough touchpoints? Where did we get lazy? You're brutally honest about hustle — if we ghosted someone for 2 weeks, you call that out HARD. You think about the long game — even if this deal is dead, what's the 10-year relationship worth? You think about leverage — can this client refer others? What content could come from this relationship? You see every client as a node in a network, not a transaction.
+
+PERSON 3 — JEREMY MINER (NEPQ Sales Master):
+You write the suggested next email. You use Neuro-Emotional Persuasion Questions — questions that make the prospect FEEL the problem and sell themselves on the solution. You NEVER pitch directly. You ask questions that create micro-commitments. You use tonality markers (? at end of statements to soften). You use "just out of curiosity" and "would it help if" and "what would it mean for you if". You match the prospect's communication style EXACTLY — their slang, their emoji usage, their sentence length. You study every sent email from Rafay and clone his writing DNA.
+
+ALL THREE OF YOU ARE:
+- Brutally honest — no sugar coating
+- Obsessed with specific numbers and dates from the actual emails
+- Quoting exact words the prospect used
+- Identifying the EXACT moment we lost momentum (or gained it)
+- Treating this like a $100,000 deal even if it's a $300 project — because the RELATIONSHIP is worth $100K over time`;
+
 export async function generateAIRelationshipSummary(
     contactName: string,
     contactEmail: string,
@@ -74,63 +99,84 @@ export async function generateAIRelationshipSummary(
     if (!GROQ_API_KEY && !GEMINI_API_KEY) return 'AI unavailable — no API key configured.';
     if (emails.length === 0) return 'No email history found for this contact.';
 
+    const sentEmails = emails.filter(e => e.direction === 'SENT');
+    const receivedEmails = emails.filter(e => e.direction === 'RECEIVED');
+
+    // Calculate response times
+    const responseTimes: string[] = [];
+    for (let i = 1; i < emails.length; i++) {
+        const curr = emails[i]!;
+        const prev = emails[i-1]!;
+        if (curr.direction !== prev.direction) {
+            const gap = Math.round((new Date(curr.date).getTime() - new Date(prev.date).getTime()) / (1000 * 60 * 60));
+            responseTimes.push(`${prev.direction === 'SENT' ? 'They' : 'We'} responded in ${gap}h`);
+        }
+    }
+
+    // Find the last message and who sent it
+    const lastEmail = emails[emails.length - 1]!;
+    const daysSinceLastContact = Math.round((Date.now() - new Date(lastEmail.date).getTime()) / (1000 * 60 * 60 * 24));
+    const whoSentLast = lastEmail.direction === 'SENT' ? 'WE sent the last email (ball is in THEIR court)' : 'THEY sent the last email (ball is in OUR court — WE need to respond)';
+
     const timeline = emails.map(e => {
-        const dir = e.direction === 'SENT' ? '→ YOU SENT' : '← THEY REPLIED';
-        const content = e.snippet || e.subject || '';
-        return `[${e.date}] ${dir}\nSubject: ${e.subject}\n${content}\n`;
+        const dir = e.direction === 'SENT' ? '→ RAFAY SENT' : '← CLIENT REPLIED';
+        return `[${e.date}] ${dir}\nSubject: ${e.subject}\n${e.snippet}\n`;
     }).join('\n---\n');
 
-    const prompt = `You are a sales relationship analyst for a wedding video editing agency called Wedits.
+    const prompt = `CONTACT: ${contactName} (${contactEmail})
+PIPELINE STAGE: ${pipelineStage}
+TOTAL EMAILS: ${emails.length} (${sentEmails.length} sent by us, ${receivedEmails.length} received from them)
+RESPONSE PATTERNS: ${responseTimes.join(' | ') || 'No back-and-forth yet'}
+LAST CONTACT: ${daysSinceLastContact} days ago — ${whoSentLast}
+LAST EMAIL SUBJECT: "${lastEmail.subject}"
 
-Analyze this email history between our sales agent (Rafay) and a prospect/client.
+═══════════════════════════════════════════════════
+COMPLETE EMAIL HISTORY (read EVERY word):
+═══════════════════════════════════════════════════
 
-Contact: ${contactName} (${contactEmail})
-Current Pipeline Stage: ${pipelineStage}
-Total Emails: ${emails.length} (${emails.filter(e => e.direction === 'SENT').length} sent, ${emails.filter(e => e.direction === 'RECEIVED').length} received)
-
-EMAIL TIMELINE:
 ${timeline}
 
-Generate a relationship audit in this EXACT format:
+═══════════════════════════════════════════════════
 
-## ${contactName} — Relationship Summary
+Now analyze this relationship. Output in this EXACT format:
 
-### The Timeline
-[Group emails into phases with dates. For each phase, write 1-2 sentences explaining what happened. Include direct quotes from emails when relevant. Be specific about what was discussed - pricing, projects, deadlines, etc.]
+## ${contactName} — The Boardroom Audit
 
-### What Went Right
-[Bullet points of positive moments - replies, deals discussed, interest shown]
+### HORMOZI's Take: The Value Gap
+[Alex analyzes: What value did we offer vs what they need? What's their potential lifetime value? Where did we leave money on the table? What would a Grand Slam Offer look like for this specific client? What's the pricing conversation — did we anchor correctly? Did we stack enough value? Calculate: if this client does 10 projects/year at $X, that's $Y lifetime. Are we treating them like a $Y relationship or a one-off transaction?]
 
-### What Went Wrong
-[Bullet points of mistakes - missed follow-ups, broken promises, ghosting, wrong approach. Be honest and specific.]
+### GARY VEE's Take: The Attention Audit
+[Gary audits: How fast did we respond? Any gaps where we went silent? Did we lose momentum? What's the hustle score (1-10)? Where did we get LAZY? Is there a referral opportunity? Could this person introduce us to 5 other filmmakers? What's the NETWORK value beyond this one deal? Rate our follow-up game. Call out every time we waited too long.]
 
-### Opportunities
-[What can be done to improve this relationship. Specific actionable steps.]
+### The Relationship Score Card
+| Metric | Score | Notes |
+|--------|-------|-------|
+| Response Speed | X/10 | [specific data] |
+| Value Delivery | X/10 | [what was promised vs delivered] |
+| Follow-Up Consistency | X/10 | [gaps identified] |
+| Offer Strength | X/10 | [was it irresistible?] |
+| Relationship Depth | X/10 | [transactional vs real] |
+| **Overall** | **X/10** | |
 
-### Suggested Next Email
-[Write a complete ready-to-send email. CRITICAL RULES FOR THIS EMAIL:
-1. Study Rafay's ACTUAL writing style from the sent emails above — his tone, word choices, greetings, sign-offs, sentence length, use of slang/casual language
-2. Match the energy of how the CLIENT communicates — if they're casual, be casual. If they're formal, be formal. If they use emojis, use emojis.
-3. Reference SPECIFIC details from past conversations (project names, prices discussed, feedback given)
-4. The email must sound EXACTLY like Rafay wrote it, not like an AI. Copy his patterns — how he starts emails, how he transitions, how he signs off
-5. If there was a mistake (ghosting, missed deadline), acknowledge it the way Rafay naturally would based on his past emails
-6. DO NOT use corporate language like "I hope this email finds you well" or "I wanted to reach out" — use Rafay's actual style]
+### Critical Moments (The Turning Points)
+[List the 2-3 specific moments that MADE or BROKE this relationship. Quote exact emails. Include dates. Be specific: "On March 5, they asked about pricing and we waited 4 days to respond — that killed the momentum."]
 
-IMPORTANT RULES:
-- READ EVERY EMAIL CAREFULLY — the full content is provided, not just snippets
-- Be brutally honest about mistakes (missed deadlines, ghosting, broken promises)
-- Reference specific dates, prices, project names, and details from the emails
-- Include DIRECT QUOTES from their replies — use their exact words
-- Identify pricing discussed, deals made, feedback given
-- Note any promises made and whether they were kept
-- The suggested email must feel deeply personal, reference specific past events
-- If they ghosted or we ghosted, say so directly with the exact date gap
-- If pricing was discussed, mention the exact numbers
-- If there was negative feedback, quote it exactly
-- WRITING STYLE: Study how Rafay writes in his SENT emails. Notice his greeting style (Hey/Hi/Hello), his casual phrases (man, bro, no worries), his sign-off style. The suggested email MUST sound like him, not like ChatGPT
-- MATCH CLIENT ENERGY: If the client writes short casual messages, write short. If they write long detailed ones, match that. Mirror their communication style`;
+### JEREMY MINER's Next Email
+[Jeremy writes the EXACT next email to send. Rules:
+1. Clone Rafay's writing DNA — study his sent emails above. Copy his greetings, his casual tone, his sign-offs EXACTLY
+2. Use NEPQ: Open with a situation question, then a problem awareness question, then a solution awareness question
+3. If they ghosted: Use a "break-up" pattern — "Totally understand if the timing isn't right..."
+4. If we ghosted: Acknowledge it authentically in Rafay's voice — no corporate apology
+5. If deal is active: Create urgency with a time-sensitive value add
+6. Reference the LAST specific thing they said or asked about
+7. NEVER sound like AI. Sound like a real human who actually read the conversation
+8. If they showed interest in pricing: Don't pitch. Ask "just out of curiosity, what would having X done for you mean for your business?"
+9. End with ONE clear question — not a statement, a QUESTION that demands a response
+10. Keep it SHORT. Match the length of their messages. If they write 2 lines, you write 3 max.]
 
-    // Try Groq first (faster), then Gemini as fallback
+### The $100K Play (Long-Term Strategy)
+[All three advisors agree on: What's the 12-month plan for this relationship? Not just this deal — the LIFETIME play. How do we turn this $${sentEmails.length > 0 ? '300' : '0'} contact into a $10,000/year client? What would make them refer 3 friends? What's the upsell path?]`;
+
     const result = await callGroq(prompt) || await callGemini(prompt);
-    return result || 'AI summary failed. Please try again in a moment.';
+    return result || 'AI audit failed. Please try again in a moment.';
 }

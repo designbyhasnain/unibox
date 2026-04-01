@@ -126,8 +126,8 @@ export async function generateAISummaryAction(contactId: string): Promise<string
             }
         }
 
-        // Cap at 500 chars per email to stay within token limits
-        if (bodyText.length > 500) bodyText = bodyText.substring(0, 500) + '...';
+        // Cap at 1000 chars per email for deep context while staying within token limits
+        if (bodyText.length > 1000) bodyText = bodyText.substring(0, 1000) + '...';
 
         return {
             date: e.sent_at?.substring(0, 10) || '',
