@@ -17,7 +17,7 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
     const { selectedAccountId } = useGlobalFilter();
 
     // Prefetch data for other pages in background
-    usePrefetch(selectedAccountId);
+    usePrefetch(selectedAccountId, pathname);
 
     // Login and invite pages get their own full-screen layout — no sidebar, compose modal, or trackers
     if (pathname === '/login' || pathname.startsWith('/invite')) {
