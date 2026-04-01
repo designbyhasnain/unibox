@@ -26,7 +26,7 @@ async function sendInviteViaResend(toEmail: string, inviteUrl: string) {
     console.error('[RESEND] API key exists:', !!process.env.RESEND_API_KEY);
 
     const { data, error } = await resend.emails.send({
-        from: 'Unibox <onboarding@resend.dev>',
+        from: 'Unibox <noreply@texasbrains.com>',
         to: [toEmail],
         subject: 'You have been invited to join Unibox',
         html: buildInviteHtml(inviteUrl),
