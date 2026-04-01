@@ -27,8 +27,7 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
 
   let query = supabase
     .from('edit_projects')
-    .select('*, comments:project_comments(id)', { count: 'exact' })
-    .eq('user_id', userId);
+    .select('*, comments:project_comments(id)', { count: 'exact' });
 
   if (filters?.progress) query = query.eq('progress', filters.progress);
   if (filters?.editor) query = query.eq('editor', filters.editor);
