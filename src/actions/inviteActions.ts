@@ -172,7 +172,11 @@ export async function resendInviteAction(inviteId: string) {
  * Validate an invite token (public - used by invite accept page).
  */
 export async function validateInviteTokenAction(token: string) {
+    console.log('[validateInvite] Token received:', token);
+    console.log('[validateInvite] Token length:', token?.length);
+
     if (!token || token.length !== 64) {
+        console.log('[validateInvite] REJECTED: bad token length');
         return { valid: false, error: 'Invalid token' };
     }
 
@@ -182,15 +186,21 @@ export async function validateInviteTokenAction(token: string) {
         .eq('token', token)
         .maybeSingle();
 
+    console.log('[validateInvite] DB result:', JSON.stringify(invitation));
+    console.log('[validateInvite] DB error:', JSON.stringify(error));
+
     if (error || !invitation) {
+        console.log('[validateInvite] REJECTED: not found in DB');
         return { valid: false, error: 'Invitation not found' };
     }
 
     if (invitation.status !== 'PENDING') {
+        console.log('[validateInvite] REJECTED: status is', invitation.status);
         return { valid: false, error: `Invitation has already been ${invitation.status.toLowerCase()}` };
     }
 
     if (new Date(invitation.expires_at) < new Date()) {
+        console.log('[validateInvite] REJECTED: expired at', invitation.expires_at, 'now:', new Date().toISOString());
         // Auto-expire
         await supabase.from('invitations').update({ status: 'EXPIRED' }).eq('id', invitation.id);
         return { valid: false, error: 'Invitation has expired' };
@@ -202,6 +212,8 @@ export async function validateInviteTokenAction(token: string) {
         .select('name')
         .eq('id', invitation.invited_by)
         .maybeSingle();
+
+    console.log('[validateInvite] SUCCESS — invitation valid for', invitation.email);
 
     return {
         valid: true,
