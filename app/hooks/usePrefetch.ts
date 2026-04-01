@@ -11,11 +11,13 @@ import { listInvitesAction } from '../../src/actions/inviteActions';
  * Prefetches data for all pages in the background on app load.
  * This warms up caches so navigation between pages is instant.
  */
-export function usePrefetch(selectedAccountId: string) {
+export function usePrefetch(selectedAccountId: string, pathname?: string) {
     const hasPrefetched = useRef(false);
 
     useEffect(() => {
         if (hasPrefetched.current) return;
+        // Skip prefetch on public pages — server actions call ensureAuthenticated() which redirects to /login
+        if (pathname === '/login' || pathname?.startsWith('/invite')) return;
         hasPrefetched.current = true;
 
         // Wait for initial page to finish loading, then prefetch others
