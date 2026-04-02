@@ -219,12 +219,14 @@ const PageScraper = {
     if (weddingsPerYear >= 60) { outsourcePotential = 'VERY_HIGH'; estimatedProjectsPerMonth = Math.round(weddingsPerYear / 12); }
     else if (weddingsPerYear >= 35) { outsourcePotential = 'HIGH'; estimatedProjectsPerMonth = Math.round(weddingsPerYear * 0.7 / 12); }
     else if (weddingsPerYear >= 20) { outsourcePotential = 'MEDIUM'; estimatedProjectsPerMonth = Math.round(weddingsPerYear * 0.5 / 12); }
-    else if (weddingsPerYear >= 10) { outsourcePotential = 'LOW'; estimatedProjectsPerMonth = Math.round(weddingsPerYear * 0.3 / 12); }
+    else if (weddingsPerYear >= 10) { outsourcePotential = 'LOW'; estimatedProjectsPerMonth = Math.max(1, Math.round(weddingsPerYear * 0.3 / 12)); }
+    else if (weddingsPerYear >= 5) { outsourcePotential = 'MINIMAL'; estimatedProjectsPerMonth = 1; }
     else { outsourcePotential = 'MINIMAL'; estimatedProjectsPerMonth = 0; }
 
     intel.outsourcePotential = outsourcePotential;
     intel.estimatedProjectsPerMonth = estimatedProjectsPerMonth;
-    intel.estimatedAnnualRevenue = estimatedProjectsPerMonth * 12 * (intel.pricing?.suggested || 400);
+    const editPrice = this.extractPricing()?.suggested || 400;
+    intel.estimatedAnnualRevenue = estimatedProjectsPerMonth * 12 * editPrice;
 
     // 12. Best outreach angle
     let outreachAngle = '';
