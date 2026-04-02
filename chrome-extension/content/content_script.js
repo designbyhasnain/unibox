@@ -4,11 +4,9 @@
     if (!document.body) return;
     if (!ProspectScorer.isFilmmakerPage()) return;
 
-    console.log('[Unibox] Page detected, mounting...');
     var domain = window.location.hostname.replace(/^www\./, '');
 
     Island.mount();
-    console.log('[Unibox] Island mounted');
 
     Island.scanning().then(function() {
       var scraped = PageScraper.extractAll();
@@ -16,13 +14,11 @@
       var score = ProspectScorer.score(scraped, location);
       var data = Object.assign({}, scraped, { location: location, score: score });
 
-      console.log('[Unibox] Scraped:', data.name, '| email:', data.email, '| phone:', data.phone, '| score:', score.score);
-
       chrome.storage.sync.get(['apiKey', 'crmUrl'], function(config) {
         var baseUrl = config.crmUrl || 'https://txb-unibox.vercel.app';
 
         if (!config.apiKey) {
-          renderResult(data, null, baseUrl);
+          renderResult(data, null);
           return;
         }
 
@@ -33,12 +29,10 @@
         })
         .then(function(res) { return res.ok ? res.json() : null; })
         .then(function(crmResult) {
-          console.log('[Unibox] CRM:', crmResult ? (crmResult.found ? 'EXISTS (' + crmResult.lead.emailsSent + ' sent, ' + crmResult.lead.emailsReceived + ' received)' : 'NEW') : 'no response');
-          renderResult(data, crmResult, baseUrl);
+          renderResult(data, crmResult);
         })
-        .catch(function(e) {
-          console.warn('[Unibox] CRM check failed:', e);
-          renderResult(data, null, baseUrl);
+        .catch(function() {
+          renderResult(data, null);
         });
       });
     });
@@ -50,64 +44,58 @@
   function renderResult(data, crmResult) {
     try {
       if (crmResult && crmResult.found) {
-        console.log('[Unibox] → RECORD_EXISTS');
-        Island.showExists(crmResult.lead);
+        // Merge website scraped data INTO CRM lead data
+        var lead = crmResult.lead;
+        // Use scraped business name if CRM has generic name
+        if (data.name && (!lead.name || lead.name === 'Hello' || lead.name === 'Info' || lead.name === 'Contact')) {
+          lead.name = data.name;
+        }
+        // Merge website pricing if CRM has no project history
+        if (data.pricing && (!lead.totalRevenue || lead.totalRevenue === 0)) {
+          lead.websitePricing = data.pricing;
+        }
+        // Merge business intel
+        lead.businessIntel = data.businessIntel;
+        lead.location = lead.location || data.location;
+        lead.phone = lead.phone || data.phone;
+
+        Island.showExists(lead);
       } else if (data.score.score < 30) {
-        console.log('[Unibox] → LOW_CONFIDENCE');
         Island.showLow(data);
       } else if (!data.email && !data.phone) {
-        console.log('[Unibox] → PARTIAL (missing contact)');
+        // Try FB then IG fallback
         var fbCb = null;
-        var igCb = null;
-
-        // Try Facebook fallback
         if (data.social && data.social.facebook) {
           fbCb = function() {
-            chrome.runtime.sendMessage({
-              type: 'SCRAPE_FACEBOOK',
-              fbUrl: data.social.facebook
-            }, function(response) {
-              if (response && (response.email || response.phone)) {
-                data.email = response.email || data.email;
-                data.phone = response.phone || data.phone;
-                Island.updateFbFound(response.email, response.phone);
-                console.log('[Unibox] FB found:', response.email, response.phone);
+            chrome.runtime.sendMessage({ type: 'SCRAPE_FACEBOOK', fbUrl: data.social.facebook }, function(r) {
+              if (r && (r.email || r.phone)) {
+                data.email = r.email || data.email;
+                data.phone = r.phone || data.phone;
+                Island.updateFbFound(r.email, r.phone);
               } else if (data.social && data.social.instagram) {
-                // FB failed, try Instagram
-                chrome.runtime.sendMessage({
-                  type: 'SCRAPE_INSTAGRAM',
-                  igUrl: data.social.instagram
-                }, function(igResponse) {
-                  if (igResponse && (igResponse.email || igResponse.phone)) {
-                    data.email = igResponse.email || data.email;
-                    data.phone = igResponse.phone || data.phone;
-                    Island.updateFbFound(igResponse.email, igResponse.phone);
-                    console.log('[Unibox] IG found:', igResponse.email, igResponse.phone);
+                chrome.runtime.sendMessage({ type: 'SCRAPE_INSTAGRAM', igUrl: data.social.instagram }, function(ir) {
+                  if (ir && (ir.email || ir.phone)) {
+                    data.email = ir.email || data.email;
+                    data.phone = ir.phone || data.phone;
+                    Island.updateFbFound(ir.email, ir.phone);
                   }
                 });
               }
             });
           };
         } else if (data.social && data.social.instagram) {
-          // No Facebook, try Instagram directly
           fbCb = function() {
-            chrome.runtime.sendMessage({
-              type: 'SCRAPE_INSTAGRAM',
-              igUrl: data.social.instagram
-            }, function(response) {
-              if (response && (response.email || response.phone)) {
-                data.email = response.email || data.email;
-                data.phone = response.phone || data.phone;
-                Island.updateFbFound(response.email, response.phone);
-                console.log('[Unibox] IG found:', response.email, response.phone);
+            chrome.runtime.sendMessage({ type: 'SCRAPE_INSTAGRAM', igUrl: data.social.instagram }, function(r) {
+              if (r && (r.email || r.phone)) {
+                data.email = r.email || data.email;
+                data.phone = r.phone || data.phone;
+                Island.updateFbFound(r.email, r.phone);
               }
             });
           };
         }
-
-        Island.showPartial(data, fbCb, igCb);
+        Island.showPartial(data, fbCb, null);
       } else {
-        console.log('[Unibox] → HOT_LEAD');
         Island.showHot(data);
       }
     } catch(e) {
