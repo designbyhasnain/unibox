@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     email: email || null,
     phone: phone || null,
     company: name || null,
+    location: location || null,
     source: source || 'extension',
     source_url: website || null,
     pipeline_stage: stage,

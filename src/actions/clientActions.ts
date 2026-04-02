@@ -143,7 +143,7 @@ export async function getClientsAction(
         const offset = (page - 1) * clampedPageSize;
         let query = supabase
             .from('contacts')
-            .select('id, name, email, phone, company, source, pipeline_stage, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at', { count: 'exact' })
+            .select('id, name, email, phone, company, location, source, pipeline_stage, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at', { count: 'exact' })
             .in('last_gmail_account_id', accountIds);
 
         if (search?.trim()) {
@@ -316,6 +316,7 @@ export type ClientUpdatePayload = {
     email?: string;
     company?: string;
     phone?: string;
+    location?: string;
     priority?: string;
     estimated_value?: number;
     expected_close_date?: string;
@@ -354,7 +355,7 @@ export async function updateClientAction(clientId: string, updates: ClientUpdate
     if (!clientId) return { success: false, error: 'clientId is required' };
 
     // Whitelist allowed fields to prevent mass assignment
-    const allowedFields: (keyof ClientUpdatePayload)[] = ['name', 'email', 'company', 'phone', 'priority', 'estimated_value', 'expected_close_date', 'pipeline_stage', 'contact_status', 'account_manager_id'];
+    const allowedFields: (keyof ClientUpdatePayload)[] = ['name', 'email', 'company', 'phone', 'location', 'priority', 'estimated_value', 'expected_close_date', 'pipeline_stage', 'contact_status', 'account_manager_id'];
     const payload: Record<string, any> = { updated_at: new Date().toISOString() };
     for (const field of allowedFields) {
         if (updates[field] !== undefined) {
