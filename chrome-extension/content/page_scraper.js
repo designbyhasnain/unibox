@@ -63,10 +63,11 @@ const PageScraper = {
 
   extractPricing() {
     const bodyText = document.body.innerText;
-    const pricingSignals = ['package', 'invest', 'pricing', 'collection', 'starting at', 'starting from', 'book now'];
-    if (!pricingSignals.some(s => bodyText.toLowerCase().includes(s))) return null;
+    const bodyLower = bodyText.toLowerCase();
+    const pricingSignals = ['package', 'invest', 'pricing', 'collection', 'starting at', 'starting from', 'book now', 'price', 'rate', 'cost', 'quote'];
+    if (!pricingSignals.some(s => bodyLower.includes(s))) return null;
 
-    const currencyMap = { '$': 'USD', '€': 'EUR', '£': 'GBP' };
+    const currencyMap = { '$': 'USD', '€': 'EUR', '£': 'GBP', 'A$': 'AUD', 'NZ$': 'NZD', 'C$': 'CAD' };
     let currency = 'USD';
     let sym = '$';
     for (const [s, code] of Object.entries(currencyMap)) {
@@ -83,12 +84,38 @@ const PageScraper = {
     const min = all[0];
     const max = all.length > 1 ? all[all.length - 1] : null;
     const midpoint = max ? (min + max) / 2 : min;
-    const suggested = Math.round((midpoint * 0.15) / 50) * 50;
+
+    // Tiered pricing intelligence
+    // Budget tier ($1K-3K): charge 10-12% — they're price sensitive
+    // Mid tier ($3K-6K): charge 12-15% — sweet spot
+    // Premium ($6K-12K): charge 8-10% — volume play, long-term client
+    // Luxury ($12K+): charge 6-8% — anchor client, recurring
+    let editPercent, tier, affordability, confidence;
+    if (midpoint <= 2000) { editPercent = 0.18; tier = 'BUDGET'; affordability = 'LOW'; confidence = 'They may push back on price. Offer single-reel packages.'; }
+    else if (midpoint <= 4000) { editPercent = 0.14; tier = 'STANDARD'; affordability = 'MODERATE'; confidence = 'Good fit for highlight + reel bundles. Can upsell.'; }
+    else if (midpoint <= 7000) { editPercent = 0.12; tier = 'MID_TIER'; affordability = 'GOOD'; confidence = 'Sweet spot client. Offer full edit packages. High close rate.'; }
+    else if (midpoint <= 12000) { editPercent = 0.10; tier = 'PREMIUM'; affordability = 'HIGH'; confidence = 'Premium client. Offer full-service editing. Volume discount for loyalty.'; }
+    else { editPercent = 0.08; tier = 'LUXURY'; affordability = 'VERY_HIGH'; confidence = 'Anchor client potential. White-glove service. Priority queue.'; }
+
+    const suggestedMin = Math.round((min * editPercent) / 25) * 25;
+    const suggestedMax = max ? Math.round((max * editPercent) / 25) * 25 : null;
+    const suggestedMid = Math.round((midpoint * editPercent) / 25) * 25;
+
+    // Package suggestions based on their pricing tier
+    const packages = [];
+    if (midpoint >= 3000) packages.push({ name: 'HLF', price: Math.round(suggestedMid * 0.7 / 25) * 25 });
+    packages.push({ name: 'FULL EDIT', price: suggestedMid });
+    if (midpoint >= 4000) packages.push({ name: 'FULL + REELS', price: Math.round(suggestedMid * 1.4 / 25) * 25 });
+    if (midpoint >= 6000) packages.push({ name: 'PREMIUM PKG', price: Math.round(suggestedMid * 1.8 / 25) * 25 });
 
     return {
-      min, max, currency, symbol: sym, suggested,
+      min, max, currency, symbol: sym, tier, affordability, confidence,
+      editPercent: Math.round(editPercent * 100),
+      suggested: suggestedMid,
+      suggestedRange: suggestedMax ? `${sym}${suggestedMin.toLocaleString()}–${sym}${suggestedMax.toLocaleString()}` : `${sym}${suggestedMin.toLocaleString()}`,
       display: max ? `${sym}${min.toLocaleString()}–${sym}${max.toLocaleString()}` : `${sym}${min.toLocaleString()}`,
-      suggestedDisplay: `${sym}${suggested.toLocaleString()}`
+      suggestedDisplay: `${sym}${suggestedMid.toLocaleString()}`,
+      packages
     };
   },
 

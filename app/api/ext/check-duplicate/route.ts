@@ -93,6 +93,38 @@ export async function POST(req: NextRequest) {
     else followUpStatus = 'ACTIVE';
   }
 
+  // Pricing intelligence from history
+  const projectValues = (projects || []).map((p: any) => p.project_value).filter((v: number) => v > 0);
+  const avgProjectValue = projectValues.length > 0 ? Math.round(projectValues.reduce((a: number, b: number) => a + b, 0) / projectValues.length) : 0;
+  const maxProjectValue = projectValues.length > 0 ? Math.max(...projectValues) : 0;
+  const minProjectValue = projectValues.length > 0 ? Math.min(...projectValues) : 0;
+  const unpaidAmount = (projects || []).filter((p: any) => p.paid_status !== 'PAID').reduce((s: number, p: any) => s + (p.project_value || 0), 0);
+
+  // Suggest next deal pricing
+  let nextDealSuggested = avgProjectValue;
+  let pricingAdvice = '';
+  if (totalProjects >= 5 && paidProjects >= 3) {
+    nextDealSuggested = Math.round(avgProjectValue * 1.1 / 25) * 25; // 10% increase for loyal clients
+    pricingAdvice = 'Loyal client (' + totalProjects + ' projects). Safe to increase 10%. Offer package deal.';
+  } else if (totalProjects >= 2 && paidProjects >= 1) {
+    nextDealSuggested = avgProjectValue;
+    pricingAdvice = 'Returning client. Match previous pricing. Bundle for discount.';
+  } else if (totalProjects === 1 && paidProjects === 1) {
+    nextDealSuggested = Math.round(avgProjectValue * 1.05 / 25) * 25;
+    pricingAdvice = 'First project paid. Slight increase OK. Build relationship.';
+  } else if (unpaidAmount > 0) {
+    pricingAdvice = 'WARNING: $' + unpaidAmount + ' unpaid. Collect before new work.';
+  } else {
+    pricingAdvice = 'No payment history yet. Start with standard pricing.';
+  }
+
+  // Client tier based on lifetime value
+  let clientTier = 'NEW';
+  if (totalRevenue >= 5000) clientTier = 'VIP';
+  else if (totalRevenue >= 2000) clientTier = 'PREMIUM';
+  else if (totalRevenue >= 500) clientTier = 'STANDARD';
+  else if (totalRevenue > 0) clientTier = 'STARTER';
+
   const addedDaysAgo = Math.round((Date.now() - new Date(contact.created_at).getTime()) / 86400000);
 
   return NextResponse.json({
@@ -135,6 +167,15 @@ export async function POST(req: NextRequest) {
         paid: p.paid_status,
         value: p.project_value,
       })),
+
+      // Pricing intelligence
+      avgProjectValue,
+      maxProjectValue,
+      minProjectValue,
+      unpaidAmount,
+      nextDealSuggested,
+      pricingAdvice,
+      clientTier,
 
       crmUrl: 'https://txb-unibox.vercel.app/clients',
     },

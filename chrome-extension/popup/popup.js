@@ -1,60 +1,320 @@
-document.addEventListener('DOMContentLoaded', async () => {
-  const input = document.getElementById('apiKey');
-  const urlInput = document.getElementById('crmUrl');
-  const saveBtn = document.getElementById('save');
-  const statusEl = document.getElementById('status');
-  const connEl = document.getElementById('conn-status');
-  const cacheEl = document.getElementById('cache-count');
+document.addEventListener('DOMContentLoaded', async function() {
+  // Tab switching
+  document.querySelectorAll('.tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+      document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+      tab.classList.add('active');
+      document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    });
+  });
 
-  // Load saved config
-  const { apiKey, crmUrl } = await chrome.storage.sync.get(['apiKey', 'crmUrl']);
-  if (apiKey) input.value = apiKey;
-  if (crmUrl) urlInput.value = crmUrl;
+  // Config panel
+  var apiKeyInput = document.getElementById('apiKey');
+  var crmUrlInput = document.getElementById('crmUrl');
+  var saveBtn = document.getElementById('save');
+  var statusEl = document.getElementById('status');
+  var connEl = document.getElementById('conn-status');
 
-  // Save
-  saveBtn.addEventListener('click', async () => {
-    const key = input.value.trim();
-    const url = urlInput.value.trim() || 'https://txb-unibox.vercel.app';
+  var config = await chrome.storage.sync.get(['apiKey', 'crmUrl']);
+  if (config.apiKey) apiKeyInput.value = config.apiKey;
+  if (config.crmUrl) crmUrlInput.value = config.crmUrl;
+
+  saveBtn.addEventListener('click', async function() {
+    var key = apiKeyInput.value.trim();
+    var url = crmUrlInput.value.trim() || 'https://txb-unibox.vercel.app';
     if (!key) { statusEl.textContent = '■ ERROR: KEY REQUIRED'; statusEl.style.color = '#ff3333'; return; }
     await chrome.storage.sync.set({ apiKey: key, crmUrl: url });
-    statusEl.textContent = '■ CONFIG SAVED';
-    statusEl.style.color = '#00ff41';
-    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    statusEl.textContent = '■ CONFIG SAVED'; statusEl.style.color = '#00ff41';
+    setTimeout(function() { statusEl.textContent = ''; }, 2000);
     checkConnection(key, url, connEl);
   });
 
-  // Session cache count
-  const sessionData = await chrome.storage.session.get(null);
-  cacheEl.textContent = Object.keys(sessionData).length + ' DOMAINS';
+  if (config.apiKey) checkConnection(config.apiKey, config.crmUrl || 'https://txb-unibox.vercel.app', connEl);
+  else { connEl.textContent = 'NO_KEY'; connEl.classList.add('err'); }
 
-  // Check connection on load
-  if (apiKey) {
-    const url = crmUrl || 'https://txb-unibox.vercel.app';
-    checkConnection(apiKey, url, connEl);
-  } else {
-    connEl.textContent = 'NO_KEY';
-    connEl.classList.add('err');
-  }
+  // Scan panel
+  var scanBtn = document.getElementById('scan-btn');
+  var scanStatus = document.getElementById('scan-status');
+  var scanResult = document.getElementById('scan-result');
+
+  scanBtn.addEventListener('click', function() {
+    scanBtn.disabled = true;
+    scanBtn.textContent = '▐░ SCANNING...';
+    scanStatus.textContent = 'detecting page type...';
+    scanResult.innerHTML = '';
+
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (!tabs[0]) { scanStatus.textContent = '■ ERROR: NO ACTIVE TAB'; scanBtn.disabled = false; scanBtn.textContent = '■ Scan Current Page'; return; }
+
+      var tabId = tabs[0].id;
+      var tabUrl = tabs[0].url || '';
+
+      if (tabUrl.startsWith('chrome://') || tabUrl.startsWith('chrome-extension://')) {
+        scanStatus.textContent = '■ CANNOT SCAN CHROME PAGES';
+        scanBtn.disabled = false; scanBtn.textContent = '■ Scan Current Page';
+        return;
+      }
+
+      scanStatus.textContent = 'scraping contact data...';
+
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: scrapePage
+      }, function(results) {
+        if (chrome.runtime.lastError) {
+          scanStatus.textContent = '■ ERROR: ' + chrome.runtime.lastError.message;
+          scanBtn.disabled = false; scanBtn.textContent = '■ Scan Current Page';
+          return;
+        }
+
+        var scraped = results && results[0] && results[0].result;
+        if (!scraped) {
+          scanStatus.textContent = '■ NO DATA FOUND';
+          scanBtn.disabled = false; scanBtn.textContent = '■ Scan Current Page';
+          return;
+        }
+
+        scanStatus.textContent = 'querying crm database...';
+
+        chrome.storage.sync.get(['apiKey', 'crmUrl'], function(cfg) {
+          var baseUrl = cfg.crmUrl || 'https://txb-unibox.vercel.app';
+          if (!cfg.apiKey) {
+            renderNewLead(scraped);
+            scanBtn.disabled = false; scanBtn.textContent = '■ Scan Current Page';
+            return;
+          }
+
+          fetch(baseUrl + '/api/ext/check-duplicate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
+            body: JSON.stringify({ email: scraped.email, phone: scraped.phone, domain: scraped.domain })
+          })
+          .then(function(res) { return res.ok ? res.json() : null; })
+          .then(function(crm) {
+            if (crm && crm.found) renderExisting(crm.lead, scraped);
+            else renderNewLead(scraped);
+            scanBtn.disabled = false; scanBtn.textContent = '■ Scan Current Page';
+            scanStatus.textContent = '';
+          })
+          .catch(function() {
+            renderNewLead(scraped);
+            scanBtn.disabled = false; scanBtn.textContent = '■ Scan Current Page';
+          });
+        });
+      });
+    });
+  });
+
+  // Auto-scan on popup open
+  scanBtn.click();
 });
+
+// Injected into the active tab to scrape
+function scrapePage() {
+  var result = {};
+
+  // Name
+  var ogName = document.querySelector('meta[property="og:site_name"]');
+  var ogTitle = document.querySelector('meta[property="og:title"]');
+  var author = document.querySelector('meta[name="author"]');
+  result.name = (ogName && ogName.content) || (author && author.content) || (ogTitle && ogTitle.content) || document.title.replace(/[-|–—].*$/, '').trim() || null;
+
+  // Email
+  var mailtos = Array.from(document.querySelectorAll('a[href^="mailto:"]')).map(function(a) { return a.href.replace('mailto:', '').split('?')[0].trim(); });
+  if (mailtos.length > 0) result.email = mailtos[0];
+  else {
+    var emailMatch = document.body.innerText.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+    result.email = emailMatch ? emailMatch[0] : null;
+  }
+
+  // Phone
+  var tels = Array.from(document.querySelectorAll('a[href^="tel:"]')).map(function(a) { return a.href.replace('tel:', '').trim(); });
+  if (tels.length > 0) result.phone = tels[0];
+  else {
+    var phoneMatch = document.body.innerText.match(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+    result.phone = (phoneMatch && phoneMatch[0].replace(/\D/g, '').length >= 10) ? phoneMatch[0] : null;
+  }
+
+  // Social
+  var links = Array.from(document.querySelectorAll('a[href]')).map(function(a) { return a.href; });
+  result.social = {
+    instagram: links.find(function(l) { return l.includes('instagram.com/'); }) || null,
+    facebook: links.find(function(l) { return l.includes('facebook.com/'); }) || null,
+    youtube: links.find(function(l) { return l.includes('youtube.com/'); }) || null,
+    vimeo: links.find(function(l) { return l.includes('vimeo.com/'); }) || null
+  };
+
+  // Pricing with tiered intelligence
+  var body = document.body.innerText;
+  var priceMatches = Array.from(body.matchAll(/\$\s?(\d[\d,]*)/g)).map(function(m) { return parseInt(m[1].replace(/,/g, '')); }).filter(function(n) { return n >= 500 && n <= 100000; }).sort(function(a, b) { return a - b; });
+  if (priceMatches.length > 0) {
+    var min = priceMatches[0], max = priceMatches.length > 1 ? priceMatches[priceMatches.length - 1] : null;
+    var mid = max ? (min + max) / 2 : min;
+    var editPct, tier, affordability, confidence;
+    if (mid <= 2000) { editPct = 0.18; tier = 'BUDGET'; affordability = 'LOW'; confidence = 'Price sensitive. Offer single-reel packages.'; }
+    else if (mid <= 4000) { editPct = 0.14; tier = 'STANDARD'; affordability = 'MODERATE'; confidence = 'Good for highlight + reel bundles.'; }
+    else if (mid <= 7000) { editPct = 0.12; tier = 'MID_TIER'; affordability = 'GOOD'; confidence = 'Sweet spot. Offer full edit packages.'; }
+    else if (mid <= 12000) { editPct = 0.10; tier = 'PREMIUM'; affordability = 'HIGH'; confidence = 'Premium client. Full-service editing.'; }
+    else { editPct = 0.08; tier = 'LUXURY'; affordability = 'VERY_HIGH'; confidence = 'Anchor client. White-glove service.'; }
+    var sugMin = Math.round((min * editPct) / 25) * 25;
+    var sugMax = max ? Math.round((max * editPct) / 25) * 25 : null;
+    var sugMid = Math.round((mid * editPct) / 25) * 25;
+    var packages = [];
+    if (mid >= 3000) packages.push({ name: 'HLF', price: Math.round(sugMid * 0.7 / 25) * 25 });
+    packages.push({ name: 'FULL EDIT', price: sugMid });
+    if (mid >= 4000) packages.push({ name: 'FULL+REELS', price: Math.round(sugMid * 1.4 / 25) * 25 });
+    if (mid >= 6000) packages.push({ name: 'PREMIUM', price: Math.round(sugMid * 1.8 / 25) * 25 });
+    result.pricing = { min: min, max: max, tier: tier, affordability: affordability, confidence: confidence, editPercent: Math.round(editPct * 100), suggested: sugMid, suggestedRange: sugMax ? '$' + sugMin + '–$' + sugMax : '$' + sugMin, display: max ? '$' + min.toLocaleString() + '–$' + max.toLocaleString() : '$' + min.toLocaleString(), suggestedDisplay: '$' + sugMid, packages: packages };
+  }
+
+  // Location
+  var scripts = document.querySelectorAll('script[type="application/ld+json"]');
+  for (var i = 0; i < scripts.length; i++) {
+    try {
+      var d = JSON.parse(scripts[i].innerText);
+      if (d.address) { result.location = (d.address.addressLocality || '') + (d.address.addressCountry ? ', ' + d.address.addressCountry : ''); break; }
+    } catch(e) {}
+  }
+  if (!result.location) {
+    var cityState = body.match(/\b([A-Z][a-zA-Z\s]{2,20}),\s([A-Z]{2})\b/);
+    if (cityState) result.location = cityState[1].trim() + ', ' + cityState[2];
+  }
+
+  // Score
+  var score = 0;
+  if (result.email) score += 25;
+  if (result.phone) score += 15;
+  if (result.location) score += 8;
+  if (result.pricing) score += 20;
+  var hasVideo = !!document.querySelector('iframe[src*="youtube"], iframe[src*="vimeo"], video');
+  if (hasVideo) score += 15;
+  var text = body.toLowerCase();
+  if (['wedding','bride','groom','ceremony','bridal'].some(function(k) { return text.includes(k); })) score += 10;
+  if (['videographer','filmmaker','cinematographer','highlight','reel'].some(function(k) { return text.includes(k); })) score += 7;
+  result.score = Math.min(score, 100);
+  result.scoreLabel = score >= 75 ? 'HOT_LEAD' : score >= 45 ? 'WARM' : 'LOW';
+
+  result.domain = window.location.hostname.replace(/^www\./, '');
+  result.url = window.location.href;
+  result.hasVideo = hasVideo;
+
+  return result;
+}
+
+function esc(s) { if (!s) return ''; var d = document.createElement('span'); d.textContent = s; return d.innerHTML; }
+function trunc(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : (s || ''); }
+function fmtMoney(v) { return v ? '$' + Number(v).toLocaleString() : '$0'; }
+
+function renderNewLead(data) {
+  var el = document.getElementById('scan-result');
+  var scoreColor = data.score >= 75 ? 'green' : data.score >= 45 ? 'amber' : 'red';
+  var social = data.social || {};
+  var socials = '';
+  if (social.instagram) socials += '<a href="' + social.instagram + '" target="_blank" class="social-pill">IG</a>';
+  if (social.facebook) socials += '<a href="' + social.facebook + '" target="_blank" class="social-pill">FB</a>';
+  if (social.youtube) socials += '<a href="' + social.youtube + '" target="_blank" class="social-pill">YT</a>';
+  if (social.vimeo) socials += '<a href="' + social.vimeo + '" target="_blank" class="social-pill">VM</a>';
+  if (data.domain) socials += '<a href="https://' + esc(data.domain) + '" target="_blank" class="social-pill">WEB</a>';
+
+  el.innerHTML = '<div class="result-card">' +
+    '<div class="r-hdr"><div class="r-badge ' + scoreColor + '">■ ' + data.scoreLabel + '</div><div class="r-rank">RANK: ' + data.score + '</div></div>' +
+    '<div class="r-grid">' +
+      '<div class="r-cell"><div class="r-cl">Subject</div><div class="r-cv">' + esc(data.name) + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Loc</div><div class="r-cv accent">' + esc(data.location || '—') + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Email</div><div class="r-cv ' + (data.email ? 'found' : 'missing') + '">' + (data.email ? esc(trunc(data.email, 28)) : 'NULL_PTR') + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Comms</div><div class="r-cv ' + (data.phone ? 'found' : 'missing') + '">' + (data.phone ? esc(data.phone) : 'NULL_PTR') + '</div></div>' +
+    '</div>' +
+    (data.pricing ? '<div class="price-box"><div><div class="pr-label">Their Packages</div><div class="pr-val">' + data.pricing.display + '</div></div><div style="text-align:right"><div class="pr-label">Our Price</div><div class="pr-suggest">' + data.pricing.suggestedDisplay + '</div></div></div>' +
+    '<div class="result-card" style="padding:8px 10px;margin-bottom:8px">' +
+      '<div class="r-grid">' +
+        '<div class="r-cell"><div class="r-cl">Tier</div><div class="r-cv ' + (data.pricing.affordability === 'VERY_HIGH' || data.pricing.affordability === 'HIGH' ? 'green' : data.pricing.affordability === 'GOOD' ? 'accent' : 'amber') + '">' + data.pricing.tier + '</div></div>' +
+        '<div class="r-cell"><div class="r-cl">Affordability</div><div class="r-cv ' + (data.pricing.affordability === 'VERY_HIGH' || data.pricing.affordability === 'HIGH' ? 'green' : data.pricing.affordability === 'GOOD' ? 'accent' : 'amber') + '">' + data.pricing.affordability + '</div></div>' +
+      '</div>' +
+      '<div style="font-size:7px;color:rgba(255,255,255,0.25);margin:4px 0 6px;letter-spacing:0.04em">' + esc(data.pricing.confidence) + '</div>' +
+      '<div class="r-section">Suggested Packages (' + data.pricing.editPercent + '% of their price)</div>' +
+      data.pricing.packages.map(function(p) {
+        return '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="font-size:8px;color:rgba(255,255,255,0.35);letter-spacing:0.06em">' + p.name + '</span><span style="font-size:9px;font-weight:700;color:#00ff41">$' + p.price + '</span></div>';
+      }).join('') +
+    '</div>' : '') +
+    (socials ? '<div class="social-row">' + socials + '</div>' : '') +
+    '<div class="r-btn-row"><button class="r-btn r-btn-ghost" id="btn-skip">Skip</button><button class="r-btn r-btn-primary" id="btn-commit">Commit to CRM</button></div>' +
+  '</div>';
+
+  document.getElementById('btn-commit').addEventListener('click', function() {
+    chrome.runtime.sendMessage({ type: 'ADD_TO_CRM', data: data });
+    this.textContent = '■ COMMITTED';
+    this.style.borderColor = '#00ff41';
+    this.style.color = '#00ff41';
+  });
+  document.getElementById('btn-skip').addEventListener('click', function() { el.innerHTML = ''; });
+}
+
+function renderExisting(lead, scraped) {
+  var el = document.getElementById('scan-result');
+
+  var fuClass = 'fu-active', fuText = '● ACTIVE';
+  if (lead.followUpStatus === 'REPLY_ASAP') { fuClass = 'fu-reply'; fuText = '▲ REPLY ASAP — replied ' + lead.daysSinceLastEmail + 'd ago'; }
+  else if (lead.followUpStatus === 'REPLY_SOON') { fuClass = 'fu-reply'; fuText = '● REPLY SOON — replied ' + lead.daysSinceLastEmail + 'd ago'; }
+  else if (lead.followUpStatus === 'FOLLOW_UP') { fuClass = 'fu-followup'; fuText = '▲ FOLLOW UP — sent ' + lead.daysSinceLastEmail + 'd ago'; }
+  else if (lead.followUpStatus === 'GOING_COLD') { fuClass = 'fu-cold'; fuText = '▲ GOING COLD — ' + lead.daysSinceLastEmail + 'd silent'; }
+  else if (lead.followUpStatus === 'DORMANT') { fuClass = 'fu-dormant'; fuText = '○ DORMANT — ' + lead.daysSinceLastEmail + 'd inactive'; }
+  else if (lead.daysSinceLastEmail !== null) { fuText = '● ACTIVE — ' + lead.daysSinceLastEmail + 'd ago'; }
+
+  var emailsHtml = '';
+  if (lead.recentEmails && lead.recentEmails.length > 0) {
+    lead.recentEmails.forEach(function(e) {
+      emailsHtml += '<div class="r-email-row"><span class="r-email-dir ' + (e.direction === 'SENT' ? 'sent' : 'recv') + '">' + (e.direction === 'SENT' ? '→' : '←') + '</span><span class="r-email-subj">' + esc(e.subject) + '</span><span class="r-email-age">' + e.daysAgo + 'd</span></div>';
+    });
+  }
+
+  var projHtml = '';
+  if (lead.projects && lead.projects.length > 0) {
+    lead.projects.forEach(function(p) {
+      projHtml += '<div class="r-proj-row"><span class="r-proj-name">' + esc(p.name) + '</span><span class="r-proj-val">' + fmtMoney(p.value) + '</span></div>';
+    });
+  }
+
+  el.innerHTML = '<div class="result-card">' +
+    '<div class="r-hdr"><div class="r-badge green">■ RECORD_EXISTS</div><div class="r-rank">' + esc(lead.stage) + '</div></div>' +
+    '<div class="fu-bar ' + fuClass + '">' + fuText + '</div>' +
+    '<div class="r-grid">' +
+      '<div class="r-cell"><div class="r-cl">Subject</div><div class="r-cv">' + esc(lead.name) + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Email</div><div class="r-cv found">' + esc(trunc(lead.email, 25)) + '</div></div>' +
+    '</div>' +
+    '<div class="r-section">Email Intelligence</div>' +
+    '<div class="r-grid4">' +
+      '<div class="r-cell"><div class="r-cl">Sent</div><div class="r-cv r-cv-lg blue">' + (lead.emailsSent || 0) + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Recv</div><div class="r-cv r-cv-lg green">' + (lead.emailsReceived || 0) + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Reply%</div><div class="r-cv r-cv-lg ' + (lead.replyRate > 30 ? 'green' : lead.replyRate > 10 ? 'amber' : 'red') + '">' + (lead.replyRate || 0) + '%</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Opens</div><div class="r-cv r-cv-lg purple">' + (lead.openCount || 0) + '</div></div>' +
+    '</div>' +
+    '<div class="r-grid3">' +
+      '<div class="r-cell"><div class="r-cl">Score</div><div class="r-cv">' + (lead.leadScore || 0) + '/100</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Age</div><div class="r-cv">' + (lead.relationshipDays || 0) + 'd</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Reply</div><div class="r-cv">' + (lead.avgReplySpeed || '—') + '</div></div>' +
+    '</div>' +
+    (emailsHtml ? '<div class="r-section">Recent Threads</div>' + emailsHtml : '') +
+    (lead.totalProjects > 0 ? '<div class="r-section">Projects (' + lead.totalProjects + ') — Rev: ' + fmtMoney(lead.totalRevenue) + '</div>' + projHtml : '') +
+    '<div class="r-section">Next Deal Intelligence</div>' +
+    '<div class="r-grid3">' +
+      '<div class="r-cell"><div class="r-cl">Tier</div><div class="r-cv ' + (lead.clientTier === 'VIP' ? 'green' : lead.clientTier === 'PREMIUM' ? 'accent' : 'amber') + '">' + (lead.clientTier || 'NEW') + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Avg Deal</div><div class="r-cv">' + fmtMoney(lead.avgProjectValue) + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Next Price</div><div class="r-cv r-cv-lg green">' + fmtMoney(lead.nextDealSuggested) + '</div></div>' +
+    '</div>' +
+    (lead.unpaidAmount > 0 ? '<div class="fu-bar fu-cold">UNPAID: ' + fmtMoney(lead.unpaidAmount) + ' — collect first</div>' : '') +
+    '<div style="font-size:7px;color:rgba(255,255,255,0.2);margin-bottom:6px">' + esc(lead.pricingAdvice || '') + '</div>' +
+    '<div class="r-btn-row"><button class="r-btn r-btn-ghost" id="btn-dismiss">Dismiss</button><button class="r-btn r-btn-primary" id="btn-open">Open Database</button></div>' +
+  '</div>';
+
+  document.getElementById('btn-open').addEventListener('click', function() { chrome.tabs.create({ url: lead.crmUrl }); });
+  document.getElementById('btn-dismiss').addEventListener('click', function() { el.innerHTML = ''; });
+}
 
 async function checkConnection(apiKey, baseUrl, el) {
   try {
-    const res = await fetch(`${baseUrl}/api/ext/ping`, {
-      headers: { Authorization: `Bearer ${apiKey}` }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      el.textContent = '■ CONNECTED: ' + (data.user || 'OK');
-      el.classList.remove('err');
-      el.classList.add('ok');
-    } else {
-      el.textContent = '■ INVALID_KEY';
-      el.classList.remove('ok');
-      el.classList.add('err');
-    }
-  } catch {
-    el.textContent = '■ NO_CONNECTION';
-    el.classList.remove('ok');
-    el.classList.add('err');
-  }
+    var res = await fetch(baseUrl + '/api/ext/ping', { headers: { Authorization: 'Bearer ' + apiKey } });
+    if (res.ok) { var data = await res.json(); el.textContent = '■ CONNECTED: ' + (data.user || 'OK'); el.classList.add('ok'); }
+    else { el.textContent = '■ INVALID_KEY'; el.classList.add('err'); }
+  } catch(e) { el.textContent = '■ NO_CONNECTION'; el.classList.add('err'); }
 }

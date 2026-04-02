@@ -155,7 +155,10 @@ const Island = (() => {
         '<div class="cell"><div class="cl">Email</div><div class="cv ' + (data.email ? 'found' : 'missing') + '">' + (data.email ? esc(trunc(data.email, 25)) : 'NULL_PTR') + '</div></div>' +
         '<div class="cell"><div class="cl">Comms</div><div class="cv ' + (data.phone ? 'found' : 'missing') + '">' + (data.phone ? esc(data.phone) : 'NULL_PTR') + '</div></div>' +
       '</div>' +
-      (p ? '<div class="price-box"><div><div class="pr-label">Pkg_Est</div><div class="pr-val">' + p.display + '</div></div><div style="text-align:right"><div class="pr-label">Suggest</div><div class="pr-suggest">' + p.suggestedDisplay + '</div></div></div>' : '') +
+      (p ? '<div class="price-box"><div><div class="pr-label">Their Price</div><div class="pr-val">' + p.display + '</div></div><div style="text-align:right"><div class="pr-label">Our Price</div><div class="pr-suggest">' + (p.suggestedRange || p.suggestedDisplay) + '</div></div></div>' +
+      '<div class="grid"><div class="cell cell-sm"><div class="cl">Tier</div><div class="cv ' + (p.affordability === 'HIGH' || p.affordability === 'VERY_HIGH' ? 'found' : 'accent') + '">' + (p.tier || '') + '</div></div><div class="cell cell-sm"><div class="cl">Can Afford</div><div class="cv ' + (p.affordability === 'HIGH' || p.affordability === 'VERY_HIGH' ? 'found' : 'accent') + '">' + (p.affordability || '') + '</div></div></div>' +
+      '<div style="font-size:7px;color:rgba(255,255,255,0.2);margin:4px 0 8px;letter-spacing:0.03em">' + esc(p.confidence || '') + '</div>' +
+      (p.packages ? '<div class="section">Suggested Packages (' + (p.editPercent || 15) + '%)</div>' + p.packages.map(function(pk) { return '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="font-size:8px;color:rgba(255,255,255,0.3);letter-spacing:0.05em">' + pk.name + '</span><span style="font-size:9px;font-weight:700;color:#00ff41">$' + pk.price + '</span></div>'; }).join('') : '') : '') +
       '<div class="social-row">' + socials + '</div>' +
       '<div class="btn-row"><button class="btn-ghost btn-skip">Skip</button><button class="btn-primary btn-commit">Commit to CRM</button></div>' +
       '<div class="state-label">03 // TARGET_FOUND_HIGH</div>';
@@ -248,6 +251,16 @@ const Island = (() => {
 
       // Projects
       (lead.totalProjects > 0 ? '<div class="section">Projects (' + lead.totalProjects + ') — Revenue: ' + fmtMoney(lead.totalRevenue) + '</div>' + projHtml : '') +
+
+      // Pricing intelligence for next deal
+      '<div class="section">Next Deal Intelligence</div>' +
+      '<div class="grid3">' +
+        '<div class="cell cell-sm"><div class="cl">Client Tier</div><div class="cv ' + (lead.clientTier === 'VIP' ? 'found' : lead.clientTier === 'PREMIUM' ? 'accent' : 'amber') + '">' + (lead.clientTier || 'NEW') + '</div></div>' +
+        '<div class="cell cell-sm"><div class="cl">Avg Deal</div><div class="cv">' + fmtMoney(lead.avgProjectValue) + '</div></div>' +
+        '<div class="cell cell-sm"><div class="cl">Next Price</div><div class="cv cv-lg found">' + fmtMoney(lead.nextDealSuggested) + '</div></div>' +
+      '</div>' +
+      (lead.unpaidAmount > 0 ? '<div class="follow-up-bar fu-cold">⚠ UNPAID: ' + fmtMoney(lead.unpaidAmount) + ' — collect before new work</div>' : '') +
+      '<div style="font-size:7px;color:rgba(255,255,255,0.2);margin-bottom:8px;letter-spacing:0.03em">' + esc(lead.pricingAdvice || '') + '</div>' +
 
       // Actions
       '<div class="btn-row" style="margin-top:8px"><button class="btn-ghost btn-skip">Dismiss</button><button class="btn-primary" id="btn-open-db">Open Database</button></div>' +

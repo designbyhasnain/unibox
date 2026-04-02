@@ -4,63 +4,114 @@
 <meta charset="UTF-8">
 <title>Unibox Prospector</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    width: 300px;
-    background: #0a0a0a;
-    color: rgba(255,255,255,0.7);
-    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-    font-size: 10px;
-    padding: 16px;
-  }
-  .logo { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
-  .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: #00ff41; animation: pulse 2.5s ease-in-out infinite; }
-  .logo-text { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.5); }
-  .version { font-size: 8px; color: rgba(255,255,255,0.15); margin-left: auto; }
-  .field { margin-bottom: 12px; }
-  .field label { display: block; font-size: 8px; color: rgba(255,255,255,0.25); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
-  .field input {
-    width: 100%; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 4px; padding: 8px 10px; font-size: 10px; color: rgba(255,255,255,0.6);
-    font-family: inherit; outline: none; transition: border-color 0.15s;
-  }
-  .field input:focus { border-color: #00ff41; }
-  .btn-save {
-    width: 100%; background: transparent; color: #00ff41; border: 1px solid #00ff41;
-    border-radius: 4px; padding: 8px; font-size: 9px; font-weight: 600; cursor: pointer;
-    letter-spacing: 0.08em; text-transform: uppercase; font-family: inherit; transition: background 0.15s;
-  }
-  .btn-save:hover { background: rgba(0,255,65,0.1); }
-  .status { margin-top: 8px; font-size: 9px; min-height: 14px; letter-spacing: 0.05em; }
-  .divider { height: 1px; background: rgba(255,255,255,0.06); margin: 14px 0; }
-  .info-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-  .info-label { font-size: 8px; color: rgba(255,255,255,0.15); text-transform: uppercase; letter-spacing: 0.08em; }
-  .info-val { font-size: 8px; color: rgba(255,255,255,0.35); }
-  .info-val.ok { color: #00ff41; }
-  .info-val.err { color: #ff3333; }
-  @keyframes pulse { 0%,100%{opacity:0.3} 50%{opacity:1} }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:380px;max-height:580px;background:#0a0a0a;color:rgba(255,255,255,0.7);font-family:'SF Mono','Fira Code','Cascadia Code','Consolas',monospace;font-size:10px;padding:14px;overflow-y:auto}
+  .logo{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .logo-dot{width:8px;height:8px;border-radius:50%;background:#00ff41;animation:pulse 2.5s ease-in-out infinite}
+  .logo-text{font-size:12px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.5)}
+  .version{font-size:8px;color:rgba(255,255,255,0.15);margin-left:auto}
+  .tabs{display:flex;gap:0;margin-bottom:12px;border:1px solid rgba(255,255,255,0.08);border-radius:4px;overflow:hidden}
+  .tab{flex:1;padding:6px;font-size:8px;font-weight:600;text-align:center;cursor:pointer;background:transparent;border:none;color:rgba(255,255,255,0.25);letter-spacing:0.08em;text-transform:uppercase;font-family:inherit;transition:background 0.15s}
+  .tab.active{background:rgba(0,255,65,0.08);color:#00ff41}
+  .tab:hover:not(.active){background:rgba(255,255,255,0.03)}
+  .panel{display:none}.panel.active{display:block}
+
+  /* CONFIG panel */
+  .field{margin-bottom:10px}
+  .field label{display:block;font-size:7px;color:rgba(255,255,255,0.2);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px}
+  .field input{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:7px 9px;font-size:9px;color:rgba(255,255,255,0.6);font-family:inherit;outline:none}
+  .field input:focus{border-color:#00ff41}
+  .btn-save{width:100%;background:transparent;color:#00ff41;border:1px solid #00ff41;border-radius:4px;padding:7px;font-size:8px;font-weight:600;cursor:pointer;letter-spacing:0.08em;text-transform:uppercase;font-family:inherit}
+  .btn-save:hover{background:rgba(0,255,65,0.1)}
+  .status-msg{margin-top:6px;font-size:8px;min-height:12px;letter-spacing:0.05em}
+  .divider{height:1px;background:rgba(255,255,255,0.04);margin:10px 0}
+  .info-row{display:flex;justify-content:space-between;margin-bottom:3px}
+  .info-label{font-size:7px;color:rgba(255,255,255,0.12);text-transform:uppercase;letter-spacing:0.08em}
+  .info-val{font-size:7px;color:rgba(255,255,255,0.3)}
+  .ok{color:#00ff41!important}.err{color:#ff3333!important}.amber{color:#ffb700!important}
+
+  /* SCAN panel */
+  .scan-btn{width:100%;background:rgba(0,255,65,0.06);color:#00ff41;border:1px solid rgba(0,255,65,0.2);border-radius:6px;padding:10px;font-size:10px;font-weight:600;cursor:pointer;letter-spacing:0.08em;text-transform:uppercase;font-family:inherit;margin-bottom:10px;transition:background 0.15s}
+  .scan-btn:hover{background:rgba(0,255,65,0.12)}
+  .scan-btn:disabled{opacity:0.4;cursor:not-allowed}
+  #scan-status{font-size:8px;color:rgba(255,255,255,0.2);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px;min-height:12px}
+
+  /* Results */
+  .result-card{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:10px;margin-bottom:8px}
+  .r-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .r-badge{font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase}
+  .r-rank{font-size:8px;border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:1px 6px;color:rgba(255,255,255,0.3)}
+  .r-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px}
+  .r-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:6px}
+  .r-grid4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:3px;margin-bottom:6px}
+  .r-cell{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:4px;padding:4px 6px}
+  .r-cl{font-size:6px;color:rgba(255,255,255,0.15);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1px}
+  .r-cv{font-size:9px;font-weight:500;color:rgba(255,255,255,0.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .r-cv-lg{font-size:12px;font-weight:700}
+  .found{color:#00ff41}.missing{color:rgba(255,255,255,0.12);font-style:italic}.accent{color:#818cf8}
+  .green{color:#00ff41}.red{color:#ff3333}.blue{color:#60a5fa}.purple{color:#a78bfa}
+  .r-section{font-size:6.5px;color:rgba(255,255,255,0.1);text-transform:uppercase;letter-spacing:0.12em;margin:6px 0 3px;border-top:1px solid rgba(255,255,255,0.03);padding-top:4px}
+  .r-email-row{display:flex;justify-content:space-between;padding:2px 0;font-size:7px;border-bottom:1px solid rgba(255,255,255,0.02)}
+  .r-email-dir{width:10px;font-weight:700}.sent{color:#60a5fa}.recv{color:#00ff41}
+  .r-email-subj{flex:1;color:rgba(255,255,255,0.35);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 4px}
+  .r-email-age{color:rgba(255,255,255,0.12);white-space:nowrap}
+  .r-proj-row{display:flex;justify-content:space-between;padding:2px 0;font-size:7px;border-bottom:1px solid rgba(255,255,255,0.02)}
+  .r-proj-name{flex:1;color:rgba(255,255,255,0.4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .r-proj-val{color:#00ff41;font-weight:600;margin-left:4px}
+  .fu-bar{border-radius:4px;padding:5px 8px;margin-bottom:6px;font-size:8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase}
+  .fu-reply{background:rgba(0,255,65,0.06);border:1px solid rgba(0,255,65,0.15);color:#00ff41}
+  .fu-followup{background:rgba(255,183,0,0.06);border:1px solid rgba(255,183,0,0.15);color:#ffb700}
+  .fu-cold{background:rgba(255,51,51,0.06);border:1px solid rgba(255,51,51,0.15);color:#ff3333}
+  .fu-active{background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.15);color:#60a5fa}
+  .fu-dormant{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);color:rgba(255,255,255,0.15)}
+  .r-btn-row{display:flex;gap:4px;margin-top:6px}
+  .r-btn{flex:1;padding:7px;font-size:8px;font-weight:600;cursor:pointer;border-radius:4px;text-align:center;letter-spacing:0.06em;text-transform:uppercase;font-family:inherit;transition:background 0.15s}
+  .r-btn-primary{background:transparent;color:#00ff41;border:1px solid #00ff41}
+  .r-btn-primary:hover{background:rgba(0,255,65,0.1)}
+  .r-btn-ghost{background:transparent;color:rgba(255,255,255,0.25);border:1px solid rgba(255,255,255,0.06)}
+  .r-btn-ghost:hover{background:rgba(255,255,255,0.03)}
+  .r-btn-amber{color:#ffb700;border-color:#ffb700}
+  .r-btn-amber:hover{background:rgba(255,183,0,0.1)}
+  .social-row{display:flex;gap:3px;margin-bottom:6px}
+  .social-pill{font-size:7px;font-weight:600;color:rgba(255,255,255,0.3);border:1px solid rgba(255,255,255,0.08);border-radius:3px;padding:2px 6px;text-decoration:none;letter-spacing:0.06em}
+  .social-pill:hover{border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.5)}
+  .price-box{background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.12);border-radius:4px;padding:6px 8px;margin-bottom:6px;display:flex;justify-content:space-between}
+  .pr-label{font-size:6px;color:rgba(255,255,255,0.15);text-transform:uppercase;letter-spacing:0.08em}
+  .pr-val{font-size:9px;font-weight:600;color:#818cf8;margin-top:1px}
+  .pr-suggest{font-size:11px;font-weight:700;color:#00ff41;margin-top:1px}
+  @keyframes pulse{0%,100%{opacity:0.3}50%{opacity:1}}
 </style>
 </head>
 <body>
   <div class="logo">
     <div class="logo-dot"></div>
     <div class="logo-text">Unibox.os</div>
-    <div class="version">v2.0.0</div>
+    <div class="version">v2.1.0</div>
   </div>
-  <div class="field">
-    <label>Api_Key</label>
-    <input type="password" id="apiKey" placeholder="Enter Unibox API key..." />
+
+  <div class="tabs">
+    <button class="tab active" data-tab="scan">Scan</button>
+    <button class="tab" data-tab="config">Config</button>
   </div>
-  <div class="field">
-    <label>Crm_Url</label>
-    <input type="text" id="crmUrl" placeholder="https://txb-unibox.vercel.app" />
+
+  <!-- SCAN PANEL -->
+  <div class="panel active" id="panel-scan">
+    <button class="scan-btn" id="scan-btn">■ Scan Current Page</button>
+    <div id="scan-status"></div>
+    <div id="scan-result"></div>
   </div>
-  <button id="save" class="btn-save">■ Save Config</button>
-  <div id="status" class="status"></div>
-  <div class="divider"></div>
-  <div class="info-row"><span class="info-label">Sys_Version</span><span class="info-val">2.0.0</span></div>
-  <div class="info-row"><span class="info-label">Connection</span><span class="info-val" id="conn-status">CHECKING...</span></div>
-  <div class="info-row"><span class="info-label">Session_Cache</span><span class="info-val" id="cache-count">—</span></div>
+
+  <!-- CONFIG PANEL -->
+  <div class="panel" id="panel-config">
+    <div class="field"><label>Api_Key</label><input type="password" id="apiKey" placeholder="Enter Unibox API key..." /></div>
+    <div class="field"><label>Crm_Url</label><input type="text" id="crmUrl" placeholder="https://txb-unibox.vercel.app" /></div>
+    <button id="save" class="btn-save">■ Save Config</button>
+    <div id="status" class="status-msg"></div>
+    <div class="divider"></div>
+    <div class="info-row"><span class="info-label">Sys_Version</span><span class="info-val">2.1.0</span></div>
+    <div class="info-row"><span class="info-label">Connection</span><span class="info-val" id="conn-status">CHECKING...</span></div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>
