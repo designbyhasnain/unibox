@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
         // Verify the account exists and belongs to the authenticated user's workspace
         const { data: account, error: accountError } = await supabase
             .from('gmail_accounts')
-            .select('history_id, connection_method, last_synced_at, user_id, watch_expiry, watch_status')
+            .select('status, history_id, connection_method, last_synced_at, user_id, watch_expiry, watch_status')
             .eq('id', accountId)
             .single();
 
@@ -43,9 +43,14 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Account not found' }, { status: 404 });
         }
 
-        // Any authenticated user with a valid session can sync accounts they can see.
-        // The accounts list is already filtered by role/assignments on the frontend,
-        // so if a user has the accountId, they have access to it.
+        // Skip accounts that need reconnection — don't waste API calls on dead tokens
+        if (account.status === 'ERROR' || account.status === 'DISCONNECTED') {
+            return NextResponse.json({
+                success: false,
+                error: 'Account needs reconnection',
+                needsReauth: true,
+            }, { status: 200 });
+        }
 
         const shortId = accountId.substring(0, 8);
         if (account?.connection_method === 'MANUAL') {

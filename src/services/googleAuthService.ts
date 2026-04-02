@@ -142,12 +142,20 @@ export async function refreshAccessToken(accountId: string): Promise<string> {
 
         return newAccessToken;
     } catch (err: any) {
-        // Log full error for debugging, but don't expose details to the client
-        console.error(`[Token Refresh] Failed to refresh token for account`, err?.message);
+        const msg = err?.message || '';
+        const isInvalidGrant = msg.includes('invalid_grant') || msg.includes('Token has been expired or revoked');
+        console.error(`[Token Refresh] Failed for account ${accountId}:`, msg);
+
         await supabase
             .from('gmail_accounts')
-            .update({ status: 'ERROR' })
+            .update({
+                status: 'ERROR',
+                last_error_message: isInvalidGrant
+                    ? 'Token expired — reconnect required'
+                    : `Refresh failed: ${msg.slice(0, 100)}`,
+            })
             .eq('id', accountId);
+
         throw new Error('AUTH_REQUIRED');
     }
 }
