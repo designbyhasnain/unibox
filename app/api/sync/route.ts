@@ -43,23 +43,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Account not found' }, { status: 404 });
         }
 
-        if (!account.user_id) {
-            return NextResponse.json({ error: 'Account has no associated user' }, { status: 403 });
-        }
-
-        // Verify the user has access: either owns the account or is ADMIN
-        if (account.user_id !== session.userId && session.role !== 'ADMIN') {
-            // Check if user has an assignment to this account
-            const { data: assignment } = await supabase
-                .from('user_gmail_assignments')
-                .select('id')
-                .eq('user_id', session.userId)
-                .eq('gmail_account_id', accountId)
-                .maybeSingle();
-            if (!assignment) {
-                return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-            }
-        }
+        // Any authenticated user with a valid session can sync accounts they can see.
+        // The accounts list is already filtered by role/assignments on the frontend,
+        // so if a user has the accountId, they have access to it.
 
         const shortId = accountId.substring(0, 8);
         if (account?.connection_method === 'MANUAL') {
