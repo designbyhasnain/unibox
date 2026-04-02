@@ -9,7 +9,7 @@ const Island = (() => {
     .s-idle{width:160px;max-height:32px;border-radius:20px}
     .s-scan{width:260px;max-height:32px;border-radius:20px}
     .s-hot,.s-partial,.s-exists,.s-low{width:380px;max-height:800px;border-radius:12px}
-    .pill{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:6px;transition:opacity 0.2s}
+    .pill{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:6px;transition:opacity 0.2s;cursor:pointer}
     .pill-dot{width:6px;height:6px;border-radius:50%;background:#00ff41;animation:pulse 2.5s ease-in-out infinite}
     .pill-label{font-size:10px;font-weight:500;color:rgba(255,255,255,0.4);letter-spacing:0.1em;text-transform:uppercase}
     #island:not(.s-idle) .pill{opacity:0;pointer-events:none}
@@ -93,10 +93,21 @@ const Island = (() => {
     islandEl.className = 's-idle';
     islandEl.innerHTML = '<div class="pill"><div class="pill-dot"></div><div class="pill-label">Unibox.os</div></div><div class="scan"><div class="scan-bars"><div class="scan-bar"></div><div class="scan-bar"></div><div class="scan-bar"></div><div class="scan-bar"></div></div><div class="scan-text" id="scan-text">recovering contact...</div></div><div class="expanded" id="expanded"></div>';
     shadow.appendChild(islandEl);
+    // Click pill to expand, click expanded background to contract
     islandEl.addEventListener('click', function(e) {
-      if (e.target === islandEl && islandEl.className !== 's-idle' && islandEl.className !== 's-scan') contract();
+      if (islandEl.className === 's-idle' && lastRenderFn) {
+        // Pill clicked — re-expand
+        expand();
+      } else if (e.target === islandEl && islandEl.className !== 's-idle' && islandEl.className !== 's-scan') {
+        // Expanded background clicked — contract
+        contract();
+      }
     });
   }
+
+  var lastState = null;
+  var lastRenderFn = null;
+  var lastRenderArgs = null;
 
   function setState(s) { islandEl.className = 's-' + s; }
 
@@ -118,6 +129,16 @@ const Island = (() => {
     setState('idle');
     var ev = shadow.getElementById('expanded');
     if (ev) ev.innerHTML = '';
+    // Update pill to show it's clickable
+    var pill = shadow.querySelector('.pill-label');
+    if (pill && lastState) pill.textContent = '■ tap to expand';
+  }
+
+  function expand() {
+    // Re-expand to last state
+    if (lastRenderFn && lastRenderArgs) {
+      lastRenderFn.apply(null, lastRenderArgs);
+    }
   }
 
   function _bind() {
@@ -137,6 +158,7 @@ const Island = (() => {
   }
 
   function showHot(data) {
+    lastRenderFn = showHot; lastRenderArgs = [data]; lastState = 'hot';
     var ev = shadow.getElementById('expanded');
     var p = data.pricing;
     var social = data.social || {};
@@ -160,6 +182,7 @@ const Island = (() => {
       '<div style="font-size:7px;color:rgba(255,255,255,0.2);margin:4px 0 8px;letter-spacing:0.03em">' + esc(p.confidence || '') + '</div>' +
       (p.packages ? '<div class="section">Suggested Packages (' + (p.editPercent || 15) + '%)</div>' + p.packages.map(function(pk) { return '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="font-size:8px;color:rgba(255,255,255,0.3);letter-spacing:0.05em">' + pk.name + '</span><span style="font-size:9px;font-weight:700;color:#00ff41">$' + pk.price + '</span></div>'; }).join('') : '') : '') +
       '<div class="social-row">' + socials + '</div>' +
+      (data.businessIntel ? buildIntelHTML(data.businessIntel) : '') +
       '<div class="btn-row"><button class="btn-ghost btn-skip">Skip</button><button class="btn-primary btn-commit">Commit to CRM</button></div>' +
       '<div class="state-label">03 // TARGET_FOUND_HIGH</div>';
     setState('hot');
@@ -168,6 +191,7 @@ const Island = (() => {
   }
 
   function showPartial(data, fbCallback, igCallback) {
+    lastRenderFn = showPartial; lastRenderArgs = [data, fbCallback, igCallback]; lastState = 'partial';
     var ev = shadow.getElementById('expanded');
     ev.innerHTML = '<button class="dismiss">×</button>' +
       '<div class="hdr"><div class="badge"><span class="amber">■</span> WARM // INCOMPLETE</div><div class="rank">RANK: ' + data.score.score + '</div></div>' +
@@ -188,6 +212,7 @@ const Island = (() => {
   }
 
   function showExists(lead) {
+    lastRenderFn = showExists; lastRenderArgs = [lead]; lastState = 'exists';
     var ev = shadow.getElementById('expanded');
 
     // Follow-up status bar
@@ -273,6 +298,7 @@ const Island = (() => {
   }
 
   function showLow(data) {
+    lastRenderFn = showLow; lastRenderArgs = [data]; lastState = 'low';
     var ev = shadow.getElementById('expanded');
     ev.innerHTML = '<button class="dismiss">×</button>' +
       '<div class="hdr"><div class="badge">MISMATCH_DETECTED <span class="amber">■</span> <span class="red">■</span></div></div>' +
@@ -291,5 +317,51 @@ const Island = (() => {
     if (phone) { var pc = shadow.getElementById('phone-cell'); if (pc) { pc.textContent = phone; pc.classList.remove('missing'); pc.classList.add('found'); } }
   }
 
-  return { mount: mount, scanning: scanning, showHot: showHot, showPartial: showPartial, showExists: showExists, showLow: showLow, contract: contract, updateFbFound: updateFbFound };
+  function buildIntelHTML(bi) {
+    if (!bi) return '';
+    var potColor = bi.outsourcePotential === 'VERY_HIGH' ? 'found' : bi.outsourcePotential === 'HIGH' ? 'green' : bi.outsourcePotential === 'MEDIUM' ? 'accent' : 'amber';
+    var html = '<div class="section">Business Intelligence</div>' +
+      '<div class="grid4">' +
+        '<div class="cell cell-sm"><div class="cl">Weddings/yr</div><div class="cv cv-lg ' + potColor + '">' + (bi.estimatedWeddingsPerYear || '?') + '</div></div>' +
+        '<div class="cell cell-sm"><div class="cl">Proj/Month</div><div class="cv cv-lg ' + potColor + '">' + (bi.estimatedProjectsPerMonth || 0) + '</div></div>' +
+        '<div class="cell cell-sm"><div class="cl">Outsource</div><div class="cv ' + potColor + '">' + (bi.outsourcePotential || '?') + '</div></div>' +
+        '<div class="cell cell-sm"><div class="cl">Our Rev/yr</div><div class="cv found">' + fmtMoney(bi.estimatedAnnualRevenue) + '</div></div>' +
+      '</div>';
+
+    // Signals row
+    var signals = [];
+    if (bi.portfolioCount > 0) signals.push(bi.portfolioCount + ' in portfolio');
+    if (bi.videoCount > 0) signals.push(bi.videoCount + ' videos');
+    if (bi.reviewCount > 0) signals.push(bi.reviewCount + ' reviews');
+    if (bi.isDestination) signals.push('DESTINATION');
+    if (bi.isBookedUp) signals.push('BOOKED UP');
+    if (bi.teamSize > 1) signals.push('TEAM: ' + bi.teamSize);
+    if (bi.bookingYear) signals.push('BOOKING ' + bi.bookingYear);
+    if (signals.length > 0) {
+      html += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px">';
+      signals.forEach(function(s) {
+        html += '<span style="font-size:6.5px;padding:2px 5px;border:1px solid rgba(255,255,255,0.06);border-radius:3px;color:rgba(255,255,255,0.3);letter-spacing:0.05em;text-transform:uppercase">' + s + '</span>';
+      });
+      html += '</div>';
+    }
+
+    // Awards
+    if (bi.awards && bi.awards.length > 0) {
+      html += '<div style="font-size:7px;color:rgba(167,139,250,0.6);margin-bottom:4px;letter-spacing:0.04em">★ ' + bi.awards.slice(0, 4).join(', ').toUpperCase() + '</div>';
+    }
+
+    // Service areas
+    if (bi.serviceAreas && bi.serviceAreas.length > 0) {
+      html += '<div style="font-size:7px;color:rgba(255,255,255,0.15);margin-bottom:4px;letter-spacing:0.03em">Areas: ' + bi.serviceAreas.slice(0, 5).join(', ') + '</div>';
+    }
+
+    // Outreach angle
+    if (bi.outreachAngle) {
+      html += '<div style="font-size:7.5px;color:rgba(0,255,65,0.5);margin-bottom:8px;padding:5px 8px;background:rgba(0,255,65,0.03);border:1px solid rgba(0,255,65,0.08);border-radius:4px;letter-spacing:0.02em">PITCH: ' + esc(bi.outreachAngle) + '</div>';
+    }
+
+    return html;
+  }
+
+  return { mount: mount, scanning: scanning, showHot: showHot, showPartial: showPartial, showExists: showExists, showLow: showLow, contract: contract, expand: expand, updateFbFound: updateFbFound };
 })();

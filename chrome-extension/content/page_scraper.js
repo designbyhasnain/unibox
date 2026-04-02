@@ -123,6 +123,122 @@ const PageScraper = {
     return !!document.querySelector('iframe[src*="youtube"], iframe[src*="vimeo"], video');
   },
 
+  extractBusinessIntel() {
+    const body = document.body.innerText;
+    const bodyLower = body.toLowerCase();
+    const links = [...document.querySelectorAll('a[href]')].map(a => a.href);
+    const images = document.querySelectorAll('img');
+    const intel = {};
+
+    // 1. Portfolio count — how many weddings shown on website
+    const galleryImages = document.querySelectorAll('[class*="gallery"] img, [class*="portfolio"] img, [class*="grid"] img, [class*="masonry"] img, [class*="work"] img');
+    const portfolioLinks = links.filter(l => /\/(portfolio|gallery|films|work|weddings|stories)\//i.test(l));
+    const coupleNames = body.match(/\b[A-Z][a-z]+\s*[&+]\s*[A-Z][a-z]+\b/g) || [];
+    intel.portfolioCount = Math.max(galleryImages.length, portfolioLinks.length, coupleNames.length);
+    intel.coupleNames = [...new Set(coupleNames)].slice(0, 10);
+
+    // 2. Video count — embedded videos on page
+    const youtubeEmbeds = document.querySelectorAll('iframe[src*="youtube"]');
+    const vimeoEmbeds = document.querySelectorAll('iframe[src*="vimeo"]');
+    const videoTags = document.querySelectorAll('video');
+    intel.videoCount = youtubeEmbeds.length + vimeoEmbeds.length + videoTags.length;
+
+    // 3. YouTube channel analysis
+    const ytLink = links.find(l => /youtube\.com\/(c\/|channel\/|@)/.test(l));
+    intel.youtubeChannel = ytLink || null;
+
+    // 4. Blog/journal post dates — estimate posting frequency
+    const datePatterns = body.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+20\d{2}\b/gi) || [];
+    const datePatterns2 = body.match(/\b\d{1,2}[\/\-]\d{1,2}[\/\-]20\d{2}\b/g) || [];
+    const allDates = [...datePatterns, ...datePatterns2].map(d => new Date(d)).filter(d => !isNaN(d.getTime())).sort((a, b) => b - a);
+    intel.blogDates = allDates.length;
+    if (allDates.length >= 2) {
+      const newest = allDates[0];
+      const oldest = allDates[allDates.length - 1];
+      const spanDays = Math.max(1, (newest - oldest) / 86400000);
+      intel.postsPerMonth = Math.round((allDates.length / spanDays) * 30 * 10) / 10;
+    }
+
+    // 5. Team size indicators
+    const teamKeywords = ['team', 'our team', 'meet the team', 'about us', 'our crew', 'our staff'];
+    intel.hasTeamPage = teamKeywords.some(k => bodyLower.includes(k));
+    const teamMembers = body.match(/\b(Photographer|Videographer|Cinematographer|Editor|Director|Lead|Second Shooter|Assistant)\b/gi);
+    intel.teamSize = teamMembers ? [...new Set(teamMembers.map(t => t.toLowerCase()))].length : 0;
+
+    // 6. Service areas — how many locations/regions
+    const stateMatches = body.match(/\b(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\b/gi);
+    const countryMatches = body.match(/\b(USA|UK|Canada|Australia|Italy|France|Spain|Mexico|Greece|Bali|Thailand|Costa Rica|Ireland|Scotland|Portugal|Croatia|Hawaii)\b/gi);
+    intel.serviceAreas = [...new Set([...(stateMatches || []), ...(countryMatches || [])].map(s => s.trim()))];
+    intel.isDestination = intel.serviceAreas.length >= 3 || bodyLower.includes('destination') || bodyLower.includes('travel');
+
+    // 7. Awards/features — indicates premium status
+    const awardKeywords = ['featured', 'published', 'as seen', 'award', 'best of', 'top rated', 'knot', 'weddingwire', 'junebug', 'green wedding shoes', 'martha stewart', 'vogue', 'brides magazine'];
+    intel.awards = awardKeywords.filter(k => bodyLower.includes(k));
+
+    // 8. Booking status indicators
+    intel.isBookedUp = bodyLower.includes('fully booked') || bodyLower.includes('sold out') || bodyLower.includes('limited availability') || bodyLower.includes('waitlist') || bodyLower.includes('currently booking');
+    const yearMatch = bodyLower.match(/booking\s*(20\d{2})/i) || bodyLower.match(/(20\d{2})\s*season/i);
+    intel.bookingYear = yearMatch ? yearMatch[1] : null;
+
+    // 9. Reviews/testimonials count
+    const testimonials = document.querySelectorAll('[class*="testimonial"], [class*="review"], [class*="quote"], blockquote');
+    intel.reviewCount = testimonials.length;
+    const starMatch = body.match(/(\d+\.?\d*)\s*\/?\s*5\s*stars?/i) || body.match(/(\d+\.?\d*)\s*stars?/i);
+    intel.starRating = starMatch ? parseFloat(starMatch[1]) : null;
+
+    // 10. Estimate weddings per year
+    let weddingsPerYear = 0;
+    let estimateMethod = '';
+    if (intel.portfolioCount >= 3) {
+      // Assume portfolio shows ~30-50% of actual weddings
+      weddingsPerYear = Math.round(intel.portfolioCount * 2.5);
+      estimateMethod = 'portfolio_count';
+    }
+    if (intel.blogDates >= 3 && intel.postsPerMonth) {
+      // Blog posts roughly = weddings filmed (each wedding gets a blog post)
+      const fromBlog = Math.round(intel.postsPerMonth * 12);
+      if (fromBlog > weddingsPerYear) { weddingsPerYear = fromBlog; estimateMethod = 'blog_frequency'; }
+    }
+    if (coupleNames.length >= 5) {
+      const fromCouples = Math.round(coupleNames.length * 2);
+      if (fromCouples > weddingsPerYear) { weddingsPerYear = fromCouples; estimateMethod = 'couple_names'; }
+    }
+    if (intel.reviewCount >= 3) {
+      // Reviews accumulate over years, estimate ~60% response rate
+      const fromReviews = Math.round(intel.reviewCount * 1.7);
+      if (fromReviews > weddingsPerYear && !estimateMethod) { weddingsPerYear = fromReviews; estimateMethod = 'reviews'; }
+    }
+    intel.estimatedWeddingsPerYear = Math.min(weddingsPerYear, 200);
+    intel.estimateMethod = estimateMethod;
+
+    // 11. Outsourcing potential
+    // Solo shooters doing 20+ weddings = likely need editing help
+    // Teams doing 40+ = definitely outsourcing
+    let outsourcePotential = 'LOW';
+    let estimatedProjectsPerMonth = 0;
+    if (weddingsPerYear >= 60) { outsourcePotential = 'VERY_HIGH'; estimatedProjectsPerMonth = Math.round(weddingsPerYear / 12); }
+    else if (weddingsPerYear >= 35) { outsourcePotential = 'HIGH'; estimatedProjectsPerMonth = Math.round(weddingsPerYear * 0.7 / 12); }
+    else if (weddingsPerYear >= 20) { outsourcePotential = 'MEDIUM'; estimatedProjectsPerMonth = Math.round(weddingsPerYear * 0.5 / 12); }
+    else if (weddingsPerYear >= 10) { outsourcePotential = 'LOW'; estimatedProjectsPerMonth = Math.round(weddingsPerYear * 0.3 / 12); }
+    else { outsourcePotential = 'MINIMAL'; estimatedProjectsPerMonth = 0; }
+
+    intel.outsourcePotential = outsourcePotential;
+    intel.estimatedProjectsPerMonth = estimatedProjectsPerMonth;
+    intel.estimatedAnnualRevenue = estimatedProjectsPerMonth * 12 * (intel.pricing?.suggested || 400);
+
+    // 12. Best outreach angle
+    let outreachAngle = '';
+    if (intel.isBookedUp) outreachAngle = 'They are booked up — pitch as overflow solution. "I can handle your editing so you can shoot more."';
+    else if (weddingsPerYear >= 40) outreachAngle = 'High-volume shooter. Pitch time savings. "You shoot ' + weddingsPerYear + '+ weddings — let me handle all your editing."';
+    else if (intel.isDestination) outreachAngle = 'Destination filmmaker. Pitch remote editing. "Focus on travel shoots, I handle post-production."';
+    else if (intel.awards.length >= 2) outreachAngle = 'Award-winning filmmaker. Pitch quality match. "Your films deserve an editor who matches your level."';
+    else if (weddingsPerYear >= 15) outreachAngle = 'Growing business. Pitch scaling. "You are doing ' + weddingsPerYear + ' weddings — outsourcing editing lets you book more."';
+    else outreachAngle = 'Standard outreach. Lead with portfolio samples and turnaround time.';
+    intel.outreachAngle = outreachAngle;
+
+    return intel;
+  },
+
   extractAll() {
     return {
       name: this.extractName(),
@@ -131,6 +247,7 @@ const PageScraper = {
       social: this.extractSocialLinks(),
       pricing: this.extractPricing(),
       hasVideo: this.extractVideoEmbeds(),
+      businessIntel: this.extractBusinessIntel(),
       domain: window.location.hostname.replace(/^www\./, ''),
       url: window.location.href,
     };

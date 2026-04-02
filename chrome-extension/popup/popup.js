@@ -199,6 +199,54 @@ function scrapePage() {
   result.url = window.location.href;
   result.hasVideo = hasVideo;
 
+  // Business intelligence
+  var bi = {};
+  var allLinks = Array.from(document.querySelectorAll('a[href]')).map(function(a) { return a.href; });
+  var galleryImgs = document.querySelectorAll('[class*="gallery"] img, [class*="portfolio"] img, [class*="grid"] img, [class*="work"] img');
+  var coupleMatches = body.match(/\b[A-Z][a-z]+\s*[&+]\s*[A-Z][a-z]+\b/g) || [];
+  bi.portfolioCount = Math.max(galleryImgs.length, coupleMatches.length);
+  bi.coupleNames = coupleMatches.slice(0, 8);
+  bi.videoCount = document.querySelectorAll('iframe[src*="youtube"], iframe[src*="vimeo"], video').length;
+
+  var blogDates = body.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+20\d{2}\b/gi) || [];
+  bi.blogDates = blogDates.length;
+  if (blogDates.length >= 2) {
+    var parsed = blogDates.map(function(d) { return new Date(d); }).filter(function(d) { return !isNaN(d.getTime()); }).sort(function(a,b) { return b-a; });
+    if (parsed.length >= 2) { var span = Math.max(1, (parsed[0] - parsed[parsed.length-1]) / 86400000); bi.postsPerMonth = Math.round((parsed.length / span) * 30 * 10) / 10; }
+  }
+
+  var bLower = body.toLowerCase();
+  bi.isDestination = bLower.includes('destination') || bLower.includes('travel');
+  bi.isBookedUp = bLower.includes('fully booked') || bLower.includes('limited availability') || bLower.includes('waitlist') || bLower.includes('currently booking');
+  var bookYr = bLower.match(/booking\s*(20\d{2})/i); bi.bookingYear = bookYr ? bookYr[1] : null;
+  bi.reviewCount = document.querySelectorAll('[class*="testimonial"], [class*="review"], blockquote').length;
+
+  var awardKw = ['featured','published','as seen','award','best of','knot','weddingwire','junebug'];
+  bi.awards = awardKw.filter(function(k) { return bLower.includes(k); });
+
+  var wpy = 0;
+  if (bi.portfolioCount >= 3) wpy = Math.round(bi.portfolioCount * 2.5);
+  if (bi.postsPerMonth) { var fb = Math.round(bi.postsPerMonth * 12); if (fb > wpy) wpy = fb; }
+  if (coupleMatches.length >= 5) { var fc = Math.round(coupleMatches.length * 2); if (fc > wpy) wpy = fc; }
+  bi.estimatedWeddingsPerYear = Math.min(wpy, 200);
+
+  if (wpy >= 60) { bi.outsourcePotential = 'VERY_HIGH'; bi.estimatedProjectsPerMonth = Math.round(wpy / 12); }
+  else if (wpy >= 35) { bi.outsourcePotential = 'HIGH'; bi.estimatedProjectsPerMonth = Math.round(wpy * 0.7 / 12); }
+  else if (wpy >= 20) { bi.outsourcePotential = 'MEDIUM'; bi.estimatedProjectsPerMonth = Math.round(wpy * 0.5 / 12); }
+  else if (wpy >= 10) { bi.outsourcePotential = 'LOW'; bi.estimatedProjectsPerMonth = Math.round(wpy * 0.3 / 12); }
+  else { bi.outsourcePotential = 'MINIMAL'; bi.estimatedProjectsPerMonth = 0; }
+
+  bi.estimatedAnnualRevenue = bi.estimatedProjectsPerMonth * 12 * (result.pricing ? result.pricing.suggested : 400);
+
+  if (bi.isBookedUp) bi.outreachAngle = 'Booked up — pitch as overflow editing partner.';
+  else if (wpy >= 40) bi.outreachAngle = 'High-volume (' + wpy + '+ weddings). Pitch time savings.';
+  else if (bi.isDestination) bi.outreachAngle = 'Destination filmmaker. Pitch remote editing.';
+  else if (bi.awards.length >= 2) bi.outreachAngle = 'Award-winning. Pitch quality-matched editing.';
+  else if (wpy >= 15) bi.outreachAngle = 'Growing (' + wpy + ' weddings). Pitch scaling with outsourced editing.';
+  else bi.outreachAngle = 'Standard outreach. Lead with samples + turnaround.';
+
+  result.businessIntel = bi;
+
   return result;
 }
 
@@ -238,6 +286,7 @@ function renderNewLead(data) {
       }).join('') +
     '</div>' : '') +
     (socials ? '<div class="social-row">' + socials + '</div>' : '') +
+    (data.businessIntel ? buildPopupIntelHTML(data.businessIntel) : '') +
     '<div class="r-btn-row"><button class="r-btn r-btn-ghost" id="btn-skip">Skip</button><button class="r-btn r-btn-primary" id="btn-commit">Commit to CRM</button></div>' +
   '</div>';
 
@@ -309,6 +358,33 @@ function renderExisting(lead, scraped) {
 
   document.getElementById('btn-open').addEventListener('click', function() { chrome.tabs.create({ url: lead.crmUrl }); });
   document.getElementById('btn-dismiss').addEventListener('click', function() { el.innerHTML = ''; });
+}
+
+function buildPopupIntelHTML(bi) {
+  if (!bi) return '';
+  var potColor = bi.outsourcePotential === 'VERY_HIGH' ? 'green' : bi.outsourcePotential === 'HIGH' ? 'green' : bi.outsourcePotential === 'MEDIUM' ? 'accent' : 'amber';
+  var html = '<div class="r-section">Business Intelligence</div>' +
+    '<div class="r-grid4">' +
+      '<div class="r-cell"><div class="r-cl">Weddings/yr</div><div class="r-cv r-cv-lg ' + potColor + '">' + (bi.estimatedWeddingsPerYear || '?') + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Proj/Mo</div><div class="r-cv r-cv-lg ' + potColor + '">' + (bi.estimatedProjectsPerMonth || 0) + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Outsource</div><div class="r-cv ' + potColor + '">' + (bi.outsourcePotential || '?') + '</div></div>' +
+      '<div class="r-cell"><div class="r-cl">Our Rev/yr</div><div class="r-cv green">' + fmtMoney(bi.estimatedAnnualRevenue) + '</div></div>' +
+    '</div>';
+  var signals = [];
+  if (bi.portfolioCount > 0) signals.push(bi.portfolioCount + ' portfolio');
+  if (bi.videoCount > 0) signals.push(bi.videoCount + ' videos');
+  if (bi.reviewCount > 0) signals.push(bi.reviewCount + ' reviews');
+  if (bi.isDestination) signals.push('DESTINATION');
+  if (bi.isBookedUp) signals.push('BOOKED UP');
+  if (bi.bookingYear) signals.push('BOOKING ' + bi.bookingYear);
+  if (signals.length > 0) {
+    html += '<div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:4px">';
+    signals.forEach(function(s) { html += '<span style="font-size:6px;padding:1px 4px;border:1px solid rgba(255,255,255,0.05);border-radius:2px;color:rgba(255,255,255,0.25);letter-spacing:0.05em;text-transform:uppercase">' + s + '</span>'; });
+    html += '</div>';
+  }
+  if (bi.awards && bi.awards.length > 0) html += '<div style="font-size:6px;color:rgba(167,139,250,0.5);margin-bottom:3px">★ ' + bi.awards.slice(0,3).join(', ').toUpperCase() + '</div>';
+  if (bi.outreachAngle) html += '<div style="font-size:7px;color:rgba(0,255,65,0.4);margin-bottom:6px;padding:4px 6px;background:rgba(0,255,65,0.03);border:1px solid rgba(0,255,65,0.06);border-radius:3px">PITCH: ' + esc(bi.outreachAngle) + '</div>';
+  return html;
 }
 
 async function checkConnection(apiKey, baseUrl, el) {
