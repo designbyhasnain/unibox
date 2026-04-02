@@ -18,7 +18,6 @@
         "content/island.js",
         "content/content_script.js"
       ],
-      "css": ["content/island.css"],
       "run_at": "document_idle",
       "exclude_matches": [
         "*://mail.google.com/*",

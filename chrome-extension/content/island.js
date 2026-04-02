@@ -9,19 +9,19 @@ const Island = (() => {
       transition:width 0.55s cubic-bezier(0.32,0.72,0,1),max-height 0.55s cubic-bezier(0.32,0.72,0,1),border-radius 0.45s,padding 0.3s;
       box-shadow:0 8px 60px rgba(0,0,0,0.9),0 0 0 0.5px rgba(255,255,255,0.08);pointer-events:all}
 
-    .s-idle{width:180px;max-height:38px;border-radius:24px;padding:0}
-    .s-scan{width:280px;max-height:38px;border-radius:24px;padding:0}
-    .s-hot,.s-partial,.s-exists,.s-low{width:400px;max-height:800px;border-radius:14px;padding:0}
+    .s-idle{width:180px;height:40px;max-height:40px;border-radius:24px;padding:0}
+    .s-scan{width:300px;height:40px;max-height:40px;border-radius:24px;padding:0}
+    .s-hot,.s-partial,.s-exists,.s-low{width:400px;height:auto;max-height:800px;border-radius:14px;padding:0}
 
-    .pill{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity 0.25s;cursor:pointer;padding:0 16px}
+    .pill{position:absolute;top:0;left:0;right:0;height:40px;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity 0.25s;cursor:pointer;padding:0 16px}
     .pill-dot{width:8px;height:8px;border-radius:50%;background:#00ff41;animation:pulse 2s ease-in-out infinite;flex-shrink:0}
     .pill-label{font-size:11px;font-weight:600;color:rgba(255,255,255,0.45);letter-spacing:0.12em;text-transform:uppercase}
     #island:not(.s-idle) .pill{opacity:0;pointer-events:none}
 
-    .scan{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;opacity:0;pointer-events:none;transition:opacity 0.25s;padding:0 16px}
+    .scan{position:absolute;top:0;left:0;right:0;height:40px;display:flex;align-items:center;justify-content:center;gap:10px;opacity:0;pointer-events:none;transition:opacity 0.25s;padding:0 16px}
     .s-scan .scan{opacity:1;pointer-events:all}.s-scan .pill{opacity:0}
     .scan-bars{display:flex;gap:3px;align-items:center}
-    .scan-bar{width:3px;background:#00ff41;animation:barPulse 0.8s ease-in-out infinite}
+    .scan-bar{width:3px;height:12px;background:#00ff41;animation:barPulse 0.8s ease-in-out infinite}
     .scan-bar:nth-child(1){height:10px;animation-delay:0s}
     .scan-bar:nth-child(2){height:16px;animation-delay:0.12s}
     .scan-bar:nth-child(3){height:8px;animation-delay:0.24s}
