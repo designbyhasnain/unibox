@@ -3,6 +3,7 @@ import './globals.css'
 
 import { FilterProvider } from './context/FilterContext'
 import { UIProvider } from './context/UIContext'
+import { UndoToastProvider } from './context/UndoToastContext'
 import ClientLayout from './components/ClientLayout'
 
 export const dynamic = 'force-dynamic'
@@ -22,11 +23,13 @@ export default function RootLayout({
             <body suppressHydrationWarning>
                 <FilterProvider>
                     <UIProvider>
-                        <div className="layout-container">
-                            <ClientLayout>
-                                {children}
-                            </ClientLayout>
-                        </div>
+                        <UndoToastProvider>
+                            <div className="layout-container">
+                                <ClientLayout>
+                                    {children}
+                                </ClientLayout>
+                            </div>
+                        </UndoToastProvider>
                     </UIProvider>
                 </FilterProvider>
             </body>

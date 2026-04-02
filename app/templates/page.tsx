@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import Topbar from '../components/Topbar';
+import { useUndoToast } from '../context/UndoToastContext';
 import {
     getTemplatesAction,
     createTemplateAction,
@@ -35,6 +36,7 @@ function stripHtml(html: string): string {
 
 export default function TemplatesPage() {
     const isHydrated = useHydrated();
+    const { scheduleDelete } = useUndoToast();
     const [templates, setTemplates] = useState<TemplateData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -128,10 +130,20 @@ export default function TemplatesPage() {
         }
     }
 
-    async function handleDelete(id: string) {
-        if (!confirm('Delete this template?')) return;
-        await deleteTemplateAction(id);
-        await loadTemplates();
+    function handleDelete(id: string) {
+        const template = templates.find(t => t.id === id);
+        if (!template) return;
+        // Optimistic: remove from UI immediately
+        setTemplates(prev => prev.filter(t => t.id !== id));
+        // Schedule actual delete with undo
+        scheduleDelete({
+            id,
+            type: 'template',
+            label: template.name || 'Template',
+            data: template,
+            deleteAction: () => deleteTemplateAction(id),
+            onUndo: () => setTemplates(prev => [...prev, template]),
+        });
     }
 
     const filtered = templates.filter(t => {
