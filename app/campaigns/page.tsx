@@ -8,6 +8,7 @@ import { useUI } from '../context/UIContext';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
+import { useUndoToast } from '../context/UndoToastContext';
 import {
     getCampaignsAction,
     pauseCampaignAction,
@@ -88,6 +89,7 @@ export default function CampaignsPage() {
     const isHydrated = useHydrated();
     const router = useRouter();
     const { isComposeOpen, setComposeOpen } = useUI();
+    const { scheduleDelete } = useUndoToast();
     const [campaigns, setCampaigns] = useState<Campaign[]>(() => globalCampaignsCache || []);
     const [isLoading, setIsLoading] = useState(() => !globalCampaignsCache);
     const [searchQuery, setSearchQuery] = useState('');
@@ -131,10 +133,21 @@ export default function CampaignsPage() {
                 case 'resume':
                     result = await resumeCampaignAction(campaignId);
                     break;
-                case 'archive':
-                    if (!confirm('Are you sure you want to archive this campaign?')) return;
-                    result = await deleteCampaignAction(campaignId);
-                    break;
+                case 'archive': {
+                    const campaign = campaigns.find(c => c.id === campaignId);
+                    if (!campaign) return;
+                    setCampaigns(prev => prev.filter(c => c.id !== campaignId));
+                    scheduleDelete({
+                        id: campaignId,
+                        type: 'campaign',
+                        label: campaign.name || 'Campaign',
+                        data: campaign,
+                        deleteAction: () => deleteCampaignAction(campaignId),
+                        onUndo: () => setCampaigns(prev => [...prev, campaign]),
+                    });
+                    setActionLoading(null);
+                    return;
+                }
             }
             if (result?.success) {
                 globalCampaignsCacheTimestamp = 0;

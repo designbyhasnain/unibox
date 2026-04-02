@@ -605,6 +605,10 @@ export async function syncGmailEmails(accountId: string) {
         .single();
 
     if (accountError || !account) throw new Error('Account not found');
+    if (['ERROR', 'DISCONNECTED', 'PAUSED'].includes(account.status)) {
+        console.error(`[Full Sync] Skipping ${account.email} — status is ${account.status}`);
+        return;
+    }
     if (!account.access_token || account.connection_method !== 'OAUTH') {
         throw new Error('Invalid account for Gmail API sync');
     }

@@ -290,23 +290,25 @@ export type ClientUpdatePayload = {
     account_manager_id?: string;
 };
 
-// Remove clients — moves them back to LEAD (does NOT delete data)
+// Delete clients — hard delete from database
 export async function removeClientsAction(contactIds: string[]) {
     const { userId, role } = await ensureAuthenticated();
     if (!contactIds || contactIds.length === 0) return { success: false, error: 'No contacts selected' };
 
+    // Nullify foreign keys on email_messages to preserve email history
+    await supabase
+        .from('email_messages')
+        .update({ contact_id: null })
+        .in('contact_id', contactIds);
+
     const { error } = await supabase
         .from('contacts')
-        .update({
-            is_client: false,
-            pipeline_stage: 'COLD_LEAD',
-            updated_at: new Date().toISOString(),
-        })
+        .delete()
         .in('id', contactIds);
 
     if (error) {
         console.error('removeClientsAction error:', error);
-        return { success: false, error: 'Failed to remove clients' };
+        return { success: false, error: 'Failed to delete clients' };
     }
 
     revalidatePath('/clients');

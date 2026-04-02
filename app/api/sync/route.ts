@@ -3,7 +3,6 @@ import { syncGmailEmails, syncAccountHistory, startGmailWatch } from '../../../s
 import { syncManualEmails } from '../../../src/services/manualEmailService';
 import { supabase } from '../../../src/lib/supabase';
 import { getSession } from '../../../src/lib/auth';
-import { DEFAULT_USER_ID } from '../../constants/config';
 
 /**
  * POST /api/sync
@@ -36,7 +35,7 @@ export async function POST(req: NextRequest) {
         // Verify the account exists and belongs to the authenticated user's workspace
         const { data: account, error: accountError } = await supabase
             .from('gmail_accounts')
-            .select('history_id, connection_method, last_synced_at, user_id, watch_expiry, watch_status')
+            .select('status, history_id, connection_method, last_synced_at, user_id, watch_expiry, watch_status')
             .eq('id', accountId)
             .single();
 
@@ -44,13 +43,13 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Account not found' }, { status: 404 });
         }
 
-        if (!account.user_id) {
-            return NextResponse.json({ error: 'Account has no associated user' }, { status: 403 });
-        }
-
-        // Verify the account belongs to the workspace (shared dashboard uses DEFAULT_USER_ID)
-        if (account.user_id !== DEFAULT_USER_ID) {
-            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        // Skip accounts that need reconnection — don't waste API calls on dead tokens
+        if (account.status === 'ERROR' || account.status === 'DISCONNECTED') {
+            return NextResponse.json({
+                success: false,
+                error: 'Account needs reconnection',
+                needsReauth: true,
+            }, { status: 200 });
         }
 
         const shortId = accountId.substring(0, 8);

@@ -16,6 +16,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { getRelationshipInsightAction, type RelationshipInsight } from '../../src/actions/relationshipActions';
 import { generateContactSummaryAction, generateAISummaryAction, type ContactSummary } from '../../src/actions/summaryActions';
 import { useGlobalFilter } from '../context/FilterContext';
+import { useUndoToast } from '../context/UndoToastContext';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 import { avatarColor, initials, cleanPreview } from '../utils/helpers';
@@ -60,6 +61,7 @@ function isClientsCacheValid(): boolean {
 export default function ClientsPage() {
     const router = useRouter();
     const isHydrated = useHydrated();
+    const { scheduleDelete } = useUndoToast();
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
     const [clients, setClients] = useState<any[]>(() => Array.isArray(globalClientsCache) ? globalClientsCache : []);
     const [managers, setManagers] = useState<{ id: string, name: string }[]>(() => globalManagersCache || []);
@@ -111,21 +113,25 @@ export default function ClientsPage() {
         }
     };
 
-    const handleRemoveClients = async () => {
+    const handleRemoveClients = () => {
         if (selectedClientIds.size === 0) return;
-        if (!confirm(`Remove ${selectedClientIds.size} contact(s)? They will be moved back to Cold Lead status.`)) return;
-        setIsRemoving(true);
-        try {
-            const result = await removeClientsAction(Array.from(selectedClientIds));
-            if (result.success) {
-                setClients(prev => prev.filter(c => !selectedClientIds.has(c.id)));
-                setSelectedClientIds(new Set());
-            }
-        } catch (err) {
-            console.error('Remove failed:', err);
-        } finally {
-            setIsRemoving(false);
-        }
+        const ids = Array.from(selectedClientIds);
+        const removedClients = clients.filter(c => ids.includes(c.id));
+        const count = ids.length;
+        const label = count === 1 ? (removedClients[0]?.name || 'Contact') : `${count} contacts`;
+
+        // Optimistic: remove from UI
+        setClients(prev => prev.filter(c => !selectedClientIds.has(c.id)));
+        setSelectedClientIds(new Set());
+
+        scheduleDelete({
+            id: ids.join(','),
+            type: 'client',
+            label,
+            data: removedClients,
+            deleteAction: () => removeClientsAction(ids),
+            onUndo: () => setClients(prev => [...prev, ...removedClients]),
+        });
     };
 
     // Escape clears selection
