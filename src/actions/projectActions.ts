@@ -37,8 +37,9 @@ export async function getAllProjectsAction(
     search?: string,
 ): Promise<PaginatedProjectsResult | any[]> {
     const { userId, role } = await ensureAuthenticated();
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+
     if (gmailAccountId && gmailAccountId !== 'ALL') {
-        const accessible = await getAccessibleGmailAccountIds(userId, role);
         if (accessible !== 'ALL' && !accessible.includes(gmailAccountId)) {
             return { projects: [], totalCount: 0, page, pageSize, totalPages: 0 };
         }
@@ -51,7 +52,10 @@ export async function getAllProjectsAction(
         .from('projects')
         .select(`id, project_name, project_date, due_date, paid_status, priority, final_review, quote, project_value, project_link, brief, reference, deduction_on_delay, status, person, editor, account_manager, team, tags, client_id, account_manager_id, source_email_id, created_at, contacts:client_id(id, name, email)`, { count: 'exact' });
 
-    // Account filter not applicable for Notion-imported projects
+    // Filter projects for SALES users: only show projects assigned to them
+    if (accessible !== 'ALL') {
+        query = query.eq('account_manager_id', userId);
+    }
 
     if (search && search.trim()) {
         const s = search.trim().replace(/[%_\\]/g, '\\$&');
