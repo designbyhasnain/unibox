@@ -1,18 +1,2 @@
-/* UNIBOX PROSPECTOR — Terminal/Hacker Aesthetic */
-
-#unibox-island-host {
-  position: fixed !important;
-  top: 8px !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  z-index: 2147483647 !important;
-  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace !important;
-  pointer-events: none !important;
-}
-
-#unibox-island-host * {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-}
+/* External CSS intentionally empty — all styles are in Shadow DOM via island.js */
+/* This file exists only because manifest.json references it */

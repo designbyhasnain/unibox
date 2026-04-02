@@ -3,6 +3,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleFacebookScrape(message.fbUrl, sendResponse);
     return true;
   }
+  if (message.type === 'SCRAPE_INSTAGRAM') {
+    handleInstagramScrape(message.igUrl, sendResponse);
+    return true;
+  }
   if (message.type === 'ADD_TO_CRM') {
     handleAddToCRM(message.data, sendResponse);
     return true;
@@ -21,6 +25,24 @@ async function handleFacebookScrape(fbUrl, sendResponse) {
     sendResponse(results?.[0]?.result || {});
   } catch (e) {
     console.error('[Unibox] FB scrape failed:', e);
+    sendResponse({});
+  } finally {
+    if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+async function handleInstagramScrape(igUrl, sendResponse) {
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: igUrl, active: false });
+    await waitForTabLoad(tab.id);
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['fallbacks/instagram_scraper.js']
+    });
+    sendResponse(results?.[0]?.result || {});
+  } catch (e) {
+    console.error('[Unibox] IG scrape failed:', e);
     sendResponse({});
   } finally {
     if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {});

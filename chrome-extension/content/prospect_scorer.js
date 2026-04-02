@@ -23,11 +23,9 @@ const ProspectScorer = {
   },
 
   isFilmmakerPage() {
-    const text = (document.body.innerText + document.title + document.head.innerHTML).toLowerCase();
-    const triggers = ['wedding','videographer','filmmaker','cinematographer','highlight reel','bridal film','wedding film','video package','photo + video','photo and video','elopement film'];
-    const score = triggers.filter(t => text.includes(t)).length;
-    const hasVideoEmbed = !!document.querySelector('iframe[src*="youtube"], iframe[src*="vimeo"], video');
-    const hasPricing = /[$€£]\s?\d{3,}/.test(text);
-    return score >= 1 || (hasVideoEmbed && hasPricing);
+    // Always show on every page — let scoring decide relevance
+    // The island shows as LOW_CONFIDENCE on non-filmmaker pages
+    // and HOT_LEAD on filmmaker pages
+    return true;
   }
 };

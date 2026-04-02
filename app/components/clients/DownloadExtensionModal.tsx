@@ -41,10 +41,10 @@ export default function DownloadExtensionModal({ onClose }: Props) {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={onClose}>
             <div style={{ background: '#fff', borderRadius: 16, width: 480, maxHeight: '80vh', overflow: 'auto', padding: 32 }} onClick={e => e.stopPropagation()}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>Install Unibox Chrome Extension</h2>
+                    <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>Install Unibox Prospector v2 — Antigravity</h2>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#6b7280' }}>&times;</button>
                 </div>
-                <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 24 }}>Add clients from any website in one click</p>
+                <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 24 }}>Dynamic Island lead capture with auto-scraping, scoring & FB fallback</p>
 
                 <div style={{ marginBottom: 24 }}>
                     <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Step 1 - Download Extension</h3>

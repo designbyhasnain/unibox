@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Unibox Prospector",
+  "name": "Unibox Prospector v2 — Antigravity",
   "version": "2.0.0",
-  "description": "Smart filmmaker lead capture for Unibox CRM",
+  "description": "Dynamic Island lead capture with auto-scraping, scoring & FB fallback",
   "permissions": ["activeTab", "tabs", "storage", "scripting"],
   "host_permissions": ["https://*/*", "http://*/*"],
   "background": {
