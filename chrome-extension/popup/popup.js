@@ -361,30 +361,15 @@ function renderExisting(lead, scraped) {
 }
 
 function buildPopupIntelHTML(bi) {
-  if (!bi) return '';
-  var potColor = bi.outsourcePotential === 'VERY_HIGH' ? 'green' : bi.outsourcePotential === 'HIGH' ? 'green' : bi.outsourcePotential === 'MEDIUM' ? 'accent' : 'amber';
-  var html = '<div class="r-section">Business Intelligence</div>' +
-    '<div class="r-grid4">' +
-      '<div class="r-cell"><div class="r-cl">Weddings/yr</div><div class="r-cv r-cv-lg ' + potColor + '">' + (bi.estimatedWeddingsPerYear || '?') + '</div></div>' +
+  if (!bi || !bi.estimatedWeddingsPerYear) return '';
+  var potColor = bi.outsourcePotential === 'VERY_HIGH' || bi.outsourcePotential === 'HIGH' ? 'green' : bi.outsourcePotential === 'MEDIUM' ? 'accent' : 'amber';
+  return '<div class="r-section">Outsource Potential</div>' +
+    '<div class="r-grid3">' +
+      '<div class="r-cell"><div class="r-cl">Weddings/yr</div><div class="r-cv r-cv-lg ' + potColor + '">' + bi.estimatedWeddingsPerYear + '</div></div>' +
       '<div class="r-cell"><div class="r-cl">Proj/Mo</div><div class="r-cv r-cv-lg ' + potColor + '">' + (bi.estimatedProjectsPerMonth || 0) + '</div></div>' +
-      '<div class="r-cell"><div class="r-cl">Outsource</div><div class="r-cv ' + potColor + '">' + (bi.outsourcePotential || '?') + '</div></div>' +
-      '<div class="r-cell"><div class="r-cl">Our Rev/yr</div><div class="r-cv green">' + fmtMoney(bi.estimatedAnnualRevenue) + '</div></div>' +
-    '</div>';
-  var signals = [];
-  if (bi.portfolioCount > 0) signals.push(bi.portfolioCount + ' portfolio');
-  if (bi.videoCount > 0) signals.push(bi.videoCount + ' videos');
-  if (bi.reviewCount > 0) signals.push(bi.reviewCount + ' reviews');
-  if (bi.isDestination) signals.push('DESTINATION');
-  if (bi.isBookedUp) signals.push('BOOKED UP');
-  if (bi.bookingYear) signals.push('BOOKING ' + bi.bookingYear);
-  if (signals.length > 0) {
-    html += '<div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:4px">';
-    signals.forEach(function(s) { html += '<span style="font-size:6px;padding:1px 4px;border:1px solid rgba(255,255,255,0.05);border-radius:2px;color:rgba(255,255,255,0.25);letter-spacing:0.05em;text-transform:uppercase">' + s + '</span>'; });
-    html += '</div>';
-  }
-  if (bi.awards && bi.awards.length > 0) html += '<div style="font-size:6px;color:rgba(167,139,250,0.5);margin-bottom:3px">★ ' + bi.awards.slice(0,3).join(', ').toUpperCase() + '</div>';
-  if (bi.outreachAngle) html += '<div style="font-size:7px;color:rgba(0,255,65,0.4);margin-bottom:6px;padding:4px 6px;background:rgba(0,255,65,0.03);border:1px solid rgba(0,255,65,0.06);border-radius:3px">PITCH: ' + esc(bi.outreachAngle) + '</div>';
-  return html;
+      '<div class="r-cell"><div class="r-cl">Our Rev/yr</div><div class="r-cv r-cv-lg green">' + fmtMoney(bi.estimatedAnnualRevenue) + '</div></div>' +
+    '</div>' +
+    (bi.outreachAngle ? '<div style="font-size:7px;color:rgba(0,255,65,0.4);margin-bottom:6px;padding:4px 6px;background:rgba(0,255,65,0.03);border:1px solid rgba(0,255,65,0.06);border-radius:3px">' + esc(bi.outreachAngle) + '</div>' : '');
 }
 
 async function checkConnection(apiKey, baseUrl, el) {

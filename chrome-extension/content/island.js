@@ -318,49 +318,15 @@ const Island = (() => {
   }
 
   function buildIntelHTML(bi) {
-    if (!bi) return '';
-    var potColor = bi.outsourcePotential === 'VERY_HIGH' ? 'found' : bi.outsourcePotential === 'HIGH' ? 'green' : bi.outsourcePotential === 'MEDIUM' ? 'accent' : 'amber';
-    var html = '<div class="section">Business Intelligence</div>' +
-      '<div class="grid4">' +
-        '<div class="cell cell-sm"><div class="cl">Weddings/yr</div><div class="cv cv-lg ' + potColor + '">' + (bi.estimatedWeddingsPerYear || '?') + '</div></div>' +
-        '<div class="cell cell-sm"><div class="cl">Proj/Month</div><div class="cv cv-lg ' + potColor + '">' + (bi.estimatedProjectsPerMonth || 0) + '</div></div>' +
-        '<div class="cell cell-sm"><div class="cl">Outsource</div><div class="cv ' + potColor + '">' + (bi.outsourcePotential || '?') + '</div></div>' +
-        '<div class="cell cell-sm"><div class="cl">Our Rev/yr</div><div class="cv found">' + fmtMoney(bi.estimatedAnnualRevenue) + '</div></div>' +
-      '</div>';
-
-    // Signals row
-    var signals = [];
-    if (bi.portfolioCount > 0) signals.push(bi.portfolioCount + ' in portfolio');
-    if (bi.videoCount > 0) signals.push(bi.videoCount + ' videos');
-    if (bi.reviewCount > 0) signals.push(bi.reviewCount + ' reviews');
-    if (bi.isDestination) signals.push('DESTINATION');
-    if (bi.isBookedUp) signals.push('BOOKED UP');
-    if (bi.teamSize > 1) signals.push('TEAM: ' + bi.teamSize);
-    if (bi.bookingYear) signals.push('BOOKING ' + bi.bookingYear);
-    if (signals.length > 0) {
-      html += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px">';
-      signals.forEach(function(s) {
-        html += '<span style="font-size:6.5px;padding:2px 5px;border:1px solid rgba(255,255,255,0.06);border-radius:3px;color:rgba(255,255,255,0.3);letter-spacing:0.05em;text-transform:uppercase">' + s + '</span>';
-      });
-      html += '</div>';
-    }
-
-    // Awards
-    if (bi.awards && bi.awards.length > 0) {
-      html += '<div style="font-size:7px;color:rgba(167,139,250,0.6);margin-bottom:4px;letter-spacing:0.04em">★ ' + bi.awards.slice(0, 4).join(', ').toUpperCase() + '</div>';
-    }
-
-    // Service areas
-    if (bi.serviceAreas && bi.serviceAreas.length > 0) {
-      html += '<div style="font-size:7px;color:rgba(255,255,255,0.15);margin-bottom:4px;letter-spacing:0.03em">Areas: ' + bi.serviceAreas.slice(0, 5).join(', ') + '</div>';
-    }
-
-    // Outreach angle
-    if (bi.outreachAngle) {
-      html += '<div style="font-size:7.5px;color:rgba(0,255,65,0.5);margin-bottom:8px;padding:5px 8px;background:rgba(0,255,65,0.03);border:1px solid rgba(0,255,65,0.08);border-radius:4px;letter-spacing:0.02em">PITCH: ' + esc(bi.outreachAngle) + '</div>';
-    }
-
-    return html;
+    if (!bi || !bi.estimatedWeddingsPerYear) return '';
+    var potColor = bi.outsourcePotential === 'VERY_HIGH' || bi.outsourcePotential === 'HIGH' ? 'found' : bi.outsourcePotential === 'MEDIUM' ? 'accent' : 'amber';
+    return '<div class="section">Outsource Potential</div>' +
+      '<div class="grid3">' +
+        '<div class="cell cell-sm"><div class="cl">Weddings/yr</div><div class="cv cv-lg ' + potColor + '">' + bi.estimatedWeddingsPerYear + '</div></div>' +
+        '<div class="cell cell-sm"><div class="cl">Proj/Mo</div><div class="cv cv-lg ' + potColor + '">' + (bi.estimatedProjectsPerMonth || 0) + '</div></div>' +
+        '<div class="cell cell-sm"><div class="cl">Our Rev/yr</div><div class="cv cv-lg found">' + fmtMoney(bi.estimatedAnnualRevenue) + '</div></div>' +
+      '</div>' +
+      (bi.outreachAngle ? '<div style="font-size:7px;color:rgba(0,255,65,0.45);margin-bottom:8px;padding:4px 8px;background:rgba(0,255,65,0.03);border:1px solid rgba(0,255,65,0.06);border-radius:4px;letter-spacing:0.02em">' + esc(bi.outreachAngle) + '</div>' : '');
   }
 
   return { mount: mount, scanning: scanning, showHot: showHot, showPartial: showPartial, showExists: showExists, showLow: showLow, contract: contract, expand: expand, updateFbFound: updateFbFound };
