@@ -67,22 +67,48 @@ const PageScraper = {
     const pricingSignals = ['package', 'invest', 'pricing', 'collection', 'starting at', 'starting from', 'book now', 'price', 'rate', 'cost', 'quote'];
     if (!pricingSignals.some(s => bodyLower.includes(s))) return null;
 
-    const currencyMap = { '$': 'USD', '€': 'EUR', '£': 'GBP', 'A$': 'AUD', 'NZ$': 'NZD', 'C$': 'CAD' };
+    // Detect all currency symbols on page
+    const symbols = ['$', '€', '£', '¥', '₹', 'R$', 'kr', 'CHF', 'AED', 'SAR', 'SGD', 'HKD', 'MYR', 'PHP', 'THB', 'IDR', 'PKR'];
+    const currencyNames = { '$': 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY', '₹': 'INR', 'R$': 'BRL', 'kr': 'SEK', 'CHF': 'CHF' };
+    // Also detect written currencies
+    const writtenCurrencies = { 'aud': 'AUD', 'cad': 'CAD', 'nzd': 'NZD', 'usd': 'USD', 'eur': 'EUR', 'gbp': 'GBP', 'sek': 'SEK', 'nok': 'NOK', 'dkk': 'DKK', 'chf': 'CHF', 'mxn': 'MXN', 'brl': 'BRL', 'jpy': 'JPY', 'inr': 'INR' };
+
     let currency = 'USD';
     let sym = '$';
-    for (const [s, code] of Object.entries(currencyMap)) {
-      if (bodyText.includes(s)) { currency = code; sym = s; break; }
-    }
 
-    const regex = new RegExp(`\\${sym}\\s?(\\d[\\d,]*)`, 'g');
-    const raw = [...bodyText.matchAll(regex)].map(m => parseInt(m[1].replace(/,/g, '')));
-    // Only match "k" pricing when preceded by $ or pricing context (not "10k followers")
-    const kRegex = /\$\s?(\d+(?:\.\d+)?)\s?k\b/gi;
+    // Check for written currency codes first (A$, NZ$, C$, AUD, etc)
+    for (const [code, name] of Object.entries(writtenCurrencies)) {
+      if (bodyLower.includes(code)) { currency = name; break; }
+    }
+    // Then check symbols
+    for (const s of symbols) {
+      if (bodyText.includes(s)) { sym = s; currency = currencyNames[s] || currency; break; }
+    }
+    // TLD-based currency hint
+    const tld = (typeof window !== 'undefined' ? window.location.hostname : '').split('.').pop();
+    const tldCurrency = { au: 'AUD', ca: 'CAD', nz: 'NZD', uk: 'GBP', ie: 'EUR', de: 'EUR', fr: 'EUR', it: 'EUR', es: 'EUR', nl: 'EUR', be: 'EUR', at: 'EUR', se: 'SEK', no: 'NOK', dk: 'DKK', ch: 'CHF', mx: 'MXN', br: 'BRL', jp: 'JPY', in: 'INR', sg: 'SGD', my: 'MYR', ph: 'PHP', th: 'THB', id: 'IDR', pk: 'PKR', ae: 'AED', sa: 'SAR', za: 'ZAR' };
+    if (tldCurrency[tld] && currency === 'USD' && !bodyText.includes('$')) { currency = tldCurrency[tld]; }
+
+    // Multi-currency price extraction
+    // Match any currency symbol followed by number
+    const multiRegex = /[$€£¥₹]\s?(\d[\d,]*)/g;
+    const raw = [...bodyText.matchAll(multiRegex)].map(m => parseInt(m[1].replace(/,/g, '')));
+
+    // Match plain numbers near pricing keywords (for currencies without symbols like kr, CHF, AUD)
+    const plainRegex = /(?:from|starting|price|package|invest|cost|rate)\s*:?\s*(\d[\d,]*)/gi;
+    const plainMatches = [...bodyLower.matchAll(plainRegex)].map(m => parseInt(m[1].replace(/,/g, '')));
+
+    // Match currency code + number: "AUD 3,500" or "3,500 AUD"
+    const codeRegex = /(?:AUD|CAD|NZD|USD|EUR|GBP|SEK|NOK|DKK|CHF|MXN|BRL)\s?(\d[\d,]*)|(\d[\d,]*)\s?(?:AUD|CAD|NZD|USD|EUR|GBP|SEK|NOK|DKK|CHF|MXN|BRL)/gi;
+    const codeMatches = [...bodyText.matchAll(codeRegex)].map(m => parseInt((m[1] || m[2]).replace(/,/g, '')));
+
+    // Match "Xk" only with currency symbol or pricing context
+    const kRegex = /[$€£¥₹]\s?(\d+(?:\.\d+)?)\s?k\b/gi;
     const kMatches = [...bodyText.matchAll(kRegex)].map(m => Math.round(parseFloat(m[1]) * 1000));
-    // Also match "starting at 5k" or "packages from 3k" patterns
-    const kContextRegex = /(?:start|from|at|package|invest|price)\s+(\d+(?:\.\d+)?)\s?k\b/gi;
+    const kContextRegex = /(?:start|from|at|package|invest|price|cost)\s+(\d+(?:\.\d+)?)\s?k\b/gi;
     const kContextMatches = [...bodyLower.matchAll(kContextRegex)].map(m => Math.round(parseFloat(m[1]) * 1000));
-    const all = [...raw, ...kMatches, ...kContextMatches].filter(n => n >= 500 && n <= 100000).sort((a, b) => a - b);
+
+    const all = [...raw, ...plainMatches, ...codeMatches, ...kMatches, ...kContextMatches].filter(n => n >= 500 && n <= 100000).sort((a, b) => a - b);
     if (all.length === 0) return null;
 
     const min = all[0];
