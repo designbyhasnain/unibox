@@ -18,6 +18,7 @@ import {
     updateCampaignOptionsAction,
     diagnoseCampaignAction,
 } from '../../../src/actions/campaignActions';
+import { useUndoToast } from '../../context/UndoToastContext';
 import ABTestingAnalytics from '../../components/ABTestingAnalytics';
 import { CampaignOptionsTab, CampaignScheduleTab } from '../../components/CampaignTabs';
 
@@ -86,6 +87,7 @@ function formatShortDate(dateStr: string | null) {
 export default function CampaignDetailPage() {
     const { id } = useParams();
     const router = useRouter();
+    const { scheduleDelete } = useUndoToast();
     const isHydrated = useHydrated();
 
     const [campaign, setCampaign] = useState<CampaignDetail | null>(null);
@@ -139,10 +141,19 @@ export default function CampaignDetailPage() {
                 case 'launch': result = await launchCampaignAction(campaign.id); break;
                 case 'pause': result = await pauseCampaignAction(campaign.id); break;
                 case 'resume': result = await resumeCampaignAction(campaign.id); break;
-                case 'archive':
-                    if (!confirm('Archive this campaign?')) return;
-                    result = await deleteCampaignAction(campaign.id);
-                    break;
+                case 'archive': {
+                    const campData = { ...campaign };
+                    scheduleDelete({
+                        id: campaign.id,
+                        type: 'campaign',
+                        label: campaign.name || 'Campaign',
+                        data: campData,
+                        deleteAction: () => deleteCampaignAction(campaign.id),
+                        onUndo: () => {},
+                    });
+                    router.push('/campaigns');
+                    return;
+                }
             }
             if (result?.success) await loadCampaign();
         } finally {
@@ -150,10 +161,23 @@ export default function CampaignDetailPage() {
         }
     }
 
-    async function handleRemoveContact(contactId: string) {
-        if (!campaign || !confirm('Remove this contact from the campaign?')) return;
-        await removeContactFromCampaignAction(campaign.id, contactId);
-        await loadCampaign();
+    function handleRemoveContact(contactId: string) {
+        if (!campaign) return;
+        const contact = campaign.contacts?.find((c: any) => c.contactId === contactId || c.contact_id === contactId);
+        const label = contact?.contactName || contact?.contact?.name || 'Contact';
+        scheduleDelete({
+            id: `campaign-contact-${contactId}`,
+            type: 'contact',
+            label,
+            data: { campaignId: campaign.id, contactId },
+            deleteAction: () => removeContactFromCampaignAction(campaign.id, contactId),
+            onUndo: () => loadCampaign(),
+        });
+        // Optimistic: remove from UI
+        setCampaign(prev => prev ? {
+            ...prev,
+            contacts: (prev.contacts || []).filter((c: any) => (c.contactId || c.contact_id) !== contactId),
+        } : prev);
     }
 
     async function openEnrollModal() {
