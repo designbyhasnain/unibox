@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
         // Find user by email
         const { data: user, error } = await supabase
             .from('users')
-            .select('id, email, name, role, password, status')
+            .select('id, email, name, role, password, crm_status')
             .eq('email', email.toLowerCase().trim())
             .maybeSingle();
 
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
         }
 
-        if (user.status === 'REVOKED') {
+        if (user.crm_status === 'REVOKED') {
             return NextResponse.json({ error: 'Your account has been deactivated. Contact your admin.' }, { status: 401 });
         }
 
