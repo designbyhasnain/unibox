@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUserAction } from '../../src/actions/authActions';
-import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, updateUserRoleAction, deactivateUserAction, reactivateUserAction } from '../../src/actions/userManagementActions';
+import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, updateUserRoleAction, deactivateUserAction, reactivateUserAction, setUserPasswordAction } from '../../src/actions/userManagementActions';
 import { sendInviteAction, listInvitesAction, revokeInviteAction, resendInviteAction } from '../../src/actions/inviteActions';
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
@@ -27,6 +27,10 @@ export default function TeamPage() {
     const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'SALES' as 'ADMIN' | 'SALES', assignedGmailAccountIds: [] as string[] });
     const [inviteResult, setInviteResult] = useState<{ success: boolean; inviteUrl?: string; error?: string } | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [passwordModal, setPasswordModal] = useState<{ userId: string; name: string } | null>(null);
+    const [passwordForm, setPasswordForm] = useState({ password: '', confirm: '' });
+    const [passwordError, setPasswordError] = useState('');
+    const [passwordSuccess, setPasswordSuccess] = useState('');
 
     const loadData = useCallback(async () => {
         if (!teamCache) setIsLoading(true);
@@ -132,6 +136,25 @@ export default function TeamPage() {
         await loadData();
     };
 
+    const handleSetPassword = async () => {
+        if (!passwordModal) return;
+        setPasswordError('');
+        setPasswordSuccess('');
+        if (passwordForm.password.length < 8) { setPasswordError('Password must be at least 8 characters'); return; }
+        if (passwordForm.password !== passwordForm.confirm) { setPasswordError('Passwords do not match'); return; }
+        setActionLoading('password');
+        const result = await setUserPasswordAction(passwordModal.userId, passwordForm.password);
+        if (result.success) {
+            setPasswordSuccess('Password updated for ' + passwordModal.name);
+            setPasswordForm({ password: '', confirm: '' });
+            await loadData();
+            setTimeout(() => { setPasswordModal(null); setPasswordSuccess(''); }, 1500);
+        } else {
+            setPasswordError(result.error || 'Failed to set password');
+        }
+        setActionLoading(null);
+    };
+
     if (isLoading) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -150,7 +173,10 @@ export default function TeamPage() {
                 <div style={{ maxWidth: 960, margin: '0 auto' }}>
                     {/* Header */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                        <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text-primary)' }}>Team Management</h1>
+                        <div>
+                            <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Team Management</h1>
+                            <p style={{ fontSize: 13, color: 'var(--text-muted, #94a3b8)', marginTop: 4 }}>Manage your team members, roles and account access</p>
+                        </div>
                         <button onClick={() => { setShowInviteModal(true); setInviteResult(null); setInviteForm({ name: '', email: '', role: 'SALES', assignedGmailAccountIds: [] }); }}
                             style={{ background: 'var(--accent)', color: 'white', border: 'none', padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
                             + Invite User
@@ -180,74 +206,90 @@ export default function TeamPage() {
                                         <th style={thStyle}>User</th>
                                         <th style={thStyle}>Role</th>
                                         <th style={thStyle}>Status</th>
+                                        <th style={thStyle}>Password</th>
                                         <th style={thStyle}>Assigned Accounts</th>
                                         <th style={thStyle}>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {users.map(user => (
-                                        <tr key={user.id} style={{ borderBottom: '1px solid var(--border-color, #e0e0e0)' }}>
-                                            <td style={tdStyle}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    {users.map((user, idx) => (
+                                        <tr key={user.id} style={{ borderBottom: '1px solid var(--border-color, #e0e0e0)', background: idx % 2 === 1 ? '#f9fafb' : '#fff' }}>
+                                            <td style={tdRowStyle}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                                     <div style={{
-                                                        width: 32, height: 32, borderRadius: '50%', background: 'var(--accent-light, #e8f0fe)',
+                                                        width: 40, height: 40, borderRadius: '50%', background: 'var(--accent-light, #e8f0fe)',
                                                         color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        fontSize: 13, fontWeight: 600, flexShrink: 0,
+                                                        fontSize: 15, fontWeight: 600, flexShrink: 0, overflow: 'hidden',
                                                     }}>
-                                                        {user.avatar_url ? <img src={user.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: '50%' }} /> : (user.name?.[0] || '?').toUpperCase()}
+                                                        {user.avatar_url ? <img src={user.avatar_url} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} /> : (user.name?.[0] || '?').toUpperCase()}
                                                     </div>
                                                     <div>
-                                                        <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{user.name}</div>
-                                                        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{user.email}</div>
+                                                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>{user.name}</div>
+                                                        <div style={{ fontSize: 12, color: 'var(--text-muted, #94a3b8)' }}>{user.email}</div>
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td style={tdStyle}>
+                                            <td style={tdRowStyle}>
                                                 <select value={user.role} disabled={user.id === currentUser?.userId || actionLoading === user.id}
                                                     onChange={(e) => handleRoleChange(user.id, e.target.value as 'ADMIN' | 'SALES')}
-                                                    style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border-color, #dadce0)', background: 'var(--bg-surface)', cursor: 'pointer' }}>
+                                                    style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border-color, #dadce0)', background: 'var(--bg-surface)', cursor: 'pointer' }}>
                                                     <option value="ADMIN">Admin</option>
                                                     <option value="SALES">Sales</option>
                                                 </select>
                                             </td>
-                                            <td style={tdStyle}>
+                                            <td style={tdRowStyle}>
                                                 <span style={{
-                                                    fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                                                    background: user.status === 'ACTIVE' ? '#e6f4ea' : '#fce8e6',
-                                                    color: user.status === 'ACTIVE' ? '#1e8e3e' : '#d93025',
+                                                    display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '4px 14px', borderRadius: 20, minWidth: 64, textAlign: 'center',
+                                                    background: user.crm_status === 'ACTIVE' ? '#e6f4ea' : '#f3f4f6',
+                                                    color: user.crm_status === 'ACTIVE' ? '#1e8e3e' : '#6b7280',
                                                 }}>
-                                                    {user.status}
+                                                    {user.crm_status === 'ACTIVE' ? 'Active' : 'Inactive'}
                                                 </span>
                                             </td>
-                                            <td style={tdStyle}>
-                                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                            <td style={tdRowStyle}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{
+                                                        display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, minWidth: 64, textAlign: 'center',
+                                                        background: user.password ? '#e6f4ea' : '#fef7e0',
+                                                        color: user.password ? '#1e8e3e' : '#d97706',
+                                                    }}>
+                                                        {user.password ? 'Set \u2713' : 'Not set'}
+                                                    </span>
+                                                    <button onClick={() => { setPasswordModal({ userId: user.id, name: user.name }); setPasswordForm({ password: '', confirm: '' }); setPasswordError(''); setPasswordSuccess(''); }}
+                                                        style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+                                                        Set
+                                                    </button>
+                                                </div>
+                                            </td>
+                                            <td style={tdRowStyle}>
+                                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                                                     {user.assignedAccounts?.slice(0, 2).map((a: any) => (
-                                                        <span key={a.gmailAccountId} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'var(--bg-elevated, #f1f3f4)', color: 'var(--text-secondary)' }}>
+                                                        <span key={a.gmailAccountId} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 12, background: 'var(--bg-elevated, #f1f3f4)', color: 'var(--text-secondary)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
                                                             {a.email}
                                                         </span>
                                                     ))}
                                                     {user.assignedAccounts?.length > 2 && (
-                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>+{user.assignedAccounts.length - 2}</span>
+                                                        <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 12, background: 'var(--bg-elevated, #f1f3f4)', color: 'var(--text-muted)' }}>+{user.assignedAccounts.length - 2}</span>
                                                     )}
                                                     {(!user.assignedAccounts || user.assignedAccounts.length === 0) && user.role === 'ADMIN' && (
                                                         <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>All (admin)</span>
                                                     )}
                                                 </div>
                                                 <button onClick={() => setShowManageAccountsModal(user)}
-                                                    style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0', marginTop: 2 }}>
+                                                    style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0', marginTop: 4 }}>
                                                     Manage
                                                 </button>
                                             </td>
-                                            <td style={tdStyle}>
+                                            <td style={tdRowStyle}>
                                                 {user.id !== currentUser?.userId && (
-                                                    user.status === 'ACTIVE' ? (
+                                                    user.crm_status === 'ACTIVE' ? (
                                                         <button onClick={() => handleDeactivate(user.id)} disabled={actionLoading === user.id}
-                                                            style={{ fontSize: 12, color: '#d93025', background: 'none', border: '1px solid #d93025', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
+                                                            style={{ fontSize: 12, color: '#6b7280', background: 'none', border: '1px solid #d1d5db', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Deactivate
                                                         </button>
                                                     ) : (
                                                         <button onClick={() => handleReactivate(user.id)} disabled={actionLoading === user.id}
-                                                            style={{ fontSize: 12, color: '#1e8e3e', background: 'none', border: '1px solid #1e8e3e', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
+                                                            style={{ fontSize: 12, color: '#fff', background: '#1e8e3e', border: 'none', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Reactivate
                                                         </button>
                                                     )
@@ -400,6 +442,45 @@ export default function TeamPage() {
                 </div>
             )}
 
+            {/* Set Password Modal */}
+            {passwordModal && (
+                <div style={overlayStyle} onClick={() => setPasswordModal(null)}>
+                    <div style={modalStyle} onClick={e => e.stopPropagation()}>
+                        <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Set Password</h2>
+                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>{passwordModal.name}</p>
+                        {passwordSuccess ? (
+                            <div style={{ background: '#e6f4ea', borderRadius: 8, padding: 16, color: '#1e8e3e', fontWeight: 500, textAlign: 'center' }}>
+                                {passwordSuccess}
+                            </div>
+                        ) : (
+                            <>
+                                {passwordError && (
+                                    <div style={{ background: '#fce8e6', borderRadius: 8, padding: 12, marginBottom: 16, color: '#d93025', fontSize: 13 }}>
+                                        {passwordError}
+                                    </div>
+                                )}
+                                <div style={{ marginBottom: 16 }}>
+                                    <label style={labelStyle}>New Password</label>
+                                    <input type="password" value={passwordForm.password} onChange={e => setPasswordForm(f => ({ ...f, password: e.target.value }))}
+                                        placeholder="Min 8 characters" style={inputStyle} autoComplete="new-password" />
+                                </div>
+                                <div style={{ marginBottom: 16 }}>
+                                    <label style={labelStyle}>Confirm Password</label>
+                                    <input type="password" value={passwordForm.confirm} onChange={e => setPasswordForm(f => ({ ...f, confirm: e.target.value }))}
+                                        placeholder="Re-enter password" style={inputStyle} autoComplete="new-password" />
+                                </div>
+                                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                                    <button onClick={() => setPasswordModal(null)} style={btnSecondary}>Cancel</button>
+                                    <button onClick={handleSetPassword} disabled={actionLoading === 'password'} style={btnPrimary}>
+                                        {actionLoading === 'password' ? 'Saving...' : 'Save Password'}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Manage Accounts Modal */}
             {showManageAccountsModal && (
                 <div style={overlayStyle} onClick={() => setShowManageAccountsModal(null)}>
@@ -433,8 +514,9 @@ export default function TeamPage() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const thStyle: React.CSSProperties = { textAlign: 'left', padding: '12px 16px', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' };
+const thStyle: React.CSSProperties = { textAlign: 'left', padding: '12px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.5px', background: '#f9fafb' };
 const tdStyle: React.CSSProperties = { padding: '12px 16px', verticalAlign: 'middle' };
+const tdRowStyle: React.CSSProperties = { padding: '12px 16px', verticalAlign: 'middle', height: 64 };
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
 const modalStyle: React.CSSProperties = { background: 'var(--bg-surface, white)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480, maxHeight: '80vh', overflow: 'auto' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' };

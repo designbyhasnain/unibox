@@ -1,0 +1,7 @@
+node_modules
+.next
+dist
+chrome-extension/dist
+chrome-extension/node_modules
+*.min.js
+package-lock.json
