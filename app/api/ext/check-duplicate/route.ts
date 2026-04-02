@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   const lastEmailDate = emails?.[0]?.sent_at || null;
   const lastEmailSubject = emails?.[0]?.subject || null;
   const lastEmailDirection = emails?.[0]?.direction || null;
-  const firstEmailDate = emails?.length ? emails[emails.length - 1].sent_at : null;
+  const firstEmailDate = emails && emails.length > 0 ? emails[emails.length - 1]!.sent_at : null;
 
   // Calculate relationship duration
   const relationshipDays = firstEmailDate ? Math.round((Date.now() - new Date(firstEmailDate).getTime()) / 86400000) : 0;
