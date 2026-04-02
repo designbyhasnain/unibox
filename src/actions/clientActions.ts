@@ -138,13 +138,47 @@ export async function getClientsAction(
         accountIds = accessible;
     }
 
-    // Single RPC call — contacts + stats + manager + projects + gmail account in one query
+    // For SALES users (accountIds is set), use direct query — RPC doesn't filter by account
+    if (accountIds && accountIds.length > 0) {
+        const offset = (page - 1) * clampedPageSize;
+        let query = supabase
+            .from('contacts')
+            .select('id, name, email, phone, company, source, pipeline_stage, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at', { count: 'exact' })
+            .in('last_gmail_account_id', accountIds);
+
+        if (search?.trim()) {
+            const s = search.trim().replace(/[%_\\]/g, '\\$&');
+            query = query.or(`name.ilike.%${s}%,email.ilike.%${s}%,company.ilike.%${s}%`);
+        }
+        if (filterType === 'LEADS') query = query.eq('is_lead', true).eq('is_client', false);
+        else if (filterType === 'CLIENTS') query = query.eq('is_client', true);
+
+        const { data: clients, error: directErr, count } = await query
+            .order('last_email_at', { ascending: false, nullsFirst: false })
+            .range(offset, offset + clampedPageSize - 1);
+
+        if (directErr) {
+            console.error('getClientsAction direct query error:', directErr);
+            return { clients: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
+        }
+
+        const totalCount = count ?? 0;
+        return {
+            clients: clients || [],
+            totalCount,
+            page,
+            pageSize: clampedPageSize,
+            totalPages: Math.ceil(totalCount / clampedPageSize),
+        };
+    }
+
+    // ADMIN/ACCOUNT_MANAGER: use RPC for full-featured query with stats
     const { data, error } = await supabase.rpc('get_clients_page', {
         p_page: page,
         p_page_size: clampedPageSize,
         p_search: search || null,
         p_filter_type: filterType || 'ALL',
-        p_account_ids: accountIds,
+        p_account_ids: null,
     });
 
     if (error) {
