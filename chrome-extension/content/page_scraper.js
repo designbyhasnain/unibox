@@ -76,9 +76,13 @@ const PageScraper = {
 
     const regex = new RegExp(`\\${sym}\\s?(\\d[\\d,]*)`, 'g');
     const raw = [...bodyText.matchAll(regex)].map(m => parseInt(m[1].replace(/,/g, '')));
-    const kRegex = /(\d+(?:\.\d+)?)\s?k\b/gi;
+    // Only match "k" pricing when preceded by $ or pricing context (not "10k followers")
+    const kRegex = /\$\s?(\d+(?:\.\d+)?)\s?k\b/gi;
     const kMatches = [...bodyText.matchAll(kRegex)].map(m => Math.round(parseFloat(m[1]) * 1000));
-    const all = [...raw, ...kMatches].filter(n => n >= 500 && n <= 100000).sort((a, b) => a - b);
+    // Also match "starting at 5k" or "packages from 3k" patterns
+    const kContextRegex = /(?:start|from|at|package|invest|price)\s+(\d+(?:\.\d+)?)\s?k\b/gi;
+    const kContextMatches = [...bodyLower.matchAll(kContextRegex)].map(m => Math.round(parseFloat(m[1]) * 1000));
+    const all = [...raw, ...kMatches, ...kContextMatches].filter(n => n >= 500 && n <= 100000).sort((a, b) => a - b);
     if (all.length === 0) return null;
 
     const min = all[0];
