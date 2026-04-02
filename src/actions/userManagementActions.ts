@@ -154,3 +154,30 @@ export async function reactivateUserAction(targetUserId: string) {
 
     return { success: true };
 }
+
+/**
+ * Set a user's password. ADMIN only.
+ */
+export async function setUserPasswordAction(targetUserId: string, newPassword: string) {
+    const { role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
+
+    if (!newPassword || newPassword.length < 8) {
+        return { success: false, error: 'Password must be at least 8 characters' };
+    }
+
+    const bcrypt = await import('bcryptjs');
+    const hashed = await bcrypt.hash(newPassword, 12);
+
+    const { error } = await supabase
+        .from('users')
+        .update({ password: hashed })
+        .eq('id', targetUserId);
+
+    if (error) {
+        console.error('[userManagement] setUserPasswordAction error:', error);
+        return { success: false, error: 'Failed to set password' };
+    }
+
+    return { success: true };
+}

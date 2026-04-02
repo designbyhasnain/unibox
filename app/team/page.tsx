@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUserAction } from '../../src/actions/authActions';
-import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, updateUserRoleAction, deactivateUserAction, reactivateUserAction } from '../../src/actions/userManagementActions';
+import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, updateUserRoleAction, deactivateUserAction, reactivateUserAction, setUserPasswordAction } from '../../src/actions/userManagementActions';
 import { sendInviteAction, listInvitesAction, revokeInviteAction, resendInviteAction } from '../../src/actions/inviteActions';
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
@@ -27,6 +27,10 @@ export default function TeamPage() {
     const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'SALES' as 'ADMIN' | 'SALES', assignedGmailAccountIds: [] as string[] });
     const [inviteResult, setInviteResult] = useState<{ success: boolean; inviteUrl?: string; error?: string } | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [passwordModal, setPasswordModal] = useState<{ userId: string; name: string } | null>(null);
+    const [passwordForm, setPasswordForm] = useState({ password: '', confirm: '' });
+    const [passwordError, setPasswordError] = useState('');
+    const [passwordSuccess, setPasswordSuccess] = useState('');
 
     const loadData = useCallback(async () => {
         if (!teamCache) setIsLoading(true);
@@ -132,6 +136,25 @@ export default function TeamPage() {
         await loadData();
     };
 
+    const handleSetPassword = async () => {
+        if (!passwordModal) return;
+        setPasswordError('');
+        setPasswordSuccess('');
+        if (passwordForm.password.length < 8) { setPasswordError('Password must be at least 8 characters'); return; }
+        if (passwordForm.password !== passwordForm.confirm) { setPasswordError('Passwords do not match'); return; }
+        setActionLoading('password');
+        const result = await setUserPasswordAction(passwordModal.userId, passwordForm.password);
+        if (result.success) {
+            setPasswordSuccess('Password updated for ' + passwordModal.name);
+            setPasswordForm({ password: '', confirm: '' });
+            await loadData();
+            setTimeout(() => { setPasswordModal(null); setPasswordSuccess(''); }, 1500);
+        } else {
+            setPasswordError(result.error || 'Failed to set password');
+        }
+        setActionLoading(null);
+    };
+
     if (isLoading) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -180,6 +203,7 @@ export default function TeamPage() {
                                         <th style={thStyle}>User</th>
                                         <th style={thStyle}>Role</th>
                                         <th style={thStyle}>Status</th>
+                                        <th style={thStyle}>Password</th>
                                         <th style={thStyle}>Assigned Accounts</th>
                                         <th style={thStyle}>Actions</th>
                                     </tr>
@@ -218,6 +242,21 @@ export default function TeamPage() {
                                                 }}>
                                                     {user.status}
                                                 </span>
+                                            </td>
+                                            <td style={tdStyle}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{
+                                                        fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
+                                                        background: user.password ? '#e6f4ea' : '#fef7e0',
+                                                        color: user.password ? '#1e8e3e' : '#e37400',
+                                                    }}>
+                                                        {user.password ? 'Set \u2705' : 'Not set \u26A0\uFE0F'}
+                                                    </span>
+                                                    <button onClick={() => { setPasswordModal({ userId: user.id, name: user.name }); setPasswordForm({ password: '', confirm: '' }); setPasswordError(''); setPasswordSuccess(''); }}
+                                                        style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+                                                        Set
+                                                    </button>
+                                                </div>
                                             </td>
                                             <td style={tdStyle}>
                                                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -392,6 +431,45 @@ export default function TeamPage() {
                                     <button onClick={() => setShowInviteModal(false)} style={btnSecondary}>Cancel</button>
                                     <button onClick={handleSendInvite} disabled={!inviteForm.name || !inviteForm.email || actionLoading === 'invite'} style={btnPrimary}>
                                         {actionLoading === 'invite' ? 'Sending...' : 'Send Invite'}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Set Password Modal */}
+            {passwordModal && (
+                <div style={overlayStyle} onClick={() => setPasswordModal(null)}>
+                    <div style={modalStyle} onClick={e => e.stopPropagation()}>
+                        <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Set Password</h2>
+                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>{passwordModal.name}</p>
+                        {passwordSuccess ? (
+                            <div style={{ background: '#e6f4ea', borderRadius: 8, padding: 16, color: '#1e8e3e', fontWeight: 500, textAlign: 'center' }}>
+                                {passwordSuccess}
+                            </div>
+                        ) : (
+                            <>
+                                {passwordError && (
+                                    <div style={{ background: '#fce8e6', borderRadius: 8, padding: 12, marginBottom: 16, color: '#d93025', fontSize: 13 }}>
+                                        {passwordError}
+                                    </div>
+                                )}
+                                <div style={{ marginBottom: 16 }}>
+                                    <label style={labelStyle}>New Password</label>
+                                    <input type="password" value={passwordForm.password} onChange={e => setPasswordForm(f => ({ ...f, password: e.target.value }))}
+                                        placeholder="Min 8 characters" style={inputStyle} autoComplete="new-password" />
+                                </div>
+                                <div style={{ marginBottom: 16 }}>
+                                    <label style={labelStyle}>Confirm Password</label>
+                                    <input type="password" value={passwordForm.confirm} onChange={e => setPasswordForm(f => ({ ...f, confirm: e.target.value }))}
+                                        placeholder="Re-enter password" style={inputStyle} autoComplete="new-password" />
+                                </div>
+                                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                                    <button onClick={() => setPasswordModal(null)} style={btnSecondary}>Cancel</button>
+                                    <button onClick={handleSetPassword} disabled={actionLoading === 'password'} style={btnPrimary}>
+                                        {actionLoading === 'password' ? 'Saving...' : 'Save Password'}
                                     </button>
                                 </div>
                             </>
