@@ -1,19 +1,40 @@
 {
   "manifest_version": 3,
-  "name": "Unibox Client Finder",
-  "version": "1.0.0",
-  "description": "Find and save clients from any website directly to Unibox CRM",
-  "permissions": ["activeTab", "storage", "scripting"],
-  "host_permissions": ["<all_urls>"],
+  "name": "Unibox Prospector",
+  "version": "2.0.0",
+  "description": "Smart filmmaker lead capture for Unibox CRM",
+  "permissions": ["activeTab", "tabs", "storage", "scripting"],
+  "host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "background/background.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/content.js"],
-      "css": ["content/content.css"],
-      "run_at": "document_idle"
+      "matches": ["https://*/*", "http://*/*"],
+      "js": [
+        "content/page_scraper.js",
+        "content/location_extractor.js",
+        "content/prospect_scorer.js",
+        "content/island.js",
+        "content/content_script.js"
+      ],
+      "css": ["content/island.css"],
+      "run_at": "document_idle",
+      "exclude_matches": [
+        "*://mail.google.com/*",
+        "*://docs.google.com/*",
+        "*://drive.google.com/*",
+        "*://facebook.com/*",
+        "*://www.facebook.com/*",
+        "*://instagram.com/*",
+        "*://www.instagram.com/*",
+        "*://linkedin.com/*",
+        "*://www.linkedin.com/*",
+        "*://youtube.com/*",
+        "*://www.youtube.com/*",
+        "*://txb-unibox.vercel.app/*",
+        "*://localhost:*/*"
+      ]
     }
   ],
   "action": {

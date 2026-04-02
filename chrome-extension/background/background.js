@@ -1,76 +1,71 @@
-const BASE_URL = 'https://txb-unibox.vercel.app';
-
-async function getApiKey() {
-  return (await chrome.storage.local.get('apiKey')).apiKey;
-}
-
-async function saveApiKey(key) {
-  await chrome.storage.local.set({ apiKey: key });
-}
-
-async function verifyApiKey(apiKey) {
-  try {
-    const res = await fetch(`${BASE_URL}/api/extension/me`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    });
-    return res.ok ? await res.json() : null;
-  } catch { return null; }
-}
-
-async function checkClientExists(apiKey, { email, phone, name }) {
-  const params = new URLSearchParams();
-  if (email) params.set('email', email);
-  else if (phone) params.set('phone', phone);
-  else if (name) params.set('name', name);
-  try {
-    const res = await fetch(`${BASE_URL}/api/extension/clients?${params}`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    });
-    return await res.json();
-  } catch { return { error: 'Network error' }; }
-}
-
-async function createClient(apiKey, clientData) {
-  try {
-    const res = await fetch(`${BASE_URL}/api/extension/clients`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(clientData)
-    });
-    return await res.json();
-  } catch { return { error: 'Network error' }; }
-}
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  (async () => {
-    const apiKey = await getApiKey();
-    switch (message.type) {
-      case 'VERIFY_KEY':
-        sendResponse(await verifyApiKey(message.apiKey));
-        break;
-      case 'SAVE_API_KEY':
-        await saveApiKey(message.apiKey);
-        sendResponse({ success: true });
-        break;
-      case 'GET_API_KEY':
-        sendResponse({ apiKey });
-        break;
-      case 'CHECK_CLIENT':
-        sendResponse(await checkClientExists(apiKey, message.data));
-        break;
-      case 'CREATE_CLIENT':
-        sendResponse(await createClient(apiKey, message.data));
-        break;
-      case 'LOGOUT':
-        await chrome.storage.local.remove('apiKey');
-        sendResponse({ success: true });
-        break;
-      default:
-        sendResponse({ error: 'Unknown message type' });
-    }
-  })();
-  return true;
+  if (message.type === 'SCRAPE_FACEBOOK') {
+    handleFacebookScrape(message.fbUrl, sendResponse);
+    return true;
+  }
+  if (message.type === 'ADD_TO_CRM') {
+    handleAddToCRM(message.data, sendResponse);
+    return true;
+  }
 });
+
+async function handleFacebookScrape(fbUrl, sendResponse) {
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: fbUrl, active: false });
+    await waitForTabLoad(tab.id);
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['fallbacks/facebook_scraper.js']
+    });
+    sendResponse(results?.[0]?.result || {});
+  } catch (e) {
+    console.error('[Unibox] FB scrape failed:', e);
+    sendResponse({});
+  } finally {
+    if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+function waitForTabLoad(tabId) {
+  return new Promise(resolve => {
+    function listener(id, changeInfo) {
+      if (id === tabId && changeInfo.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        setTimeout(resolve, 1500);
+      }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+    setTimeout(resolve, 8000);
+  });
+}
+
+async function handleAddToCRM(data, sendResponse) {
+  try {
+    const { apiKey, crmUrl } = await chrome.storage.sync.get(['apiKey', 'crmUrl']);
+    const baseUrl = crmUrl || 'https://txb-unibox.vercel.app';
+    if (!apiKey) { sendResponse({ success: false, error: 'No API key' }); return; }
+
+    const res = await fetch(`${baseUrl}/api/ext/add-lead`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        location: data.location,
+        website: data.url,
+        domain: data.domain,
+        pricing: data.pricing,
+        suggestedEditPrice: data.pricing?.suggested,
+        social: data.social,
+        prospectScore: data.score?.score,
+        source: 'extension'
+      })
+    });
+    const json = await res.json();
+    sendResponse({ success: res.ok, lead: json });
+  } catch (e) {
+    sendResponse({ success: false, error: e.message });
+  }
+}
