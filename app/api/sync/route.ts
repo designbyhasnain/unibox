@@ -3,7 +3,6 @@ import { syncGmailEmails, syncAccountHistory, startGmailWatch } from '../../../s
 import { syncManualEmails } from '../../../src/services/manualEmailService';
 import { supabase } from '../../../src/lib/supabase';
 import { getSession } from '../../../src/lib/auth';
-import { DEFAULT_USER_ID } from '../../constants/config';
 
 /**
  * POST /api/sync
@@ -48,9 +47,18 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Account has no associated user' }, { status: 403 });
         }
 
-        // Verify the account belongs to the workspace (shared dashboard uses DEFAULT_USER_ID)
-        if (account.user_id !== DEFAULT_USER_ID) {
-            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        // Verify the user has access: either owns the account or is ADMIN
+        if (account.user_id !== session.userId && session.role !== 'ADMIN') {
+            // Check if user has an assignment to this account
+            const { data: assignment } = await supabase
+                .from('user_gmail_assignments')
+                .select('id')
+                .eq('user_id', session.userId)
+                .eq('gmail_account_id', accountId)
+                .maybeSingle();
+            if (!assignment) {
+                return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+            }
         }
 
         const shortId = accountId.substring(0, 8);
