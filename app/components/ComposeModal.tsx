@@ -115,8 +115,10 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         };
     }, []); // Empty deps — register once, no leak
 
+    const sendingRef = React.useRef(false);
     const handleSend = async () => {
-        if (!to.trim() || !fromAccount || isSending) return;
+        if (!to.trim() || !fromAccount || isSending || sendingRef.current) return;
+        sendingRef.current = true;
         setIsSending(true);
         setSendResult(null);
         try {
@@ -128,10 +130,12 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             } else {
                 setSendResult({ success: false, message: result.error || 'Error sending.' });
                 setIsSending(false);
+                sendingRef.current = false;
             }
         } catch (err: any) {
             setSendResult({ success: false, message: err.message || 'Error occurred.' });
             setIsSending(false);
+            sendingRef.current = false;
         }
     };
 

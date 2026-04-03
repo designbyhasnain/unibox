@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import DOMPurify from 'dompurify';
 import Topbar from '../components/Topbar';
 import { getRevenueOpportunitiesAction } from '../../src/actions/revenueActions';
 import { generateAISummaryAction } from '../../src/actions/summaryActions';
@@ -179,13 +180,13 @@ export default function OpportunitiesPage() {
                                                             if (t.startsWith('## ')) return <h3 key={i} style={{ fontSize: 16, fontWeight: 700, margin: '20px 0 8px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 }}>{t.slice(3)}</h3>;
                                                             if (t.startsWith('### ')) return <h4 key={i} style={{ fontSize: 14, fontWeight: 700, margin: '16px 0 6px', color: '#1a73e8' }}>{t.slice(4)}</h4>;
                                                             if (t.startsWith('- ') || t.startsWith('* ')) {
-                                                                const text = t.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                                                                const text = DOMPurify.sanitize(t.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>'), { ALLOWED_TAGS: ['strong', 'em'] });
                                                                 return <div key={i} style={{ paddingLeft: 16, margin: '4px 0', position: 'relative' }}><span style={{ position: 'absolute', left: 4 }}>•</span><span dangerouslySetInnerHTML={{ __html: text }} /></div>;
                                                             }
                                                             if (t.startsWith('Subject:') || t.startsWith('Dear ') || t.startsWith('Hi ') || t.startsWith('Hey ')) {
                                                                 return <div key={i} style={{ padding: '4px 12px', background: 'rgba(26,115,232,0.04)', borderLeft: '2px solid #1a73e8', margin: '2px 0', fontStyle: 'italic' }}>{t}</div>;
                                                             }
-                                                            const html = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/"([^"]+)"/g, '<span style="color:#1a73e8">"$1"</span>');
+                                                            const html = DOMPurify.sanitize(t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/"([^"]+)"/g, '<span style="color:#1a73e8">"$1"</span>'), { ALLOWED_TAGS: ['strong', 'em', 'span'], ALLOWED_ATTR: ['style'] });
                                                             return <p key={i} style={{ margin: '4px 0' }} dangerouslySetInnerHTML={{ __html: html }} />;
                                                         })}
                                                     </div>
