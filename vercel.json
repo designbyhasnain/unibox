@@ -40,6 +40,9 @@
         },
         "app/api/sync/health/route.ts": {
             "maxDuration": 60
+        },
+        "app/api/cron/sync-imap/route.ts": {
+            "maxDuration": 60
         }
     },
     "crons": []

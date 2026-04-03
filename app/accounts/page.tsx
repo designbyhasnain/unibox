@@ -79,6 +79,13 @@ function WatchStatusBadge({ watchStatus, watchExpiry, connectionMethod }: {
     watchExpiry?: string | null;
     connectionMethod: ConnectionMethod;
 }) {
+    if (connectionMethod === 'MANUAL') {
+        return (
+            <span className="badge badge-sm badge-blue" title="Emails sync automatically every 15 minutes via IMAP polling">
+                Auto-sync 15m
+            </span>
+        );
+    }
     if (connectionMethod !== 'OAUTH') return null;
 
     const hoursLeft = watchExpiry
