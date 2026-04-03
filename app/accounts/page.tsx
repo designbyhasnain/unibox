@@ -220,15 +220,15 @@ export default function AccountsPage() {
 
 
     const handleReSync = async (account: GmailAccount) => {
-        setAccounts((prev: any[]) => prev.map(a => a.id === account.id ? { ...a, status: 'SYNCING' } : a));
+        setAccounts((prev: any[]) => prev.map(a => a.id === account.id ? { ...a, status: 'SYNCING', sync_progress: 0 } : a));
         try {
             const result = await reSyncAccountAction(account.id, account.connection_method);
-            if (result.success) {
-                fetchAccounts();
-            } else {
+            if (!result.success) {
                 alert('Failed to sync: ' + result.error);
                 setAccounts((prev: any[]) => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
             }
+            // Don't refetch — local state already shows SYNCING and the
+            // polling interval (every 5s) will pick up real progress.
         } catch (err: any) {
             console.error('Re-sync failed:', err);
             setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
@@ -236,25 +236,30 @@ export default function AccountsPage() {
     };
 
     const handleToggleSync = async (account: GmailAccount) => {
+        const newStatus = account.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED';
+        setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: newStatus as AccountStatus } : a));
         try {
             const result = await toggleSyncStatusAction(account.id, account.status);
-            if (result.success) {
-                fetchAccounts();
+            if (!result.success) {
+                setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
             }
         } catch (err) {
             console.error('Toggle sync failed:', err);
+            setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
         }
     };
 
     const handleStopSync = async (account: GmailAccount) => {
         if (!confirm('Are you sure you want to stop syncing? Progress will be saved but the process will end.')) return;
+        setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: 'ACTIVE' as AccountStatus } : a));
         try {
             const result = await stopSyncingAction(account.id);
-            if (result.success) {
-                fetchAccounts();
+            if (!result.success) {
+                setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
             }
         } catch (err) {
             console.error('Stop sync failed:', err);
+            setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
         }
     };
 
@@ -281,20 +286,22 @@ export default function AccountsPage() {
             return;
         }
         try {
-            const accountsToSync = accounts;
-            await Promise.allSettled(accountsToSync.map(acc =>
+            // Mark all accounts as SYNCING immediately in local state
+            setAccounts(prev => prev.map(a =>
+                ['ACTIVE', 'PAUSED'].includes(a.status)
+                    ? { ...a, status: 'SYNCING' as AccountStatus, sync_progress: 0 }
+                    : a
+            ));
+            await Promise.allSettled(accounts.map(acc =>
                 fetch('/api/sync', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ accountId: acc.id }),
                 })
             ));
-            setTimeout(async () => {
-                await fetchAccounts();
-                setIsSyncing(false);
-            }, 2000);
+            // Don't call fetchAccounts — polling interval handles updates
+            setIsSyncing(false);
         } catch {
-            await fetchAccounts();
             setIsSyncing(false);
         }
     };
