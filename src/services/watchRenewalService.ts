@@ -4,12 +4,12 @@ import { startGmailWatch, syncGmailEmails } from './gmailSyncService';
 import { refreshAccessToken } from './googleAuthService';
 
 /**
- * Renews Gmail Pub/Sub watches that are expiring within 36 hours,
+ * Renews Gmail Pub/Sub watches that are expiring within 48 hours,
  * have expired, are inactive, or were never set up.
  *
  * Called by:
- * - /api/cron/renew-gmail-watches (every 6 days)
- * - Background on app startup (fallback for free plan)
+ * - /api/cron/renew-gmail-watches (every 3 days via QStash)
+ * - renewAllWatchesAction (manual admin trigger)
  */
 export async function renewExpiringWatches(): Promise<{
     renewed: number;
@@ -20,7 +20,7 @@ export async function renewExpiringWatches(): Promise<{
     let renewed = 0;
     let failed = 0;
 
-    const cutoff = new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString();
+    const cutoff = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
 
     // Find accounts needing watch renewal
     const { data: accounts, error } = await supabase
