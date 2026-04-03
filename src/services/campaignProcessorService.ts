@@ -225,18 +225,7 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
             .order(orderCol, { ascending: true })
             .limit(100);
 
-        console.log(`  Campaign ${campaign.id}: readyContacts=${readyContacts?.length ?? 0} (filter: next_send_at <= ${now.toISOString()}, account: ${campaign.sending_gmail_account_id})`);
-
-        if (readyContacts && readyContacts.length > 0) {
-            const first = readyContacts[0];
-            if (first) {
-                console.log(`  Campaign ${campaign.id}: first contact:`, JSON.stringify({
-                    id: first.id,
-                    contact: first.contact,
-                    step: first.current_step_number,
-                }));
-            }
-        }
+        console.log(`  Campaign ${campaign.id}: readyContacts=${readyContacts?.length ?? 0}`);
 
         // Also log ALL IN_PROGRESS contacts to see their next_send_at values
         if (!readyContacts || readyContacts.length === 0) {
@@ -293,8 +282,6 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
 
         const alreadyQueuedSet = new Set((alreadyQueued || []).map(q => q.campaign_contact_id));
         const unsubSet = new Set((unsubscribed || []).map(u => u.email));
-
-        console.log(`  Campaign ${campaign.id}: steps=${steps?.length ?? 0}, alreadyQueued=${alreadyQueuedSet.size}, unsubs=${unsubSet.size}, dailyCount=${accountDailyCounts.get(campaign.sending_gmail_account_id) || 0}/${campaign.daily_send_limit}`);
 
         if (!steps || steps.length === 0) continue;
 
@@ -382,14 +369,13 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
             });
         }
 
-        console.log(`  Campaign ${campaign.id}: toEnqueue=${toEnqueue.length}`);
         if (toEnqueue.length > 0) {
             const { error } = await supabase
                 .from('campaign_send_queue')
                 .insert(toEnqueue);
 
             if (error) {
-                console.error(`  Campaign ${campaign.id}: INSERT ERROR:`, error.message);
+                console.error(`  Campaign ${campaign.id}: queue insert failed:`, error.message);
             }
             if (!error) {
                 enqueued += toEnqueue.length;
