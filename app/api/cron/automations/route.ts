@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as crypto from 'crypto';
 import { runAllAutomations } from '../../../../src/services/salesAutomationService';
 import { resetDailySendCounts, incrementWarmupDays } from '../../../../src/services/accountRotationService';
 import { updateAllAccountHealth } from '../../../../src/services/accountHealthService';
@@ -72,9 +73,14 @@ export async function POST(request: NextRequest) {
 // ── GET handler (manual fallback) ────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
-    const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret) {
+        return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+    }
+    const authHeader = request.headers.get('authorization');
+    const expected = `Bearer ${cronSecret}`;
+    if (!authHeader || authHeader.length !== expected.length ||
+        !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

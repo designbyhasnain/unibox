@@ -27,9 +27,14 @@ export default function OpportunitiesPage() {
         setAiLoading(contactId);
         setSelectedContact(contactId);
         setAiSummary(null);
-        const result = await generateAISummaryAction(contactId);
-        setAiSummary(result);
-        setAiLoading(null);
+        try {
+            const result = await generateAISummaryAction(contactId);
+            setAiSummary(result);
+        } catch {
+            setAiSummary('Failed to generate AI summary. Please try again.');
+        } finally {
+            setAiLoading(null);
+        }
     };
 
     const handleReply = (email: string) => {

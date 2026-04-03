@@ -3,6 +3,7 @@ import { syncGmailEmails, syncAccountHistory, startGmailWatch } from '../../../s
 import { syncManualEmails } from '../../../src/services/manualEmailService';
 import { supabase } from '../../../src/lib/supabase';
 import { getSession } from '../../../src/lib/auth';
+import { getAccessibleGmailAccountIds } from '../../../src/utils/accessControl';
 
 /**
  * POST /api/sync
@@ -41,6 +42,12 @@ export async function POST(req: NextRequest) {
 
         if (accountError || !account) {
             return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+        }
+
+        // Verify RBAC: user must have access to this account
+        const accessible = await getAccessibleGmailAccountIds(session.userId, session.role);
+        if (accessible !== 'ALL' && !accessible.includes(accountId)) {
+            return NextResponse.json({ error: 'Access denied' }, { status: 403 });
         }
 
         // Skip accounts that need reconnection — don't waste API calls on dead tokens
