@@ -130,6 +130,37 @@ export default function AnalyticsCharts({ data, deviceData, stats, kpis }: Analy
                 ))}
             </div>
 
+            {/* ── Daily Trend ── */}
+            {(data?.dailyData || []).length > 0 && (
+                <div className="a-card a-card-full">
+                    <div className="a-card-header">
+                        <h3 className="a-card-title">Daily Email Volume</h3>
+                        <p className="a-card-sub">Sent vs received emails over time</p>
+                    </div>
+                    <div className="a-chart-container" style={{ height: 280 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={data.dailyData}>
+                                <defs>
+                                    <linearGradient id="sentGrad" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#1a73e8" stopOpacity={0.12} />
+                                        <stop offset="100%" stopColor="#1a73e8" stopOpacity={0} />
+                                    </linearGradient>
+                                    <linearGradient id="recvGrad" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#1e8e3e" stopOpacity={0.12} />
+                                        <stop offset="100%" stopColor="#1e8e3e" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} interval="preserveStartEnd" tick={{ fill: '#5f6368' }} />
+                                <YAxis hide />
+                                <Tooltip content={<ChartTooltip />} />
+                                <Area type="monotone" dataKey="sent" name="Sent" stroke="#1a73e8" strokeWidth={2} fillOpacity={1} fill="url(#sentGrad)" />
+                                <Area type="monotone" dataKey="received" name="Received" stroke="#1e8e3e" strokeWidth={2} fillOpacity={1} fill="url(#recvGrad)" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            )}
+
             {/* ── Row 2: Funnel + Reply Categories ── */}
             <div className="a-grid">
                 <div className="a-card a-card--7">

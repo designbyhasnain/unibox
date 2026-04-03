@@ -122,7 +122,11 @@ export async function getAnalyticsDataAction(params: {
             leadQ = leadQ.eq('account_manager_id', managerId);
             projQ = projQ.eq('account_manager_id', managerId);
         }
-        const pipelineQ = supabase.from('contacts').select('pipeline_stage').not('pipeline_stage', 'is', null).limit(10000);
+        let pipelineQ = supabase.from('contacts').select('pipeline_stage').not('pipeline_stage', 'is', null)
+            .gte('created_at', startDate).lte('created_at', endDate).limit(10000);
+        if (managerId !== 'ALL') {
+            pipelineQ = pipelineQ.eq('account_manager_id', managerId);
+        }
         const [leadRes, projRes, pipelineRes] = await Promise.all([leadQ, projQ, pipelineQ]);
         const projects = projRes.data || [];
         const leadsGenerated = leadRes.count || 0;
@@ -194,26 +198,38 @@ export async function getAnalyticsDataAction(params: {
         ];
 
         // ─── Daily Trend (from RPC) ──────────────────────────────────────
-        const dailyData = (agg.daily_data || []).map((d: any) => ({
-            date: d.date,
-            sent: d.sent || 0,
-            received: d.received || 0,
-            opened: d.opened || 0,
-        }));
+        const dailyData = (agg.daily_data || []).map((d: any) => {
+            const dateStr = d.date || '';
+            const parts = dateStr.split('-');
+            return {
+                name: parts.length >= 3 ? `${parts[1]}/${parts[2]}` : dateStr,
+                sent: d.sent || 0,
+                received: d.received || 0,
+                opened: d.opened || 0,
+            };
+        });
 
         // ─── Hourly Engagement (from RPC) ────────────────────────────────
         const hourlyMap = new Map<number, number>();
         (agg.hourly_data || []).forEach((h: any) => hourlyMap.set(h.hour, h.count));
         const hourlyEngagement = Array.from({ length: 24 }, (_, i) => ({
-            hour: `${i.toString().padStart(2, '0')}:00`,
-            count: hourlyMap.get(i) || 0,
+            name: `${i.toString().padStart(2, '0')}:00`,
+            replies: hourlyMap.get(i) || 0,
         }));
 
         // ─── Top Subjects (from RPC) ─────────────────────────────────────
-        const topSubjects = (agg.top_subjects || []).map((s: any) => ({
-            subject: s.subject || 'No Subject',
-            count: s.count || 0,
-        }));
+        const topSubjects = (agg.top_subjects || [])
+            .filter((s: any) => {
+                // Filter out bounce notifications and automated messages
+                const subj = (s.subject || '').toLowerCase();
+                return !subj.includes('delivery status notification') &&
+                       !subj.includes('undeliverable') &&
+                       !subj.includes('sent you a message');
+            })
+            .map((s: any) => ({
+                name: s.subject || 'No Subject',
+                replies: s.count || 0,
+            }));
 
         // ─── Leaderboard & Account Performance (parallel) ───────────────
         const [leaderboard, accountPerformance] = await Promise.all([
@@ -271,9 +287,9 @@ export async function getAnalyticsDataAction(params: {
             const stage = c.pipeline_stage || 'UNKNOWN';
             pipelineCounts[stage] = (pipelineCounts[stage] || 0) + 1;
         });
-        const pipelineOrder = ['COLD_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
-        const pipelineLabels: Record<string, string> = { COLD_LEAD: 'Cold Lead', LEAD: 'Lead', OFFER_ACCEPTED: 'Offer Accepted', CLOSED: 'Closed', NOT_INTERESTED: 'Not Interested' };
-        const pipelineColors: Record<string, string> = { COLD_LEAD: '#1a73e8', LEAD: '#f9ab00', OFFER_ACCEPTED: '#1e8e3e', CLOSED: '#8430ce', NOT_INTERESTED: '#ea4335' };
+        const pipelineOrder = ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
+        const pipelineLabels: Record<string, string> = { COLD_LEAD: 'Cold Lead', CONTACTED: 'Contacted', WARM_LEAD: 'Warm Lead', LEAD: 'Lead', OFFER_ACCEPTED: 'Offer Accepted', CLOSED: 'Closed', NOT_INTERESTED: 'Not Interested' };
+        const pipelineColors: Record<string, string> = { COLD_LEAD: '#1a73e8', CONTACTED: '#6366f1', WARM_LEAD: '#f97316', LEAD: '#f9ab00', OFFER_ACCEPTED: '#1e8e3e', CLOSED: '#8430ce', NOT_INTERESTED: '#ea4335' };
         const pipelineFunnel = pipelineOrder.map(stage => ({
             name: pipelineLabels[stage] || stage,
             value: pipelineCounts[stage] || 0,
@@ -431,7 +447,7 @@ function deriveTopSubjects(receivedMessages: EmailRow[]) {
 // ─── Manager Leaderboard ────────────────────────────────────────────────────
 
 async function fetchManagerLeaderboard(startDate: string, endDate: string) {
-    const { data: managers } = await supabase.from('users').select('id, name, avatar_url').eq('role', 'ACCOUNT_MANAGER');
+    const { data: managers } = await supabase.from('users').select('id, name, avatar_url').in('role', ['ADMIN', 'ACCOUNT_MANAGER']);
     if (!managers || managers.length === 0) return [];
 
     const managerIds = managers.map(m => m.id);
