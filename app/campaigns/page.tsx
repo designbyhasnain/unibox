@@ -187,7 +187,7 @@ export default function CampaignsPage() {
 
             <div className="main-area" style={{ padding: '1.5rem', overflow: 'auto' }}>
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <div className="campaigns-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                     <div>
                         <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
                             Campaigns
@@ -214,7 +214,7 @@ export default function CampaignsPage() {
                 </div>
 
                 {/* Stats Bar */}
-                <div style={{
+                <div className="campaigns-stats-grid" style={{
                     display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem',
                 }}>
                     {[
@@ -305,7 +305,7 @@ export default function CampaignsPage() {
                                 </div>
 
                                 {/* Stats */}
-                                <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexShrink: 0 }}>
+                                <div className="campaign-row-stats" style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexShrink: 0 }}>
                                     <div style={{ textAlign: 'center' }}>
                                         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Contacts</div>
                                         <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{campaign.contactCount}</div>

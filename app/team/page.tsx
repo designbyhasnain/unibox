@@ -169,8 +169,8 @@ export default function TeamPage() {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
             <Topbar searchTerm="" setSearchTerm={() => {}} onSearch={() => {}} onClearSearch={() => {}} leftContent={<h1 className="page-title">Team Management</h1>} />
-            <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
-                <div style={{ maxWidth: 960, margin: '0 auto' }}>
+            <div className="team-scroll" style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
+                <div className="team-container" style={{ maxWidth: 960, margin: '0 auto' }}>
                     {/* Header */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
                         <div>
@@ -199,8 +199,9 @@ export default function TeamPage() {
 
                     {/* Members Tab */}
                     {activeTab === 'members' && (
-                        <div style={{ background: 'var(--bg-surface)', borderRadius: 12, overflow: 'hidden' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <div className="team-table-wrapper" style={{ background: 'var(--bg-surface)', borderRadius: 12, overflow: 'hidden' }}>
+                            <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
                                 <thead>
                                     <tr style={{ borderBottom: '1px solid var(--border-color, #e0e0e0)' }}>
                                         <th style={thStyle}>User</th>
@@ -299,6 +300,7 @@ export default function TeamPage() {
                                     ))}
                                 </tbody>
                             </table>
+                            </div>
                             {users.length === 0 && (
                                 <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
                                     No team members yet. Invite someone to get started.
@@ -309,8 +311,9 @@ export default function TeamPage() {
 
                     {/* Invitations Tab */}
                     {activeTab === 'invitations' && (
-                        <div style={{ background: 'var(--bg-surface)', borderRadius: 12, overflow: 'hidden' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <div className="team-table-wrapper" style={{ background: 'var(--bg-surface)', borderRadius: 12, overflow: 'hidden' }}>
+                            <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
                                 <thead>
                                     <tr style={{ borderBottom: '1px solid var(--border-color, #e0e0e0)' }}>
                                         <th style={thStyle}>Name</th>
@@ -363,6 +366,7 @@ export default function TeamPage() {
                                     ))}
                                 </tbody>
                             </table>
+                            </div>
                             {invitations.length === 0 && (
                                 <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>No invitations sent yet.</div>
                             )}
@@ -518,7 +522,7 @@ const thStyle: React.CSSProperties = { textAlign: 'left', padding: '12px 16px', 
 const tdStyle: React.CSSProperties = { padding: '12px 16px', verticalAlign: 'middle' };
 const tdRowStyle: React.CSSProperties = { padding: '12px 16px', verticalAlign: 'middle', height: 64 };
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
-const modalStyle: React.CSSProperties = { background: 'var(--bg-surface, white)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480, maxHeight: '80vh', overflow: 'auto' };
+const modalStyle: React.CSSProperties = { background: 'var(--bg-surface, white)', borderRadius: 16, padding: 28, width: 'calc(100% - 32px)', maxWidth: 480, maxHeight: '80vh', overflow: 'auto' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' };
 const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-color, #dadce0)', fontSize: 14, background: 'var(--bg-surface)', outline: 'none' };
 const btnPrimary: React.CSSProperties = { background: 'var(--accent, #1a73e8)', color: 'white', border: 'none', padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' };

@@ -113,7 +113,7 @@ export default function SalesDashboard() {
             <div className="dash-scroll">
             <div className="dash">
                 {/* ── HEADER ── */}
-                <div className="dash-anim-1" style={{
+                <div className="dash-anim-1 dash-header" style={{
                     background: 'linear-gradient(135deg, #eff6ff 0%, #f8fafc 60%, #fef9ee 100%)',
                     borderBottom: '1px solid #e2e8f0',
                     padding: '20px 32px',
@@ -153,7 +153,7 @@ export default function SalesDashboard() {
                 </div>
 
                 {/* ── STATS ROW ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, padding: '0 32px', marginTop: 16, marginBottom: 16 }}>
+                <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, padding: '0 32px', marginTop: 16, marginBottom: 16 }}>
                     {[
                         { n: stats.sent, l: 'EMAILS SENT', color: '#2563eb', bg: 'linear-gradient(135deg, #eff6ff, #fff)', delay: 'dash-anim-1' },
                         { n: stats.replies, l: 'REPLIES', color: '#16a34a', bg: 'linear-gradient(135deg, #f0fdf4, #fff)', delay: 'dash-anim-2' },
@@ -169,7 +169,7 @@ export default function SalesDashboard() {
                 </div>
 
                 {/* ── PRIORITY STRIP ── */}
-                <div className="dash-anim-5" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, padding: '0 32px', marginBottom: 16 }}>
+                <div className="dash-anim-5 dash-priority-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, padding: '0 32px', marginBottom: 16 }}>
                     <Link href="/clients" className="dash-card dash-priority" style={{
                         background: hotLeads.length > 0 ? 'linear-gradient(135deg, #fff1f2, #fff)' : '#f8fafc',
                     }}>
@@ -226,7 +226,7 @@ export default function SalesDashboard() {
                 </div>
 
                 {/* ── TWO COLUMN ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '58fr 42fr', gap: 16, padding: '0 32px', marginBottom: 16 }}>
+                <div className="dash-two-col" style={{ display: 'grid', gridTemplateColumns: '58fr 42fr', gap: 16, padding: '0 32px', marginBottom: 16 }}>
                     {/* Hot Leads */}
                     <div className="dash-card dash-anim-6" style={{ padding: 0, overflow: 'hidden' }}>
                         <div style={{
@@ -318,7 +318,7 @@ export default function SalesDashboard() {
                 </div>
 
                 {/* ── MOTIVATIONAL STRIP ── */}
-                <div className="dash-anim-8" style={{
+                <div className="dash-anim-8 dash-motivation" style={{
                     background: 'linear-gradient(135deg, #1e3a8a, #2563eb)',
                     borderRadius: 10, padding: '16px 32px', textAlign: 'center',
                     margin: '0 32px 24px', position: 'relative', overflow: 'hidden',
