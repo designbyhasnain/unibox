@@ -100,7 +100,7 @@ export async function refreshAllTokens() {
 async function renewWatch(accountId: string) {
     const { data: account } = await supabase
         .from('gmail_accounts')
-        .select('id, email, refresh_token, access_token')
+        .select('id, email, refresh_token, access_token, history_id')
         .eq('id', accountId)
         .single();
 
@@ -136,13 +136,19 @@ async function renewWatch(accountId: string) {
         ? new Date(parseInt(watch.data.expiration)).toISOString()
         : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
+    // Only set history_id if the account doesn't already have one.
+    // Overwriting would break incremental sync by creating a gap.
+    const updateData: Record<string, unknown> = {
+        watch_status: 'ACTIVE',
+        watch_expiry: expiry,
+    };
+    if (!account.history_id) {
+        updateData.history_id = watch.data.historyId?.toString();
+    }
+
     await supabase
         .from('gmail_accounts')
-        .update({
-            watch_status: 'ACTIVE',
-            watch_expiry: expiry,
-            history_id: watch.data.historyId?.toString() || account.id,
-        })
+        .update(updateData)
         .eq('id', accountId);
 }
 
