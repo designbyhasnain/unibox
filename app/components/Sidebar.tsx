@@ -125,10 +125,13 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         });
     }, []);
 
+    const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
     const handleLogout = async () => {
-        if (confirm('Are you sure you want to log out?')) {
-            await logoutAction();
-        }
+        setShowLogoutConfirm(true);
+    };
+    const confirmLogout = async () => {
+        setShowLogoutConfirm(false);
+        await logoutAction();
     };
 
     const isSales = userRole === 'SALES';
@@ -278,6 +281,20 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                 </button>
             </div>
         </aside>
+        {showLogoutConfirm && (
+            <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,.4)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center' }}
+                onClick={() => setShowLogoutConfirm(false)}>
+                <div onClick={e => e.stopPropagation()} style={{ background:'#fff',borderRadius:12,padding:24,width:340,boxShadow:'0 20px 60px rgba(0,0,0,.15)',textAlign:'center' }}>
+                    <div style={{ fontSize:36,marginBottom:12 }}>{'\uD83D\uDEAA'}</div>
+                    <div style={{ fontSize:16,fontWeight:700,color:'#0f172a',marginBottom:6 }}>Log out?</div>
+                    <div style={{ fontSize:13,color:'#64748b',marginBottom:20 }}>Are you sure you want to log out of Unibox?</div>
+                    <div style={{ display:'flex',gap:8 }}>
+                        <button onClick={() => setShowLogoutConfirm(false)} style={{ flex:1,padding:'10px 16px',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',color:'#64748b' }}>Cancel</button>
+                        <button onClick={confirmLogout} style={{ flex:1,padding:'10px 16px',background:'#dc2626',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',color:'#fff' }}>Log Out</button>
+                    </div>
+                </div>
+            </div>
+        )}
         </>
     );
 }

@@ -32,6 +32,8 @@ export async function getActionQueueAction(): Promise<{
     counts: { critical: number; high: number; medium: number; low: number; total: number };
 }> {
     const { userId, role } = await ensureAuthenticated();
+
+    try {
     const accessible = await getAccessibleGmailAccountIds(userId, role);
     const accountIds = accessible === 'ALL' ? null : accessible;
 
@@ -207,20 +209,37 @@ export async function getActionQueueAction(): Promise<{
     };
 
     return { actions, counts };
+
+    } catch (error) {
+        console.error('getActionQueueAction error:', error);
+        return { actions: [], counts: { critical: 0, high: 0, medium: 0, low: 0, total: 0 } };
+    }
 }
 
 export async function snoozeActionAction(contactId: string, days: number) {
     await ensureAuthenticated();
-    const snoozeUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    await supabase.from('contacts').update({ next_followup_at: snoozeUntil }).eq('id', contactId);
-    return { success: true };
+    try {
+        const snoozeUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+        const { error } = await supabase.from('contacts').update({ next_followup_at: snoozeUntil }).eq('id', contactId);
+        if (error) throw error;
+        return { success: true };
+    } catch (error) {
+        console.error('snoozeActionAction error:', error);
+        return { success: false, error: 'Failed to snooze' };
+    }
 }
 
 export async function markActionDoneAction(contactId: string) {
     await ensureAuthenticated();
-    await supabase.from('contacts').update({
-        next_followup_at: null,
-        auto_followup_enabled: false,
-    }).eq('id', contactId);
-    return { success: true };
+    try {
+        const { error } = await supabase.from('contacts').update({
+            next_followup_at: null,
+            auto_followup_enabled: false,
+        }).eq('id', contactId);
+        if (error) throw error;
+        return { success: true };
+    } catch (error) {
+        console.error('markActionDoneAction error:', error);
+        return { success: false, error: 'Failed to mark done' };
+    }
 }
