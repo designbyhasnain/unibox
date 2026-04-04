@@ -564,6 +564,16 @@ export default function ClientsPage() {
                     {client.account_email && client.account_email !== 'No Recent Mail' ? client.account_email : '\u2014'}
                 </span>
             </div>
+            <div className="notion-cell" style={{ minWidth: 110, maxWidth: 120, display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center' }}>
+                <button
+                    style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                    onClick={(e) => { e.stopPropagation(); setComposeOpen(true); setComposeDefaultTo(client.email || ''); }}
+                >Email</button>
+                <button
+                    style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: 4, padding: '4px 8px', fontSize: 11, cursor: 'pointer', textDecoration: 'none' }}
+                    onClick={(e) => { e.stopPropagation(); window.location.href = `/clients/${client.id}`; }}
+                >View</button>
+            </div>
         </div>
     );
 
@@ -781,6 +791,9 @@ export default function ClientsPage() {
                                                 <div className="notion-cell ncell-gmail">
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
                                                     Gmail Account
+                                                </div>
+                                                <div className="notion-cell" style={{ minWidth: 110, maxWidth: 120, justifyContent: 'center' }}>
+                                                    Actions
                                                 </div>
                                             </div>
 

@@ -138,8 +138,31 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
         </svg>
     );
 
+    const [actionCount, setActionCount] = React.useState(0);
+
+    React.useEffect(() => {
+        let interval: ReturnType<typeof setInterval>;
+        const fetchCount = async () => {
+            try {
+                const { getActionQueueAction } = await import('../../src/actions/actionQueueActions');
+                const result = await getActionQueueAction();
+                setActionCount(result.counts.critical + result.counts.high);
+            } catch {}
+        };
+        fetchCount();
+        interval = setInterval(fetchCount, 60000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const ActionsIcon = () => (
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
+        </svg>
+    );
+
     const navItems = [
         ...(isSales ? [{ href: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> }] : []),
+        { href: '/actions', label: 'Actions', icon: <ActionsIcon />, badge: actionCount },
         ...NAV_SHARED.map(item => ({
             href: item.href,
             label: isSales ? item.salesLabel : item.label,
@@ -171,7 +194,7 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
 
             {/* Main Nav */}
             <div className="nav-items">
-                {navItems.map(({ href, label, icon }) => (
+                {navItems.map(({ href, label, icon, badge }: any) => (
                     <Link
                         key={href}
                         href={href}
@@ -187,6 +210,12 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                     >
                         {icon}
                         {label}
+                        {badge > 0 && (
+                            <span style={{
+                                background: '#dc2626', color: '#fff', fontSize: 10, fontWeight: 700,
+                                padding: '1px 7px', borderRadius: 10, marginLeft: 'auto', lineHeight: '16px',
+                            }}>{badge}</span>
+                        )}
                     </Link>
                 ))}
 

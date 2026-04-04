@@ -6,11 +6,11 @@ const Island = (() => {
     *{box-sizing:border-box;margin:0;padding:0;font-family:'SF Mono','Fira Code','Cascadia Code','Consolas',monospace}
 
     #island{background:#0a0a0a;border:1px solid rgba(255,255,255,0.1);overflow:hidden;position:relative;
-      transition:width 0.55s cubic-bezier(0.32,0.72,0,1),max-height 0.55s cubic-bezier(0.32,0.72,0,1),border-radius 0.45s,padding 0.3s;
+      transition:width 0.3s ease,height 0.3s ease,max-height 0.3s ease,max-width 0.3s ease,border-radius 0.3s ease,padding 0.3s;
       box-shadow:0 8px 60px rgba(0,0,0,0.9),0 0 0 0.5px rgba(255,255,255,0.08);pointer-events:all}
 
-    .s-idle{width:180px;height:40px;max-height:40px;border-radius:24px;padding:0}
-    .s-scan{width:300px;height:40px;max-height:40px;border-radius:24px;padding:0}
+    .s-idle{width:180px;height:40px!important;min-height:40px!important;max-height:40px;border-radius:24px;padding:0}
+    .s-scan{width:300px;height:40px!important;min-height:40px!important;max-height:40px;border-radius:24px;padding:0}
     .s-hot,.s-partial,.s-exists,.s-low{width:400px;height:auto;max-height:800px;border-radius:14px;padding:0}
 
     .pill{position:absolute;top:0;left:0;right:0;height:40px;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity 0.25s;cursor:pointer;padding:0 16px}
@@ -21,7 +21,7 @@ const Island = (() => {
     .scan{position:absolute;top:0;left:0;right:0;height:40px;display:flex;align-items:center;justify-content:center;gap:10px;opacity:0;pointer-events:none;transition:opacity 0.25s;padding:0 16px}
     .s-scan .scan{opacity:1;pointer-events:all}.s-scan .pill{opacity:0}
     .scan-bars{display:flex;gap:3px;align-items:center}
-    .scan-bar{width:3px;height:12px;background:#00ff41;animation:barPulse 0.8s ease-in-out infinite}
+    .scan-bar{width:3px;height:14px!important;min-height:14px!important;background:#00ff41;animation:scanPulse 0.8s ease-in-out infinite alternate}
     .scan-bar:nth-child(1){height:10px;animation-delay:0s}
     .scan-bar:nth-child(2){height:16px;animation-delay:0.12s}
     .scan-bar:nth-child(3){height:8px;animation-delay:0.24s}
@@ -92,6 +92,7 @@ const Island = (() => {
     .pitch{font-size:8px;color:rgba(0,255,65,0.45);padding:6px 10px;background:rgba(0,255,65,0.03);border:1px solid rgba(0,255,65,0.08);border-radius:6px;letter-spacing:0.02em;margin-bottom:10px}
     @keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.85)}50%{opacity:1;transform:scale(1)}}
     @keyframes barPulse{0%,100%{opacity:0.2;transform:scaleY(0.5)}50%{opacity:1;transform:scaleY(1)}}
+    @keyframes scanPulse{0%{opacity:0.3;transform:scaleX(0.5)}100%{opacity:1;transform:scaleX(1)}}
   `;
 
   function esc(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -101,7 +102,7 @@ const Island = (() => {
   function mount() {
     host = document.createElement('div');
     host.id = 'unibox-island-host';
-    host.style.cssText = 'position:fixed!important;top:10px!important;left:50%!important;transform:translateX(-50%)!important;z-index:2147483647!important;pointer-events:none!important;';
+    host.style.cssText = 'position:fixed!important;top:10px!important;left:50%!important;transform:translateX(-50%)!important;z-index:2147483647!important;pointer-events:none!important;opacity:1!important;';
     document.body.appendChild(host);
     shadow = host.attachShadow({ mode: 'closed' });
     var style = document.createElement('style');

@@ -225,6 +225,28 @@ export default function SalesDashboard() {
                     </Link>
                 </div>
 
+                {/* ── START SELLING CTA ── */}
+                <div className="dash-anim-5" style={{ padding: '0 32px', marginBottom: 16 }}>
+                    <Link href="/actions" style={{
+                        display: 'flex', alignItems: 'center', gap: 16, textDecoration: 'none',
+                        background: 'linear-gradient(135deg, #1e3a8a, #2563eb)',
+                        borderRadius: 10, padding: '16px 24px', color: '#fff',
+                        transition: 'transform .15s, box-shadow .15s',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 24px rgba(37,99,235,.3)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
+                    >
+                        <span style={{ fontSize: 32 }}>{'\uD83C\uDFAF'}</span>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-.02em' }}>Start Selling</div>
+                            <div style={{ fontSize: 12, opacity: .8, marginTop: 2 }}>
+                                {followUpsDue > 0 ? `${followUpsDue} contacts waiting for your action` : 'Check your action queue for today'}
+                            </div>
+                        </div>
+                        <span style={{ fontSize: 24, opacity: .8 }}>{'\u2192'}</span>
+                    </Link>
+                </div>
+
                 {/* ── TWO COLUMN ── */}
                 <div style={{ display: 'grid', gridTemplateColumns: '58fr 42fr', gap: 16, padding: '0 32px', marginBottom: 16 }}>
                     {/* Hot Leads */}

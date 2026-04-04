@@ -25,7 +25,14 @@
         fetch(baseUrl + '/api/ext/check-duplicate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + config.apiKey },
-          body: JSON.stringify({ email: scraped.email, phone: scraped.phone, domain: domain })
+          body: JSON.stringify({
+            email: scraped.email,
+            phone: scraped.phone,
+            domain: domain,
+            scrapedLocation: location,
+            scrapedPhone: scraped.phone,
+            scrapedName: scraped.name
+          })
         })
         .then(function(res) { return res.ok ? res.json() : null; })
         .then(function(crmResult) {

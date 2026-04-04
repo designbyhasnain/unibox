@@ -18,10 +18,10 @@ export async function POST(req: NextRequest) {
   const { data: user } = await supabase.from('users').select('id').eq('id', apiKey).single();
   if (!user) return NextResponse.json({ error: 'Invalid API key' }, { status: 401, headers: cors });
 
-  const { email, phone, domain } = await req.json();
+  const { email, phone, domain, scrapedLocation, scrapedPhone, scrapedName } = await req.json();
 
   // Find contact by email, phone, or domain
-  const fields = 'id, name, email, phone, company, pipeline_stage, lead_score, relationship_health, created_at, last_email_at, next_followup_at, open_count, reply_speed_hours, total_emails_sent, total_emails_received, days_since_last_contact, notes, source_url, estimated_value';
+  const fields = 'id, name, email, phone, company, location, pipeline_stage, lead_score, relationship_health, created_at, last_email_at, next_followup_at, open_count, reply_speed_hours, total_emails_sent, total_emails_received, days_since_last_contact, notes, source_url, estimated_value';
   let contact: any = null;
 
   if (email) {
@@ -42,6 +42,20 @@ export async function POST(req: NextRequest) {
 
   if (!contact) {
     return NextResponse.json({ found: false }, { headers: cors });
+  }
+
+  // Auto-fill: update contact with scraped data if fields are empty
+  const autoFill: Record<string, string> = {};
+  if (scrapedLocation && !contact.location) autoFill.location = scrapedLocation;
+  if (scrapedPhone && !contact.phone) autoFill.phone = scrapedPhone;
+  if (scrapedName && (!contact.name || ['Hello', 'Info', 'Contact', 'hello', 'info'].includes(contact.name))) {
+    autoFill.name = scrapedName;
+  }
+  if (Object.keys(autoFill).length > 0) {
+    autoFill.updated_at = new Date().toISOString();
+    await supabase.from('contacts').update(autoFill).eq('id', contact.id);
+    // Merge into response
+    Object.assign(contact, autoFill);
   }
 
   // Get email thread details
@@ -135,6 +149,7 @@ export async function POST(req: NextRequest) {
       email: contact.email,
       phone: contact.phone,
       company: contact.company,
+      location: contact.location,
       stage: contact.pipeline_stage,
       leadScore: contact.lead_score || 0,
       health: contact.relationship_health || 'neutral',
