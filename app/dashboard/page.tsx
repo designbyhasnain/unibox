@@ -6,6 +6,7 @@ import { getSalesDashboardAction } from '../../src/actions/dashboardActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
+import OnboardingWizard from '../components/OnboardingWizard';
 
 function getGreeting() {
     const h = new Date().getHours();
@@ -53,6 +54,7 @@ export default function SalesDashboard() {
     const [userName, setUserName] = useState('');
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [showOnboarding, setShowOnboarding] = useState(false);
 
     useEffect(() => {
         Promise.all([
@@ -62,6 +64,12 @@ export default function SalesDashboard() {
             setUserName(user?.name?.split(' ')[0] || 'there');
             setData(dashboard);
             setLoading(false);
+            // Show onboarding if not completed
+            try {
+                if (!localStorage.getItem('unibox_onboarding_done')) {
+                    setShowOnboarding(true);
+                }
+            } catch {}
         }).catch(() => setLoading(false));
     }, []);
 
@@ -80,6 +88,13 @@ export default function SalesDashboard() {
     const dailyQuote = QUOTES[new Date().getDate() % QUOTES.length];
 
     return (
+        <>
+        {showOnboarding && (
+            <OnboardingWizard
+                userName={userName}
+                onComplete={() => setShowOnboarding(false)}
+            />
+        )}
         <>
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800&family=DM+Mono:wght@400;500&display=swap');
@@ -356,6 +371,7 @@ export default function SalesDashboard() {
                 </div>
             </div>
             </div>
+        </>
         </>
     );
 }
