@@ -225,7 +225,7 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
             .order(orderCol, { ascending: true })
             .limit(100);
 
-        console.log(`  Campaign ${campaign.id}: readyContacts=${readyContacts?.length ?? 0} (filter: next_send_at <= ${now.toISOString()})`);
+        console.log(`  Campaign ${campaign.id}: readyContacts=${readyContacts?.length ?? 0}`);
 
         // Also log ALL IN_PROGRESS contacts to see their next_send_at values
         if (!readyContacts || readyContacts.length === 0) {
@@ -374,6 +374,9 @@ export async function enqueueCampaignSends(): Promise<{ enqueued: number }> {
                 .from('campaign_send_queue')
                 .insert(toEnqueue);
 
+            if (error) {
+                console.error(`  Campaign ${campaign.id}: queue insert failed:`, error.message);
+            }
             if (!error) {
                 enqueued += toEnqueue.length;
                 accountDailyCounts.set(

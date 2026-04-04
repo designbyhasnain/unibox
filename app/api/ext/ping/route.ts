@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const apiKey = req.headers.get('authorization')?.replace('Bearer ', '');
   if (!apiKey) return NextResponse.json({ error: 'Missing API key' }, { status: 401, headers: cors });
 
-  const { data: user } = await supabase.from('users').select('id, name').eq('id', apiKey).single();
+  const { data: user } = await supabase.from('users').select('id, name').eq('extension_api_key', apiKey).single();
   if (!user) return NextResponse.json({ error: 'Invalid API key' }, { status: 401, headers: cors });
 
   return NextResponse.json({ ok: true, user: user.name }, { headers: cors });

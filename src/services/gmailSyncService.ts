@@ -384,16 +384,23 @@ export async function startGmailWatch(accountId: string): Promise<{
             ? new Date(parseInt(String(watchRes.data.expiration)))
             : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
+        // Only set history_id if the account doesn't already have one.
+        // Overwriting an existing history_id would cause partial sync to miss
+        // messages between the old and new history_id.
+        const updateData: Record<string, unknown> = {
+            watch_expiry: expiry.toISOString(),
+            watch_status: 'ACTIVE',
+        };
+        if (!account.history_id) {
+            updateData.history_id = watchRes.data.historyId?.toString();
+        }
+
         await supabase
             .from('gmail_accounts')
-            .update({
-                history_id: watchRes.data.historyId?.toString(),
-                watch_expiry: expiry.toISOString(),
-                watch_status: 'ACTIVE',
-            })
+            .update(updateData)
             .eq('id', accountId);
 
-        console.warn(`[Watch] Registered for ${account.email}. historyId: ${watchRes.data.historyId}, expires: ${expiry.toISOString()}`);
+        console.warn(`[Watch] Registered for ${account.email}. watchHistoryId: ${watchRes.data.historyId}, existingHistoryId: ${account.history_id || 'none'}, expires: ${expiry.toISOString()}`);
         return { success: true, expiry };
     } catch (error: any) {
         console.error(`[Watch] Failed for ${account.email}. topicName used: "${topicName}". Error:`, error.message);
@@ -623,27 +630,44 @@ export async function syncGmailEmails(accountId: string) {
         .select('id');
 
     if (lockError || !lockResult || lockResult.length === 0) {
-        console.log(`[Sync] Sync already in progress or account not ACTIVE for ${account.email}. Skipping.`);
-        return;
+        // Check for stale SYNCING state — if stuck for > 5 minutes, force-recover
+        if (account.status === 'SYNCING') {
+            const lastSync = account.last_synced_at ? new Date(account.last_synced_at).getTime() : 0;
+            const staleMins = (Date.now() - lastSync) / 60000;
+            if (staleMins > 5) {
+                console.warn(`[Sync] Recovering stale SYNCING state for ${account.email} (${Math.round(staleMins)}min stale)`);
+                await supabase
+                    .from('gmail_accounts')
+                    .update({ status: 'ACTIVE' })
+                    .eq('id', accountId)
+                    .eq('status', 'SYNCING');
+                // Re-attempt the lock after recovery
+                const { data: retryLock } = await supabase
+                    .from('gmail_accounts')
+                    .update({ status: 'SYNCING', sync_progress: 0 })
+                    .eq('id', accountId)
+                    .eq('status', 'ACTIVE')
+                    .select('id');
+                if (!retryLock || retryLock.length === 0) {
+                    console.log(`[Sync] Could not acquire lock after recovery for ${account.email}. Skipping.`);
+                    return;
+                }
+            } else {
+                console.log(`[Sync] Sync already in progress for ${account.email} (${Math.round(staleMins)}min). Skipping.`);
+                return;
+            }
+        } else {
+            console.log(`[Sync] Account not ACTIVE for ${account.email} (status: ${account.status}). Skipping.`);
+            return;
+        }
     }
 
     const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
 
     try {
-        // Per Gmail docs: using multiple labelIds in messages.list acts as an AND filter.
-        // To get messages from ANY of these, we should use the 'q' parameter.
-        const combinedQuery = `in:anywhere`;
         console.log(`[Full Sync] Starting for ${account.email} at ${new Date().toISOString()}`);
-        // One broad fetch is much more efficient than separate label fetches
-        // 'in:anywhere' includes Inbox, Sent, Drafts, Trash, Spam
-        const allMessageIds = await fetchAllMessageIds(gmail, [], 'in:anywhere', 100000);
 
-        console.log(`[Full Sync] Found ${allMessageIds.length} total messages for ${account.email} at ${new Date().toISOString()}`);
-
-        // ── Step 3: Batch process all messages in parallel ────────────────────
-        console.log(`[Full Sync] Processing messages in batches...`);
-
-        // OPTIMIZATION: pre-fetch threads that have SENT messages to avoid N+1 queries in handleEmailReceived
+        // OPTIMIZATION: pre-fetch threads that have SENT messages to avoid N+1 queries
         const { data: sentThreads } = await supabase
             .from('email_messages')
             .select('thread_id')
@@ -658,7 +682,40 @@ export async function syncGmailEmails(accountId: string) {
             .map((i: any) => i.email?.toLowerCase())
             .filter(Boolean));
 
-        await processBatch(gmail, account, allMessageIds, undefined, 20, sentThreadIds, ignoredSenders, allMessageIds.length);
+        // ── Page-by-page sync: fetch one page of IDs, process, checkpoint, repeat ──
+        // This makes full sync resumable — if interrupted, deduplication check in
+        // processSingleMessage means already-synced messages are skipped on retry.
+        let pageToken: string | undefined = undefined;
+        let totalProcessed = 0;
+        const PAGE_SIZE = 500; // Gmail max per page
+
+        do {
+            const res: any = await gmail.users.messages.list({
+                userId: 'me',
+                q: 'in:anywhere',
+                maxResults: PAGE_SIZE,
+                ...(pageToken ? { pageToken } : {}),
+            });
+
+            const messages: Array<{ id: string; threadId?: string }> = res.data.messages || [];
+            if (messages.length === 0) break;
+
+            await processBatch(gmail, account, messages, undefined, 20, sentThreadIds, ignoredSenders, res.data.resultSizeEstimate || 10000, totalProcessed);
+            totalProcessed += messages.length;
+
+            // Checkpoint progress after each page — saves last_synced_at so stale
+            // detection works correctly, and sync_progress for UI feedback
+            const estimatedTotal = res.data.resultSizeEstimate || totalProcessed;
+            const progress = Math.min(Math.round((totalProcessed / estimatedTotal) * 100), 99);
+            await supabase
+                .from('gmail_accounts')
+                .update({ sync_progress: progress, last_synced_at: new Date().toISOString() })
+                .eq('id', accountId);
+
+            console.log(`[Full Sync] ${account.email}: processed ${totalProcessed} messages (${progress}%)`);
+
+            pageToken = res.data.nextPageToken;
+        } while (pageToken);
 
         // Fetch historyId AFTER processing to avoid stale historyId when messages
         // arrive during a long sync. This ensures the next incremental sync won't miss them.
@@ -681,24 +738,27 @@ export async function syncGmailEmails(accountId: string) {
             })
             .eq('id', accountId);
 
-        console.log(`[Full Sync] Finished processing ${allMessageIds.length} messages at ${new Date().toISOString()}`);
-        console.log(`[Full Sync] Complete for ${account.email}. Total messages: ${allMessageIds.length}. historyId: ${latestHistoryId}`);
+        console.log(`[Full Sync] Complete for ${account.email}. Total: ${totalProcessed} messages. historyId: ${latestHistoryId}`);
 
-        // ── Step 6: Register Pub/Sub watch for real-time push ──────────────────
+        // Register Pub/Sub watch for real-time push
         await startGmailWatch(accountId);
 
     } catch (error: any) {
-        // Log full error details server-side but sanitize what propagates to the client
         console.error(`[SYNC ERROR] ${new Date().toISOString()}: ${error?.message || error}`, error?.stack);
 
-        // Only set status to ERROR if it's a permanent auth failure
         if (isAuthError(error)) {
-            await supabase.from('gmail_accounts').update({ status: 'ERROR' }).eq('id', accountId);
+            await supabase.from('gmail_accounts').update({
+                status: 'ERROR',
+                last_error_message: error?.message?.slice(0, 200) || 'Auth error',
+            }).eq('id', accountId);
         } else {
-            // Revert to ACTIVE so they can retry without re-authenticating
-            await supabase.from('gmail_accounts').update({ status: 'ACTIVE' }).eq('id', accountId);
+            // Revert to ACTIVE so they can retry — deduplication ensures already-synced
+            // messages are skipped, making retry safe and resumable
+            await supabase.from('gmail_accounts').update({
+                status: 'ACTIVE',
+                last_error_message: error?.message?.slice(0, 200) || 'Sync error',
+            }).eq('id', accountId);
         }
-        // Throw sanitized error to avoid leaking internal details
         throw new Error(isAuthError(error) ? 'AUTH_REQUIRED' : 'Email sync failed. Please try again later.');
     }
 }

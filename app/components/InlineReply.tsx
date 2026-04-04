@@ -149,8 +149,10 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
         setBody(e.currentTarget.innerHTML);
     };
 
+    const sendingRef = React.useRef(false);
     const handleSend = async () => {
-        if (!body.trim() || isSending) return;
+        if (!body.trim() || isSending || sendingRef.current) return;
+        sendingRef.current = true;
         setIsSending(true);
         setError(null);
         try {
@@ -161,10 +163,12 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
             } else {
                 setError(result.error || 'Failed to send reply.');
                 setIsSending(false);
+                sendingRef.current = false;
             }
         } catch (err: any) {
             setError(err.message || 'An unexpected error occurred.');
             setIsSending(false);
+            sendingRef.current = false;
         }
     };
 

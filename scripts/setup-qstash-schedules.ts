@@ -72,6 +72,16 @@ async function setupSchedules() {
   });
   console.log(`Automations cron created: ${automations.scheduleId}`);
 
+  // IMAP polling — every 15 minutes
+  const imapSync = await client.schedules.create({
+    destination: `${BASE_URL}/api/cron/sync-imap`,
+    cron: "*/15 * * * *",
+    method: "POST",
+    body: JSON.stringify({ source: "qstash" }),
+    headers: { "Content-Type": "application/json" },
+  });
+  console.log(`IMAP sync cron created: ${imapSync.scheduleId}`);
+
   console.log("\n✅ QStash schedules setup complete!");
 }
 

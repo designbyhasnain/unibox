@@ -79,10 +79,10 @@ export async function handleAuthCallback(
 
     if (!email) throw new Error('Could not retrieve email from Google');
 
-    // Fetch existing account to preserve refresh token if a new one isn't provided
+    // Fetch existing account to preserve refresh token and history_id
     const { data: existingAccount } = await supabase
         .from('gmail_accounts')
-        .select('refresh_token')
+        .select('refresh_token, history_id')
         .eq('email', email)
         .single();
 
@@ -99,16 +99,25 @@ export async function handleAuthCallback(
         );
     }
 
+    // Preserve history_id on reconnect so partial sync can resume
+    // instead of forcing a full resync from zero
+    const upsertData: Record<string, unknown> = {
+        user_id: userId,
+        email,
+        connection_method: 'OAUTH',
+        access_token: tokens.access_token,
+        refresh_token: encryptedRefreshToken,
+        status: 'ACTIVE',
+        last_error_message: null,
+        sync_fail_count: 0,
+    };
+    if (existingAccount?.history_id) {
+        upsertData.history_id = existingAccount.history_id;
+    }
+
     const { data, error } = await supabase
         .from('gmail_accounts')
-        .upsert({
-            user_id: userId,
-            email,
-            connection_method: 'OAUTH',
-            access_token: tokens.access_token,
-            refresh_token: encryptedRefreshToken,
-            status: 'ACTIVE',
-        }, { onConflict: 'email' })
+        .upsert(upsertData, { onConflict: 'email' })
         .select('id, email')
         .single();
 

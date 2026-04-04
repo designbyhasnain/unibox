@@ -5620,6 +5620,99 @@ textarea:focus-visible {
     .page-title, .clients-page-title { font-size: 1rem; }
 }
 
+/* ── Mobile hamburger button ── */
+.mobile-hamburger {
+    display: none;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 150;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transition: background var(--duration-fast) var(--ease);
+}
+.mobile-hamburger:hover { background: var(--bg-hover); }
+.mobile-hamburger:active { transform: scale(0.95); }
+
+/* ── Sidebar overlay ── */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 199;
+    backdrop-filter: blur(2px);
+}
+
+@media (max-width: 768px) {
+    .mobile-hamburger { display: flex; }
+    .sidebar-overlay { display: block; }
+    .sidebar { box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15); }
+}
+
+/* ── Dashboard responsive ── */
+@media (max-width: 768px) {
+    .dash-header { padding: 16px 16px !important; flex-wrap: wrap; gap: 12px; }
+    .dash-header h1 { font-size: 22px !important; }
+    .dash-stats-grid { grid-template-columns: repeat(2, 1fr) !important; padding: 0 16px !important; }
+    .dash-priority-grid { grid-template-columns: 1fr !important; padding: 0 16px !important; }
+    .dash-two-col { grid-template-columns: 1fr !important; padding: 0 16px !important; }
+    .dash-motivation { margin: 0 16px 24px !important; padding: 16px 20px !important; }
+}
+@media (max-width: 480px) {
+    .dash-stats-grid { grid-template-columns: 1fr !important; }
+    .dash-header { flex-direction: column; align-items: flex-start !important; }
+}
+
+/* ── Team page responsive ── */
+@media (max-width: 768px) {
+    .team-scroll { padding: 16px !important; }
+    .team-container { max-width: 100% !important; }
+}
+@media (max-width: 480px) {
+    .team-scroll { padding: 12px 8px !important; }
+}
+
+/* ── Campaigns responsive ── */
+@media (max-width: 768px) {
+    .campaigns-stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .campaigns-header { flex-direction: column; align-items: flex-start !important; gap: 12px; }
+    .campaign-row-stats { display: none !important; }
+}
+@media (max-width: 480px) {
+    .campaigns-stats-grid { grid-template-columns: 1fr !important; }
+}
+
+/* ── Edit Projects responsive ── */
+@media (max-width: 768px) {
+    .ep-page-header { padding: 1rem 1rem 0.5rem !important; }
+    .ep-page-title { font-size: 1.4rem !important; }
+    .ep-toolbar { padding: 5px 1rem !important; }
+    .ep-view-tabs { padding: 0 1rem !important; }
+    .ep-detail-panel { flex: 0 0 100% !important; width: 100% !important; max-width: none !important; position: absolute; inset: 0; z-index: 10; }
+    .ep-board { padding: 0.75rem !important; }
+    .ep-board-col { flex: 0 0 240px !important; }
+}
+
+/* ── Login responsive ── */
+@media (max-width: 480px) {
+    .login-card { padding: 32px 24px !important; margin: 0 16px; border-radius: 16px !important; }
+    .login-title { font-size: 22px !important; }
+}
+
+/* ── General mobile utilities ── */
+@media (max-width: 768px) {
+    .topbar { padding-left: 52px !important; }
+}
+
 /* ── Modal responsiveness ── */
 @media (max-width: 600px) {
     .modal-container, .modal-box { width: 95vw !important; max-width: none; padding: 1rem; }

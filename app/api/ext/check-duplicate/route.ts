@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   const apiKey = req.headers.get('authorization')?.replace('Bearer ', '');
   if (!apiKey) return NextResponse.json({ error: 'Missing API key' }, { status: 401, headers: cors });
 
-  const { data: user } = await supabase.from('users').select('id').eq('id', apiKey).single();
+  const { data: user } = await supabase.from('users').select('id').eq('extension_api_key', apiKey).single();
   if (!user) return NextResponse.json({ error: 'Invalid API key' }, { status: 401, headers: cors });
 
   const { email, phone, domain, scrapedLocation, scrapedPhone, scrapedName } = await req.json();

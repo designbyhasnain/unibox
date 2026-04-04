@@ -33,14 +33,19 @@ export default function SettingsPage() {
         if (savedNotifs !== null) setNotificationsEnabled(savedNotifs === 'true');
     }, []);
 
+    const savedTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
     const handleSave = () => {
         localStorage.setItem('settings_polling_enabled', pollingEnabled.toString());
         localStorage.setItem('settings_polling_interval', pollingInterval.toString());
         localStorage.setItem('settings_focus_sync_enabled', focusSyncEnabled.toString());
         localStorage.setItem('settings_notifications_enabled', notificationsEnabled.toString());
         setIsSaved(true);
-        setTimeout(() => setIsSaved(false), 3000);
+        clearTimeout(savedTimerRef.current);
+        savedTimerRef.current = setTimeout(() => setIsSaved(false), 3000);
     };
+
+    useEffect(() => () => clearTimeout(savedTimerRef.current), []);
 
     const toggleRows: SettingRow[] = [
         {

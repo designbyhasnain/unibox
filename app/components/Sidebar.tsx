@@ -100,9 +100,11 @@ const NAV_FOOTER = [
 
 interface SidebarProps {
     onOpenCompose: () => void;
+    isOpen?: boolean;
+    onClose?: () => void;
 }
 
-export default function Sidebar({ onOpenCompose }: SidebarProps) {
+export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps) {
     const pathname = usePathname();
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
     const [userRole, setUserRole] = React.useState<string | null>(null);
@@ -173,8 +175,15 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
     ];
 
 
+    const handleNavClick = () => {
+        onClose?.();
+    };
+
     return (
-        <aside className="sidebar">
+        <>
+            {/* Mobile overlay */}
+            {isOpen && <div className="sidebar-overlay" onClick={onClose} />}
+            <aside className={`sidebar${isOpen ? ' open' : ''}`}>
             {/* Brand */}
             <div className="brand-logo">
                 <div className="logo-icon">
@@ -203,6 +212,7 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                         {...(pathname === href ? { 'aria-current': 'page' as const } : {})}
                         title={label}
                         onClick={() => {
+                            handleNavClick();
                             if (pathname === href) {
                                 window.dispatchEvent(new CustomEvent('nav-reset'));
                             }
@@ -252,6 +262,7 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                         className={`nav-item${pathname === href ? ' active' : ''}`}
                         {...(pathname === href ? { 'aria-current': 'page' as const } : {})}
                         title={label}
+                        onClick={handleNavClick}
                     >
                         {icon}
                         {label}
@@ -267,5 +278,6 @@ export default function Sidebar({ onOpenCompose }: SidebarProps) {
                 </button>
             </div>
         </aside>
+        </>
     );
 }

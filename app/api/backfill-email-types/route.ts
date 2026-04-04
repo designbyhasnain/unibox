@@ -11,7 +11,7 @@ import { classifyEmailInThread } from '../../../src/services/emailClassification
  */
 export async function POST() {
     const session = await getSession();
-    if (!session) {
+    if (!session || (session.role !== 'ADMIN' && session.role !== 'ACCOUNT_MANAGER')) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

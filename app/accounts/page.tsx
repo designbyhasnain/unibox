@@ -30,6 +30,8 @@ interface GmailAccount {
     sync_progress?: number;
     watch_expiry?: string | null;
     watch_status?: string | null;
+    last_error_message?: string | null;
+    health_score?: number | null;
 }
 
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
@@ -77,6 +79,13 @@ function WatchStatusBadge({ watchStatus, watchExpiry, connectionMethod }: {
     watchExpiry?: string | null;
     connectionMethod: ConnectionMethod;
 }) {
+    if (connectionMethod === 'MANUAL') {
+        return (
+            <span className="badge badge-sm badge-blue" title="Emails sync automatically every 15 minutes via IMAP polling">
+                Auto-sync 15m
+            </span>
+        );
+    }
     if (connectionMethod !== 'OAUTH') return null;
 
     const hoursLeft = watchExpiry
@@ -220,15 +229,15 @@ export default function AccountsPage() {
 
 
     const handleReSync = async (account: GmailAccount) => {
-        setAccounts((prev: any[]) => prev.map(a => a.id === account.id ? { ...a, status: 'SYNCING' } : a));
+        setAccounts((prev: any[]) => prev.map(a => a.id === account.id ? { ...a, status: 'SYNCING', sync_progress: 0 } : a));
         try {
             const result = await reSyncAccountAction(account.id, account.connection_method);
-            if (result.success) {
-                fetchAccounts();
-            } else {
+            if (!result.success) {
                 alert('Failed to sync: ' + result.error);
                 setAccounts((prev: any[]) => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
             }
+            // Don't refetch — local state already shows SYNCING and the
+            // polling interval (every 5s) will pick up real progress.
         } catch (err: any) {
             console.error('Re-sync failed:', err);
             setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
@@ -236,25 +245,30 @@ export default function AccountsPage() {
     };
 
     const handleToggleSync = async (account: GmailAccount) => {
+        const newStatus = account.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED';
+        setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: newStatus as AccountStatus } : a));
         try {
             const result = await toggleSyncStatusAction(account.id, account.status);
-            if (result.success) {
-                fetchAccounts();
+            if (!result.success) {
+                setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
             }
         } catch (err) {
             console.error('Toggle sync failed:', err);
+            setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
         }
     };
 
     const handleStopSync = async (account: GmailAccount) => {
         if (!confirm('Are you sure you want to stop syncing? Progress will be saved but the process will end.')) return;
+        setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: 'ACTIVE' as AccountStatus } : a));
         try {
             const result = await stopSyncingAction(account.id);
-            if (result.success) {
-                fetchAccounts();
+            if (!result.success) {
+                setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
             }
         } catch (err) {
             console.error('Stop sync failed:', err);
+            setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
         }
     };
 
@@ -281,20 +295,22 @@ export default function AccountsPage() {
             return;
         }
         try {
-            const accountsToSync = accounts;
-            await Promise.allSettled(accountsToSync.map(acc =>
+            // Mark all accounts as SYNCING immediately in local state
+            setAccounts(prev => prev.map(a =>
+                ['ACTIVE', 'PAUSED'].includes(a.status)
+                    ? { ...a, status: 'SYNCING' as AccountStatus, sync_progress: 0 }
+                    : a
+            ));
+            await Promise.allSettled(accounts.map(acc =>
                 fetch('/api/sync', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ accountId: acc.id }),
                 })
             ));
-            setTimeout(async () => {
-                await fetchAccounts();
-                setIsSyncing(false);
-            }, 2000);
+            // Don't call fetchAccounts — polling interval handles updates
+            setIsSyncing(false);
         } catch {
-            await fetchAccounts();
             setIsSyncing(false);
         }
     };
@@ -517,7 +533,40 @@ export default function AccountsPage() {
 
                                                 {acc.status === 'ERROR' && (
                                                     <div className="acct-card-error-msg">
-                                                        Authentication failed.
+                                                        Authentication failed — please reconnect this account.
+                                                    </div>
+                                                )}
+
+                                                {acc.last_error_message && acc.status !== 'ERROR' && acc.last_error_message.includes('invalid_grant') && (
+                                                    <div className="acct-warning-banner acct-warning-orange">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                                        <span>Token issue detected — reconnect recommended</span>
+                                                        <button className="btn btn-xs btn-primary" onClick={() => handleOAuthFlow()}>Reconnect</button>
+                                                    </div>
+                                                )}
+
+                                                {acc.connection_method === 'OAUTH' && acc.watch_status !== 'ACTIVE' && acc.status !== 'ERROR' && (
+                                                    <div className="acct-warning-banner acct-warning-red">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                                        <span>Push expired — no real-time sync</span>
+                                                        <button className="btn btn-xs btn-primary" onClick={async () => {
+                                                            setAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, watch_status: 'ACTIVE' } : a));
+                                                            await renewAllWatchesAction();
+                                                        }}>Fix Now</button>
+                                                    </div>
+                                                )}
+
+                                                {acc.connection_method === 'OAUTH' && acc.watch_status === 'ACTIVE' && acc.watch_expiry && (() => {
+                                                    const hoursLeft = (new Date(acc.watch_expiry).getTime() - Date.now()) / (1000 * 60 * 60);
+                                                    return hoursLeft > 0 && hoursLeft <= 48;
+                                                })() && (
+                                                    <div className="acct-warning-banner acct-warning-yellow">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                                        <span>Push expiring in {Math.round((new Date(acc.watch_expiry!).getTime() - Date.now()) / (1000 * 60 * 60))}h</span>
+                                                        <button className="btn btn-xs btn-secondary" onClick={async () => {
+                                                            await renewAllWatchesAction();
+                                                            refreshAccountsSilently();
+                                                        }}>Renew</button>
                                                     </div>
                                                 )}
 
@@ -933,6 +982,38 @@ export default function AccountsPage() {
                     padding: 8px 12px;
                     font-size: 0.775rem;
                     color: var(--danger);
+                }
+                .acct-warning-banner {
+                    margin-top: 10px;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px 12px;
+                    border-radius: var(--radius-sm);
+                    font-size: 0.75rem;
+                    font-weight: 500;
+                }
+                .acct-warning-banner .btn-xs {
+                    margin-left: auto;
+                    padding: 3px 10px;
+                    font-size: 0.68rem;
+                    border-radius: var(--radius-full);
+                    flex-shrink: 0;
+                }
+                .acct-warning-red {
+                    background: rgba(239,68,68,0.07);
+                    border: 1px solid rgba(239,68,68,0.18);
+                    color: #dc2626;
+                }
+                .acct-warning-orange {
+                    background: rgba(245,158,11,0.07);
+                    border: 1px solid rgba(245,158,11,0.18);
+                    color: #d97706;
+                }
+                .acct-warning-yellow {
+                    background: rgba(234,179,8,0.07);
+                    border: 1px solid rgba(234,179,8,0.18);
+                    color: #a16207;
                 }
                 .acct-sync-progress {
                     margin-top: 16px;
