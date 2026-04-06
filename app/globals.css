@@ -5942,24 +5942,25 @@ textarea:focus-visible {
     display: grid;
     grid-template-columns:
         36px           /* check */
+        90px           /* date */
         minmax(140px, 1fr) /* name (grows) */
         120px          /* company */
-        110px          /* status */
-        80px           /* priority */
-        70px           /* score */
-        90px           /* relation */
-        115px          /* value */
-        130px          /* manager */
-        120px          /* location */
-        170px          /* email */
-        120px          /* phone */
-        95px           /* revenue */
-        60px           /* projects */
-        85px           /* unpaid */
-        65px           /* tier */
-        100px          /* last email */
-        160px          /* gmail */
-        110px;         /* actions */
+        100px          /* status */
+        75px           /* priority */
+        65px           /* score */
+        85px           /* relation */
+        110px          /* value */
+        120px          /* manager */
+        115px          /* location */
+        165px          /* email */
+        115px          /* phone */
+        90px           /* revenue */
+        55px           /* projects */
+        80px           /* unpaid */
+        60px           /* tier */
+        95px           /* last email */
+        150px          /* gmail */
+        105px;         /* actions */
     align-items: center;
 }
 
@@ -5972,6 +5973,16 @@ textarea:focus-visible {
     text-transform: uppercase; letter-spacing: 0.03em;
     display: flex; align-items: center; gap: 5px;
     padding: 8px 10px; user-select: none;
+    position: relative;
+}
+/* Drag handle to resize columns */
+.notion-header .notion-cell .col-resize {
+    position: absolute; right: -2px; top: 0; bottom: 0; width: 5px;
+    cursor: col-resize; z-index: 3;
+}
+.notion-header .notion-cell .col-resize:hover,
+.notion-header .notion-cell .col-resize.dragging {
+    background: var(--accent, #2563eb);
 }
 .notion-body { display: flex; flex-direction: column; }
 .notion-row {

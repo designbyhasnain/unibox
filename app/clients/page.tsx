@@ -89,6 +89,33 @@ export default function ClientsPage() {
     const [filterType, setFilterType] = useState<'ALL' | 'LEADS' | 'CLIENTS'>('ALL');
     const [stageFilter, setStageFilter] = useState<string>('ALL');
     const [stageCounts, setStageCounts] = useState<Record<string, number>>({});
+
+    // Resizable columns
+    const defaultColWidths = [36, 90, 200, 120, 100, 75, 65, 85, 110, 120, 115, 165, 115, 90, 55, 80, 60, 95, 150, 105];
+    const [colWidths, setColWidths] = useState<number[]>(defaultColWidths);
+    const dragRef = useRef<{ colIndex: number; startX: number; startW: number } | null>(null);
+    const tableRef = useRef<HTMLDivElement>(null);
+
+    const gridTemplateColumns = colWidths.map((w, i) => i === 2 ? `minmax(${w}px, 1fr)` : `${w}px`).join(' ');
+
+    const onResizeStart = (colIndex: number, e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragRef.current = { colIndex, startX: e.clientX, startW: colWidths[colIndex] ?? 100 };
+        const onMove = (ev: MouseEvent) => {
+            if (!dragRef.current) return;
+            const { colIndex, startX, startW } = dragRef.current;
+            const diff = ev.clientX - startX;
+            const newW = Math.max(40, startW + diff);
+            setColWidths(prev => { const next = [...prev]; next[colIndex] = newW; return next; });
+        };
+        const onUp = () => { dragRef.current = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); document.body.style.cursor = ''; document.body.style.userSelect = ''; };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    };
+
     const [currentPage, setCurrentPage] = useState(1);
     const [totalCount, setTotalCount] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
@@ -439,7 +466,8 @@ export default function ClientsPage() {
     const renderClientRow = (client: any) => (
         <div
             key={client.id}
-            className={`notion-row notion-grid-cols ${client.unread_count > 0 ? 'unread' : ''} ${selectedClientIds.has(client.id) ? 'notion-row-selected' : ''}`}
+            className={`notion-row ${client.unread_count > 0 ? 'unread' : ''} ${selectedClientIds.has(client.id) ? 'notion-row-selected' : ''}`}
+            style={{ display: 'grid', gridTemplateColumns, alignItems: 'center' }}
             onClick={() => handleSelectClient(client)}
         >
             <div className="notion-cell ncell-check">
@@ -769,86 +797,36 @@ export default function ClientsPage() {
                                             )}
 
                                             {/* Table Header */}
-                                            <div className="notion-header notion-grid-cols">
-                                                <div className="notion-cell ncell-check">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selectedClientIds.size === filteredClients.length && filteredClients.length > 0}
-                                                        onChange={toggleSelectAllClients}
-                                                        className="notion-checkbox"
-                                                    />
-                                                </div>
-                                                <div className="notion-cell ncell-date">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-                                                    Date
-                                                </div>
-                                                <div className="notion-cell ncell-name">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-                                                    Name
-                                                </div>
-                                                <div className="notion-cell ncell-company">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
-                                                    Company
-                                                </div>
-                                                <div className="notion-cell ncell-status">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /></svg>
-                                                    Status
-                                                </div>
-                                                <div className="notion-cell ncell-priority">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
-                                                    Priority
-                                                </div>
-                                                <div className="notion-cell ncell-score">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
-                                                    Score
-                                                </div>
-                                                <div className="notion-cell ncell-relation">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
-                                                    Relation
-                                                </div>
-                                                <div className="notion-cell ncell-value">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></svg>
-                                                    Estimated Value
-                                                </div>
-                                                <div className="notion-cell ncell-manager">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
-                                                    Account Manager
-                                                </div>
-                                                <div className="notion-cell ncell-location">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" /><circle cx="12" cy="10" r="3" /></svg>
-                                                    Location
-                                                </div>
-                                                <div className="notion-cell ncell-email">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-                                                    Email
-                                                </div>
-                                                <div className="notion-cell ncell-phone">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
-                                                    Phone
-                                                </div>
-                                                <div className="notion-cell ncell-revenue">
-                                                    Revenue
-                                                </div>
-                                                <div className="notion-cell ncell-projects">
-                                                    Proj
-                                                </div>
-                                                <div className="notion-cell ncell-unpaid">
-                                                    Unpaid
-                                                </div>
-                                                <div className="notion-cell ncell-tier">
-                                                    Tier
-                                                </div>
-                                                <div className="notion-cell ncell-close">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-                                                    Last Email
-                                                </div>
-                                                <div className="notion-cell ncell-gmail">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-                                                    Gmail Account
-                                                </div>
-                                                <div className="notion-cell ncell-actions">
-                                                    Actions
-                                                </div>
+                                            <div className="notion-header" style={{ display: 'grid', gridTemplateColumns, alignItems: 'center' }}>
+                                                {[
+                                                    { cls: 'ncell-check', label: '', isCheck: true },
+                                                    { cls: 'ncell-date', label: 'Date' },
+                                                    { cls: 'ncell-name', label: 'Name' },
+                                                    { cls: 'ncell-company', label: 'Company' },
+                                                    { cls: 'ncell-status', label: 'Status' },
+                                                    { cls: 'ncell-priority', label: 'Priority' },
+                                                    { cls: 'ncell-score', label: 'Score' },
+                                                    { cls: 'ncell-relation', label: 'Relation' },
+                                                    { cls: 'ncell-value', label: 'Est. Value' },
+                                                    { cls: 'ncell-manager', label: 'AM' },
+                                                    { cls: 'ncell-location', label: 'Location' },
+                                                    { cls: 'ncell-email', label: 'Email' },
+                                                    { cls: 'ncell-phone', label: 'Phone' },
+                                                    { cls: 'ncell-revenue', label: 'Revenue' },
+                                                    { cls: 'ncell-projects', label: 'Proj' },
+                                                    { cls: 'ncell-unpaid', label: 'Unpaid' },
+                                                    { cls: 'ncell-tier', label: 'Tier' },
+                                                    { cls: 'ncell-close', label: 'Last Email' },
+                                                    { cls: 'ncell-gmail', label: 'Gmail' },
+                                                    { cls: 'ncell-actions', label: 'Actions' },
+                                                ].map((col, i) => (
+                                                    <div key={col.cls} className={`notion-cell ${col.cls}`}>
+                                                        {col.isCheck ? (
+                                                            <input type="checkbox" checked={selectedClientIds.size === filteredClients.length && filteredClients.length > 0} onChange={toggleSelectAllClients} className="notion-checkbox" />
+                                                        ) : col.label}
+                                                        {i > 0 && i < 19 && <span className="col-resize" onMouseDown={e => onResizeStart(i, e)} />}
+                                                    </div>
+                                                ))}
                                             </div>
 
                                             {/* Table Rows */}
