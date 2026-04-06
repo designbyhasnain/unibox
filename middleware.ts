@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server';
 // ── IP Whitelist (hardcoded — no env dependency) ─────────────────────────────
 // Exact IPs
 const ALLOWED_IPS = [
+    '5.31.225.102',
     '111.88.9.3',
     '111.88.8.27',
     '182.189.96.103',
@@ -50,6 +51,7 @@ const ALLOWED_PREFIXES = [
     '39.59.',        // Jazz 4G/5G
     '39.60.',        // Jazz 4G/5G
     '39.61.',        // Jazz 4G/5G
+    '5.31.',         // Current ISP
     '59.103.',       // PTCL mobile
     '119.73.',       // Zong
     '119.160.',      // Telenor PK
