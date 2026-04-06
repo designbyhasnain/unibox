@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Topbar from '../components/Topbar';
 import { useUI } from '../context/UIContext';
 import AddProjectModal from '../components/AddProjectModal';
-import { getClientsAction, getClientProjectsAction, updateClientAction, removeClientsAction, type PaginatedClientsResult } from '../../src/actions/clientActions';
+import { getClientsAction, getClientProjectsAction, updateClientAction, removeClientsAction, getStageCounts, type PaginatedClientsResult } from '../../src/actions/clientActions';
 import { getManagersAction } from '../../src/actions/projectActions';
 import { EmailRow, EmailDetail, PaginationControls } from '../components/InboxComponents';
 import InlineReply from '../components/InlineReply';
@@ -88,6 +88,7 @@ export default function ClientsPage() {
     const [viewMode, setViewMode] = useState<'list' | 'grid' | 'board'>('list');
     const [filterType, setFilterType] = useState<'ALL' | 'LEADS' | 'CLIENTS'>('ALL');
     const [stageFilter, setStageFilter] = useState<string>('ALL');
+    const [stageCounts, setStageCounts] = useState<Record<string, number>>({});
     const [currentPage, setCurrentPage] = useState(1);
     const [totalCount, setTotalCount] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
@@ -234,7 +235,7 @@ export default function ClientsPage() {
         if (!isClientsCacheValid()) setIsLoading(true);
         try {
             const [result, mData] = await Promise.all([
-                getClientsAction(selectedAccountId, page, 50, searchTerm || undefined, filterType),
+                getClientsAction(selectedAccountId, page, 50, searchTerm || undefined, filterType, stageFilter !== 'ALL' ? stageFilter : undefined),
                 getManagersAction()
             ]);
 
@@ -253,12 +254,17 @@ export default function ClientsPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedAccountId, searchTerm, filterType]);
+    }, [selectedAccountId, searchTerm, filterType, stageFilter]);
 
     loadClientsRef.current = loadClients;
 
     // Load on account/filter change
-    useEffect(() => { loadClients(1); }, [selectedAccountId, filterType]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => { loadClients(1); }, [selectedAccountId, filterType, stageFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Load stage counts on mount
+    useEffect(() => {
+        getStageCounts().then(counts => setStageCounts(counts)).catch(() => {});
+    }, []);
 
     // Debounced search — reset to page 1 on search change
     useEffect(() => {
@@ -336,8 +342,8 @@ export default function ClientsPage() {
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     };
 
-    // Clients filtered server-side + client-side stage filter
-    const filteredClients = stageFilter === 'ALL' ? clients : clients.filter((c: any) => c.pipeline_stage === stageFilter);
+    // Clients are filtered server-side now
+    const filteredClients = clients;
 
     const STAGE_ORDER = ['COLD_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
 
@@ -647,7 +653,7 @@ export default function ClientsPage() {
                             { key: 'CLOSED', label: 'Closed', color: '#16a34a' },
                             { key: 'NOT_INTERESTED', label: 'Not Interested', color: '#ef4444' },
                         ].map(tab => {
-                            const count = tab.key === 'ALL' ? clients.length : clients.filter((c: any) => c.pipeline_stage === tab.key).length;
+                            const count = stageCounts[tab.key] ?? (tab.key === 'ALL' ? totalCount : 0);
                             return (
                                 <button
                                     key={tab.key}

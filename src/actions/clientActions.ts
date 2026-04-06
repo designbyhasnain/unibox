@@ -121,6 +121,7 @@ export async function getClientsAction(
     pageSize: number = 50,
     search?: string,
     filterType?: 'ALL' | 'LEADS' | 'CLIENTS',
+    stageFilter?: string,
 ): Promise<PaginatedClientsResult> {
     const { userId, role } = await ensureAuthenticated();
     const accessible = await getAccessibleGmailAccountIds(userId, role);
@@ -150,7 +151,8 @@ export async function getClientsAction(
             const s = search.trim().replace(/[%_\\]/g, '\\$&');
             query = query.or(`name.ilike.%${s}%,email.ilike.%${s}%,company.ilike.%${s}%`);
         }
-        if (filterType === 'LEADS') query = query.eq('is_lead', true).eq('is_client', false);
+        if (stageFilter) query = query.eq('pipeline_stage', stageFilter);
+        else if (filterType === 'LEADS') query = query.eq('is_lead', true).eq('is_client', false);
         else if (filterType === 'CLIENTS') query = query.eq('is_client', true);
 
         const { data: clients, error: directErr, count } = await query
@@ -172,27 +174,56 @@ export async function getClientsAction(
         };
     }
 
-    // ADMIN/ACCOUNT_MANAGER: use RPC for full-featured query with stats
-    const { data, error } = await supabase.rpc('get_clients_page', {
-        p_page: page,
-        p_page_size: clampedPageSize,
-        p_search: search || null,
-        p_filter_type: filterType || 'ALL',
-        p_account_ids: null,
-    });
+    // ADMIN/ACCOUNT_MANAGER: direct query with all columns
+    const offset = (page - 1) * clampedPageSize;
+    let adminQuery = supabase
+        .from('contacts')
+        .select('id, name, email, phone, company, location, source, pipeline_stage, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at, total_revenue, paid_revenue, unpaid_amount, total_projects, avg_project_value, client_since, client_tier, total_emails_sent, total_emails_received, days_since_last_contact, relationship_health', { count: 'exact' });
 
-    if (error) {
-        console.error('getClientsAction RPC error:', error);
+    if (search?.trim()) {
+        const s = search.trim().replace(/[%_\\]/g, '\\$&');
+        adminQuery = adminQuery.or(`name.ilike.%${s}%,email.ilike.%${s}%,company.ilike.%${s}%`);
+    }
+    if (stageFilter) adminQuery = adminQuery.eq('pipeline_stage', stageFilter);
+    else if (filterType === 'LEADS') adminQuery = adminQuery.in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD']);
+    else if (filterType === 'CLIENTS') adminQuery = adminQuery.in('pipeline_stage', ['OFFER_ACCEPTED', 'CLOSED']);
+
+    const { data: adminClients, error: adminErr, count: adminCount } = await adminQuery
+        .order('last_email_at', { ascending: false, nullsFirst: false })
+        .range(offset, offset + clampedPageSize - 1);
+
+    if (adminErr) {
+        console.error('getClientsAction admin query error:', adminErr);
         return { clients: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
     }
 
+    const totalCount = adminCount ?? 0;
     return {
-        clients: data?.clients || [],
-        totalCount: data?.totalCount || 0,
-        page: data?.page || page,
-        pageSize: data?.pageSize || clampedPageSize,
-        totalPages: data?.totalPages || 0,
+        clients: adminClients || [],
+        totalCount,
+        page,
+        pageSize: clampedPageSize,
+        totalPages: Math.ceil(totalCount / clampedPageSize),
     };
+}
+
+export async function getStageCounts(): Promise<Record<string, number>> {
+    await ensureAuthenticated();
+    const stages = ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
+    const counts: Record<string, number> = {};
+    let total = 0;
+
+    await Promise.all(stages.map(async (stage) => {
+        const { count } = await supabase
+            .from('contacts')
+            .select('id', { count: 'exact', head: true })
+            .eq('pipeline_stage', stage);
+        counts[stage] = count ?? 0;
+        total += counts[stage];
+    }));
+
+    counts['ALL'] = total;
+    return counts;
 }
 
 // ─── Deduplication Engine (v2) ───────────────────────────────────────────────
