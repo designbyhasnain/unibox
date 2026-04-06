@@ -59,6 +59,7 @@ const ALLOWED_PREFIXES = [
     '192.168.',      // All LAN
     '2406:d00:',     // Pakistan IPv6
     '2400:adc1:',    // Pakistan IPv6
+    '2a00:f29:',     // Current ISP IPv6
     '2001:4860:',    // Google IPv6
 ];
 
