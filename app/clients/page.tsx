@@ -483,70 +483,127 @@ export default function ClientsPage() {
                     ) : <span className="cell-placeholder">{'\u2014'}</span>
                 )}
             </div>
-            {/* Email */}
-            <div className="notion-cell" style={{ minWidth: 180, maxWidth: 220 }}>
-                {renderEditableText(client, 'email', client.email, 'Email')}
-            </div>
-            {/* Location */}
-            <div className="notion-cell" style={{ minWidth: 120, maxWidth: 150 }}>
-                <span className={`cell-text ${!client.location ? 'cell-placeholder' : ''}`} style={{ fontSize: 12 }}>
-                    {client.location || '\u2014'}
-                </span>
-            </div>
-            {/* Revenue + Tier combined */}
-            <div className="notion-cell" style={{ minWidth: 100, maxWidth: 120, textAlign: 'right' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
-                    {client.client_tier && client.client_tier !== 'NEW' && (
-                        <span style={{
-                            fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 3, letterSpacing: '.03em',
-                            background: client.client_tier === 'VIP' ? '#fef2f2' : client.client_tier === 'PREMIUM' ? '#fffbeb' : '#f0fdf4',
-                            color: client.client_tier === 'VIP' ? '#dc2626' : client.client_tier === 'PREMIUM' ? '#d97706' : '#16a34a',
-                        }}>{client.client_tier}</span>
-                    )}
-                    <span style={{ color: client.total_revenue > 0 ? '#16a34a' : '#cbd5e1', fontWeight: 600, fontSize: 12 }}>
-                        {client.total_revenue > 0 ? '$' + Number(client.total_revenue).toLocaleString() : '\u2014'}
+            <div className="notion-cell ncell-score" style={{ minWidth: 70, maxWidth: 80, textAlign: 'center' }}>
+                {client.lead_score > 0 ? (
+                    <span className={`notion-badge ${client.lead_score >= 70 ? 'badge-green' : client.lead_score >= 40 ? 'badge-yellow' : 'badge-gray'}`}
+                        title={`Opens: ${client.open_count || 0}`}>
+                        {client.lead_score}
                     </span>
-                </div>
+                ) : <span className="cell-placeholder">{'\u2014'}</span>}
             </div>
-            {/* Projects */}
-            <div className="notion-cell" style={{ minWidth: 50, maxWidth: 60, textAlign: 'center' }}>
-                <span style={{ color: client.total_projects > 0 ? '#0f172a' : '#cbd5e1', fontSize: 12 }}>
-                    {client.total_projects > 0 ? client.total_projects : '\u2014'}
-                </span>
+            <div className="notion-cell" style={{ minWidth: 90, maxWidth: 100, textAlign: 'center' }}>
+                {client.relationship_health ? (
+                    <span className={`notion-badge ${
+                        client.relationship_health === 'critical' ? 'badge-red' :
+                        client.relationship_health === 'strong' ? 'badge-green' :
+                        client.relationship_health === 'good' ? 'badge-blue' :
+                        client.relationship_health === 'warm' ? 'badge-orange' :
+                        client.relationship_health === 'cold' ? 'badge-indigo' :
+                        client.relationship_health === 'dead' ? 'badge-gray' : 'badge-gray'
+                    }`}>
+                        {client.relationship_health === 'critical' ? '!! Action' :
+                         client.relationship_health === 'strong' ? 'Strong' :
+                         client.relationship_health === 'good' ? 'Good' :
+                         client.relationship_health === 'warm' ? 'Warm' :
+                         client.relationship_health === 'cold' ? 'Cold' :
+                         client.relationship_health === 'dead' ? 'Lost' : '\u2014'}
+                    </span>
+                ) : <span className="cell-placeholder">{'\u2014'}</span>}
             </div>
-            {/* Unpaid */}
-            <div className="notion-cell" style={{ minWidth: 70, maxWidth: 85, textAlign: 'right' }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: client.unpaid_amount > 0 ? '#dc2626' : client.total_revenue > 0 ? '#16a34a' : '#cbd5e1' }}>
-                    {client.unpaid_amount > 0 ? '$' + Number(client.unpaid_amount).toLocaleString() : client.total_revenue > 0 ? 'PAID' : '\u2014'}
-                </span>
-            </div>
-            {/* AM */}
-            <div className="notion-cell" style={{ minWidth: 80, maxWidth: 100 }}>
-                {isEditing(client.id, 'account_manager_id') ? (
-                    <select ref={editInputRef as React.RefObject<HTMLSelectElement>} className="ncell-select" value={editValue}
-                        onChange={e => { setEditValue(e.target.value); setTimeout(saveEdit, 0); }} onBlur={saveEdit} onKeyDown={handleEditKeyDown} onClick={e => e.stopPropagation()}>
-                        <option value="">—</option>
-                        {managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                    </select>
+            <div className="notion-cell ncell-value">
+                {isEditing(client.id, 'estimated_value') ? (
+                    <input
+                        ref={editInputRef as React.RefObject<HTMLInputElement>}
+                        className="ncell-input"
+                        type="number"
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        onBlur={saveEdit}
+                        onKeyDown={handleEditKeyDown}
+                        placeholder="0.00"
+                        onClick={e => e.stopPropagation()}
+                    />
                 ) : (
-                    <span className="cell-text cell-editable" style={{ fontSize: 11, color: client.manager_name ? '#0f172a' : '#cbd5e1' }}
-                        onClick={e => startEditing(client.id, 'account_manager_id', client.account_manager_id || '', e)}>
-                        {client.manager_name || '\u2014'}
+                    <span className={`cell-text cell-editable ${!client.estimated_value ? 'cell-placeholder' : ''}`} onClick={e => startEditing(client.id, 'estimated_value', client.estimated_value ? String(client.estimated_value) : '', e)}>
+                        {formatCurrency(client.estimated_value) || '\u2014'}
                     </span>
                 )}
             </div>
-            {/* Last Email */}
-            <div className="notion-cell" style={{ minWidth: 80, maxWidth: 90, textAlign: 'center' }}>
-                <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                    {formatShortDate(client.last_email_at) || '\u2014'}
+            <div className="notion-cell ncell-manager">
+                {isEditing(client.id, 'account_manager_id') ? (
+                    <select
+                        ref={editInputRef as React.RefObject<HTMLSelectElement>}
+                        className="ncell-select"
+                        value={editValue}
+                        onChange={e => { setEditValue(e.target.value); setTimeout(saveEdit, 0); }}
+                        onBlur={saveEdit}
+                        onKeyDown={handleEditKeyDown}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <option value="">Unassigned</option>
+                        {managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                ) : (
+                    <div className="manager-chip cell-editable" onClick={e => startEditing(client.id, 'account_manager_id', client.account_manager_id || '', e)}>
+                        <div className="avatar avatar-xs" style={{ background: avatarColor(client.manager_name || 'U') }}>
+                            {initials(client.manager_name || 'U')}
+                        </div>
+                        <span>{client.manager_name || 'Unassigned'}</span>
+                    </div>
+                )}
+            </div>
+            <div className="notion-cell" style={{ minWidth: 100, maxWidth: 130 }}>
+                {renderEditableText(client, 'location', client.location, 'Location')}
+            </div>
+            <div className="notion-cell ncell-email">
+                {renderEditableText(client, 'email', client.email, 'Email')}
+            </div>
+            <div className="notion-cell ncell-phone">
+                {renderEditableText(client, 'phone', client.phone, 'Phone')}
+            </div>
+            <div className="notion-cell" style={{ minWidth: 90, maxWidth: 100, textAlign: 'right' }}>
+                <span className={`cell-text ${!client.total_revenue ? 'cell-placeholder' : ''}`} style={{ color: client.total_revenue > 0 ? '#16a34a' : undefined, fontWeight: client.total_revenue > 0 ? 600 : undefined }}>
+                    {client.total_revenue > 0 ? '$' + Number(client.total_revenue).toLocaleString() : '\u2014'}
                 </span>
             </div>
-            {/* Actions */}
-            <div className="notion-cell" style={{ minWidth: 90, maxWidth: 100, display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center' }}>
-                <button style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
-                    onClick={(e) => { e.stopPropagation(); setComposeOpen(true); setComposeDefaultTo(client.email || ''); }}>Email</button>
-                <button style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: 4, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
-                    onClick={(e) => { e.stopPropagation(); window.location.href = `/clients/${client.id}`; }}>View</button>
+            <div className="notion-cell" style={{ minWidth: 60, maxWidth: 70, textAlign: 'center' }}>
+                <span className={`cell-text ${!client.total_projects ? 'cell-placeholder' : ''}`}>
+                    {client.total_projects > 0 ? client.total_projects : '\u2014'}
+                </span>
+            </div>
+            <div className="notion-cell" style={{ minWidth: 80, maxWidth: 90, textAlign: 'right' }}>
+                <span className={`cell-text`} style={{ color: client.unpaid_amount > 0 ? '#dc2626' : '#16a34a', fontWeight: 600, fontSize: 11 }}>
+                    {client.unpaid_amount > 0 ? '$' + Number(client.unpaid_amount).toLocaleString() : client.total_revenue > 0 ? 'PAID' : '\u2014'}
+                </span>
+            </div>
+            <div className="notion-cell" style={{ minWidth: 60, maxWidth: 70, textAlign: 'center' }}>
+                {client.client_tier && client.client_tier !== 'NEW' ? (
+                    <span style={{
+                        fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, letterSpacing: '.03em',
+                        background: client.client_tier === 'VIP' ? '#fef2f2' : client.client_tier === 'PREMIUM' ? '#fffbeb' : '#f0fdf4',
+                        color: client.client_tier === 'VIP' ? '#dc2626' : client.client_tier === 'PREMIUM' ? '#d97706' : '#16a34a',
+                    }}>{client.client_tier}</span>
+                ) : <span className="cell-text cell-placeholder">{'\u2014'}</span>}
+            </div>
+            <div className="notion-cell ncell-close">
+                <span className={`cell-text ${!(client.last_email_at || client.expected_close_date) ? 'cell-placeholder' : ''}`}>
+                    {formatShortDate(client.last_email_at || client.expected_close_date) || '\u2014'}
+                </span>
+            </div>
+            <div className="notion-cell ncell-gmail">
+                <span className={`cell-text cell-email-text ${!client.account_email || client.account_email === 'No Recent Mail' ? 'cell-placeholder' : ''}`}>
+                    {client.account_email && client.account_email !== 'No Recent Mail' ? client.account_email : '\u2014'}
+                </span>
+            </div>
+            <div className="notion-cell" style={{ minWidth: 110, maxWidth: 120, display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center' }}>
+                <button
+                    style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                    onClick={(e) => { e.stopPropagation(); setComposeOpen(true); setComposeDefaultTo(client.email || ''); }}
+                >Email</button>
+                <button
+                    style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: 4, padding: '4px 8px', fontSize: 11, cursor: 'pointer', textDecoration: 'none' }}
+                    onClick={(e) => { e.stopPropagation(); window.location.href = `/clients/${client.id}`; }}
+                >View</button>
             </div>
         </div>
     );
@@ -741,39 +798,57 @@ export default function ClientsPage() {
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
                                                     Priority
                                                 </div>
-                                                {/* Email */}
-                                                <div className="notion-cell" style={{ minWidth: 180, maxWidth: 220 }}>
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-                                                    Email
+                                                <div className="notion-cell ncell-score" style={{ minWidth: 70, maxWidth: 80 }}>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
+                                                    Score
                                                 </div>
-                                                {/* Location */}
-                                                <div className="notion-cell" style={{ minWidth: 120, maxWidth: 150 }}>
+                                                <div className="notion-cell" style={{ minWidth: 90, maxWidth: 100 }}>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
+                                                    Relation
+                                                </div>
+                                                <div className="notion-cell ncell-value">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></svg>
+                                                    Estimated Value
+                                                </div>
+                                                <div className="notion-cell ncell-manager">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
+                                                    Account Manager
+                                                </div>
+                                                <div className="notion-cell" style={{ minWidth: 100, maxWidth: 130 }}>
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" /><circle cx="12" cy="10" r="3" /></svg>
                                                     Location
                                                 </div>
-                                                {/* Revenue */}
-                                                <div className="notion-cell" style={{ minWidth: 100, maxWidth: 120, justifyContent: 'flex-end' }}>
+                                                <div className="notion-cell ncell-email">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+                                                    Email
+                                                </div>
+                                                <div className="notion-cell ncell-phone">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
+                                                    Phone
+                                                </div>
+                                                <div className="notion-cell" style={{ minWidth: 90, maxWidth: 100 }}>
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
                                                     Revenue
                                                 </div>
-                                                {/* Projects */}
-                                                <div className="notion-cell" style={{ minWidth: 50, maxWidth: 60, justifyContent: 'center' }}>
-                                                    Proj
+                                                <div className="notion-cell" style={{ minWidth: 60, maxWidth: 70 }}>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                                                    Projects
                                                 </div>
-                                                {/* Unpaid */}
-                                                <div className="notion-cell" style={{ minWidth: 70, maxWidth: 85, justifyContent: 'flex-end' }}>
+                                                <div className="notion-cell" style={{ minWidth: 80, maxWidth: 90 }}>
                                                     Unpaid
                                                 </div>
-                                                {/* AM */}
-                                                <div className="notion-cell" style={{ minWidth: 80, maxWidth: 100 }}>
-                                                    AM
+                                                <div className="notion-cell" style={{ minWidth: 60, maxWidth: 70 }}>
+                                                    Tier
                                                 </div>
-                                                {/* Last Email */}
-                                                <div className="notion-cell" style={{ minWidth: 80, maxWidth: 90, justifyContent: 'center' }}>
+                                                <div className="notion-cell ncell-close">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
                                                     Last Email
                                                 </div>
-                                                {/* Actions */}
-                                                <div className="notion-cell" style={{ minWidth: 90, maxWidth: 100, justifyContent: 'center' }}>
+                                                <div className="notion-cell ncell-gmail">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+                                                    Gmail Account
+                                                </div>
+                                                <div className="notion-cell" style={{ minWidth: 110, maxWidth: 120, justifyContent: 'center' }}>
                                                     Actions
                                                 </div>
                                             </div>
