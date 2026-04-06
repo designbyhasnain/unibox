@@ -143,7 +143,7 @@ export async function getClientsAction(
         const offset = (page - 1) * clampedPageSize;
         let query = supabase
             .from('contacts')
-            .select('id, name, email, phone, company, location, source, pipeline_stage, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at', { count: 'exact' })
+            .select('id, name, email, phone, company, location, source, pipeline_stage, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at, total_revenue, paid_revenue, unpaid_amount, total_projects, avg_project_value, client_since, client_tier', { count: 'exact' })
             .in('last_gmail_account_id', accountIds);
 
         if (search?.trim()) {

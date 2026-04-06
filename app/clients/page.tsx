@@ -554,6 +554,30 @@ export default function ClientsPage() {
             <div className="notion-cell ncell-phone">
                 {renderEditableText(client, 'phone', client.phone, 'Phone')}
             </div>
+            <div className="notion-cell" style={{ minWidth: 90, maxWidth: 100, textAlign: 'right' }}>
+                <span className={`cell-text ${!client.total_revenue ? 'cell-placeholder' : ''}`} style={{ color: client.total_revenue > 0 ? '#16a34a' : undefined, fontWeight: client.total_revenue > 0 ? 600 : undefined }}>
+                    {client.total_revenue > 0 ? '$' + Number(client.total_revenue).toLocaleString() : '\u2014'}
+                </span>
+            </div>
+            <div className="notion-cell" style={{ minWidth: 60, maxWidth: 70, textAlign: 'center' }}>
+                <span className={`cell-text ${!client.total_projects ? 'cell-placeholder' : ''}`}>
+                    {client.total_projects > 0 ? client.total_projects : '\u2014'}
+                </span>
+            </div>
+            <div className="notion-cell" style={{ minWidth: 80, maxWidth: 90, textAlign: 'right' }}>
+                <span className={`cell-text`} style={{ color: client.unpaid_amount > 0 ? '#dc2626' : '#16a34a', fontWeight: 600, fontSize: 11 }}>
+                    {client.unpaid_amount > 0 ? '$' + Number(client.unpaid_amount).toLocaleString() : client.total_revenue > 0 ? 'PAID' : '\u2014'}
+                </span>
+            </div>
+            <div className="notion-cell" style={{ minWidth: 60, maxWidth: 70, textAlign: 'center' }}>
+                {client.client_tier && client.client_tier !== 'NEW' ? (
+                    <span style={{
+                        fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, letterSpacing: '.03em',
+                        background: client.client_tier === 'VIP' ? '#fef2f2' : client.client_tier === 'PREMIUM' ? '#fffbeb' : '#f0fdf4',
+                        color: client.client_tier === 'VIP' ? '#dc2626' : client.client_tier === 'PREMIUM' ? '#d97706' : '#16a34a',
+                    }}>{client.client_tier}</span>
+                ) : <span className="cell-text cell-placeholder">{'\u2014'}</span>}
+            </div>
             <div className="notion-cell ncell-close">
                 <span className={`cell-text ${!(client.last_email_at || client.expected_close_date) ? 'cell-placeholder' : ''}`}>
                     {formatShortDate(client.last_email_at || client.expected_close_date) || '\u2014'}
@@ -783,6 +807,20 @@ export default function ClientsPage() {
                                                 <div className="notion-cell ncell-phone">
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
                                                     Phone
+                                                </div>
+                                                <div className="notion-cell" style={{ minWidth: 90, maxWidth: 100 }}>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                                                    Revenue
+                                                </div>
+                                                <div className="notion-cell" style={{ minWidth: 60, maxWidth: 70 }}>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                                                    Projects
+                                                </div>
+                                                <div className="notion-cell" style={{ minWidth: 80, maxWidth: 90 }}>
+                                                    Unpaid
+                                                </div>
+                                                <div className="notion-cell" style={{ minWidth: 60, maxWidth: 70 }}>
+                                                    Tier
                                                 </div>
                                                 <div className="notion-cell ncell-close">
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
