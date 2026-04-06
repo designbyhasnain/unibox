@@ -87,6 +87,7 @@ export default function ClientsPage() {
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [viewMode, setViewMode] = useState<'list' | 'grid' | 'board'>('list');
     const [filterType, setFilterType] = useState<'ALL' | 'LEADS' | 'CLIENTS'>('ALL');
+    const [stageFilter, setStageFilter] = useState<string>('ALL');
     const [currentPage, setCurrentPage] = useState(1);
     const [totalCount, setTotalCount] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
@@ -335,8 +336,8 @@ export default function ClientsPage() {
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     };
 
-    // Clients are now filtered server-side (search + filterType passed to getClientsAction)
-    const filteredClients = clients;
+    // Clients filtered server-side + client-side stage filter
+    const filteredClients = stageFilter === 'ALL' ? clients : clients.filter((c: any) => c.pipeline_stage === stageFilter);
 
     const STAGE_ORDER = ['COLD_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
 
@@ -635,26 +636,37 @@ export default function ClientsPage() {
 
                 {/* Notion-style Filter Tabs */}
                 <div className="notion-toolbar">
-                    <div className="notion-tabs" role="tablist" aria-label="Client view tabs">
-                        <button
-                            className={`notion-tab ${filterType === 'ALL' ? 'active' : ''}`}
-                            onClick={() => { setFilterType('ALL'); setSelectedClient(null); setSelectedEmail(null); }}
-                            role="tab"
-                            aria-selected={filterType === 'ALL'}
-                        >
-                            All Records
-                        </button>
-                        <button
-                            className={`notion-tab ${filterType === 'LEADS' ? 'active' : ''}`}
-                            onClick={() => { setFilterType('LEADS'); setSelectedClient(null); setSelectedEmail(null); }}
-                            role="tab"
-                            aria-selected={filterType === 'LEADS'}
-                        >
-                            By Status
-                        </button>
+                    <div className="notion-tabs" role="tablist" aria-label="Client view tabs" style={{ flexWrap: 'wrap', gap: 2 }}>
+                        {[
+                            { key: 'ALL', label: 'All', color: undefined },
+                            { key: 'COLD_LEAD', label: 'Cold Lead', color: '#94a3b8' },
+                            { key: 'CONTACTED', label: 'Contacted', color: '#3b82f6' },
+                            { key: 'WARM_LEAD', label: 'Warm Lead', color: '#f59e0b' },
+                            { key: 'LEAD', label: 'Lead', color: '#8b5cf6' },
+                            { key: 'OFFER_ACCEPTED', label: 'Offer Accepted', color: '#10b981' },
+                            { key: 'CLOSED', label: 'Closed', color: '#16a34a' },
+                            { key: 'NOT_INTERESTED', label: 'Not Interested', color: '#ef4444' },
+                        ].map(tab => {
+                            const count = tab.key === 'ALL' ? clients.length : clients.filter((c: any) => c.pipeline_stage === tab.key).length;
+                            return (
+                                <button
+                                    key={tab.key}
+                                    className={`notion-tab ${stageFilter === tab.key ? 'active' : ''}`}
+                                    onClick={() => { setStageFilter(tab.key); setFilterType('ALL'); setSelectedClient(null); setSelectedEmail(null); }}
+                                    role="tab"
+                                    aria-selected={stageFilter === tab.key}
+                                    style={stageFilter === tab.key && tab.color ? { borderBottomColor: tab.color } : undefined}
+                                >
+                                    {tab.color && <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: tab.color, marginRight: 5 }} />}
+                                    {tab.label}
+                                    <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 4 }}>({count})</span>
+                                </button>
+                            );
+                        })}
+                        <span style={{ borderLeft: '1px solid #e2e8f0', height: 20, margin: '0 4px' }} />
                         <button
                             className={`notion-tab ${viewMode === 'board' ? 'active' : ''}`}
-                            onClick={() => { setFilterType('ALL'); setViewMode(viewMode === 'board' ? 'list' : 'board'); setSelectedClient(null); setSelectedEmail(null); }}
+                            onClick={() => { setStageFilter('ALL'); setFilterType('ALL'); setViewMode(viewMode === 'board' ? 'list' : 'board'); setSelectedClient(null); setSelectedEmail(null); }}
                             role="tab"
                             aria-selected={viewMode === 'board'}
                         >
