@@ -92,7 +92,7 @@ export function middleware(request: NextRequest) {
             `<!DOCTYPE html><html><head><title>Access Denied</title></head>` +
             `<body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0a0a0a">` +
             `<div style="text-align:center"><h1 style="color:#e53e3e;font-size:2rem">403 — Access Denied</h1>` +
-            `<p style="color:#888">Your IP is not authorized.</p></div></body></html>`,
+            `<p style="color:#888">Your IP <code style="color:#fff;background:#222;padding:2px 8px;border-radius:4px">${clientIP}</code> is not authorized.</p></div></body></html>`,
             { status: 403, headers: { 'Content-Type': 'text/html' } }
         );
     }
