@@ -595,7 +595,7 @@ export default function ClientsPage() {
                     {client.account_email && client.account_email !== 'No Recent Mail' ? client.account_email : '\u2014'}
                 </span>
             </div>
-            <div className="notion-cell ncell-actions" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <div className="notion-cell ncell-actions">
                 <button
                     style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                     onClick={(e) => { e.stopPropagation(); setComposeOpen(true); setComposeDefaultTo(client.email || ''); }}
