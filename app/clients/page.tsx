@@ -439,7 +439,7 @@ export default function ClientsPage() {
     const renderClientRow = (client: any) => (
         <div
             key={client.id}
-            className={`notion-row ${client.unread_count > 0 ? 'unread' : ''} ${selectedClientIds.has(client.id) ? 'notion-row-selected' : ''}`}
+            className={`notion-row notion-grid-cols ${client.unread_count > 0 ? 'unread' : ''} ${selectedClientIds.has(client.id) ? 'notion-row-selected' : ''}`}
             onClick={() => handleSelectClient(client)}
         >
             <div className="notion-cell ncell-check">
@@ -769,7 +769,7 @@ export default function ClientsPage() {
                                             )}
 
                                             {/* Table Header */}
-                                            <div className="notion-header">
+                                            <div className="notion-header notion-grid-cols">
                                                 <div className="notion-cell ncell-check">
                                                     <input
                                                         type="checkbox"

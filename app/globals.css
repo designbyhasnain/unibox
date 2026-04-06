@@ -5933,32 +5933,59 @@ textarea:focus-visible {
 }
 .notion-icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 
-/* ── Notion Table ── */
+/* ── Notion Table (Grid-based like Notion/Sheets) ── */
 .notion-table-wrapper { flex: 1; overflow: auto; background: var(--bg-surface); }
 .notion-table { min-width: 1050px; }
+
+/* Grid template — all rows share the same column sizing */
+.notion-grid-cols {
+    display: grid;
+    grid-template-columns:
+        36px           /* check */
+        minmax(140px, 1fr) /* name (grows) */
+        120px          /* company */
+        110px          /* status */
+        80px           /* priority */
+        70px           /* score */
+        90px           /* relation */
+        115px          /* value */
+        130px          /* manager */
+        120px          /* location */
+        170px          /* email */
+        120px          /* phone */
+        95px           /* revenue */
+        60px           /* projects */
+        85px           /* unpaid */
+        65px           /* tier */
+        100px          /* last email */
+        160px          /* gmail */
+        110px;         /* actions */
+    align-items: center;
+}
+
 .notion-header {
-    display: flex; border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
     background: var(--bg-base); position: sticky; top: 0; z-index: 2;
 }
 .notion-header .notion-cell {
     font-size: 0.7rem; font-weight: 600; color: var(--text-tertiary);
     text-transform: uppercase; letter-spacing: 0.03em;
     display: flex; align-items: center; gap: 5px;
-    padding: 8px 12px; border-right: 1px solid transparent; user-select: none;
+    padding: 8px 10px; user-select: none;
 }
 .notion-body { display: flex; flex-direction: column; }
 .notion-row {
-    display: flex; border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
     cursor: pointer; transition: background var(--duration-fast) var(--ease);
 }
 .notion-row:hover { background: var(--bg-hover); }
 .notion-row.unread { background: rgba(26, 115, 232, 0.04); font-weight: 500; }
 .notion-row.unread:hover { background: rgba(26, 115, 232, 0.08); }
 .notion-cell {
-    padding: 10px 12px; font-size: var(--text-sm); color: var(--text-primary);
-    display: flex; align-items: center; gap: 8px;
-    border-right: 1px solid transparent; overflow: hidden;
-    white-space: nowrap; text-overflow: ellipsis; flex-shrink: 0;
+    padding: 8px 10px; font-size: var(--text-sm); color: var(--text-primary);
+    display: flex; align-items: center; gap: 6px;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    min-width: 0; /* critical for grid children to truncate */
 }
 
 /* Checkbox column */
@@ -6000,28 +6027,25 @@ textarea:focus-visible {
 
 /* Column widths — adjusted for checkbox column */
 .ncell-date { width: 100px; color: var(--text-muted); font-size: var(--text-xs); }
-.ncell-name { flex: 1; min-width: 130px; }
-.ncell-company { width: 120px; min-width: 120px; max-width: 120px; }
-.ncell-status { width: 110px; min-width: 110px; max-width: 110px; }
-.ncell-priority { width: 95px; min-width: 95px; max-width: 95px; }
-.ncell-score { width: 70px; min-width: 70px; max-width: 70px; text-align: center; }
-.ncell-relation { width: 90px; min-width: 90px; max-width: 90px; text-align: center; }
-.ncell-value { width: 115px; min-width: 115px; max-width: 115px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
-.ncell-manager { width: 130px; min-width: 130px; max-width: 130px; }
-.ncell-location { width: 120px; min-width: 120px; max-width: 120px; }
-.ncell-email { width: 170px; min-width: 170px; max-width: 170px; }
+/* Cell-specific styles (widths handled by grid) */
+.ncell-check { justify-content: center; }
+.ncell-name { overflow: hidden; }
+.ncell-name .cell-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ncell-value { justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.ncell-score { justify-content: center; }
+.ncell-relation { justify-content: center; }
+.ncell-revenue { justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.ncell-projects { justify-content: center; }
+.ncell-unpaid { justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.ncell-tier { justify-content: center; }
+.ncell-close { color: var(--text-muted); }
+.ncell-actions { justify-content: center; }
 .ncell-email .cell-text,
-.ncell-location .cell-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; max-width: 100%; }
-.ncell-phone { width: 120px; min-width: 120px; max-width: 120px; }
-.ncell-revenue { width: 95px; min-width: 95px; max-width: 95px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
-.ncell-projects { width: 60px; min-width: 60px; max-width: 60px; text-align: center; justify-content: center; }
-.ncell-unpaid { width: 85px; min-width: 85px; max-width: 85px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
-.ncell-tier { width: 65px; min-width: 65px; max-width: 65px; text-align: center; justify-content: center; }
-.ncell-close { width: 100px; min-width: 100px; max-width: 100px; }
-.ncell-gmail { width: 160px; min-width: 160px; max-width: 160px; border-right: none; }
-.ncell-actions { width: 110px; min-width: 110px; max-width: 110px; justify-content: center; border-right: none; }
-.notion-header .ncell-gmail { border-right: none; }
-.notion-header .ncell-actions { border-right: none; }
+.ncell-location .cell-text,
+.ncell-gmail .cell-text,
+.ncell-company .cell-text,
+.ncell-manager .cell-text,
+.ncell-phone .cell-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; max-width: 100%; }
 
 /* Cell content */
 .cell-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
