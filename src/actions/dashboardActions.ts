@@ -112,7 +112,7 @@ export async function getSalesDashboardAction() {
     }
 
     const collectionRate = totalRevenue > 0 ? Math.round((totalPaid / totalRevenue) * 100) : 0;
-    const monthlyTarget = 6000; // configurable
+    const monthlyTarget = 10000; // $10K/month per agent
     const targetProgress = monthlyTarget > 0 ? Math.min(100, Math.round((thisMonthRevenue / monthlyTarget) * 100)) : 0;
     const monthGrowth = lastMonthRevenue > 0 ? Math.round(((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100) : 0;
 

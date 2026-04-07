@@ -55,7 +55,7 @@ export default function SalesDashboard() {
     if (!isHydrated || loading) return <PageLoader isLoading={true} type="grid" count={4}><div /></PageLoader>;
 
     const stats = data?.stats || { sent: 0, replies: 0, newLeads: 0, openRate: 0 };
-    const rev = data?.revenue || { total: 0, paid: 0, unpaid: 0, projects: 0, collectionRate: 0, thisMonth: 0, lastMonth: 0, monthGrowth: 0, targetProgress: 0, monthlyTarget: 6000 };
+    const rev = data?.revenue || { total: 0, paid: 0, unpaid: 0, projects: 0, collectionRate: 0, thisMonth: 0, lastMonth: 0, monthGrowth: 0, targetProgress: 0, monthlyTarget: 10000 };
     const hotLeads = data?.hotLeads || [];
     const activity = data?.recentActivity || [];
     const followUpsDue = data?.followUpsDue || 0;
