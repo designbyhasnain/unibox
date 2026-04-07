@@ -10,19 +10,22 @@ type Message = {
     timestamp: Date;
 };
 
-const SUGGESTIONS = [
+const CHAT_SUGGESTIONS = [
     'Show me pipeline breakdown',
     'Who are our top 10 clients?',
-    'How much revenue did we make last 6 months?',
+    'Revenue last 6 months?',
     'Who owes us money?',
-    'Show me all clients in Australia',
-    'Which leads should I contact today?',
-    'Draft a cold outreach email for filmmakers in UK',
-    'What\'s our average project value?',
-    'Show AM performance',
-    'Find filmmakers in California',
-    'How many cold leads do we have?',
-    'Who are our VIP clients?',
+    'Clients in Australia',
+    'AM performance',
+];
+
+const AGENT_SUGGESTIONS = [
+    'Book 50 meetings with Australian filmmakers',
+    'Collect all unpaid invoices from clients',
+    'Find and outreach 200 filmmakers in California',
+    'Re-engage all clients who went silent in 30+ days',
+    'Build a cold outreach campaign for UK market',
+    'Find filmmakers in Europe and draft multilingual emails',
 ];
 
 export default function JarvisPage() {
@@ -30,6 +33,8 @@ export default function JarvisPage() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [mode, setMode] = useState<'chat' | 'agent'>('chat');
+    const [agentRunning, setAgentRunning] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -72,10 +77,59 @@ export default function JarvisPage() {
         inputRef.current?.focus();
     };
 
+    const runAgent = async (text?: string) => {
+        const goal = text || input.trim();
+        if (!goal || loading) return;
+
+        setMessages(prev => [...prev, { role: 'user', content: `\u{1F3AF} AGENT GOAL: ${goal}`, timestamp: new Date() }]);
+        setInput('');
+        setLoading(true);
+        setAgentRunning(true);
+
+        setMessages(prev => [...prev, { role: 'assistant', content: '\u{1F9E0} Planning strategy...', timestamp: new Date() }]);
+
+        try {
+            const res = await fetch('/api/jarvis/agent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ goal }),
+            });
+
+            const data = await res.json();
+            if (data.error) {
+                setMessages(prev => [...prev, { role: 'assistant', content: `Agent error: ${data.error}`, timestamp: new Date() }]);
+            } else {
+                // Show plan
+                const planText = (data.plan || []).map((s: any) =>
+                    `${s.status === 'DONE' ? '\u2705' : s.status === 'FAILED' ? '\u274C' : '\u23F3'} Step ${s.id}: ${s.action} — ${s.description}${s.result ? '\n   \u2192 ' + s.result.slice(0, 200) : ''}`
+                ).join('\n\n');
+
+                setMessages(prev => {
+                    const filtered = prev.filter(m => m.content !== '\u{1F9E0} Planning strategy...');
+                    return [...filtered, {
+                        role: 'assistant',
+                        content: `\u{1F4CB} EXECUTION PLAN:\n\n${planText}\n\n---\n\n\u{1F4CA} SUMMARY:\n${data.summary}`,
+                        toolsUsed: ['agent_mode'],
+                        timestamp: new Date(),
+                    }];
+                });
+            }
+        } catch (err) {
+            setMessages(prev => [...prev, { role: 'assistant', content: 'Agent execution failed.', timestamp: new Date() }]);
+        }
+        setLoading(false);
+        setAgentRunning(false);
+    };
+
+    const handleSubmit = () => {
+        if (mode === 'agent') runAgent();
+        else sendMessage();
+    };
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            sendMessage();
+            handleSubmit();
         }
     };
 
@@ -127,9 +181,17 @@ export default function JarvisPage() {
                         <div className="jarvis-title">JARVIS</div>
                         <div className="jarvis-subtitle">AI Sales Director — Wedits CRM</div>
                     </div>
-                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e' }} />
-                        <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 600 }}>Online</span>
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {agentRunning && (
+                            <span style={{ fontSize: 10, color: '#f59e0b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', animation: 'jarvisBounce 1s infinite' }} />
+                                EXECUTING
+                            </span>
+                        )}
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: agentRunning ? '#f59e0b' : '#22c55e' }} />
+                        <span style={{ fontSize: 11, color: agentRunning ? '#f59e0b' : '#22c55e', fontWeight: 600 }}>
+                            {agentRunning ? 'Working...' : 'Online'}
+                        </span>
                     </div>
                 </div>
 
@@ -143,8 +205,8 @@ export default function JarvisPage() {
                                 I have full access to your CRM — 12,695 contacts, revenue data, pipeline stats, email history. Ask me anything or tell me to take action.
                             </div>
                             <div className="jarvis-suggestions">
-                                {SUGGESTIONS.slice(0, 8).map(s => (
-                                    <button key={s} className="jarvis-suggestion" onClick={() => sendMessage(s)}>
+                                {(mode === 'agent' ? AGENT_SUGGESTIONS : CHAT_SUGGESTIONS).map((s: string) => (
+                                    <button key={s} className="jarvis-suggestion" onClick={() => mode === 'agent' ? runAgent(s) : sendMessage(s)}>
                                         {s}
                                     </button>
                                 ))}
@@ -182,17 +244,25 @@ export default function JarvisPage() {
                 {/* Input */}
                 <div className="jarvis-input-wrap">
                     <div className="jarvis-input-box">
+                        {/* Mode Toggle */}
+                        <button onClick={() => setMode(m => m === 'chat' ? 'agent' : 'chat')} style={{
+                            background: mode === 'agent' ? '#7c3aed' : '#27272a', border: 'none', borderRadius: 6,
+                            padding: '6px 10px', fontSize: 10, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                            color: mode === 'agent' ? '#fff' : '#71717a', letterSpacing: '.04em', transition: 'all .15s',
+                        }} title={mode === 'agent' ? 'Agent Mode — autonomous execution' : 'Chat Mode — Q&A'}>
+                            {mode === 'agent' ? '\u{1F916} AGENT' : '\u{1F4AC} CHAT'}
+                        </button>
                         <textarea
                             ref={inputRef}
                             className="jarvis-textarea"
                             value={input}
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder="Ask Jarvis anything about your CRM..."
+                            placeholder={mode === 'agent' ? 'Set a goal for Jarvis to execute autonomously...' : 'Ask Jarvis anything about your CRM...'}
                             rows={1}
                             disabled={loading}
                         />
-                        <button className="jarvis-send" onClick={() => sendMessage()} disabled={loading || !input.trim()}>
+                        <button className="jarvis-send" onClick={handleSubmit} disabled={loading || !input.trim()}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                 <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
                             </svg>
