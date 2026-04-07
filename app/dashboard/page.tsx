@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
@@ -9,7 +9,7 @@ import { getSalesDashboardAction } from '../../src/actions/dashboardActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
-import OnboardingWizard from '../components/OnboardingWizard';
+const OnboardingWizard = dynamic(() => import('../components/OnboardingWizard'), { ssr: false });
 
 function fmtK(n: number) { return n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'k' : '$' + n.toLocaleString(); }
 function fmtDate() { return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
@@ -48,9 +48,9 @@ export default function SalesDashboard() {
     const activity = data?.recentActivity || [];
     const replyCount = data?.replyNowCount || 0;
 
-    const perfScore = useMemo(() => Math.min(100, Math.round(
+    const perfScore = Math.min(100, Math.round(
         (s.replyRate + r.collectionRate + r.targetProgress) / 3
-    )), [s, r]);
+    ));
 
     const activeDeals = (pipeline['CONTACTED'] || 0) + (pipeline['WARM_LEAD'] || 0) + (pipeline['LEAD'] || 0) + (pipeline['OFFER_ACCEPTED'] || 0);
     const closedWon = pipeline['CLOSED'] || 0;
@@ -265,8 +265,9 @@ export default function SalesDashboard() {
                     <div className="d-card-title">Pipeline Health</div>
                     <div className="d-pipeline-health">
                         {['COLD_LEAD', 'CONTACTED', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'].map(stage => {
-                            const count = pipeline[stage] || 0;
-                            const maxCount = Math.max(...Object.values(pipeline).map(Number), 1);
+                            const count = Number(pipeline[stage]) || 0;
+                            const vals = Object.values(pipeline).map(v => Number(v) || 0);
+                            const maxCount = vals.length > 0 ? Math.max(...vals, 1) : 1;
                             return (
                                 <div className="d-ph-row" key={stage}>
                                     <div className="d-ph-label">{STAGE_LABELS[stage]}</div>
