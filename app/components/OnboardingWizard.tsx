@@ -21,7 +21,7 @@ export default function OnboardingWizard({ userName, onComplete }: Props) {
     const [generating, setGenerating] = useState(false);
     const [copied, setCopied] = useState(false);
 
-    const current = STEPS[step];
+    const current = STEPS[step]!;
     const progress = ((step) / (STEPS.length - 1)) * 100;
 
     const generateKey = async () => {
