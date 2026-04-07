@@ -88,6 +88,10 @@ const NAV_SHARED = [
     { href: '/opportunities', label: 'Opportunities', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>, salesLabel: 'Opportunities' },
 ];
 
+const NAV_JARVIS = [
+    { href: '/jarvis', label: 'Jarvis AI', icon: <span style={{ fontSize: 16 }}>{'\uD83E\uDD16'}</span> },
+];
+
 const NAV_ADMIN_ONLY = [
     { href: '/intelligence', label: 'Intelligence', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg> },
     { href: '/finance', label: 'Finance', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg> },
@@ -173,6 +177,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
             label: isSales ? item.salesLabel : item.label,
             icon: item.icon,
         })),
+        ...NAV_JARVIS,
         ...(isAdminLike ? NAV_ADMIN_ONLY : []),
         ...(isAdminLike ? [{ href: '/team', label: 'Team', icon: <Icons.Team /> }] : []),
     ];
