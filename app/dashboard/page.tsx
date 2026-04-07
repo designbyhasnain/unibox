@@ -1,37 +1,21 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { getSalesDashboardAction } from '../../src/actions/dashboardActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 import OnboardingWizard from '../components/OnboardingWizard';
 
-function getGreeting() {
-    const h = new Date().getHours();
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    return 'Good evening';
-}
-
-function formatDate() {
-    return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-}
-
-function timeAgo(dateStr: string) {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return mins + 'm ago';
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + 'h ago';
-    return Math.floor(hrs / 24) + 'd ago';
-}
-
-function fmtK(n: number) {
-    if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
-    return '$' + n.toLocaleString();
-}
+function fmtK(n: number) { return n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'k' : '$' + n.toLocaleString(); }
+function fmtDate() { return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
+function timeAgo(d: string) { const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000); return m < 60 ? m + 'm ago' : m < 1440 ? Math.floor(m / 60) + 'h ago' : Math.floor(m / 1440) + 'd ago'; }
+function initials(n: string) { return n.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?'; }
+const STAGE_COLORS: Record<string, string> = { COLD_LEAD: '#94a3b8', CONTACTED: '#3b82f6', WARM_LEAD: '#f59e0b', LEAD: '#8b5cf6', OFFER_ACCEPTED: '#10b981', CLOSED: '#22c55e', NOT_INTERESTED: '#ef4444' };
+const STAGE_LABELS: Record<string, string> = { COLD_LEAD: 'Cold Lead', CONTACTED: 'Contacted', WARM_LEAD: 'Warm Lead', LEAD: 'Lead', OFFER_ACCEPTED: 'Proposal', CLOSED: 'Closed Won', NOT_INTERESTED: 'Lost' };
+const HEALTH_MAP: Record<string, { label: string; color: string }> = { strong: { label: 'Healthy', color: '#22c55e' }, good: { label: 'Good', color: '#22c55e' }, warm: { label: 'Warm', color: '#f59e0b' }, cold: { label: 'Cooling', color: '#f97316' }, critical: { label: 'At Risk', color: '#ef4444' }, dead: { label: 'Lost', color: '#94a3b8' }, neutral: { label: '--', color: '#d1d5db' } };
 
 export default function SalesDashboard() {
     const isHydrated = useHydrated();
@@ -41,296 +25,349 @@ export default function SalesDashboard() {
     const [showOnboarding, setShowOnboarding] = useState(false);
 
     useEffect(() => {
-        Promise.all([
-            getCurrentUserAction(),
-            getSalesDashboardAction(),
-        ]).then(([user, dashboard]) => {
-            setUserName(user?.name?.split(' ')[0] || 'there');
-            setData(dashboard);
-            setLoading(false);
-            try { if (!localStorage.getItem('unibox_onboarding_done')) setShowOnboarding(true); } catch {}
-        }).catch(() => setLoading(false));
+        Promise.all([getCurrentUserAction(), getSalesDashboardAction()])
+            .then(([user, dash]) => {
+                setUserName(user?.name?.split(' ')[0] || 'there');
+                setData(dash);
+                setLoading(false);
+                try { if (!localStorage.getItem('unibox_onboarding_done')) setShowOnboarding(true); } catch {}
+            }).catch(() => setLoading(false));
     }, []);
 
     if (!isHydrated || loading) return <PageLoader isLoading={true} type="grid" count={4}><div /></PageLoader>;
 
-    const stats = data?.stats || { sent: 0, replies: 0, newLeads: 0, openRate: 0 };
-    const rev = data?.revenue || { total: 0, paid: 0, unpaid: 0, projects: 0, collectionRate: 0, thisMonth: 0, lastMonth: 0, monthGrowth: 0, targetProgress: 0, monthlyTarget: 10000 };
-    const hotLeads = data?.hotLeads || [];
+    const s = data?.stats || { sent: 0, replies: 0, newLeads: 0, replyRate: 0 };
+    const r = data?.revenue || { total: 0, paid: 0, unpaid: 0, projects: 0, collectionRate: 0, thisMonth: 0, lastMonth: 0, monthGrowth: 0, targetProgress: 0, monthlyTarget: 10000, chart: [] };
+    const pipeline = data?.pipeline || {};
+    const funnel = data?.funnel || [];
+    const reply = data?.needReply || [];
+    const top = data?.topClients || [];
+    const contacts = data?.pipelineContacts || [];
     const activity = data?.recentActivity || [];
-    const followUpsDue = data?.followUpsDue || 0;
-    const needReply = data?.needReply || [];
-    const unpaidClients = data?.unpaidClients || [];
-    const replyNowCount = data?.replyNowCount || 0;
+    const replyCount = data?.replyNowCount || 0;
 
-    const perfScore = Math.min(100, Math.round(
-        (stats.openRate + (stats.sent > 0 ? (stats.replies / stats.sent) * 100 : 0) + rev.collectionRate) / 3
-    ));
+    const perfScore = useMemo(() => Math.min(100, Math.round(
+        (s.replyRate + r.collectionRate + r.targetProgress) / 3
+    )), [s, r]);
+
+    const activeDeals = (pipeline['CONTACTED'] || 0) + (pipeline['WARM_LEAD'] || 0) + (pipeline['LEAD'] || 0) + (pipeline['OFFER_ACCEPTED'] || 0);
+    const closedWon = pipeline['CLOSED'] || 0;
+    const winRate = (activeDeals + closedWon) > 0 ? Math.round((closedWon / (activeDeals + closedWon)) * 100) : 0;
 
     return (
         <>
         {showOnboarding && <OnboardingWizard userName={userName} onComplete={() => setShowOnboarding(false)} />}
         <style>{`
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-            .kpi-page{height:100%;overflow-y:auto;background:#fafafa;font-family:'Inter',system-ui,-apple-system,sans-serif}
-            .kpi-inner{max-width:1200px;margin:0 auto;padding:24px 32px 40px}
-            .kpi-header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:28px}
-            .kpi-greet{font-size:32px;font-weight:800;color:#1a1a1a;letter-spacing:-.03em;line-height:1.1}
-            .kpi-date{font-size:13px;color:#8e8e93;font-weight:500;margin-top:4px}
-            .kpi-ring{position:relative;width:72px;height:72px}
-            .kpi-ring svg{transform:rotate(-90deg)}
-            .kpi-ring-label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-            .kpi-ring-num{font-size:20px;font-weight:800;color:#1a1a1a;line-height:1}
-            .kpi-ring-sub{font-size:8px;color:#8e8e93;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+            .d-page{height:100%;overflow-y:auto;background:#f8f9fa;font-family:'Inter',system-ui,-apple-system,sans-serif}
+            .d-inner{max-width:1280px;margin:0 auto;padding:20px 28px 40px}
+            .d-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+            .d-title{font-size:22px;font-weight:700;color:#111}
+            .d-subtitle{font-size:13px;color:#888;margin-top:2px}
+            .d-date-pill{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:500;color:#333;display:flex;align-items:center;gap:8px}
 
-            .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
-            .kpi-card{background:#fff;border-radius:16px;padding:20px 22px;box-shadow:0 1px 3px rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.03)}
-            .kpi-card-label{font-size:11px;font-weight:600;color:#8e8e93;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
-            .kpi-card-value{font-size:32px;font-weight:800;color:#1a1a1a;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
-            .kpi-card-sub{font-size:11px;color:#8e8e93;margin-top:6px;font-weight:500}
-            .kpi-card-sub .up{color:#34c759;font-weight:600}
-            .kpi-card-sub .down{color:#ff3b30;font-weight:600}
+            .d-kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:20px}
+            .d-kpi{background:#fff;border-radius:12px;padding:16px 18px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+            .d-kpi-label{font-size:10px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+            .d-kpi-value{font-size:28px;font-weight:800;color:#111;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
+            .d-kpi-trend{font-size:11px;font-weight:600;margin-left:6px}
+            .d-kpi-trend.up{color:#22c55e}
+            .d-kpi-trend.down{color:#ef4444}
 
-            .kpi-target{background:#fff;border-radius:16px;padding:20px 24px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.03)}
-            .kpi-target-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-            .kpi-target-title{font-size:13px;font-weight:700;color:#1a1a1a}
-            .kpi-target-pct{font-size:24px;font-weight:800;color:#007aff;letter-spacing:-.02em}
-            .kpi-bar{height:8px;background:#f2f2f7;border-radius:4px;overflow:hidden}
-            .kpi-bar-fill{height:100%;border-radius:4px;transition:width .6s ease}
-            .kpi-target-detail{display:flex;justify-content:space-between;margin-top:10px;font-size:11px;color:#8e8e93;font-weight:500}
+            .d-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+            .d-grid-3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:16px;margin-bottom:16px}
+            .d-card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+            .d-card-title{font-size:14px;font-weight:700;color:#111;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+            .d-card-badge{font-size:10px;font-weight:700;color:#fff;padding:2px 8px;border-radius:10px}
 
-            .kpi-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
-            .kpi-section{background:#fff;border-radius:16px;padding:20px 22px;box-shadow:0 1px 3px rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.03)}
-            .kpi-section-title{font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:14px;display:flex;align-items:center;gap:8px}
-            .kpi-section-badge{font-size:10px;font-weight:700;color:#fff;padding:2px 8px;border-radius:10px}
-            .kpi-list-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f5f5f7}
-            .kpi-list-item:last-child{border-bottom:none}
-            .kpi-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
-            .kpi-list-name{font-size:13px;font-weight:600;color:#1a1a1a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-            .kpi-list-sub{font-size:11px;color:#8e8e93}
-            .kpi-list-right{margin-left:auto;text-align:right;flex-shrink:0}
-            .kpi-list-amount{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
-            .kpi-list-tag{font-size:9px;font-weight:600;padding:2px 8px;border-radius:4px}
+            .d-pipeline-health{display:flex;flex-direction:column;gap:10px}
+            .d-ph-row{display:flex;align-items:center;gap:10px}
+            .d-ph-label{font-size:12px;font-weight:600;color:#333;width:90px;flex-shrink:0}
+            .d-ph-bar{flex:1;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden}
+            .d-ph-fill{height:100%;border-radius:3px;transition:width .5s ease}
+            .d-ph-count{font-size:12px;font-weight:700;color:#555;width:40px;text-align:right;flex-shrink:0}
 
-            .kpi-cta{display:flex;gap:12px;margin-bottom:20px}
-            .kpi-cta a{flex:1;display:flex;align-items:center;gap:12px;padding:16px 20px;border-radius:14px;text-decoration:none;transition:transform .15s,box-shadow .15s}
-            .kpi-cta a:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.08)}
+            .d-funnel{display:flex;flex-direction:column;align-items:center;gap:4px}
+            .d-funnel-step{display:flex;align-items:center;justify-content:center;padding:8px;border-radius:6px;font-size:11px;font-weight:600;color:#fff;text-align:center;transition:width .5s ease}
 
-            .kpi-activity-item{display:flex;align-items:flex-start;gap:10px;padding:6px 0}
-            .kpi-dot{width:6px;height:6px;border-radius:50%;margin-top:6px;flex-shrink:0}
+            .d-table{width:100%;border-collapse:separate;border-spacing:0}
+            .d-table th{font-size:10px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.06em;padding:8px 12px;text-align:left;border-bottom:1px solid #f1f5f9}
+            .d-table td{font-size:13px;padding:10px 12px;border-bottom:1px solid #f8f9fa;color:#333}
+            .d-table tr:hover td{background:#f8f9fa}
+            .d-avatar{width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0}
+            .d-stage-badge{font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px;white-space:nowrap}
+            .d-action-badge{font-size:9px;font-weight:700;padding:3px 8px;border-radius:4px;background:#f1f5f9;color:#555;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+            .d-health-bar{width:40px;height:4px;border-radius:2px;display:inline-block}
 
-            @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-            .kpi-anim{animation:fadeUp .3s ease both}
-            .kpi-anim-1{animation-delay:0s}.kpi-anim-2{animation-delay:40ms}.kpi-anim-3{animation-delay:80ms}.kpi-anim-4{animation-delay:120ms}
-            .kpi-anim-5{animation-delay:160ms}.kpi-anim-6{animation-delay:200ms}
+            .d-list-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f8f9fa}
+            .d-list-item:last-child{border:none}
+            .d-list-rank{width:24px;height:24px;border-radius:6px;background:#111;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+            .d-cta{display:flex;gap:12px;margin-bottom:16px}
+            .d-cta a{flex:1;display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:12px;text-decoration:none;font-size:14px;font-weight:700;color:#fff;transition:transform .15s,box-shadow .15s}
+            .d-cta a:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.1)}
+
+            .d-perf-ring{position:relative;width:56px;height:56px;flex-shrink:0}
+            .d-perf-ring svg{transform:rotate(-90deg)}
+            .d-perf-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#111}
+
+            @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+            .d-anim{animation:fadeUp .3s ease both}
         `}</style>
 
-        <div className="kpi-page">
-        <div className="kpi-inner">
+        <div className="d-page"><div className="d-inner">
 
             {/* Header */}
-            <div className="kpi-header kpi-anim kpi-anim-1">
+            <div className="d-header d-anim">
                 <div>
-                    <div className="kpi-greet">{getGreeting()}, {userName}</div>
-                    <div className="kpi-date">{formatDate()}</div>
+                    <div className="d-title">Dashboard Overview</div>
+                    <div className="d-subtitle">Welcome back, {userName}. Here&apos;s your pipeline status.</div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div className="kpi-ring">
-                        <svg width="72" height="72" viewBox="0 0 72 72">
-                            <circle cx="36" cy="36" r="30" fill="none" stroke="#f2f2f7" strokeWidth="6" />
-                            <circle cx="36" cy="36" r="30" fill="none" stroke={perfScore >= 60 ? '#34c759' : perfScore >= 30 ? '#ff9f0a' : '#ff3b30'} strokeWidth="6" strokeLinecap="round" strokeDasharray={`${perfScore * 1.885} 188.5`} />
+                    <div className="d-date-pill">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                        {fmtDate()}
+                    </div>
+                    <div className="d-perf-ring">
+                        <svg width="56" height="56" viewBox="0 0 56 56">
+                            <circle cx="28" cy="28" r="24" fill="none" stroke="#f1f5f9" strokeWidth="4"/>
+                            <circle cx="28" cy="28" r="24" fill="none" stroke={perfScore >= 60 ? '#22c55e' : perfScore >= 30 ? '#f59e0b' : '#ef4444'} strokeWidth="4" strokeLinecap="round" strokeDasharray={`${perfScore * 1.508} 150.8`}/>
                         </svg>
-                        <div className="kpi-ring-label">
-                            <span className="kpi-ring-num">{perfScore}</span>
-                            <span className="kpi-ring-sub">Score</span>
-                        </div>
+                        <div className="d-perf-num">{perfScore}</div>
                     </div>
                 </div>
             </div>
 
-            {/* KPI Cards */}
-            <div className="kpi-grid kpi-anim kpi-anim-2">
-                <div className="kpi-card">
-                    <div className="kpi-card-label">Emails Sent</div>
-                    <div className="kpi-card-value">{stats.sent.toLocaleString()}</div>
-                    <div className="kpi-card-sub">This week</div>
+            {/* KPI Row */}
+            <div className="d-kpi-row d-anim" style={{ animationDelay: '40ms' }}>
+                <div className="d-kpi">
+                    <div className="d-kpi-label">Active Deals</div>
+                    <div className="d-kpi-value">{activeDeals}</div>
                 </div>
-                <div className="kpi-card">
-                    <div className="kpi-card-label">Replies</div>
-                    <div className="kpi-card-value">{stats.replies.toLocaleString()}</div>
-                    <div className="kpi-card-sub">
-                        {stats.sent > 0 ? <span className={stats.replies / stats.sent > 0.05 ? 'up' : 'down'}>{Math.round((stats.replies / stats.sent) * 100)}% reply rate</span> : 'No emails yet'}
+                <div className="d-kpi">
+                    <div className="d-kpi-label">Conversion</div>
+                    <div className="d-kpi-value">{winRate}%</div>
+                </div>
+                <div className="d-kpi">
+                    <div className="d-kpi-label">Revenue</div>
+                    <div className="d-kpi-value">
+                        {fmtK(r.thisMonth)}
+                        {r.monthGrowth !== 0 && <span className={`d-kpi-trend ${r.monthGrowth > 0 ? 'up' : 'down'}`}>{r.monthGrowth > 0 ? '+' : ''}{r.monthGrowth}%</span>}
                     </div>
                 </div>
-                <div className="kpi-card">
-                    <div className="kpi-card-label">Revenue This Month</div>
-                    <div className="kpi-card-value">{fmtK(rev.thisMonth)}</div>
-                    <div className="kpi-card-sub">
-                        {rev.monthGrowth !== 0 && <span className={rev.monthGrowth > 0 ? 'up' : 'down'}>{rev.monthGrowth > 0 ? '+' : ''}{rev.monthGrowth}% vs last month</span>}
-                        {rev.monthGrowth === 0 && <span>vs {fmtK(rev.lastMonth)} last month</span>}
+                <div className="d-kpi">
+                    <div className="d-kpi-label">New Leads</div>
+                    <div className="d-kpi-value">
+                        {s.newLeads}
+                        {s.newLeads > 0 && <span className="d-kpi-trend up">+{s.newLeads}</span>}
                     </div>
                 </div>
-                <div className="kpi-card">
-                    <div className="kpi-card-label">Collection Rate</div>
-                    <div className="kpi-card-value" style={{ color: rev.collectionRate >= 80 ? '#34c759' : rev.collectionRate >= 50 ? '#ff9f0a' : '#ff3b30' }}>{rev.collectionRate}%</div>
-                    <div className="kpi-card-sub">{fmtK(rev.paid)} of {fmtK(rev.total)} collected</div>
+                <div className="d-kpi">
+                    <div className="d-kpi-label">Closed Won</div>
+                    <div className="d-kpi-value">
+                        {fmtK(r.paid)}
+                        {r.collectionRate > 0 && <span className={`d-kpi-trend ${r.collectionRate >= 70 ? 'up' : 'down'}`}>{r.collectionRate}%</span>}
+                    </div>
+                </div>
+                <div className="d-kpi">
+                    <div className="d-kpi-label">Emails Sent</div>
+                    <div className="d-kpi-value">{s.sent.toLocaleString()}</div>
                 </div>
             </div>
 
-            {/* Monthly Target Bar */}
-            <div className="kpi-target kpi-anim kpi-anim-3">
-                <div className="kpi-target-header">
-                    <div className="kpi-target-title">Monthly Target</div>
-                    <div className="kpi-target-pct">{rev.targetProgress}%</div>
-                </div>
-                <div className="kpi-bar">
-                    <div className="kpi-bar-fill" style={{
-                        width: `${rev.targetProgress}%`,
-                        background: rev.targetProgress >= 100 ? '#34c759' : rev.targetProgress >= 60 ? '#007aff' : '#ff9f0a',
-                    }} />
-                </div>
-                <div className="kpi-target-detail">
-                    <span>{fmtK(rev.thisMonth)} earned</span>
-                    <span>Target: {fmtK(rev.monthlyTarget)}</span>
-                    <span>{fmtK(Math.max(0, rev.monthlyTarget - rev.thisMonth))} to go</span>
-                </div>
-            </div>
-
-            {/* Action CTAs */}
-            <div className="kpi-cta kpi-anim kpi-anim-4">
-                <Link href="/actions" style={{ background: '#007aff', color: '#fff' }}>
-                    <span style={{ fontSize: 24 }}>{'\uD83C\uDFAF'}</span>
-                    <div>
-                        <div style={{ fontSize: 15, fontWeight: 700 }}>Start Selling</div>
-                        <div style={{ fontSize: 11, opacity: .8 }}>{replyNowCount > 0 ? `${replyNowCount} replies waiting` : 'Check action queue'}</div>
-                    </div>
-                    <span style={{ marginLeft: 'auto', fontSize: 18, opacity: .6 }}>{'\u2192'}</span>
+            {/* CTAs */}
+            <div className="d-cta d-anim" style={{ animationDelay: '80ms' }}>
+                <Link href="/actions" style={{ background: '#007aff' }}>
+                    {'\uD83C\uDFAF'} Start Selling
+                    {replyCount > 0 && <span style={{ fontSize: 11, opacity: .8 }}>{replyCount} replies waiting</span>}
+                    <span style={{ marginLeft: 'auto', opacity: .6 }}>{'\u2192'}</span>
                 </Link>
-                {rev.unpaid > 0 && (
-                    <Link href="/clients" style={{ background: '#ff3b30', color: '#fff' }}>
-                        <span style={{ fontSize: 24 }}>{'\uD83D\uDCB0'}</span>
-                        <div>
-                            <div style={{ fontSize: 15, fontWeight: 700 }}>Collect {fmtK(rev.unpaid)}</div>
-                            <div style={{ fontSize: 11, opacity: .8 }}>{unpaidClients.length} clients with balance</div>
-                        </div>
-                        <span style={{ marginLeft: 'auto', fontSize: 18, opacity: .6 }}>{'\u2192'}</span>
+                {r.unpaid > 0 && (
+                    <Link href="/clients" style={{ background: '#ef4444' }}>
+                        {'\uD83D\uDCB0'} Collect {fmtK(r.unpaid)}
+                        <span style={{ marginLeft: 'auto', opacity: .6 }}>{'\u2192'}</span>
                     </Link>
                 )}
             </div>
 
-            {/* Two Column: Reply Now + Hot Leads */}
-            <div className="kpi-row kpi-anim kpi-anim-5">
-                {/* Reply Now */}
-                <div className="kpi-section">
-                    <div className="kpi-section-title">
-                        {'\uD83D\uDCE9'} Reply Now
-                        {replyNowCount > 0 && <span className="kpi-section-badge" style={{ background: '#ff3b30' }}>{replyNowCount}</span>}
+            {/* Row: Revenue Chart + Pipeline Table */}
+            <div className="d-grid-2 d-anim" style={{ animationDelay: '120ms' }}>
+                {/* Revenue Chart */}
+                <div className="d-card">
+                    <div className="d-card-title">
+                        <span>Monthly Revenue</span>
+                        <span style={{ fontSize: 20, fontWeight: 800, color: r.monthGrowth >= 0 ? '#22c55e' : '#ef4444' }}>
+                            {fmtK(r.thisMonth)}
+                        </span>
                     </div>
-                    {needReply.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px 0', color: '#8e8e93', fontSize: 13 }}>
-                            <div style={{ fontSize: 28, marginBottom: 4 }}>{'\u2705'}</div>
-                            All caught up
+                    <div style={{ height: 200 }}>
+                        {r.chart.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={r.chart} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                                    <defs>
+                                        <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
+                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
+                                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#999' }} axisLine={false} tickLine={false}/>
+                                    <YAxis tick={{ fontSize: 10, fill: '#999' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => '$' + (v / 1000).toFixed(0) + 'k'}/>
+                                    <Tooltip formatter={(v: any) => ['$' + Number(v).toLocaleString(), 'Revenue']} labelStyle={{ fontSize: 11 }} contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}/>
+                                    <Area type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={2} fill="url(#revGrad)"/>
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#ccc', fontSize: 13 }}>No revenue data yet</div>
+                        )}
+                    </div>
+                    {/* Target bar */}
+                    <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 10, color: '#888', fontWeight: 600, flexShrink: 0 }}>TARGET</span>
+                        <div style={{ flex: 1, height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${r.targetProgress}%`, background: r.targetProgress >= 100 ? '#22c55e' : '#3b82f6', borderRadius: 3 }}/>
                         </div>
-                    ) : needReply.map((c: any) => (
-                        <Link href={`/clients/${c.id}`} key={c.id} className="kpi-list-item" style={{ textDecoration: 'none' }}>
-                            <div className="kpi-avatar" style={{ background: '#ff3b30' }}>
-                                {(c.name || '?')[0]?.toUpperCase()}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div className="kpi-list-name">{c.name}</div>
-                                <div className="kpi-list-sub">{c.email}</div>
-                            </div>
-                            <div className="kpi-list-right">
-                                <span className="kpi-list-tag" style={{ background: c.days_since_last_contact <= 1 ? '#fff1f0' : '#fffbe6', color: c.days_since_last_contact <= 1 ? '#ff3b30' : '#ff9f0a' }}>
-                                    {c.days_since_last_contact === 0 ? 'TODAY' : c.days_since_last_contact + 'd ago'}
-                                </span>
-                            </div>
-                        </Link>
-                    ))}
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#333', flexShrink: 0 }}>{r.targetProgress}%</span>
+                    </div>
                 </div>
 
-                {/* Hot Leads */}
-                <div className="kpi-section">
-                    <div className="kpi-section-title">
-                        {'\uD83D\uDD25'} Hot Leads
-                        {hotLeads.length > 0 && <span className="kpi-section-badge" style={{ background: '#ff9f0a' }}>{hotLeads.length}</span>}
+                {/* Filmmaker Pipeline Table */}
+                <div className="d-card" style={{ overflow: 'hidden' }}>
+                    <div className="d-card-title">
+                        <span>Filmmaker Pipeline</span>
+                        <Link href="/clients" style={{ fontSize: 12, color: '#007aff', textDecoration: 'none', fontWeight: 600 }}>View All</Link>
                     </div>
-                    {hotLeads.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px 0', color: '#8e8e93', fontSize: 13 }}>
-                            <div style={{ fontSize: 28, marginBottom: 4 }}>{'\uD83C\uDFAF'}</div>
-                            No hot leads yet — keep emailing
-                        </div>
-                    ) : hotLeads.map((lead: any) => (
-                        <Link href={`/clients/${lead.id}`} key={lead.id} className="kpi-list-item" style={{ textDecoration: 'none' }}>
-                            <div className="kpi-avatar" style={{ background: '#ff9f0a' }}>
-                                {(lead.name || lead.email || '?')[0]?.toUpperCase()}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div className="kpi-list-name">{lead.name || lead.email}</div>
-                                <div className="kpi-list-sub">{lead.email}</div>
-                            </div>
-                            <div className="kpi-list-right">
-                                <span className="kpi-list-tag" style={{ background: '#fff8e1', color: '#e65100' }}>{lead.open_count} opens</span>
-                            </div>
-                        </Link>
-                    ))}
+                    <div style={{ overflowX: 'auto', maxHeight: 250 }}>
+                        <table className="d-table">
+                            <thead><tr>
+                                <th>Filmmaker</th>
+                                <th>Stage</th>
+                                <th>Value</th>
+                                <th>Health</th>
+                            </tr></thead>
+                            <tbody>
+                                {contacts.slice(0, 8).map((c: any) => {
+                                    const h = HEALTH_MAP[c.health] || HEALTH_MAP['neutral']!;
+                                    return (
+                                        <tr key={c.id}>
+                                            <td>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <div className="d-avatar" style={{ background: STAGE_COLORS[c.stage] || '#94a3b8' }}>{initials(c.name)}</div>
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, fontSize: 12 }}>{c.name}</div>
+                                                        <div style={{ fontSize: 10, color: '#888' }}>{c.location || c.email}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td><span className="d-stage-badge" style={{ background: (STAGE_COLORS[c.stage] || '#94a3b8') + '20', color: STAGE_COLORS[c.stage] || '#94a3b8' }}>{STAGE_LABELS[c.stage] || c.stage}</span></td>
+                                            <td style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{c.revenue > 0 ? fmtK(c.revenue) : '--'}</td>
+                                            <td><span className="d-health-bar" style={{ background: h.color }}/></td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
-            {/* Two Column: Unpaid + Activity */}
-            <div className="kpi-row kpi-anim kpi-anim-6">
-                {/* Unpaid */}
-                <div className="kpi-section">
-                    <div className="kpi-section-title">
-                        {'\uD83D\uDCB3'} Outstanding
-                        {rev.unpaid > 0 && <span className="kpi-section-badge" style={{ background: '#ff3b30' }}>{fmtK(rev.unpaid)}</span>}
-                    </div>
-                    {unpaidClients.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px 0', color: '#8e8e93', fontSize: 13 }}>
-                            <div style={{ fontSize: 28, marginBottom: 4 }}>{'\uD83C\uDF89'}</div>
-                            All paid up!
-                        </div>
-                    ) : unpaidClients.map((c: any) => (
-                        <Link href={`/clients/${c.id}`} key={c.id} className="kpi-list-item" style={{ textDecoration: 'none' }}>
-                            <div className="kpi-avatar" style={{ background: '#8e8e93' }}>
-                                {(c.name || '?')[0]?.toUpperCase()}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div className="kpi-list-name">{c.name}</div>
-                                <div className="kpi-list-sub">{c.email}</div>
-                            </div>
-                            <div className="kpi-list-right">
-                                <span className="kpi-list-amount" style={{ color: '#ff3b30' }}>${c.unpaid_amount?.toLocaleString()}</span>
-                            </div>
-                        </Link>
-                    ))}
-                </div>
-
-                {/* Activity */}
-                <div className="kpi-section">
-                    <div className="kpi-section-title">{'\u26A1'} Recent Activity</div>
-                    {activity.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px 0', color: '#8e8e93', fontSize: 13 }}>
-                            <div style={{ fontSize: 28, marginBottom: 4 }}>{'\uD83D\uDCEC'}</div>
-                            Send your first email
-                        </div>
-                    ) : activity.slice(0, 8).map((item: any) => (
-                        <div key={item.id} className="kpi-activity-item">
-                            <div className="kpi-dot" style={{ background: item.direction === 'RECEIVED' ? '#34c759' : '#007aff' }} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {item.direction === 'RECEIVED' ? `${item.contactName} replied` : `You emailed ${item.contactName}`}
+            {/* Row: Pipeline Health + Funnel + Top Producers */}
+            <div className="d-grid-3 d-anim" style={{ animationDelay: '160ms' }}>
+                {/* Pipeline Health Bars */}
+                <div className="d-card">
+                    <div className="d-card-title">Pipeline Health</div>
+                    <div className="d-pipeline-health">
+                        {['COLD_LEAD', 'CONTACTED', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'].map(stage => {
+                            const count = pipeline[stage] || 0;
+                            const maxCount = Math.max(...Object.values(pipeline).map(Number), 1);
+                            return (
+                                <div className="d-ph-row" key={stage}>
+                                    <div className="d-ph-label">{STAGE_LABELS[stage]}</div>
+                                    <div className="d-ph-bar">
+                                        <div className="d-ph-fill" style={{ width: `${(count / maxCount) * 100}%`, background: STAGE_COLORS[stage] }}/>
+                                    </div>
+                                    <div className="d-ph-count">{count}</div>
                                 </div>
-                                <div style={{ fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.subject}</div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Conversion Funnel */}
+                <div className="d-card">
+                    <div className="d-card-title">Pipeline Funnel</div>
+                    <div className="d-funnel">
+                        {funnel.map((f: any, i: number) => {
+                            const colors = ['#f97316', '#f59e0b', '#3b82f6', '#22c55e'];
+                            const widths = [100, 70, 45, 25];
+                            return (
+                                <div key={f.stage} className="d-funnel-step" style={{ width: `${widths[i]}%`, background: colors[i], fontSize: i === 0 ? 12 : 10 }}>
+                                    {f.pct > 0 ? `${f.pct}% ${f.stage}` : `${f.stage}: ${f.count}`}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Top Producers */}
+                <div className="d-card">
+                    <div className="d-card-title">Top Clients</div>
+                    {top.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: 16, color: '#ccc', fontSize: 12 }}>No clients yet</div>
+                    ) : top.map((c: any, i: number) => (
+                        <div className="d-list-item" key={c.id}>
+                            <div className="d-list-rank">{i + 1}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
                             </div>
-                            <span style={{ fontSize: 10, color: '#c7c7cc', whiteSpace: 'nowrap', flexShrink: 0 }}>{timeAgo(item.sentAt)}</span>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: '#111', fontVariantNumeric: 'tabular-nums' }}>{fmtK(c.total_revenue)}</div>
                         </div>
                     ))}
                 </div>
             </div>
 
-        </div>
-        </div>
+            {/* Row: Reply Now + Activity */}
+            <div className="d-grid-2 d-anim" style={{ animationDelay: '200ms' }}>
+                {/* Reply Now */}
+                <div className="d-card">
+                    <div className="d-card-title">
+                        {'\uD83D\uDCE9'} Reply Now
+                        {replyCount > 0 && <span className="d-card-badge" style={{ background: '#ef4444' }}>{replyCount}</span>}
+                    </div>
+                    {reply.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: 16, color: '#ccc', fontSize: 12 }}>{'\u2705'} All caught up</div>
+                    ) : reply.map((c: any) => (
+                        <Link href={`/clients/${c.id}`} className="d-list-item" key={c.id} style={{ textDecoration: 'none' }}>
+                            <div className="d-avatar" style={{ background: '#ef4444' }}>{initials(c.name)}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: '#111' }}>{c.name}</div>
+                                <div style={{ fontSize: 10, color: '#888' }}>{c.email}</div>
+                            </div>
+                            <span className="d-action-badge">{c.days_since_last_contact === 0 ? 'TODAY' : c.days_since_last_contact + 'd ago'}</span>
+                        </Link>
+                    ))}
+                </div>
+
+                {/* Recent Activity */}
+                <div className="d-card">
+                    <div className="d-card-title">{'\u26A1'} Recent Activity</div>
+                    {activity.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: 16, color: '#ccc', fontSize: 12 }}>{'\uD83D\uDCEC'} Send your first email</div>
+                    ) : activity.slice(0, 8).map((a: any) => (
+                        <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 0' }}>
+                            <div style={{ width: 6, height: 6, borderRadius: '50%', marginTop: 5, flexShrink: 0, background: a.direction === 'RECEIVED' ? '#22c55e' : '#3b82f6' }}/>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {a.direction === 'RECEIVED' ? `${a.contactName} replied` : `Sent to ${a.contactName}`}
+                                </div>
+                                <div style={{ fontSize: 10, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.subject}</div>
+                            </div>
+                            <span style={{ fontSize: 9, color: '#bbb', whiteSpace: 'nowrap', flexShrink: 0 }}>{timeAgo(a.sentAt)}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+        </div></div>
         </>
     );
 }

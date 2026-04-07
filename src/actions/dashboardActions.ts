@@ -7,129 +7,104 @@ import { getAccessibleGmailAccountIds } from '../utils/accessControl';
 export async function getSalesDashboardAction() {
     const { userId, role } = await ensureAuthenticated();
     const accessible = await getAccessibleGmailAccountIds(userId, role);
-
     const accountIds = accessible === 'ALL' ? null : accessible;
+
     if (Array.isArray(accountIds) && accountIds.length === 0) {
-        return { stats: { sent: 0, replies: 0, newLeads: 0, openRate: 0 }, hotLeads: [], recentActivity: [], followUpsDue: 0 };
+        return emptyDashboard();
     }
 
     const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const weekAgo = new Date(now.getTime() - 7 * 86400000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
 
-    // Stats: emails sent this week
-    let sentQuery = supabase
-        .from('email_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('direction', 'SENT')
-        .gte('sent_at', weekAgo.toISOString());
-    if (accountIds) sentQuery = sentQuery.in('gmail_account_id', accountIds);
-    const { count: sent } = await sentQuery;
+    // ── Email Stats (this week) ─────────────────────────────────────────
+    const [sentRes, repliesRes, newLeadsRes] = await Promise.all([
+        buildQuery('email_messages', 'id', accountIds, userId, { direction: 'SENT', sent_at_gte: weekAgo }),
+        buildQuery('email_messages', 'id', accountIds, userId, { direction: 'RECEIVED', sent_at_gte: weekAgo }),
+        buildQuery('contacts', 'id', accountIds, userId, { created_at_gte: weekAgo }, true),
+    ]);
 
-    // Stats: replies received this week
-    let repliesQuery = supabase
-        .from('email_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('direction', 'RECEIVED')
-        .gte('sent_at', weekAgo.toISOString());
-    if (accountIds) repliesQuery = repliesQuery.in('gmail_account_id', accountIds);
-    const { count: replies } = await repliesQuery;
+    const sent = sentRes.count ?? 0;
+    const replies = repliesRes.count ?? 0;
+    const newLeads = newLeadsRes.count ?? 0;
+    const replyRate = sent > 0 ? Math.round((replies / sent) * 100) : 0;
 
-    // Stats: new leads this week
-    let leadsQuery = supabase
-        .from('contacts')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', weekAgo.toISOString());
-    if (accountIds) leadsQuery = leadsQuery.eq('account_manager_id', userId);
-    const { count: newLeads } = await leadsQuery;
+    // ── Revenue Data ────────────────────────────────────────────────────
+    let projectsQuery = supabase.from('projects')
+        .select('project_value, paid_status, project_date, client_id')
+        .not('project_value', 'is', null).gt('project_value', 0);
+    if (accountIds) projectsQuery = projectsQuery.eq('account_manager_id', userId);
+    const { data: projects } = await projectsQuery;
 
-    // Stats: open rate (tracked emails opened / tracked sent)
-    let trackedQuery = supabase
-        .from('email_messages')
-        .select('id, opened_at', { count: 'exact' })
-        .eq('direction', 'SENT')
-        .eq('is_tracked', true)
-        .gte('sent_at', weekAgo.toISOString());
-    if (accountIds) trackedQuery = trackedQuery.in('gmail_account_id', accountIds);
-    const { data: tracked, count: trackedCount } = await trackedQuery;
-    const openedCount = tracked?.filter(e => e.opened_at)?.length || 0;
-    const openRate = trackedCount && trackedCount > 0 ? Math.round((openedCount / trackedCount) * 100) : 0;
+    let totalRevenue = 0, totalPaid = 0, thisMonthRevenue = 0, lastMonthRevenue = 0;
+    const monthlyData: Record<string, { revenue: number; count: number }> = {};
 
-    // Hot leads: opened email but no reply, last 14 days
-    let hotQuery = supabase
-        .from('contacts')
-        .select('id, name, email, open_count, last_opened_at, pipeline_stage')
+    for (const p of projects || []) {
+        totalRevenue += p.project_value;
+        if (p.paid_status === 'PAID') totalPaid += p.project_value;
+        if (p.project_date) {
+            const d = new Date(p.project_date);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (!monthlyData[key]) monthlyData[key] = { revenue: 0, count: 0 };
+            monthlyData[key].revenue += p.project_value;
+            monthlyData[key].count++;
+            if (d >= monthStart) thisMonthRevenue += p.project_value;
+            if (d >= lastMonthStart && d <= lastMonthEnd) lastMonthRevenue += p.project_value;
+        }
+    }
+
+    const totalUnpaid = totalRevenue - totalPaid;
+    const collectionRate = totalRevenue > 0 ? Math.round((totalPaid / totalRevenue) * 100) : 0;
+    const monthGrowth = lastMonthRevenue > 0 ? Math.round(((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100) : 0;
+    const monthlyTarget = 10000;
+    const targetProgress = Math.min(100, Math.round((thisMonthRevenue / monthlyTarget) * 100));
+
+    // Monthly chart data (last 6 months)
+    const months = Object.keys(monthlyData).sort().slice(-6);
+    const revenueChart = months.map(m => ({
+        month: m,
+        revenue: Math.round(monthlyData[m]!.revenue),
+        projects: monthlyData[m]!.count,
+    }));
+
+    // ── Pipeline Stats ──────────────────────────────────────────────────
+    const stages = ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
+    const pipelineCounts: Record<string, number> = {};
+    for (const stage of stages) {
+        let q = supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('pipeline_stage', stage);
+        if (accountIds) q = q.eq('account_manager_id', userId);
+        const { count } = await q;
+        pipelineCounts[stage] = count ?? 0;
+    }
+    const totalContacts = Object.values(pipelineCounts).reduce((s, n) => s + n, 0);
+
+    // ── Pipeline Funnel (conversion percentages) ────────────────────────
+    const funnel = [
+        { stage: 'Leads', count: pipelineCounts['COLD_LEAD']! + pipelineCounts['CONTACTED']! + pipelineCounts['WARM_LEAD']! + pipelineCounts['LEAD']!, pct: 100 },
+        { stage: 'Contacted', count: pipelineCounts['CONTACTED']! + pipelineCounts['WARM_LEAD']! + pipelineCounts['LEAD']! + pipelineCounts['OFFER_ACCEPTED']! + pipelineCounts['CLOSED']!, pct: 0 },
+        { stage: 'Proposals', count: pipelineCounts['OFFER_ACCEPTED']! + pipelineCounts['CLOSED']!, pct: 0 },
+        { stage: 'Closed', count: pipelineCounts['CLOSED']!, pct: 0 },
+    ];
+    if (funnel[0]!.count > 0) {
+        funnel[1]!.pct = Math.round((funnel[1]!.count / funnel[0]!.count) * 100);
+        funnel[2]!.pct = Math.round((funnel[2]!.count / funnel[0]!.count) * 100);
+        funnel[3]!.pct = Math.round((funnel[3]!.count / funnel[0]!.count) * 100);
+    }
+
+    // ── Hot Leads ───────────────────────────────────────────────────────
+    let hotQuery = supabase.from('contacts')
+        .select('id, name, email, company, location, open_count, pipeline_stage, total_revenue, days_since_last_contact')
         .gt('open_count', 0)
         .order('open_count', { ascending: false })
         .limit(5);
     if (accountIds) hotQuery = hotQuery.eq('account_manager_id', userId);
     const { data: hotLeads } = await hotQuery;
 
-    // Follow-ups due
-    let followUpQuery = supabase
-        .from('contacts')
-        .select('id', { count: 'exact', head: true })
-        .lte('next_followup_at', now.toISOString())
-        .not('next_followup_at', 'is', null);
-    if (accountIds) followUpQuery = followUpQuery.eq('account_manager_id', userId);
-    const { count: followUpsDue } = await followUpQuery;
-
-    // Recent activity: last 10 emails
-    let activityQuery = supabase
-        .from('email_messages')
-        .select('id, from_email, to_email, subject, direction, sent_at, opened_at, contact_id, contacts:contact_id(name)')
-        .order('sent_at', { ascending: false })
-        .limit(10);
-    if (accountIds) activityQuery = activityQuery.in('gmail_account_id', accountIds);
-    const { data: recentActivity } = await activityQuery;
-
-    // Revenue stats — this agent's projects
-    let revenueQuery = supabase
-        .from('projects')
-        .select('project_value, paid_status, project_date')
-        .not('project_value', 'is', null)
-        .gt('project_value', 0);
-    if (accountIds) revenueQuery = revenueQuery.eq('account_manager_id', userId);
-    const { data: projects } = await revenueQuery;
-
-    let totalRevenue = 0, totalPaid = 0, totalUnpaid = 0, totalProjects = 0;
-    let thisMonthRevenue = 0, lastMonthRevenue = 0;
-    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
-
-    for (const p of projects || []) {
-        totalRevenue += p.project_value;
-        totalProjects++;
-        if (p.paid_status === 'PAID') totalPaid += p.project_value;
-        else totalUnpaid += p.project_value;
-        if (p.project_date) {
-            const d = new Date(p.project_date);
-            const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-            if (m === thisMonth) thisMonthRevenue += p.project_value;
-            if (m === lastMonth) lastMonthRevenue += p.project_value;
-        }
-    }
-
-    const collectionRate = totalRevenue > 0 ? Math.round((totalPaid / totalRevenue) * 100) : 0;
-    const monthlyTarget = 10000; // $10K/month per agent
-    const targetProgress = monthlyTarget > 0 ? Math.min(100, Math.round((thisMonthRevenue / monthlyTarget) * 100)) : 0;
-    const monthGrowth = lastMonthRevenue > 0 ? Math.round(((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100) : 0;
-
-    // Unpaid clients (top 5)
-    let unpaidQuery = supabase
-        .from('contacts')
-        .select('id, name, email, unpaid_amount')
-        .gt('unpaid_amount', 0)
-        .order('unpaid_amount', { ascending: false })
-        .limit(5);
-    if (accountIds) unpaidQuery = unpaidQuery.eq('account_manager_id', userId);
-    const { data: unpaidClients } = await unpaidQuery;
-
-    // Waiting for reply (they replied, you haven't)
-    let replyNowQuery = supabase
-        .from('contacts')
-        .select('id, name, email, days_since_last_contact', { count: 'exact' })
+    // ── Needs Reply ─────────────────────────────────────────────────────
+    let replyQuery = supabase.from('contacts')
+        .select('id, name, email, company, location, days_since_last_contact, pipeline_stage, total_revenue', { count: 'exact' })
         .eq('last_message_direction', 'RECEIVED')
         .gt('total_emails_received', 0)
         .not('email', 'ilike', '%noreply%')
@@ -137,24 +112,90 @@ export async function getSalesDashboardAction() {
         .not('pipeline_stage', 'eq', 'CLOSED')
         .order('days_since_last_contact', { ascending: true })
         .limit(5);
-    if (accountIds) replyNowQuery = replyNowQuery.eq('account_manager_id', userId);
-    const { data: needReply, count: replyNowCount } = await replyNowQuery;
+    if (accountIds) replyQuery = replyQuery.eq('account_manager_id', userId);
+    const { data: needReply, count: replyNowCount } = await replyQuery;
+
+    // ── Unpaid Clients ──────────────────────────────────────────────────
+    let unpaidQuery = supabase.from('contacts')
+        .select('id, name, email, unpaid_amount')
+        .gt('unpaid_amount', 0)
+        .order('unpaid_amount', { ascending: false })
+        .limit(5);
+    if (accountIds) unpaidQuery = unpaidQuery.eq('account_manager_id', userId);
+    const { data: unpaidClients } = await unpaidQuery;
+
+    // ── Follow-ups Due ──────────────────────────────────────────────────
+    let followQuery = supabase.from('contacts')
+        .select('id', { count: 'exact', head: true })
+        .lte('next_followup_at', now.toISOString())
+        .not('next_followup_at', 'is', null);
+    if (accountIds) followQuery = followQuery.eq('account_manager_id', userId);
+    const { count: followUpsDue } = await followQuery;
+
+    // ── Recent Activity ─────────────────────────────────────────────────
+    let activityQuery = supabase.from('email_messages')
+        .select('id, from_email, to_email, subject, direction, sent_at, opened_at, contact_id, contacts:contact_id(name)')
+        .order('sent_at', { ascending: false })
+        .limit(10);
+    if (accountIds) activityQuery = activityQuery.in('gmail_account_id', accountIds);
+    const { data: recentActivity } = await activityQuery;
+
+    // ── Top Clients ─────────────────────────────────────────────────────
+    let topQuery = supabase.from('contacts')
+        .select('id, name, email, total_revenue, total_projects, client_tier')
+        .gt('total_revenue', 0)
+        .order('total_revenue', { ascending: false })
+        .limit(5);
+    if (accountIds) topQuery = topQuery.eq('account_manager_id', userId);
+    const { data: topClients } = await topQuery;
+
+    // ── Filmmaker Pipeline Table ────────────────────────────────────────
+    let pipelineQuery = supabase.from('contacts')
+        .select('id, name, email, company, location, pipeline_stage, total_revenue, unpaid_amount, days_since_last_contact, relationship_health, total_emails_sent, total_emails_received')
+        .not('pipeline_stage', 'eq', 'NOT_INTERESTED')
+        .order('days_since_last_contact', { ascending: true })
+        .limit(20);
+    if (accountIds) pipelineQuery = pipelineQuery.eq('account_manager_id', userId);
+    const { data: pipelineContacts } = await pipelineQuery;
 
     return {
-        stats: { sent: sent || 0, replies: replies || 0, newLeads: newLeads || 0, openRate },
+        stats: { sent, replies, newLeads, replyRate },
         revenue: {
             total: totalRevenue,
             paid: totalPaid,
             unpaid: totalUnpaid,
-            projects: totalProjects,
+            projects: (projects || []).length,
             collectionRate,
             thisMonth: thisMonthRevenue,
             lastMonth: lastMonthRevenue,
             monthGrowth,
             targetProgress,
             monthlyTarget,
+            chart: revenueChart,
         },
+        pipeline: pipelineCounts,
+        pipelineTotal: totalContacts,
+        funnel,
         hotLeads: hotLeads || [],
+        needReply: needReply || [],
+        replyNowCount: replyNowCount || 0,
+        unpaidClients: unpaidClients || [],
+        followUpsDue: followUpsDue || 0,
+        topClients: topClients || [],
+        pipelineContacts: (pipelineContacts || []).map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            company: c.company,
+            location: c.location,
+            stage: c.pipeline_stage,
+            revenue: c.total_revenue || 0,
+            unpaid: c.unpaid_amount || 0,
+            daysSilent: c.days_since_last_contact || 0,
+            health: c.relationship_health || 'neutral',
+            emailsSent: c.total_emails_sent || 0,
+            emailsReceived: c.total_emails_received || 0,
+        })),
         recentActivity: (recentActivity || []).map((e: any) => ({
             id: e.id,
             contactName: e.contacts?.name || (e.direction === 'RECEIVED' ? e.from_email : e.to_email),
@@ -163,9 +204,29 @@ export async function getSalesDashboardAction() {
             sentAt: e.sent_at,
             opened: !!e.opened_at,
         })),
-        followUpsDue: followUpsDue || 0,
-        replyNowCount: replyNowCount || 0,
-        needReply: needReply || [],
-        unpaidClients: unpaidClients || [],
+    };
+}
+
+// Helper to build filtered count queries
+async function buildQuery(
+    table: string, field: string, accountIds: string[] | null, userId: string,
+    filters: Record<string, any>, isContactQuery = false,
+) {
+    let q = supabase.from(table).select(field, { count: 'exact', head: true });
+    if (filters.direction) q = q.eq('direction', filters.direction);
+    if (filters.sent_at_gte) q = q.gte('sent_at', filters.sent_at_gte.toISOString());
+    if (filters.created_at_gte) q = q.gte('created_at', filters.created_at_gte.toISOString());
+    if (isContactQuery && accountIds) q = q.eq('account_manager_id', userId);
+    else if (accountIds) q = q.in('gmail_account_id', accountIds);
+    return q;
+}
+
+function emptyDashboard() {
+    return {
+        stats: { sent: 0, replies: 0, newLeads: 0, replyRate: 0 },
+        revenue: { total: 0, paid: 0, unpaid: 0, projects: 0, collectionRate: 0, thisMonth: 0, lastMonth: 0, monthGrowth: 0, targetProgress: 0, monthlyTarget: 10000, chart: [] },
+        pipeline: {}, pipelineTotal: 0, funnel: [],
+        hotLeads: [], needReply: [], replyNowCount: 0, unpaidClients: [],
+        followUpsDue: 0, topClients: [], pipelineContacts: [], recentActivity: [],
     };
 }
