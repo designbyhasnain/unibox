@@ -108,8 +108,7 @@ export async function getSalesDashboardAction() {
         .eq('last_message_direction', 'RECEIVED')
         .gt('total_emails_received', 0)
         .not('email', 'ilike', '%noreply%')
-        .not('pipeline_stage', 'eq', 'NOT_INTERESTED')
-        .not('pipeline_stage', 'eq', 'CLOSED')
+        .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('days_since_last_contact', { ascending: true })
         .limit(5);
     if (accountIds) replyQuery = replyQuery.eq('account_manager_id', userId);
@@ -152,7 +151,7 @@ export async function getSalesDashboardAction() {
     // ── Filmmaker Pipeline Table ────────────────────────────────────────
     let pipelineQuery = supabase.from('contacts')
         .select('id, name, email, company, location, pipeline_stage, total_revenue, unpaid_amount, days_since_last_contact, relationship_health, total_emails_sent, total_emails_received')
-        .not('pipeline_stage', 'eq', 'NOT_INTERESTED')
+        .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'])
         .order('days_since_last_contact', { ascending: true })
         .limit(20);
     if (accountIds) pipelineQuery = pipelineQuery.eq('account_manager_id', userId);

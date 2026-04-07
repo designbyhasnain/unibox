@@ -51,8 +51,7 @@ export async function getActionQueueAction(): Promise<{
         .gt('total_emails_received', 0)
         .not('email', 'ilike', '%noreply%')
         .not('email', 'ilike', '%mailer-daemon%')
-        .not('pipeline_stage', 'eq', 'NOT_INTERESTED')
-        .not('pipeline_stage', 'eq', 'CLOSED')
+        .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('days_since_last_contact', { ascending: true })
         .limit(30);
     if (accountIds) replyQuery = replyQuery.match(managerFilter);
@@ -81,8 +80,7 @@ export async function getActionQueueAction(): Promise<{
         .lte('days_since_last_contact', 14)
         .gt('total_emails_sent', 0)
         .lte('total_emails_sent', 3)
-        .not('pipeline_stage', 'eq', 'NOT_INTERESTED')
-        .not('pipeline_stage', 'eq', 'CLOSED')
+        .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('days_since_last_contact', { ascending: true })
         .limit(30);
     if (accountIds) followQuery = followQuery.match(managerFilter);
@@ -94,8 +92,7 @@ export async function getActionQueueAction(): Promise<{
         .select(CONTACT_FIELDS)
         .gt('total_emails_received', 4)
         .gt('days_since_last_contact', 30)
-        .not('pipeline_stage', 'eq', 'CLOSED')
-        .not('pipeline_stage', 'eq', 'NOT_INTERESTED')
+        .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('total_emails_received', { ascending: false })
         .limit(20);
     if (accountIds) winQuery = winQuery.match(managerFilter);
