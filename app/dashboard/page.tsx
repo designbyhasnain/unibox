@@ -10,9 +10,13 @@ import OnboardingWizard from '../components/OnboardingWizard';
 
 function getGreeting() {
     const h = new Date().getHours();
-    if (h < 12) return { text: 'Good morning', emoji: '\u2600\uFE0F' };
-    if (h < 17) return { text: 'Good afternoon', emoji: '\uD83C\uDF24\uFE0F' };
-    return { text: 'Good evening', emoji: '\uD83C\uDF19' };
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+}
+
+function formatDate() {
+    return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
 function timeAgo(dateStr: string) {
@@ -24,30 +28,10 @@ function timeAgo(dateStr: string) {
     return Math.floor(hrs / 24) + 'd ago';
 }
 
-function formatDate() {
-    return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+function fmtK(n: number) {
+    if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
+    return '$' + n.toLocaleString();
 }
-
-function initialsColor(name: string) {
-    const colors = ['#2563eb', '#7c3aed', '#dc2626', '#d97706', '#16a34a', '#0891b2', '#be185d', '#4f46e5'];
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    return colors[Math.abs(hash) % colors.length];
-}
-
-function getInitials(name: string) {
-    return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
-}
-
-const QUOTES = [
-    'Every no gets you closer to a yes. Keep dialing. \u2014 Grant Cardone',
-    'Follow up or fail. 80% of sales happen after the 5th contact.',
-    'The difference between try and triumph is just a little umph.',
-    'Success is the sum of small efforts repeated day in and day out.',
-    'Your attitude, not your aptitude, determines your altitude. \u2014 Zig Ziglar',
-    'Wake up with determination. Go to bed with satisfaction.',
-    'Champions keep playing until they get it right.',
-];
 
 export default function SalesDashboard() {
     const isHydrated = useHydrated();
@@ -64,314 +48,289 @@ export default function SalesDashboard() {
             setUserName(user?.name?.split(' ')[0] || 'there');
             setData(dashboard);
             setLoading(false);
-            // Show onboarding if not completed
-            try {
-                if (!localStorage.getItem('unibox_onboarding_done')) {
-                    setShowOnboarding(true);
-                }
-            } catch {}
+            try { if (!localStorage.getItem('unibox_onboarding_done')) setShowOnboarding(true); } catch {}
         }).catch(() => setLoading(false));
     }, []);
 
     if (!isHydrated || loading) return <PageLoader isLoading={true} type="grid" count={4}><div /></PageLoader>;
 
     const stats = data?.stats || { sent: 0, replies: 0, newLeads: 0, openRate: 0 };
+    const rev = data?.revenue || { total: 0, paid: 0, unpaid: 0, projects: 0, collectionRate: 0, thisMonth: 0, lastMonth: 0, monthGrowth: 0, targetProgress: 0, monthlyTarget: 6000 };
     const hotLeads = data?.hotLeads || [];
     const activity = data?.recentActivity || [];
     const followUpsDue = data?.followUpsDue || 0;
+    const needReply = data?.needReply || [];
+    const unpaidClients = data?.unpaidClients || [];
+    const replyNowCount = data?.replyNowCount || 0;
 
-    const greeting = getGreeting();
     const perfScore = Math.min(100, Math.round(
-        (stats.openRate + (stats.sent > 0 ? (stats.replies / stats.sent) * 100 : 0)) / 2
+        (stats.openRate + (stats.sent > 0 ? (stats.replies / stats.sent) * 100 : 0) + rev.collectionRate) / 3
     ));
-    const perfColor = perfScore > 60 ? '#16a34a' : perfScore > 30 ? '#d97706' : '#dc2626';
-    const dailyQuote = QUOTES[new Date().getDate() % QUOTES.length];
 
     return (
         <>
-        {showOnboarding && (
-            <OnboardingWizard
-                userName={userName}
-                onComplete={() => setShowOnboarding(false)}
-            />
-        )}
-        <>
-            <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800&family=DM+Mono:wght@400;500&display=swap');
-                .dash-scroll { height: 100%; overflow-y: auto; background: #f8fafc; }
-                .dash { font-family: 'DM Sans', system-ui, sans-serif; }
-                .dash-mono { font-family: 'DM Mono', monospace; }
-                @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-                @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-                .dash-anim-1 { animation: slideUp .35s ease both; }
-                .dash-anim-2 { animation: slideUp .35s ease both; animation-delay: 40ms; }
-                .dash-anim-3 { animation: slideUp .35s ease both; animation-delay: 80ms; }
-                .dash-anim-4 { animation: slideUp .35s ease both; animation-delay: 120ms; }
-                .dash-anim-5 { animation: slideUp .35s ease both; animation-delay: 200ms; }
-                .dash-anim-6 { animation: slideUp .35s ease both; animation-delay: 280ms; }
-                .dash-anim-7 { animation: slideUp .35s ease both; animation-delay: 360ms; }
-                .dash-anim-8 { animation: fadeIn .4s ease both; animation-delay: 440ms; }
-                .dash-card { background: #fff; border-radius: 10px; transition: box-shadow .15s, transform .15s; box-shadow: 0 1px 4px rgba(0,0,0,.05), 0 0 0 1px rgba(0,0,0,.03); }
-                .dash-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.07), 0 0 0 1px rgba(0,0,0,.04); transform: translateY(-1px); }
-                .dash-stat { border-left: 3px solid; display: flex; flex-direction: column; justify-content: center; padding: 16px 20px; }
-                .dash-lead-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; text-decoration: none; transition: background .1s; border-left: 2px solid transparent; margin: 0 4px; }
-                .dash-lead-row:hover { background: #f8fafc; border-left-color: #2563eb; }
-                .dash-activity-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f5f5f5; }
-                .dash-activity-row:last-child { border-bottom: none; }
-                .dash-priority { transition: box-shadow .15s, transform .15s; cursor: pointer; text-decoration: none; display: flex; align-items: center; gap: 14px; min-height: 80px; padding: 16px 20px; }
-                .dash-priority:hover { box-shadow: 0 4px 16px rgba(0,0,0,.07), 0 0 0 1px rgba(0,0,0,.04); transform: translateY(-1px); }
-                .dash-pulse { animation: pulse 2s ease-in-out infinite; }
-                .dash-perf-ring { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-            `}</style>
+        {showOnboarding && <OnboardingWizard userName={userName} onComplete={() => setShowOnboarding(false)} />}
+        <style>{`
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+            .kpi-page{height:100%;overflow-y:auto;background:#fafafa;font-family:'Inter',system-ui,-apple-system,sans-serif}
+            .kpi-inner{max-width:1200px;margin:0 auto;padding:24px 32px 40px}
+            .kpi-header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:28px}
+            .kpi-greet{font-size:32px;font-weight:800;color:#1a1a1a;letter-spacing:-.03em;line-height:1.1}
+            .kpi-date{font-size:13px;color:#8e8e93;font-weight:500;margin-top:4px}
+            .kpi-ring{position:relative;width:72px;height:72px}
+            .kpi-ring svg{transform:rotate(-90deg)}
+            .kpi-ring-label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+            .kpi-ring-num{font-size:20px;font-weight:800;color:#1a1a1a;line-height:1}
+            .kpi-ring-sub{font-size:8px;color:#8e8e93;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
 
-            <div className="dash-scroll">
-            <div className="dash">
-                {/* ── HEADER ── */}
-                <div className="dash-anim-1 dash-header" style={{
-                    background: 'linear-gradient(135deg, #eff6ff 0%, #f8fafc 60%, #fef9ee 100%)',
-                    borderBottom: '1px solid #e2e8f0',
-                    padding: '20px 32px',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}>
-                    <div>
-                        <h1 style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-.02em' }}>
-                            {greeting.emoji} {greeting.text}, {userName}
-                        </h1>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                            <p style={{ fontSize: 13, color: '#94a3b8', fontWeight: 500, margin: 0 }}>
-                                Your sales overview &mdash; {formatDate()}
-                            </p>
-                            <span style={{ fontSize: 9, fontWeight: 700, background: '#2563eb', color: '#fff', padding: '2px 8px', borderRadius: 20, letterSpacing: '.04em' }}>
-                                THIS WEEK
-                            </span>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div className="dash-perf-ring" style={{
-                            background: `conic-gradient(${perfColor} ${perfScore * 3.6}deg, #e2e8f0 0deg)`,
-                        }}>
-                            <div style={{
-                                width: 44, height: 44, borderRadius: '50%', background: '#fff',
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                                boxShadow: '0 1px 3px rgba(0,0,0,.06)',
-                            }}>
-                                <span className="dash-mono" style={{ fontSize: 17, fontWeight: 700, color: perfColor, lineHeight: 1 }}>{perfScore}</span>
-                                <span style={{ fontSize: 7, color: '#94a3b8', fontWeight: 600 }}>/ 100</span>
-                            </div>
-                        </div>
-                        <div>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>Performance</div>
-                            <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>Score</div>
+            .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+            .kpi-card{background:#fff;border-radius:16px;padding:20px 22px;box-shadow:0 1px 3px rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.03)}
+            .kpi-card-label{font-size:11px;font-weight:600;color:#8e8e93;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+            .kpi-card-value{font-size:32px;font-weight:800;color:#1a1a1a;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
+            .kpi-card-sub{font-size:11px;color:#8e8e93;margin-top:6px;font-weight:500}
+            .kpi-card-sub .up{color:#34c759;font-weight:600}
+            .kpi-card-sub .down{color:#ff3b30;font-weight:600}
+
+            .kpi-target{background:#fff;border-radius:16px;padding:20px 24px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.03)}
+            .kpi-target-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+            .kpi-target-title{font-size:13px;font-weight:700;color:#1a1a1a}
+            .kpi-target-pct{font-size:24px;font-weight:800;color:#007aff;letter-spacing:-.02em}
+            .kpi-bar{height:8px;background:#f2f2f7;border-radius:4px;overflow:hidden}
+            .kpi-bar-fill{height:100%;border-radius:4px;transition:width .6s ease}
+            .kpi-target-detail{display:flex;justify-content:space-between;margin-top:10px;font-size:11px;color:#8e8e93;font-weight:500}
+
+            .kpi-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+            .kpi-section{background:#fff;border-radius:16px;padding:20px 22px;box-shadow:0 1px 3px rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.03)}
+            .kpi-section-title{font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+            .kpi-section-badge{font-size:10px;font-weight:700;color:#fff;padding:2px 8px;border-radius:10px}
+            .kpi-list-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f5f5f7}
+            .kpi-list-item:last-child{border-bottom:none}
+            .kpi-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+            .kpi-list-name{font-size:13px;font-weight:600;color:#1a1a1a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+            .kpi-list-sub{font-size:11px;color:#8e8e93}
+            .kpi-list-right{margin-left:auto;text-align:right;flex-shrink:0}
+            .kpi-list-amount{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+            .kpi-list-tag{font-size:9px;font-weight:600;padding:2px 8px;border-radius:4px}
+
+            .kpi-cta{display:flex;gap:12px;margin-bottom:20px}
+            .kpi-cta a{flex:1;display:flex;align-items:center;gap:12px;padding:16px 20px;border-radius:14px;text-decoration:none;transition:transform .15s,box-shadow .15s}
+            .kpi-cta a:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.08)}
+
+            .kpi-activity-item{display:flex;align-items:flex-start;gap:10px;padding:6px 0}
+            .kpi-dot{width:6px;height:6px;border-radius:50%;margin-top:6px;flex-shrink:0}
+
+            @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+            .kpi-anim{animation:fadeUp .3s ease both}
+            .kpi-anim-1{animation-delay:0s}.kpi-anim-2{animation-delay:40ms}.kpi-anim-3{animation-delay:80ms}.kpi-anim-4{animation-delay:120ms}
+            .kpi-anim-5{animation-delay:160ms}.kpi-anim-6{animation-delay:200ms}
+        `}</style>
+
+        <div className="kpi-page">
+        <div className="kpi-inner">
+
+            {/* Header */}
+            <div className="kpi-header kpi-anim kpi-anim-1">
+                <div>
+                    <div className="kpi-greet">{getGreeting()}, {userName}</div>
+                    <div className="kpi-date">{formatDate()}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div className="kpi-ring">
+                        <svg width="72" height="72" viewBox="0 0 72 72">
+                            <circle cx="36" cy="36" r="30" fill="none" stroke="#f2f2f7" strokeWidth="6" />
+                            <circle cx="36" cy="36" r="30" fill="none" stroke={perfScore >= 60 ? '#34c759' : perfScore >= 30 ? '#ff9f0a' : '#ff3b30'} strokeWidth="6" strokeLinecap="round" strokeDasharray={`${perfScore * 1.885} 188.5`} />
+                        </svg>
+                        <div className="kpi-ring-label">
+                            <span className="kpi-ring-num">{perfScore}</span>
+                            <span className="kpi-ring-sub">Score</span>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                {/* ── STATS ROW ── */}
-                <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, padding: '0 32px', marginTop: 16, marginBottom: 16 }}>
-                    {[
-                        { n: stats.sent, l: 'EMAILS SENT', color: '#2563eb', bg: 'linear-gradient(135deg, #eff6ff, #fff)', delay: 'dash-anim-1' },
-                        { n: stats.replies, l: 'REPLIES', color: '#16a34a', bg: 'linear-gradient(135deg, #f0fdf4, #fff)', delay: 'dash-anim-2' },
-                        { n: stats.newLeads, l: 'NEW LEADS', color: '#7c3aed', bg: 'linear-gradient(135deg, #faf5ff, #fff)', delay: 'dash-anim-3' },
-                        { n: stats.openRate + '%', l: 'OPEN RATE', color: '#d97706', bg: 'linear-gradient(135deg, #fffbeb, #fff)', delay: 'dash-anim-4' },
-                    ].map(s => (
-                        <div key={s.l} className={`dash-card dash-stat ${s.delay}`} style={{ borderLeftColor: s.color, background: s.bg }}>
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, marginBottom: 8 }} />
-                            <div className="dash-mono" style={{ fontSize: 36, fontWeight: 700, color: '#0f172a', lineHeight: 1, letterSpacing: '-.03em' }}>{s.n}</div>
-                            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 8, fontWeight: 600, letterSpacing: '.08em' }}>{s.l}</div>
+            {/* KPI Cards */}
+            <div className="kpi-grid kpi-anim kpi-anim-2">
+                <div className="kpi-card">
+                    <div className="kpi-card-label">Emails Sent</div>
+                    <div className="kpi-card-value">{stats.sent.toLocaleString()}</div>
+                    <div className="kpi-card-sub">This week</div>
+                </div>
+                <div className="kpi-card">
+                    <div className="kpi-card-label">Replies</div>
+                    <div className="kpi-card-value">{stats.replies.toLocaleString()}</div>
+                    <div className="kpi-card-sub">
+                        {stats.sent > 0 ? <span className={stats.replies / stats.sent > 0.05 ? 'up' : 'down'}>{Math.round((stats.replies / stats.sent) * 100)}% reply rate</span> : 'No emails yet'}
+                    </div>
+                </div>
+                <div className="kpi-card">
+                    <div className="kpi-card-label">Revenue This Month</div>
+                    <div className="kpi-card-value">{fmtK(rev.thisMonth)}</div>
+                    <div className="kpi-card-sub">
+                        {rev.monthGrowth !== 0 && <span className={rev.monthGrowth > 0 ? 'up' : 'down'}>{rev.monthGrowth > 0 ? '+' : ''}{rev.monthGrowth}% vs last month</span>}
+                        {rev.monthGrowth === 0 && <span>vs {fmtK(rev.lastMonth)} last month</span>}
+                    </div>
+                </div>
+                <div className="kpi-card">
+                    <div className="kpi-card-label">Collection Rate</div>
+                    <div className="kpi-card-value" style={{ color: rev.collectionRate >= 80 ? '#34c759' : rev.collectionRate >= 50 ? '#ff9f0a' : '#ff3b30' }}>{rev.collectionRate}%</div>
+                    <div className="kpi-card-sub">{fmtK(rev.paid)} of {fmtK(rev.total)} collected</div>
+                </div>
+            </div>
+
+            {/* Monthly Target Bar */}
+            <div className="kpi-target kpi-anim kpi-anim-3">
+                <div className="kpi-target-header">
+                    <div className="kpi-target-title">Monthly Target</div>
+                    <div className="kpi-target-pct">{rev.targetProgress}%</div>
+                </div>
+                <div className="kpi-bar">
+                    <div className="kpi-bar-fill" style={{
+                        width: `${rev.targetProgress}%`,
+                        background: rev.targetProgress >= 100 ? '#34c759' : rev.targetProgress >= 60 ? '#007aff' : '#ff9f0a',
+                    }} />
+                </div>
+                <div className="kpi-target-detail">
+                    <span>{fmtK(rev.thisMonth)} earned</span>
+                    <span>Target: {fmtK(rev.monthlyTarget)}</span>
+                    <span>{fmtK(Math.max(0, rev.monthlyTarget - rev.thisMonth))} to go</span>
+                </div>
+            </div>
+
+            {/* Action CTAs */}
+            <div className="kpi-cta kpi-anim kpi-anim-4">
+                <Link href="/actions" style={{ background: '#007aff', color: '#fff' }}>
+                    <span style={{ fontSize: 24 }}>{'\uD83C\uDFAF'}</span>
+                    <div>
+                        <div style={{ fontSize: 15, fontWeight: 700 }}>Start Selling</div>
+                        <div style={{ fontSize: 11, opacity: .8 }}>{replyNowCount > 0 ? `${replyNowCount} replies waiting` : 'Check action queue'}</div>
+                    </div>
+                    <span style={{ marginLeft: 'auto', fontSize: 18, opacity: .6 }}>{'\u2192'}</span>
+                </Link>
+                {rev.unpaid > 0 && (
+                    <Link href="/clients" style={{ background: '#ff3b30', color: '#fff' }}>
+                        <span style={{ fontSize: 24 }}>{'\uD83D\uDCB0'}</span>
+                        <div>
+                            <div style={{ fontSize: 15, fontWeight: 700 }}>Collect {fmtK(rev.unpaid)}</div>
+                            <div style={{ fontSize: 11, opacity: .8 }}>{unpaidClients.length} clients with balance</div>
                         </div>
+                        <span style={{ marginLeft: 'auto', fontSize: 18, opacity: .6 }}>{'\u2192'}</span>
+                    </Link>
+                )}
+            </div>
+
+            {/* Two Column: Reply Now + Hot Leads */}
+            <div className="kpi-row kpi-anim kpi-anim-5">
+                {/* Reply Now */}
+                <div className="kpi-section">
+                    <div className="kpi-section-title">
+                        {'\uD83D\uDCE9'} Reply Now
+                        {replyNowCount > 0 && <span className="kpi-section-badge" style={{ background: '#ff3b30' }}>{replyNowCount}</span>}
+                    </div>
+                    {needReply.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '20px 0', color: '#8e8e93', fontSize: 13 }}>
+                            <div style={{ fontSize: 28, marginBottom: 4 }}>{'\u2705'}</div>
+                            All caught up
+                        </div>
+                    ) : needReply.map((c: any) => (
+                        <Link href={`/clients/${c.id}`} key={c.id} className="kpi-list-item" style={{ textDecoration: 'none' }}>
+                            <div className="kpi-avatar" style={{ background: '#ff3b30' }}>
+                                {(c.name || '?')[0]?.toUpperCase()}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div className="kpi-list-name">{c.name}</div>
+                                <div className="kpi-list-sub">{c.email}</div>
+                            </div>
+                            <div className="kpi-list-right">
+                                <span className="kpi-list-tag" style={{ background: c.days_since_last_contact <= 1 ? '#fff1f0' : '#fffbe6', color: c.days_since_last_contact <= 1 ? '#ff3b30' : '#ff9f0a' }}>
+                                    {c.days_since_last_contact === 0 ? 'TODAY' : c.days_since_last_contact + 'd ago'}
+                                </span>
+                            </div>
+                        </Link>
                     ))}
                 </div>
 
-                {/* ── PRIORITY STRIP ── */}
-                <div className="dash-anim-5 dash-priority-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, padding: '0 32px', marginBottom: 16 }}>
-                    <Link href="/clients" className="dash-card dash-priority" style={{
-                        background: hotLeads.length > 0 ? 'linear-gradient(135deg, #fff1f2, #fff)' : '#f8fafc',
-                    }}>
-                        <span style={{ fontSize: 24 }}>{'\uD83D\uDD25'}</span>
-                        <div style={{ flex: 1 }}>
-                            <div className={`dash-mono ${hotLeads.length > 0 ? 'dash-pulse' : ''}`} style={{
-                                fontSize: 28, fontWeight: 700,
-                                color: hotLeads.length > 0 ? '#dc2626' : '#94a3b8',
-                            }}>{hotLeads.length}</div>
-                            <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Hot Leads</div>
+                {/* Hot Leads */}
+                <div className="kpi-section">
+                    <div className="kpi-section-title">
+                        {'\uD83D\uDD25'} Hot Leads
+                        {hotLeads.length > 0 && <span className="kpi-section-badge" style={{ background: '#ff9f0a' }}>{hotLeads.length}</span>}
+                    </div>
+                    {hotLeads.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '20px 0', color: '#8e8e93', fontSize: 13 }}>
+                            <div style={{ fontSize: 28, marginBottom: 4 }}>{'\uD83C\uDFAF'}</div>
+                            No hot leads yet — keep emailing
                         </div>
-                        {hotLeads.length > 0 && (
-                            <span style={{ fontSize: 8, fontWeight: 700, background: '#dc2626', color: '#fff', padding: '3px 8px', borderRadius: 4, letterSpacing: '.05em' }}>
-                                ACTION NEEDED
-                            </span>
-                        )}
-                    </Link>
-
-                    <Link href="/clients" className="dash-card dash-priority" style={{
-                        background: followUpsDue > 0 ? 'linear-gradient(135deg, #fffbeb, #fff)' : 'linear-gradient(135deg, #f0fdf4, #fff)',
-                    }}>
-                        <span style={{ fontSize: 24 }}>{'\uD83D\uDCE7'}</span>
-                        <div style={{ flex: 1 }}>
-                            <div className="dash-mono" style={{
-                                fontSize: 28, fontWeight: 700,
-                                color: followUpsDue > 0 ? '#d97706' : '#16a34a',
-                            }}>{followUpsDue}</div>
-                            <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Follow-ups Due</div>
-                        </div>
-                        {followUpsDue > 0 ? (
-                            <span style={{ fontSize: 8, fontWeight: 700, background: '#d97706', color: '#fff', padding: '3px 8px', borderRadius: 4, letterSpacing: '.05em' }}>
-                                OVERDUE
-                            </span>
-                        ) : (
-                            <span style={{ fontSize: 8, fontWeight: 700, background: '#16a34a', color: '#fff', padding: '3px 8px', borderRadius: 4 }}>
-                                {'\u2713'} ALL CLEAR
-                            </span>
-                        )}
-                    </Link>
-
-                    <Link href="/clients" className="dash-card dash-priority" style={{
-                        background: stats.newLeads > 0 ? 'linear-gradient(135deg, #faf5ff, #fff)' : '#f8fafc',
-                    }}>
-                        <span style={{ fontSize: 24 }}>{'\uD83C\uDD95'}</span>
-                        <div style={{ flex: 1 }}>
-                            <div className="dash-mono" style={{
-                                fontSize: 28, fontWeight: 700,
-                                color: stats.newLeads > 0 ? '#7c3aed' : '#94a3b8',
-                            }}>{stats.newLeads}</div>
-                            <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>New This Week</div>
-                        </div>
-                        <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500 }}>{'\u2192'}</span>
-                    </Link>
-                </div>
-
-                {/* ── START SELLING CTA ── */}
-                <div className="dash-anim-5" style={{ padding: '0 32px', marginBottom: 16 }}>
-                    <Link href="/actions" style={{
-                        display: 'flex', alignItems: 'center', gap: 16, textDecoration: 'none',
-                        background: 'linear-gradient(135deg, #1e3a8a, #2563eb)',
-                        borderRadius: 10, padding: '16px 24px', color: '#fff',
-                        transition: 'transform .15s, box-shadow .15s',
-                    }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 24px rgba(37,99,235,.3)'; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
-                    >
-                        <span style={{ fontSize: 32 }}>{'\uD83C\uDFAF'}</span>
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-.02em' }}>Start Selling</div>
-                            <div style={{ fontSize: 12, opacity: .8, marginTop: 2 }}>
-                                {followUpsDue > 0 ? `${followUpsDue} contacts waiting for your action` : 'Check your action queue for today'}
+                    ) : hotLeads.map((lead: any) => (
+                        <Link href={`/clients/${lead.id}`} key={lead.id} className="kpi-list-item" style={{ textDecoration: 'none' }}>
+                            <div className="kpi-avatar" style={{ background: '#ff9f0a' }}>
+                                {(lead.name || lead.email || '?')[0]?.toUpperCase()}
                             </div>
-                        </div>
-                        <span style={{ fontSize: 24, opacity: .8 }}>{'\u2192'}</span>
-                    </Link>
-                </div>
-
-                {/* ── TWO COLUMN ── */}
-                <div className="dash-two-col" style={{ display: 'grid', gridTemplateColumns: '58fr 42fr', gap: 16, padding: '0 32px', marginBottom: 16 }}>
-                    {/* Hot Leads */}
-                    <div className="dash-card dash-anim-6" style={{ padding: 0, overflow: 'hidden' }}>
-                        <div style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '10px 16px', borderLeft: '4px solid #dc2626', background: '#fff1f2',
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ fontSize: 14 }}>{'\uD83D\uDD25'}</span>
-                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Hot Leads</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div className="kpi-list-name">{lead.name || lead.email}</div>
+                                <div className="kpi-list-sub">{lead.email}</div>
                             </div>
-                            {hotLeads.length > 0 && (
-                                <span style={{ fontSize: 10, fontWeight: 700, background: '#dc2626', color: '#fff', padding: '1px 10px', borderRadius: 20 }}>
-                                    {hotLeads.length}
-                                </span>
-                            )}
-                        </div>
-                        <div style={{ padding: '4px 4px 8px' }}>
-                            {hotLeads.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '28px 20px' }}>
-                                    <div style={{ fontSize: 40, marginBottom: 8 }}>{'\uD83C\uDFAF'}</div>
-                                    <div style={{ fontSize: 14, fontWeight: 600, color: '#334155', marginBottom: 4 }}>No hot leads yet</div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
-                                        Keep sending emails &mdash; hot leads appear when someone opens your email
-                                    </div>
-                                </div>
-                            ) : hotLeads.map((lead: any) => (
-                                <Link key={lead.id} href={'/clients/' + lead.id} className="dash-lead-row">
-                                    <div style={{
-                                        width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                                        background: initialsColor(lead.name || lead.email),
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        color: '#fff', fontSize: 11, fontWeight: 700,
-                                    }}>
-                                        {getInitials(lead.name || lead.email)}
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.name || lead.email}</div>
-                                        <div style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.email}</div>
-                                    </div>
-                                    <span style={{
-                                        fontSize: 10, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
-                                        background: '#fef3c7', color: '#92400e', whiteSpace: 'nowrap',
-                                    }}>
-                                        {lead.open_count} opens
-                                    </span>
-                                </Link>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Recent Activity */}
-                    <div className="dash-card dash-anim-7" style={{ padding: 0, overflow: 'hidden' }}>
-                        <div style={{
-                            padding: '10px 16px', borderLeft: '4px solid #2563eb', background: '#eff6ff',
-                            display: 'flex', alignItems: 'center', gap: 6,
-                        }}>
-                            <span style={{ fontSize: 14 }}>{'\u26A1'}</span>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Recent Activity</span>
-                        </div>
-                        <div style={{ padding: '4px 16px 12px' }}>
-                            {activity.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '28px 20px' }}>
-                                    <div style={{ fontSize: 40, marginBottom: 8 }}>{'\uD83D\uDCEC'}</div>
-                                    <div style={{ fontSize: 14, fontWeight: 600, color: '#334155', marginBottom: 4 }}>No recent activity</div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Send your first email to get started</div>
-                                </div>
-                            ) : activity.map((item: any) => {
-                                const isReceived = item.direction === 'RECEIVED';
-                                return (
-                                    <div key={item.id} className="dash-activity-row" style={{
-                                        borderLeft: isReceived ? '2px solid #16a34a' : '2px solid transparent',
-                                        paddingLeft: 8,
-                                    }}>
-                                        <span style={{ fontSize: 13, flexShrink: 0, marginTop: 1 }}>
-                                            {isReceived ? '\uD83D\uDCE5' : '\uD83D\uDCE4'}
-                                        </span>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: 12, fontWeight: 600, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {isReceived ? item.contactName + ' replied' : 'You emailed ' + item.contactName}
-                                            </div>
-                                            <div style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.subject}</div>
-                                        </div>
-                                        <span style={{ fontSize: 10, color: '#cbd5e1', whiteSpace: 'nowrap', fontWeight: 500 }}>{timeAgo(item.sentAt)}</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </div>
-
-                {/* ── MOTIVATIONAL STRIP ── */}
-                <div className="dash-anim-8 dash-motivation" style={{
-                    background: 'linear-gradient(135deg, #1e3a8a, #2563eb)',
-                    borderRadius: 10, padding: '16px 32px', textAlign: 'center',
-                    margin: '0 32px 24px', position: 'relative', overflow: 'hidden',
-                }}>
-                    <div style={{ position: 'absolute', top: -8, left: 16, fontSize: 60, color: 'rgba(255,255,255,.07)', fontFamily: 'Georgia, serif', lineHeight: 1 }}>&ldquo;</div>
-                    <div style={{ position: 'absolute', bottom: -16, right: 16, fontSize: 60, color: 'rgba(255,255,255,.07)', fontFamily: 'Georgia, serif', lineHeight: 1 }}>&rdquo;</div>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.6)', letterSpacing: '2px', marginBottom: 6, position: 'relative' }}>
-                        DAILY MOTIVATION
-                    </div>
-                    <div style={{ fontSize: 14, color: '#fff', fontStyle: 'italic', fontWeight: 500, lineHeight: 1.6, position: 'relative' }}>
-                        &ldquo;{dailyQuote}&rdquo;
-                    </div>
+                            <div className="kpi-list-right">
+                                <span className="kpi-list-tag" style={{ background: '#fff8e1', color: '#e65100' }}>{lead.open_count} opens</span>
+                            </div>
+                        </Link>
+                    ))}
                 </div>
             </div>
+
+            {/* Two Column: Unpaid + Activity */}
+            <div className="kpi-row kpi-anim kpi-anim-6">
+                {/* Unpaid */}
+                <div className="kpi-section">
+                    <div className="kpi-section-title">
+                        {'\uD83D\uDCB3'} Outstanding
+                        {rev.unpaid > 0 && <span className="kpi-section-badge" style={{ background: '#ff3b30' }}>{fmtK(rev.unpaid)}</span>}
+                    </div>
+                    {unpaidClients.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '20px 0', color: '#8e8e93', fontSize: 13 }}>
+                            <div style={{ fontSize: 28, marginBottom: 4 }}>{'\uD83C\uDF89'}</div>
+                            All paid up!
+                        </div>
+                    ) : unpaidClients.map((c: any) => (
+                        <Link href={`/clients/${c.id}`} key={c.id} className="kpi-list-item" style={{ textDecoration: 'none' }}>
+                            <div className="kpi-avatar" style={{ background: '#8e8e93' }}>
+                                {(c.name || '?')[0]?.toUpperCase()}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div className="kpi-list-name">{c.name}</div>
+                                <div className="kpi-list-sub">{c.email}</div>
+                            </div>
+                            <div className="kpi-list-right">
+                                <span className="kpi-list-amount" style={{ color: '#ff3b30' }}>${c.unpaid_amount?.toLocaleString()}</span>
+                            </div>
+                        </Link>
+                    ))}
+                </div>
+
+                {/* Activity */}
+                <div className="kpi-section">
+                    <div className="kpi-section-title">{'\u26A1'} Recent Activity</div>
+                    {activity.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '20px 0', color: '#8e8e93', fontSize: 13 }}>
+                            <div style={{ fontSize: 28, marginBottom: 4 }}>{'\uD83D\uDCEC'}</div>
+                            Send your first email
+                        </div>
+                    ) : activity.slice(0, 8).map((item: any) => (
+                        <div key={item.id} className="kpi-activity-item">
+                            <div className="kpi-dot" style={{ background: item.direction === 'RECEIVED' ? '#34c759' : '#007aff' }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {item.direction === 'RECEIVED' ? `${item.contactName} replied` : `You emailed ${item.contactName}`}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.subject}</div>
+                            </div>
+                            <span style={{ fontSize: 10, color: '#c7c7cc', whiteSpace: 'nowrap', flexShrink: 0 }}>{timeAgo(item.sentAt)}</span>
+                        </div>
+                    ))}
+                </div>
             </div>
-        </>
+
+        </div>
+        </div>
         </>
     );
 }

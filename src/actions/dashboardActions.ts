@@ -83,8 +83,77 @@ export async function getSalesDashboardAction() {
     if (accountIds) activityQuery = activityQuery.in('gmail_account_id', accountIds);
     const { data: recentActivity } = await activityQuery;
 
+    // Revenue stats — this agent's projects
+    let revenueQuery = supabase
+        .from('projects')
+        .select('project_value, paid_status, project_date')
+        .not('project_value', 'is', null)
+        .gt('project_value', 0);
+    if (accountIds) revenueQuery = revenueQuery.eq('account_manager_id', userId);
+    const { data: projects } = await revenueQuery;
+
+    let totalRevenue = 0, totalPaid = 0, totalUnpaid = 0, totalProjects = 0;
+    let thisMonthRevenue = 0, lastMonthRevenue = 0;
+    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
+    for (const p of projects || []) {
+        totalRevenue += p.project_value;
+        totalProjects++;
+        if (p.paid_status === 'PAID') totalPaid += p.project_value;
+        else totalUnpaid += p.project_value;
+        if (p.project_date) {
+            const d = new Date(p.project_date);
+            const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (m === thisMonth) thisMonthRevenue += p.project_value;
+            if (m === lastMonth) lastMonthRevenue += p.project_value;
+        }
+    }
+
+    const collectionRate = totalRevenue > 0 ? Math.round((totalPaid / totalRevenue) * 100) : 0;
+    const monthlyTarget = 6000; // configurable
+    const targetProgress = monthlyTarget > 0 ? Math.min(100, Math.round((thisMonthRevenue / monthlyTarget) * 100)) : 0;
+    const monthGrowth = lastMonthRevenue > 0 ? Math.round(((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100) : 0;
+
+    // Unpaid clients (top 5)
+    let unpaidQuery = supabase
+        .from('contacts')
+        .select('id, name, email, unpaid_amount')
+        .gt('unpaid_amount', 0)
+        .order('unpaid_amount', { ascending: false })
+        .limit(5);
+    if (accountIds) unpaidQuery = unpaidQuery.eq('account_manager_id', userId);
+    const { data: unpaidClients } = await unpaidQuery;
+
+    // Waiting for reply (they replied, you haven't)
+    let replyNowQuery = supabase
+        .from('contacts')
+        .select('id, name, email, days_since_last_contact', { count: 'exact' })
+        .eq('last_message_direction', 'RECEIVED')
+        .gt('total_emails_received', 0)
+        .not('email', 'ilike', '%noreply%')
+        .not('pipeline_stage', 'eq', 'NOT_INTERESTED')
+        .not('pipeline_stage', 'eq', 'CLOSED')
+        .order('days_since_last_contact', { ascending: true })
+        .limit(5);
+    if (accountIds) replyNowQuery = replyNowQuery.eq('account_manager_id', userId);
+    const { data: needReply, count: replyNowCount } = await replyNowQuery;
+
     return {
         stats: { sent: sent || 0, replies: replies || 0, newLeads: newLeads || 0, openRate },
+        revenue: {
+            total: totalRevenue,
+            paid: totalPaid,
+            unpaid: totalUnpaid,
+            projects: totalProjects,
+            collectionRate,
+            thisMonth: thisMonthRevenue,
+            lastMonth: lastMonthRevenue,
+            monthGrowth,
+            targetProgress,
+            monthlyTarget,
+        },
         hotLeads: hotLeads || [],
         recentActivity: (recentActivity || []).map((e: any) => ({
             id: e.id,
@@ -95,5 +164,8 @@ export async function getSalesDashboardAction() {
             opened: !!e.opened_at,
         })),
         followUpsDue: followUpsDue || 0,
+        replyNowCount: replyNowCount || 0,
+        needReply: needReply || [],
+        unpaidClients: unpaidClients || [],
     };
 }
