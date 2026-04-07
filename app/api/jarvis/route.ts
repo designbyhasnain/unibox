@@ -11,14 +11,15 @@ export async function POST(req: NextRequest) {
     const groqKey = process.env.GROQ_API_KEY;
     if (!groqKey) return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 });
 
-    // Build conversation with system prompt
+    // Build conversation — keep system prompt short, limit history
+    const recentMessages = messages.slice(-10); // Keep last 10 messages to avoid context overflow
     const fullMessages = [
         { role: 'system', content: JARVIS_SYSTEM_PROMPT },
-        ...messages,
+        ...recentMessages,
     ];
 
     // Call Groq with tools — loop until no more tool calls
-    let maxIterations = 8;
+    let maxIterations = 5;
     let currentMessages = [...fullMessages];
 
     while (maxIterations-- > 0) {
@@ -40,7 +41,8 @@ export async function POST(req: NextRequest) {
 
         if (!response.ok) {
             const errText = await response.text();
-            console.error('[Jarvis] Groq error:', response.status, errText);
+            console.error('[Jarvis] Groq error:', response.status, errText.slice(0, 500));
+            console.error('[Jarvis] Messages count:', currentMessages.length, 'Total chars:', JSON.stringify(currentMessages).length);
             // On second+ iteration failure, summarize what we found
             const toolResults = currentMessages.filter((m: any) => m.role === 'tool');
             if (toolResults.length > 0) {
