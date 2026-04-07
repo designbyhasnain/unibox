@@ -153,10 +153,14 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         let interval: ReturnType<typeof setInterval>;
         const fetchCount = async () => {
             try {
-                const { getActionQueueAction } = await import('../../src/actions/actionQueueActions');
-                const result = await getActionQueueAction();
-                setActionCount(result.counts.critical + result.counts.high);
-            } catch {}
+                const mod = await import('../../src/actions/actionQueueActions');
+                const result = await mod.getActionQueueAction();
+                if (result?.counts) {
+                    setActionCount(Number(result.counts.critical || 0) + Number(result.counts.high || 0));
+                }
+            } catch {
+                // Silently fail — badge just won't show
+            }
         };
         fetchCount();
         interval = setInterval(fetchCount, 60000);
