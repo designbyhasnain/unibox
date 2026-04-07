@@ -41,7 +41,15 @@ export async function POST(req: NextRequest) {
         if (!response.ok) {
             const errText = await response.text();
             console.error('[Jarvis] Groq error:', response.status, errText);
-            return NextResponse.json({ error: 'AI service error', detail: errText }, { status: 502 });
+            // On second+ iteration failure, return what we have so far
+            const toolResults = currentMessages.filter((m: any) => m.role === 'tool');
+            if (toolResults.length > 0) {
+                return NextResponse.json({
+                    reply: `I gathered some data but hit an error processing it. Here's what I found:\n\n${toolResults.map((t: any) => t.content).join('\n\n')}`,
+                    toolsUsed: toolResults.map((t: any) => t.tool_call_id),
+                });
+            }
+            return NextResponse.json({ error: 'AI service error', detail: errText.slice(0, 200) }, { status: 502 });
         }
 
         const data = await response.json();
@@ -61,7 +69,12 @@ export async function POST(req: NextRequest) {
         }
 
         // Process tool calls
-        currentMessages.push(assistantMessage);
+        // Groq requires content to be string or null, ensure proper format
+        currentMessages.push({
+            role: 'assistant',
+            content: assistantMessage.content || '',
+            tool_calls: assistantMessage.tool_calls,
+        });
 
         for (const toolCall of assistantMessage.tool_calls) {
             const { name, arguments: argsStr } = toolCall.function;
@@ -73,13 +86,18 @@ export async function POST(req: NextRequest) {
             }
 
             console.log(`[Jarvis] Tool call: ${name}`, args);
-            const result = await executeJarvisTool(name, args);
+            let result;
+            try {
+                result = await executeJarvisTool(name, args);
+            } catch (err) {
+                console.error(`[Jarvis] Tool error (${name}):`, err);
+                result = { error: `Tool ${name} failed` };
+            }
 
             currentMessages.push({
-                role: 'tool' as const,
+                role: 'tool',
                 tool_call_id: toolCall.id,
-                name,
-                content: JSON.stringify(result).slice(0, 8000), // Truncate large results
+                content: JSON.stringify(result).slice(0, 8000),
             } as any);
         }
     }
