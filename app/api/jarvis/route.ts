@@ -41,12 +41,13 @@ export async function POST(req: NextRequest) {
         if (!response.ok) {
             const errText = await response.text();
             console.error('[Jarvis] Groq error:', response.status, errText);
-            // On second+ iteration failure, return what we have so far
+            // On second+ iteration failure, summarize what we found
             const toolResults = currentMessages.filter((m: any) => m.role === 'tool');
             if (toolResults.length > 0) {
+                const summary = toolResults.map((t: any) => t.content).join('\n\n').slice(0, 3000);
                 return NextResponse.json({
-                    reply: `I gathered some data but hit an error processing it. Here's what I found:\n\n${toolResults.map((t: any) => t.content).join('\n\n')}`,
-                    toolsUsed: toolResults.map((t: any) => t.tool_call_id),
+                    reply: `Here's what I found:\n\n${summary}`,
+                    toolsUsed: [],
                 });
             }
             return NextResponse.json({ error: 'AI service error', detail: errText.slice(0, 200) }, { status: 502 });
@@ -94,10 +95,30 @@ export async function POST(req: NextRequest) {
                 result = { error: `Tool ${name} failed` };
             }
 
+            // Format result concisely for the LLM — avoid raw JSON dumps
+            let resultStr: string;
+            if (Array.isArray(result)) {
+                // Summarize arrays: show first 15 items with key fields only
+                const summary = result.slice(0, 15).map((item: any) => {
+                    if (item.name || item.email) {
+                        return [item.name, item.email, item.location, item.pipeline_stage, item.total_revenue ? '$' + item.total_revenue : null, item.total_projects ? item.total_projects + ' projects' : null, item.unpaid_amount ? 'UNPAID $' + item.unpaid_amount : null].filter(Boolean).join(' | ');
+                    }
+                    if (item.region) {
+                        return `${item.region}: ${item.count} contacts, $${item.revenue} revenue`;
+                    }
+                    return JSON.stringify(item);
+                });
+                resultStr = `Found ${result.length} results:\n${summary.join('\n')}${result.length > 15 ? '\n... and ' + (result.length - 15) + ' more' : ''}`;
+            } else if (result && typeof result === 'object') {
+                resultStr = JSON.stringify(result, null, 2).slice(0, 4000);
+            } else {
+                resultStr = String(result);
+            }
+
             currentMessages.push({
                 role: 'tool',
                 tool_call_id: toolCall.id,
-                content: JSON.stringify(result).slice(0, 8000),
+                content: resultStr,
             } as any);
         }
     }
