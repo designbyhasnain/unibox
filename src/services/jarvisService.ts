@@ -215,6 +215,120 @@ export async function draftPersonalizedEmail(contact: any, purpose: string): Pro
     return `Hi ${name},\n\nHope you're doing well! Just checking in to see if you need any editing help this season.\n\nBest,\nWedits Team`;
 }
 
+// ── Campaign Tools ──────────────────────────────────────────────────────────
+
+export async function createCampaignFromAgent(params: {
+    name: string;
+    goal: 'COLD_OUTREACH' | 'FOLLOW_UP' | 'RETARGETING';
+    sendingAccountEmail: string;
+    dailyLimit: number;
+    steps: { delayDays: number; subject: string; body: string }[];
+    contactIds: string[];
+}) {
+    // Find the sending account
+    const { data: account } = await supabase.from('gmail_accounts')
+        .select('id, email')
+        .eq('email', params.sendingAccountEmail)
+        .eq('status', 'ACTIVE')
+        .single();
+
+    if (!account) {
+        // Fallback: pick any active account
+        const { data: anyAccount } = await supabase.from('gmail_accounts')
+            .select('id, email')
+            .eq('status', 'ACTIVE')
+            .limit(1)
+            .single();
+        if (!anyAccount) return { error: 'No active email accounts found' };
+        Object.assign(account || {}, anyAccount);
+    }
+
+    const accountId = account!.id;
+
+    // Create campaign
+    const { data: campaign, error: campErr } = await supabase.from('campaigns')
+        .insert({
+            name: params.name,
+            goal: params.goal,
+            sending_gmail_account_id: accountId,
+            daily_send_limit: params.dailyLimit || 30,
+            track_replies: true,
+            auto_stop_on_reply: true,
+            status: 'DRAFT',
+            updated_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+
+    if (campErr || !campaign) return { error: 'Failed to create campaign: ' + campErr?.message };
+
+    // Create steps
+    for (let i = 0; i < params.steps.length; i++) {
+        const step = params.steps[i]!;
+        await supabase.from('campaign_steps').insert({
+            campaign_id: campaign.id,
+            step_number: i + 1,
+            delay_days: step.delayDays,
+            subject: step.subject,
+            body: step.body,
+        });
+    }
+
+    // Enroll contacts (max 500 per campaign for safety)
+    const contactsToEnroll = params.contactIds.slice(0, 500);
+    if (contactsToEnroll.length > 0) {
+        const enrollments = contactsToEnroll.map(cid => ({
+            campaign_id: campaign.id,
+            contact_id: cid,
+            status: 'PENDING',
+            current_step_number: 1,
+            enrolled_at: new Date().toISOString(),
+        }));
+
+        const { error: enrollErr } = await supabase.from('campaign_contacts').insert(enrollments);
+        if (enrollErr) return { error: 'Campaign created but enrollment failed: ' + enrollErr.message, campaignId: campaign.id };
+    }
+
+    return {
+        success: true,
+        campaignId: campaign.id,
+        name: params.name,
+        stepsCount: params.steps.length,
+        contactsEnrolled: contactsToEnroll.length,
+        status: 'DRAFT — launch manually or ask me to launch it',
+    };
+}
+
+export async function launchCampaignFromAgent(campaignId: string) {
+    const { data: campaign } = await supabase.from('campaigns')
+        .select('id, status, name')
+        .eq('id', campaignId)
+        .single();
+
+    if (!campaign) return { error: 'Campaign not found' };
+    if (campaign.status !== 'DRAFT') return { error: `Campaign is ${campaign.status}, can only launch DRAFT` };
+
+    const { error } = await supabase.from('campaigns')
+        .update({ status: 'RUNNING', updated_at: new Date().toISOString() })
+        .eq('id', campaignId);
+
+    if (error) return { error: 'Failed to launch: ' + error.message };
+
+    return { success: true, campaignId, name: campaign.name, status: 'RUNNING' };
+}
+
+export async function getCampaignStats() {
+    const { data } = await supabase.from('campaigns')
+        .select('id, name, goal, status, daily_send_limit, created_at')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+    return (data || []).map((c: any) => ({
+        id: c.id, name: c.name, goal: c.goal, status: c.status,
+        dailyLimit: c.daily_send_limit, created: c.created_at,
+    }));
+}
+
 // ── Tool definitions for the LLM ────────────────────────────────────────────
 
 export const JARVIS_TOOLS = [
@@ -314,6 +428,41 @@ export const JARVIS_TOOLS = [
             parameters: { type: 'object', properties: { contact_id: { type: 'string' }, purpose: { type: 'string', enum: ['cold_outreach', 'follow_up', 'win_back', 'collection', 'check_in'] } }, required: ['contact_id', 'purpose'] },
         }
     },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'create_campaign',
+            description: 'Create a full email campaign with steps and enroll contacts. Provide campaign name, goal (COLD_OUTREACH/FOLLOW_UP/RETARGETING), a sending email account, daily limit, email steps (subject+body+delayDays), and contact IDs to enroll.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    name: { type: 'string', description: 'Campaign name' },
+                    goal: { type: 'string', enum: ['COLD_OUTREACH', 'FOLLOW_UP', 'RETARGETING'] },
+                    sending_account_email: { type: 'string', description: 'Email address of the sending Gmail account' },
+                    daily_limit: { type: 'number', description: 'Max emails per day (default 30)' },
+                    steps: { type: 'array', items: { type: 'object', properties: { delay_days: { type: 'number' }, subject: { type: 'string' }, body: { type: 'string' } }, required: ['delay_days', 'subject', 'body'] } },
+                    contact_ids: { type: 'array', items: { type: 'string' }, description: 'Contact IDs to enroll' },
+                },
+                required: ['name', 'goal', 'steps', 'contact_ids'],
+            },
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'launch_campaign',
+            description: 'Launch a DRAFT campaign to start sending emails. Provide the campaign ID.',
+            parameters: { type: 'object', properties: { campaign_id: { type: 'string' } }, required: ['campaign_id'] },
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'get_campaign_stats',
+            description: 'List all campaigns with their status, goal, and send limits.',
+            parameters: { type: 'object', properties: {} },
+        }
+    },
 ];
 
 // ── Execute a tool call ─────────────────────────────────────────────────────
@@ -336,6 +485,16 @@ export async function executeJarvisTool(name: string, args: any): Promise<any> {
             if (!contact) return { error: 'Contact not found' };
             return { email: await draftPersonalizedEmail(contact, args.purpose), contact };
         }
+        case 'create_campaign': return createCampaignFromAgent({
+            name: args.name,
+            goal: args.goal,
+            sendingAccountEmail: args.sending_account_email || '',
+            dailyLimit: args.daily_limit || 30,
+            steps: (args.steps || []).map((s: any) => ({ delayDays: s.delay_days, subject: s.subject, body: s.body })),
+            contactIds: args.contact_ids || [],
+        });
+        case 'launch_campaign': return launchCampaignFromAgent(args.campaign_id);
+        case 'get_campaign_stats': return getCampaignStats();
         default: return { error: `Unknown tool: ${name}` };
     }
 }
@@ -364,7 +523,10 @@ export const JARVIS_SYSTEM_PROMPT = `You are JARVIS — the AI Sales Director fo
 4. When drafting emails, personalize based on the client's history, location, and behavior
 5. Think in terms of ROI — every action should have a clear revenue impact
 6. Be direct and concise — sales directors don't write essays
-7. When asked to "do" something, explain what you'll do and the expected outcome
+7. When asked to "do" something, TAKE ACTION — create campaigns, enroll contacts, launch them
+8. You can CREATE CAMPAIGNS with email steps, enroll contacts, and LAUNCH them
+9. When creating campaign emails, use {{first_name}} for personalization and {spintax|options} for variation
+10. Always search for contacts first to get their IDs before enrolling them in campaigns
 
 ## Pipeline Stages
 COLD_LEAD → CONTACTED → WARM_LEAD → LEAD → OFFER_ACCEPTED → CLOSED → NOT_INTERESTED
