@@ -31,6 +31,7 @@ const nextConfig = {
     // ─── Turbopack (Next.js 16 default) ──────────────────────────────────────
     turbopack: {},
 
+
     // ─── Disable Vercel Toolbar on localhost ─────────────────────────────────
     devIndicators: false,
 

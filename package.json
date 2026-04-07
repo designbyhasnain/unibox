@@ -52,7 +52,7 @@
     "imapflow": "^1.2.10",
     "lucide-react": "^0.575.0",
     "mailparser": "^3.9.3",
-    "next": "^16.1.6",
+    "next": "16.1.1",
     "nodemailer": "^8.0.1",
     "papaparse": "^5.5.3",
     "react": "^19.2.4",
