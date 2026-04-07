@@ -448,18 +448,17 @@ export const JARVIS_TOOLS = [
         type: 'function' as const,
         function: {
             name: 'create_campaign',
-            description: 'Create a full email campaign with steps and enroll contacts. Provide campaign name, goal (COLD_OUTREACH/FOLLOW_UP/RETARGETING), a sending email account, daily limit, email steps (subject+body+delayDays), and contact IDs to enroll.',
+            description: 'Create a cold outreach, follow-up, or retargeting email campaign for contacts in a specific region or pipeline stage. The system will auto-generate 3-5 email steps and enroll matching contacts. Provide: campaign name, goal (COLD_OUTREACH/FOLLOW_UP/RETARGETING), target_region OR target_stage, and daily_limit.',
             parameters: {
                 type: 'object',
                 properties: {
                     name: { type: 'string', description: 'Campaign name' },
-                    goal: { type: 'string', enum: ['COLD_OUTREACH', 'FOLLOW_UP', 'RETARGETING'] },
-                    sending_account_email: { type: 'string', description: 'Email address of the sending Gmail account' },
+                    goal: { type: 'string', enum: ['COLD_OUTREACH', 'FOLLOW_UP', 'RETARGETING'], description: 'Campaign goal' },
+                    target_region: { type: 'string', description: 'Target region/country (e.g. Australia, California, UK)' },
+                    target_stage: { type: 'string', description: 'Target pipeline stage (e.g. COLD_LEAD, CONTACTED, LEAD)' },
                     daily_limit: { type: 'number', description: 'Max emails per day (default 30)' },
-                    steps: { type: 'array', items: { type: 'object', properties: { delay_days: { type: 'number' }, subject: { type: 'string' }, body: { type: 'string' } }, required: ['delay_days', 'subject', 'body'] } },
-                    contact_ids: { type: 'array', items: { type: 'string' }, description: 'Contact IDs to enroll' },
                 },
-                required: ['name', 'goal', 'steps', 'contact_ids'],
+                required: ['name', 'goal'],
             },
         }
     },
@@ -467,7 +466,7 @@ export const JARVIS_TOOLS = [
         type: 'function' as const,
         function: {
             name: 'launch_campaign',
-            description: 'Launch a DRAFT campaign to start sending emails. Provide the campaign ID.',
+            description: 'Launch a DRAFT campaign to start sending emails.',
             parameters: { type: 'object', properties: { campaign_id: { type: 'string' } }, required: ['campaign_id'] },
         }
     },
@@ -501,15 +500,49 @@ export async function executeJarvisTool(name: string, args: any, userId?: string
             if (!contact) return { error: 'Contact not found' };
             return { email: await draftPersonalizedEmail(contact, args.purpose), contact };
         }
-        case 'create_campaign': return createCampaignFromAgent({
-            name: args.name,
-            goal: args.goal,
-            sendingAccountEmail: args.sending_account_email || '',
-            dailyLimit: args.daily_limit || 30,
-            steps: (args.steps || []).map((s: any) => ({ delayDays: s.delay_days, subject: s.subject, body: s.body })),
-            contactIds: args.contact_ids || [],
-            userId,
-        });
+        case 'create_campaign': {
+            // Auto-find contacts by region or stage
+            let contactIds: string[] = [];
+            if (args.target_region) {
+                const contacts = await getContactsByRegion(args.target_region, 500);
+                contactIds = contacts.map((c: any) => c.id);
+            } else if (args.target_stage) {
+                const contacts = await getContactsByStage(args.target_stage, 500);
+                contactIds = contacts.map((c: any) => c.id);
+            }
+
+            // Auto-generate email steps based on goal
+            const goalSteps: Record<string, { delayDays: number; subject: string; body: string }[]> = {
+                COLD_OUTREACH: [
+                    { delayDays: 0, subject: 'Love your work — quick question', body: 'Hi {{first_name}},\n\nI came across your wedding films and was really impressed by your style. We specialize in wedding film editing and help filmmakers like you free up 20-30 hours per project.\n\nWould you be open to a free test edit? We\'d love to show you what we can do.\n\nBest,\nWedits Team' },
+                    { delayDays: 4, subject: 'Quick portfolio share', body: 'Hi {{first_name}},\n\nJust wanted to share a few of our recent edits so you can see our quality firsthand:\n\n- Cinematic highlight reel\n- Full ceremony edit\n- Same-day edit\n\nNo pressure at all — just thought you might find it useful.\n\nBest,\nWedits Team' },
+                    { delayDays: 8, subject: 'What filmmakers in your area are saying', body: 'Hi {{first_name}},\n\nWe work with filmmakers across your region who\'ve been able to take on 2-3 more weddings per month by outsourcing their editing to us.\n\n"Wedits gave me my weekends back." — Recent client\n\nWould a free test edit be helpful? Just send us any raw footage.\n\nBest,\nWedits Team' },
+                    { delayDays: 14, subject: 'Free test edit — no strings', body: 'Hi {{first_name}},\n\nLast note from me — we\'d love to earn your trust with a free test edit. Pick any project, send us the footage, and we\'ll deliver a 2-3 min highlight in 5 days.\n\nIf you love it, we can talk packages. If not, you got a free edit.\n\nFair?\n\nBest,\nWedits Team' },
+                ],
+                FOLLOW_UP: [
+                    { delayDays: 0, subject: 'Following up — still need editing help?', body: 'Hi {{first_name}},\n\nJust checking in to see if you\'re still looking for editing support this season. We\'ve been working with filmmakers in your area and would love to help.\n\nHappy to send samples if interested.\n\nBest,\nWedits Team' },
+                    { delayDays: 5, subject: 'Quick update from Wedits', body: 'Hi {{first_name}},\n\nWe\'ve upgraded our turnaround times — most projects now delivered in 5 days. Thought you\'d want to know.\n\nReady when you are!\n\nBest,\nWedits Team' },
+                    { delayDays: 12, subject: 'Here if you need us', body: 'Hi {{first_name}},\n\nNo pressure at all — just wanted to let you know we\'re here whenever you need editing support. Wedding season is coming up fast!\n\nBest,\nWedits Team' },
+                ],
+                RETARGETING: [
+                    { delayDays: 0, subject: 'We miss working with you!', body: 'Hi {{first_name}},\n\nIt\'s been a while since we worked together and we\'d love to have you back. We\'ve upgraded our workflow and quality.\n\nYour next edit is 20% off as a returning client.\n\nBest,\nWedits Team' },
+                    { delayDays: 5, subject: 'Special offer for returning clients', body: 'Hi {{first_name}},\n\nJust a reminder — we\'re offering 20% off for returning clients this month. We value our long-term partnerships.\n\nSend us your next project and we\'ll get started right away.\n\nBest,\nWedits Team' },
+                    { delayDays: 10, subject: 'Last chance — 20% off expires soon', body: 'Hi {{first_name}},\n\nThis is the last reminder — our 20% returning client discount expires at the end of the month. Would love to work together again.\n\nBest,\nWedits Team' },
+                ],
+            };
+
+            const steps = goalSteps[args.goal] || goalSteps['COLD_OUTREACH']!;
+
+            return createCampaignFromAgent({
+                name: args.name,
+                goal: args.goal,
+                sendingAccountEmail: '',
+                dailyLimit: args.daily_limit || 30,
+                steps,
+                contactIds,
+                userId,
+            });
+        }
         case 'launch_campaign': return launchCampaignFromAgent(args.campaign_id);
         case 'get_campaign_stats': return getCampaignStats();
         default: return { error: `Unknown tool: ${name}` };
