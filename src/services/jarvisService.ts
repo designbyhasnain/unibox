@@ -224,26 +224,41 @@ export async function createCampaignFromAgent(params: {
     dailyLimit: number;
     steps: { delayDays: number; subject: string; body: string }[];
     contactIds: string[];
+    userId?: string;
 }) {
     // Find the sending account
-    const { data: account } = await supabase.from('gmail_accounts')
-        .select('id, email')
-        .eq('email', params.sendingAccountEmail)
-        .eq('status', 'ACTIVE')
-        .single();
+    let accountId: string;
+    if (params.sendingAccountEmail) {
+        const { data: account } = await supabase.from('gmail_accounts')
+            .select('id, email')
+            .ilike('email', `%${params.sendingAccountEmail}%`)
+            .eq('status', 'ACTIVE')
+            .limit(1)
+            .single();
+        accountId = account?.id;
+    }
 
-    if (!account) {
-        // Fallback: pick any active account
+    if (!accountId!) {
         const { data: anyAccount } = await supabase.from('gmail_accounts')
             .select('id, email')
             .eq('status', 'ACTIVE')
             .limit(1)
             .single();
         if (!anyAccount) return { error: 'No active email accounts found' };
-        Object.assign(account || {}, anyAccount);
+        accountId = anyAccount.id;
     }
 
-    const accountId = account!.id;
+    // Get a user ID for created_by_id (use first admin)
+    let creatorId = params.userId;
+    if (!creatorId) {
+        const { data: admin } = await supabase.from('users')
+            .select('id')
+            .in('role', ['ADMIN', 'ACCOUNT_MANAGER'])
+            .limit(1)
+            .single();
+        creatorId = admin?.id;
+    }
+    if (!creatorId) return { error: 'No admin user found for campaign ownership' };
 
     // Create campaign
     const { data: campaign, error: campErr } = await supabase.from('campaigns')
@@ -251,6 +266,7 @@ export async function createCampaignFromAgent(params: {
             name: params.name,
             goal: params.goal,
             sending_gmail_account_id: accountId,
+            created_by_id: creatorId,
             daily_send_limit: params.dailyLimit || 30,
             track_replies: true,
             auto_stop_on_reply: true,
@@ -467,7 +483,7 @@ export const JARVIS_TOOLS = [
 
 // ── Execute a tool call ─────────────────────────────────────────────────────
 
-export async function executeJarvisTool(name: string, args: any): Promise<any> {
+export async function executeJarvisTool(name: string, args: any, userId?: string): Promise<any> {
     switch (name) {
         case 'search_contacts': return searchContacts(args.query, args.limit);
         case 'get_contact_detail': return getContactDetail(args.contact_id);
@@ -492,6 +508,7 @@ export async function executeJarvisTool(name: string, args: any): Promise<any> {
             dailyLimit: args.daily_limit || 30,
             steps: (args.steps || []).map((s: any) => ({ delayDays: s.delay_days, subject: s.subject, body: s.body })),
             contactIds: args.contact_ids || [],
+            userId,
         });
         case 'launch_campaign': return launchCampaignFromAgent(args.campaign_id);
         case 'get_campaign_stats': return getCampaignStats();

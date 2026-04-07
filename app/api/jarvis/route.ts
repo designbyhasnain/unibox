@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
             console.log(`[Jarvis] Tool call: ${name}`, args);
             let result;
             try {
-                result = await executeJarvisTool(name, args);
+                result = await executeJarvisTool(name, args, session.userId);
             } catch (err) {
                 console.error(`[Jarvis] Tool error (${name}):`, err);
                 result = { error: `Tool ${name} failed` };
