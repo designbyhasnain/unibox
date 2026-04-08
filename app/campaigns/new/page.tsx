@@ -44,6 +44,7 @@ type EnrollableContact = {
     company: string | null;
     pipeline_stage: string | null;
     priority: string | null;
+    location: string | null;
     isEnrolled: boolean;
     inOtherActiveCampaign: boolean;
 };
@@ -54,6 +55,10 @@ const GOAL_OPTIONS = [
     { value: 'COLD_OUTREACH', label: 'Cold Outreach', desc: 'Reach new prospects who haven\'t heard from you', icon: '🎯' },
     { value: 'FOLLOW_UP', label: 'Follow Up', desc: 'Re-engage prospects who didn\'t reply', icon: '🔄' },
     { value: 'RETARGETING', label: 'Retargeting', desc: 'Win back past leads or clients', icon: '🎪' },
+    { value: 'WARM_UP', label: 'Warm-up', desc: 'Nurture leads over time with value-driven content', icon: '🔥' },
+    { value: 'CLOSED_WON', label: 'Closed-Won', desc: 'Upsell and cross-sell to past paying clients', icon: '🏆' },
+    { value: 'LOCATION_BASED', label: 'Location-Based', desc: 'Target prospects by region or city', icon: '📍' },
+    { value: 'SEASONAL', label: 'Seasonal', desc: 'Holiday and event-based promotions', icon: '🎄' },
 ];
 
 const PLACEHOLDERS = [
@@ -113,6 +118,7 @@ export default function CampaignBuilderPage() {
     const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
     const [contactSearch, setContactSearch] = useState('');
     const [contactFilter, setContactFilter] = useState<string>('ALL');
+    const [locationFilter, setLocationFilter] = useState<string>('ALL');
     const [isLoadingContacts, setIsLoadingContacts] = useState(false);
 
     // UI State
@@ -232,8 +238,12 @@ export default function CampaignBuilderPage() {
         });
     }
 
+    // Extract unique locations for the location filter dropdown
+    const uniqueLocations = [...new Set(contacts.map(c => c.location).filter(Boolean) as string[])].sort();
+
     const filteredContacts = contacts.filter(c => {
         if (contactFilter !== 'ALL' && c.pipeline_stage !== contactFilter) return false;
+        if (locationFilter !== 'ALL' && (!c.location || !c.location.toLowerCase().includes(locationFilter.toLowerCase()))) return false;
         return true;
     });
 
@@ -846,9 +856,24 @@ export default function CampaignBuilderPage() {
                             >
                                 <option value="ALL">All Stages</option>
                                 <option value="COLD_LEAD">Cold Lead</option>
+                                <option value="CONTACTED">Contacted</option>
                                 <option value="LEAD">Lead</option>
                                 <option value="OFFER_ACCEPTED">Offer Accepted</option>
                                 <option value="CLOSED">Closed</option>
+                            </select>
+                            <select
+                                value={locationFilter}
+                                onChange={e => setLocationFilter(e.target.value)}
+                                style={{
+                                    padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-full)',
+                                    border: '1px solid var(--border)', fontSize: 'var(--text-xs)',
+                                    background: 'var(--bg-surface)', cursor: 'pointer',
+                                }}
+                            >
+                                <option value="ALL">All Locations</option>
+                                {uniqueLocations.map(loc => (
+                                    <option key={loc} value={loc}>{loc}</option>
+                                ))}
                             </select>
                         </div>
 

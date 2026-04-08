@@ -1233,7 +1233,7 @@ export async function getEnrollableContactsAction(campaignId: string, search?: s
         // Fetch all contacts
         let query = supabase
             .from('contacts')
-            .select('id, name, email, company, pipeline_stage, priority')
+            .select('id, name, email, company, pipeline_stage, priority, location')
             .order('updated_at', { ascending: false })
             .limit(200);
 

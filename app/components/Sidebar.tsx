@@ -79,9 +79,11 @@ const Icons = {
 
 const NAV_SHARED = [
     { href: '/', label: 'Inbox', icon: <Icons.Inbox />, salesLabel: 'Inbox' },
+    { href: '/dashboard', label: 'Dashboard', icon: <Icons.BarChart />, salesLabel: 'Dashboard' },
     { href: '/clients', label: 'Clients', icon: <Icons.Clients />, salesLabel: 'My Clients' },
+    { href: '/my-projects', label: 'My Projects', icon: <Icons.Projects />, salesLabel: 'My Projects' },
     { href: '/accounts', label: 'Accounts', icon: <Icons.Accounts />, salesLabel: 'Accounts' },
-    { href: '/projects', label: 'Projects', icon: <span style={{ fontSize: 18 }}>🎬</span>, salesLabel: 'My Projects' },
+    { href: '/projects', label: 'Edit Projects', icon: <span style={{ fontSize: 18 }}>🎬</span>, salesLabel: 'Edit Projects' },
     { href: '/campaigns', label: 'Campaigns', icon: <Icons.Campaigns />, salesLabel: 'My Campaigns' },
     { href: '/templates', label: 'Templates', icon: <Icons.Templates />, salesLabel: 'Templates' },
     { href: '/analytics', label: 'Analytics', icon: <Icons.BarChart />, salesLabel: 'Analytics' },

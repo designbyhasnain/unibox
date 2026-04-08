@@ -131,6 +131,33 @@ export async function getSalesDashboardAction() {
     if (accountIds) followQuery = followQuery.eq('account_manager_id', userId);
     const { count: followUpsDue } = await followQuery;
 
+    // ── Outreach Metrics (today / this week / this month) ─────────────
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekStart = new Date(todayStart);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1); // Monday
+    if (weekStart > todayStart) weekStart.setDate(weekStart.getDate() - 7);
+
+    const [todayRes, weekRes, monthRes] = await Promise.all([
+        buildQuery('email_messages', 'id', accountIds, userId, { direction: 'SENT', sent_at_gte: todayStart }),
+        buildQuery('email_messages', 'id', accountIds, userId, { direction: 'SENT', sent_at_gte: weekStart }),
+        buildQuery('email_messages', 'id', accountIds, userId, { direction: 'SENT', sent_at_gte: monthStart }),
+    ]);
+    const outreach = {
+        today: todayRes.count ?? 0,
+        thisWeek: weekRes.count ?? 0,
+        thisMonth: monthRes.count ?? 0,
+    };
+
+    // ── Recent Projects ─────────────────────────────────────────────────
+    let recentProjQuery = supabase.from('projects')
+        .select('id, project_name, project_value, paid_status, status, project_date, client_id, contacts:client_id(name)')
+        .not('project_value', 'is', null)
+        .gt('project_value', 0)
+        .order('project_date', { ascending: false })
+        .limit(5);
+    if (accountIds) recentProjQuery = recentProjQuery.eq('account_manager_id', userId);
+    const { data: recentProjects } = await recentProjQuery;
+
     // ── Recent Activity ─────────────────────────────────────────────────
     let activityQuery = supabase.from('email_messages')
         .select('id, from_email, to_email, subject, direction, sent_at, opened_at, contact_id, contacts:contact_id(name)')
@@ -159,6 +186,7 @@ export async function getSalesDashboardAction() {
 
     return {
         stats: { sent, replies, newLeads, replyRate },
+        outreach,
         revenue: {
             total: totalRevenue,
             paid: totalPaid,
@@ -181,6 +209,15 @@ export async function getSalesDashboardAction() {
         unpaidClients: unpaidClients || [],
         followUpsDue: followUpsDue || 0,
         topClients: topClients || [],
+        recentProjects: (recentProjects || []).map((p: any) => ({
+            id: p.id,
+            name: p.project_name,
+            client: p.contacts?.name || 'Unknown',
+            value: p.project_value || 0,
+            status: p.status || 'Not Started',
+            payment: p.paid_status || 'UNPAID',
+            date: p.project_date,
+        })),
         pipelineContacts: (pipelineContacts || []).map((c: any) => ({
             id: c.id,
             name: c.name,
@@ -223,9 +260,10 @@ async function buildQuery(
 function emptyDashboard() {
     return {
         stats: { sent: 0, replies: 0, newLeads: 0, replyRate: 0 },
+        outreach: { today: 0, thisWeek: 0, thisMonth: 0 },
         revenue: { total: 0, paid: 0, unpaid: 0, projects: 0, collectionRate: 0, thisMonth: 0, lastMonth: 0, monthGrowth: 0, targetProgress: 0, monthlyTarget: 10000, chart: [] },
         pipeline: {}, pipelineTotal: 0, funnel: [],
         hotLeads: [], needReply: [], replyNowCount: 0, unpaidClients: [],
-        followUpsDue: 0, topClients: [], pipelineContacts: [], recentActivity: [],
+        followUpsDue: 0, topClients: [], recentProjects: [], pipelineContacts: [], recentActivity: [],
     };
 }
