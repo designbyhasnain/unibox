@@ -4,7 +4,9 @@ import { processWebhookEvents } from '../../../../src/services/webhookProcessorS
 import { qstashReceiver } from '../../../../lib/qstash';
 
 /**
- * Webhook event processor — runs every 2 minutes via QStash.
+ * Webhook event processor — runs every 10 minutes via QStash.
+ * Changed from 2min to 10min to reduce CPU usage (webhooks are already
+ * handled in real-time by Pub/Sub push; this is only for retrying failures).
  * Supports both POST (QStash) and GET (Vercel Cron / manual) auth methods.
  */
 

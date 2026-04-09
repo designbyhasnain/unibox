@@ -5,7 +5,8 @@ import { syncManualEmails } from '../../../../src/services/manualEmailService';
 import { qstashReceiver } from '../../../../lib/qstash';
 
 /**
- * IMAP account polling — runs every 15 minutes via QStash.
+ * IMAP account polling — runs every 30 minutes via QStash.
+ * Changed from 15min to 30min to reduce CPU usage.
  * Syncs manual/IMAP accounts that haven't been synced recently.
  * Processes max 5 accounts per run to stay within Vercel timeout.
  *
@@ -27,8 +28,8 @@ async function syncImapAccounts(): Promise<{
     // Find IMAP accounts that need syncing:
     // - status = ACTIVE
     // - connection_method = MANUAL
-    // - last_synced_at is null (never synced) OR older than 15 minutes
-    const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    // - last_synced_at is null (never synced) OR older than 30 minutes
+    const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 
     const { data: accounts, error } = await supabase
         .from('gmail_accounts')
