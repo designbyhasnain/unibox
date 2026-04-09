@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '../../../src/lib/auth';
 import { JARVIS_TOOLS, JARVIS_SYSTEM_PROMPT, executeJarvisTool } from '../../../src/services/jarvisService';
 
+// Only send 6 essential tools to keep payload small (Groq rate limit friendly)
+const CORE_TOOLS = JARVIS_TOOLS.filter(t =>
+    ['search_contacts', 'get_contact_detail', 'get_morning_briefing', 'get_financial_health', 'create_campaign', 'assess_project_decision'].includes(t.function.name)
+);
+
 export async function POST(req: NextRequest) {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -11,30 +16,24 @@ export async function POST(req: NextRequest) {
     const groqKey = process.env.GROQ_API_KEY;
     if (!groqKey) return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 });
 
-    // Keep last 6 messages to avoid context overflow (Groq has 128K but tool results bloat fast)
+    // Keep last 6 messages
     const recentMessages = messages.slice(-6);
+
+    // First try WITHOUT tools — Jarvis has business data in system prompt
+    // Only use tools if the question requires live CRM lookup
+    const userMsg = recentMessages[recentMessages.length - 1]?.content?.toLowerCase() || '';
+    const needsTools = /search|find|look up|tell me about|who is|client named|create campaign|launch|draft email|morning brief|financial health|should we take|assess/.test(userMsg);
+
     const fullMessages = [
         { role: 'system', content: JARVIS_SYSTEM_PROMPT },
         ...recentMessages,
     ];
 
-    let maxIterations = 3; // Reduced from 5 to prevent context bloat
+    let maxIterations = 2;
     let currentMessages = [...fullMessages];
     const toolsUsed: string[] = [];
 
     while (maxIterations-- > 0) {
-        // Check context size — trim if too large
-        const contextSize = JSON.stringify(currentMessages).length;
-        if (contextSize > 60000) {
-            // Too large — trim tool results to summaries
-            currentMessages = currentMessages.map((m: any) => {
-                if (m.role === 'tool' && m.content && m.content.length > 500) {
-                    return { ...m, content: m.content.slice(0, 500) + '\n... (truncated)' };
-                }
-                return m;
-            });
-        }
-
         let response;
         try {
             response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -46,10 +45,9 @@ export async function POST(req: NextRequest) {
                 body: JSON.stringify({
                     model: 'llama-3.3-70b-versatile',
                     messages: currentMessages,
-                    tools: JARVIS_TOOLS,
-                    tool_choice: 'auto',
+                    ...(needsTools && maxIterations > 0 ? { tools: CORE_TOOLS, tool_choice: 'auto' } : {}),
                     temperature: 0.4,
-                    max_tokens: 2048,
+                    max_tokens: 1500,
                 }),
             });
         } catch (err) {
