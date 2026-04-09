@@ -1,257 +1,646 @@
 -- =============================================================================
--- UNIBOX — Row Level Security (RLS) Migration
+-- UNIBOX — Row Level Security (RLS) Migration — Defense-in-Depth
 -- =============================================================================
--- Defense-in-depth RLS policies for all 22+ tables.
 --
--- Architecture context:
---   - Server-side uses SUPABASE_SERVICE_ROLE_KEY → bypasses RLS automatically
---   - Client-side uses NEXT_PUBLIC_SUPABASE_ANON_KEY → subject to RLS
---   - Client-side ONLY accesses: email_messages (realtime + polling), gmail_accounts (join)
---   - App uses custom session auth (AES-256-CBC), NOT Supabase Auth
---   - auth.uid() returns NULL for all requests (no Supabase Auth users)
+-- Architecture:
+--   Server-side  → SUPABASE_SERVICE_ROLE_KEY → bypasses RLS automatically
+--   Client-side  → NEXT_PUBLIC_SUPABASE_ANON_KEY → subject to RLS
+--   Client usage → useRealtimeInbox: SELECT email_messages + join gmail_accounts
+--   Auth system  → Custom AES-256-CBC sessions (NOT Supabase Auth)
 --
--- Strategy:
---   1. Enable RLS on ALL tables (defense-in-depth)
---   2. Anon SELECT on email_messages + gmail_accounts (realtime subscriptions)
---   3. All other tables: RLS enabled + no anon policy = denied to anon
---   4. Service role bypasses RLS automatically (no explicit policies needed)
---   5. Authenticated role policies added for future Supabase Auth readiness
+-- Policy layers:
+--   1. service_role  → explicit USING (true) bypass on every table
+--   2. authenticated → scoped by auth.uid() = user_id (Supabase Auth readiness)
+--                      admins see all, SALES see only their assigned data
+--   3. anon          → SELECT only on email_messages + gmail_accounts (realtime)
+--                      BLOCKED on all other tables
 --
--- If the anon key leaks:
---   ✅ email_messages readable (already semi-public via tracking pixels)
---   ✅ gmail_accounts readable (only email + status, no tokens — tokens are encrypted)
+-- Helper functions:
+--   is_admin()                  → true if auth.uid() user has ADMIN role
+--   user_gmail_account_ids()    → array of gmail account IDs user can access
+--
+-- If anon key leaks:
+--   ✅ email_messages readable (semi-public via tracking pixels anyway)
+--   ✅ gmail_accounts readable (tokens are AES-256-GCM encrypted at rest)
 --   ❌ users, invitations, contacts, campaigns, projects — ALL BLOCKED
 --   ❌ No INSERT/UPDATE/DELETE on any table via anon
 --
--- Run with: psql $DATABASE_URL -f prisma/rls_migration.sql
--- Or paste into Supabase Dashboard → SQL Editor
+-- Run: psql "$DIRECT_URL" -f prisma/rls_migration.sql
+-- Or:  Supabase Dashboard → SQL Editor → paste & run
 -- =============================================================================
 
 BEGIN;
 
 -- =============================================================================
--- STEP 1: Enable RLS on all tables
+-- HELPER FUNCTIONS
 -- =============================================================================
--- Core tables (from Prisma schema)
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gmail_accounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_gmail_assignments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE email_threads ENABLE ROW LEVEL SECURITY;
-ALTER TABLE email_messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE activity_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ignored_senders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
-ALTER TABLE campaign_steps ENABLE ROW LEVEL SECURITY;
-ALTER TABLE campaign_variants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE campaign_contacts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE campaign_emails ENABLE ROW LEVEL SECURITY;
-ALTER TABLE unsubscribes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE campaign_analytics ENABLE ROW LEVEL SECURITY;
-ALTER TABLE webhook_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE campaign_send_queue ENABLE ROW LEVEL SECURITY;
-ALTER TABLE email_templates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE edit_projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE project_comments ENABLE ROW LEVEL SECURITY;
+-- SECURITY DEFINER = runs with owner privileges so it can read the users table
+-- STABLE = can be cached within a single query (performance)
 
--- Non-Prisma tables (exist in Supabase but not in schema.prisma)
--- Use DO block to handle tables that may not exist
+-- Check if the current Supabase Auth user is an admin
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.users
+        WHERE id = auth.uid()::text
+          AND role IN ('ADMIN')
+          AND status = 'ACTIVE'
+    );
+$$;
+
+-- Get gmail account IDs the current user can access
+-- Admins → all accounts. SALES → only assigned accounts.
+CREATE OR REPLACE FUNCTION public.user_gmail_account_ids()
+RETURNS text[]
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+    SELECT CASE
+        WHEN public.is_admin() THEN
+            ARRAY(SELECT id FROM public.gmail_accounts)
+        ELSE
+            ARRAY(
+                SELECT gmail_account_id
+                FROM public.user_gmail_assignments
+                WHERE user_id = auth.uid()::text
+            )
+    END;
+$$;
+
+-- Check if user owns or is admin for a specific gmail account
+CREATE OR REPLACE FUNCTION public.can_access_gmail_account(account_id text)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+    SELECT public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.user_gmail_assignments
+        WHERE user_id = auth.uid()::text
+          AND gmail_account_id = account_id
+    ) OR EXISTS (
+        SELECT 1 FROM public.gmail_accounts
+        WHERE id = account_id
+          AND user_id = auth.uid()::text
+    );
+$$;
+
+
+-- =============================================================================
+-- STEP 1: ENABLE RLS ON ALL TABLES
+-- =============================================================================
+
+ALTER TABLE public.users                    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contacts                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.gmail_accounts           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invitations              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_gmail_assignments   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_threads            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_messages           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.projects                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activity_logs            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ignored_senders          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaigns                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_steps           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_variants        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_contacts        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_emails          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.unsubscribes             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_analytics       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.webhook_events           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_send_queue      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_templates          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.edit_projects            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.project_comments         ENABLE ROW LEVEL SECURITY;
+
+-- Non-Prisma tables (may or may not exist)
 DO $$ BEGIN
-    EXECUTE 'ALTER TABLE competitor_mentions ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'ALTER TABLE public.competitor_mentions ENABLE ROW LEVEL SECURITY';
 EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 
 DO $$ BEGIN
-    EXECUTE 'ALTER TABLE projects_backup_20260329 ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'ALTER TABLE public.projects_backup_20260329 ENABLE ROW LEVEL SECURITY';
 EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 
 
 -- =============================================================================
--- STEP 2: Drop any existing policies (idempotent migration)
+-- STEP 2: DROP ALL EXISTING POLICIES (idempotent re-run)
 -- =============================================================================
--- Anon policies
-DROP POLICY IF EXISTS "anon_select_email_messages" ON email_messages;
-DROP POLICY IF EXISTS "anon_select_gmail_accounts" ON gmail_accounts;
 
--- Authenticated policies
-DROP POLICY IF EXISTS "auth_select_users" ON users;
-DROP POLICY IF EXISTS "auth_select_contacts" ON contacts;
-DROP POLICY IF EXISTS "auth_select_gmail_accounts" ON gmail_accounts;
-DROP POLICY IF EXISTS "auth_all_email_threads" ON email_threads;
-DROP POLICY IF EXISTS "auth_all_email_messages" ON email_messages;
-DROP POLICY IF EXISTS "auth_select_projects" ON projects;
-DROP POLICY IF EXISTS "auth_select_activity_logs" ON activity_logs;
-DROP POLICY IF EXISTS "auth_select_ignored_senders" ON ignored_senders;
-DROP POLICY IF EXISTS "auth_select_campaigns" ON campaigns;
-DROP POLICY IF EXISTS "auth_select_campaign_steps" ON campaign_steps;
-DROP POLICY IF EXISTS "auth_select_campaign_variants" ON campaign_variants;
-DROP POLICY IF EXISTS "auth_select_campaign_contacts" ON campaign_contacts;
-DROP POLICY IF EXISTS "auth_select_campaign_emails" ON campaign_emails;
-DROP POLICY IF EXISTS "auth_select_unsubscribes" ON unsubscribes;
-DROP POLICY IF EXISTS "auth_select_campaign_analytics" ON campaign_analytics;
-DROP POLICY IF EXISTS "auth_select_webhook_events" ON webhook_events;
-DROP POLICY IF EXISTS "auth_select_campaign_send_queue" ON campaign_send_queue;
-DROP POLICY IF EXISTS "auth_select_email_templates" ON email_templates;
-DROP POLICY IF EXISTS "auth_select_edit_projects" ON edit_projects;
-DROP POLICY IF EXISTS "auth_select_project_comments" ON project_comments;
-DROP POLICY IF EXISTS "auth_select_invitations" ON invitations;
-DROP POLICY IF EXISTS "auth_select_user_gmail_assignments" ON user_gmail_assignments;
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT policyname, tablename
+        FROM pg_policies
+        WHERE schemaname = 'public'
+    ) LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', r.policyname, r.tablename);
+    END LOOP;
+END $$;
 
 
 -- =============================================================================
--- STEP 3: Anon policies — ONLY for realtime/polling tables
+-- STEP 3: SERVICE_ROLE BYPASS POLICIES (explicit, all tables)
 -- =============================================================================
--- These two tables are accessed by the browser client (supabase-client.ts)
--- via useRealtimeInbox hook for realtime WebSocket subscriptions and polling.
---
--- SELECT only — no INSERT/UPDATE/DELETE via anon key.
--- Tokens in gmail_accounts are AES-256-GCM encrypted, so they're safe even if read.
+-- service_role bypasses RLS automatically in Supabase, but explicit policies
+-- serve as documentation and defense against misconfiguration.
 
--- email_messages: realtime subscriptions (INSERT/UPDATE/DELETE events) + polling queries
-CREATE POLICY "anon_select_email_messages"
-    ON email_messages
-    FOR SELECT
-    TO anon
-    USING (true);
+CREATE POLICY "service_role_all_users"
+    ON public.users FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- gmail_accounts: needed for join in polling query: gmail_accounts ( email )
--- Only exposes: id, email, status — tokens are encrypted at rest
-CREATE POLICY "anon_select_gmail_accounts"
-    ON gmail_accounts
-    FOR SELECT
-    TO anon
-    USING (true);
+CREATE POLICY "service_role_all_contacts"
+    ON public.contacts FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_gmail_accounts"
+    ON public.gmail_accounts FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_invitations"
+    ON public.invitations FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_user_gmail_assignments"
+    ON public.user_gmail_assignments FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_email_threads"
+    ON public.email_threads FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_email_messages"
+    ON public.email_messages FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_projects"
+    ON public.projects FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_activity_logs"
+    ON public.activity_logs FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_ignored_senders"
+    ON public.ignored_senders FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_campaigns"
+    ON public.campaigns FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_campaign_steps"
+    ON public.campaign_steps FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_campaign_variants"
+    ON public.campaign_variants FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_campaign_contacts"
+    ON public.campaign_contacts FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_campaign_emails"
+    ON public.campaign_emails FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_unsubscribes"
+    ON public.unsubscribes FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_campaign_analytics"
+    ON public.campaign_analytics FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_webhook_events"
+    ON public.webhook_events FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_campaign_send_queue"
+    ON public.campaign_send_queue FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_email_templates"
+    ON public.email_templates FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_edit_projects"
+    ON public.edit_projects FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "service_role_all_project_comments"
+    ON public.project_comments FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 
 -- =============================================================================
--- STEP 4: Authenticated role policies (future Supabase Auth readiness)
+-- STEP 4: AUTHENTICATED ROLE POLICIES (scoped by user_id)
 -- =============================================================================
--- Currently the app uses custom session auth + service_role key for all
--- server-side queries (bypasses RLS). These policies prepare for a future
--- migration to Supabase Auth where auth.uid() would return the user ID.
---
--- For now, authenticated role has full SELECT on all tables (since any
--- authenticated Supabase Auth user would be a valid app user).
+-- Uses auth.uid() for Supabase Auth readiness.
+-- Admins can see all data. SALES users scoped to their own data.
+-- Currently the app uses service_role for all server queries, so these
+-- only activate if/when the app migrates to Supabase Auth.
 
--- users: authenticated can read all users (team directory)
+-- ── users ──────────────────────────────────────────────────────────────────
+-- Users can read their own record. Admins can read all.
 CREATE POLICY "auth_select_users"
-    ON users FOR SELECT TO authenticated
-    USING (true);
+    ON public.users FOR SELECT TO authenticated
+    USING (
+        auth.uid()::text = id
+        OR public.is_admin()
+    );
+-- Users can update their own record only.
+CREATE POLICY "auth_update_users"
+    ON public.users FOR UPDATE TO authenticated
+    USING (auth.uid()::text = id)
+    WITH CHECK (auth.uid()::text = id);
 
--- contacts: authenticated can read all contacts
+-- ── contacts ───────────────────────────────────────────────────────────────
+-- Admins see all. SALES see contacts they manage or created.
 CREATE POLICY "auth_select_contacts"
-    ON contacts FOR SELECT TO authenticated
-    USING (true);
+    ON public.contacts FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR account_manager_id = auth.uid()::text
+    );
+CREATE POLICY "auth_insert_contacts"
+    ON public.contacts FOR INSERT TO authenticated
+    WITH CHECK (true);  -- any authenticated user can create contacts
+CREATE POLICY "auth_update_contacts"
+    ON public.contacts FOR UPDATE TO authenticated
+    USING (
+        public.is_admin()
+        OR account_manager_id = auth.uid()::text
+    );
+CREATE POLICY "auth_delete_contacts"
+    ON public.contacts FOR DELETE TO authenticated
+    USING (public.is_admin());
 
--- gmail_accounts: authenticated can read all accounts
+-- ── gmail_accounts ─────────────────────────────────────────────────────────
+-- Admins see all. Users see accounts they created or are assigned to.
 CREATE POLICY "auth_select_gmail_accounts"
-    ON gmail_accounts FOR SELECT TO authenticated
-    USING (true);
+    ON public.gmail_accounts FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR user_id = auth.uid()::text
+        OR id = ANY(public.user_gmail_account_ids())
+    );
+CREATE POLICY "auth_update_gmail_accounts"
+    ON public.gmail_accounts FOR UPDATE TO authenticated
+    USING (public.is_admin() OR user_id = auth.uid()::text);
+CREATE POLICY "auth_delete_gmail_accounts"
+    ON public.gmail_accounts FOR DELETE TO authenticated
+    USING (public.is_admin());
 
--- email_threads: authenticated can read all threads
-CREATE POLICY "auth_all_email_threads"
-    ON email_threads FOR SELECT TO authenticated
-    USING (true);
-
--- email_messages: authenticated can read all messages
-CREATE POLICY "auth_all_email_messages"
-    ON email_messages FOR SELECT TO authenticated
-    USING (true);
-
--- projects: authenticated can read all projects
-CREATE POLICY "auth_select_projects"
-    ON projects FOR SELECT TO authenticated
-    USING (true);
-
--- activity_logs: authenticated can read all logs
-CREATE POLICY "auth_select_activity_logs"
-    ON activity_logs FOR SELECT TO authenticated
-    USING (true);
-
--- ignored_senders: authenticated can read blocklist
-CREATE POLICY "auth_select_ignored_senders"
-    ON ignored_senders FOR SELECT TO authenticated
-    USING (true);
-
--- campaigns: authenticated can read all campaigns
-CREATE POLICY "auth_select_campaigns"
-    ON campaigns FOR SELECT TO authenticated
-    USING (true);
-
--- campaign_steps: authenticated can read all steps
-CREATE POLICY "auth_select_campaign_steps"
-    ON campaign_steps FOR SELECT TO authenticated
-    USING (true);
-
--- campaign_variants: authenticated can read all variants
-CREATE POLICY "auth_select_campaign_variants"
-    ON campaign_variants FOR SELECT TO authenticated
-    USING (true);
-
--- campaign_contacts: authenticated can read all enrollments
-CREATE POLICY "auth_select_campaign_contacts"
-    ON campaign_contacts FOR SELECT TO authenticated
-    USING (true);
-
--- campaign_emails: authenticated can read all campaign emails
-CREATE POLICY "auth_select_campaign_emails"
-    ON campaign_emails FOR SELECT TO authenticated
-    USING (true);
-
--- unsubscribes: authenticated can read unsubscribe list
-CREATE POLICY "auth_select_unsubscribes"
-    ON unsubscribes FOR SELECT TO authenticated
-    USING (true);
-
--- campaign_analytics: authenticated can read analytics
-CREATE POLICY "auth_select_campaign_analytics"
-    ON campaign_analytics FOR SELECT TO authenticated
-    USING (true);
-
--- webhook_events: authenticated can read webhook events
-CREATE POLICY "auth_select_webhook_events"
-    ON webhook_events FOR SELECT TO authenticated
-    USING (true);
-
--- campaign_send_queue: authenticated can read send queue
-CREATE POLICY "auth_select_campaign_send_queue"
-    ON campaign_send_queue FOR SELECT TO authenticated
-    USING (true);
-
--- email_templates: authenticated can read all templates
-CREATE POLICY "auth_select_email_templates"
-    ON email_templates FOR SELECT TO authenticated
-    USING (true);
-
--- edit_projects: authenticated can read all edit projects
-CREATE POLICY "auth_select_edit_projects"
-    ON edit_projects FOR SELECT TO authenticated
-    USING (true);
-
--- project_comments: authenticated can read all comments
-CREATE POLICY "auth_select_project_comments"
-    ON project_comments FOR SELECT TO authenticated
-    USING (true);
-
--- invitations: authenticated can read invitations
+-- ── invitations ────────────────────────────────────────────────────────────
+-- Only admins can see/manage invitations. Token column is sensitive.
 CREATE POLICY "auth_select_invitations"
-    ON invitations FOR SELECT TO authenticated
-    USING (true);
+    ON public.invitations FOR SELECT TO authenticated
+    USING (public.is_admin());
+CREATE POLICY "auth_insert_invitations"
+    ON public.invitations FOR INSERT TO authenticated
+    WITH CHECK (public.is_admin());
+CREATE POLICY "auth_update_invitations"
+    ON public.invitations FOR UPDATE TO authenticated
+    USING (public.is_admin());
+CREATE POLICY "auth_delete_invitations"
+    ON public.invitations FOR DELETE TO authenticated
+    USING (public.is_admin());
 
--- user_gmail_assignments: authenticated can read assignments
+-- ── user_gmail_assignments ─────────────────────────────────────────────────
+-- Admins see all. Users can see their own assignments.
 CREATE POLICY "auth_select_user_gmail_assignments"
-    ON user_gmail_assignments FOR SELECT TO authenticated
+    ON public.user_gmail_assignments FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR user_id = auth.uid()::text
+    );
+CREATE POLICY "auth_insert_user_gmail_assignments"
+    ON public.user_gmail_assignments FOR INSERT TO authenticated
+    WITH CHECK (public.is_admin());
+CREATE POLICY "auth_delete_user_gmail_assignments"
+    ON public.user_gmail_assignments FOR DELETE TO authenticated
+    USING (public.is_admin());
+
+-- ── email_threads ──────────────────────────────────────────────────────────
+-- Admins see all. Users see threads containing messages from their accounts.
+CREATE POLICY "auth_select_email_threads"
+    ON public.email_threads FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.email_messages em
+            WHERE em.thread_id = email_threads.id
+              AND em.gmail_account_id = ANY(public.user_gmail_account_ids())
+        )
+    );
+
+-- ── email_messages ─────────────────────────────────────────────────────────
+-- Admins see all. Users see messages from their accessible gmail accounts.
+CREATE POLICY "auth_select_email_messages"
+    ON public.email_messages FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR gmail_account_id = ANY(public.user_gmail_account_ids())
+    );
+CREATE POLICY "auth_update_email_messages"
+    ON public.email_messages FOR UPDATE TO authenticated
+    USING (
+        public.is_admin()
+        OR gmail_account_id = ANY(public.user_gmail_account_ids())
+    );
+CREATE POLICY "auth_delete_email_messages"
+    ON public.email_messages FOR DELETE TO authenticated
+    USING (public.is_admin());
+
+-- ── projects ───────────────────────────────────────────────────────────────
+-- Admins see all. Users see projects they manage.
+CREATE POLICY "auth_select_projects"
+    ON public.projects FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR account_manager_id = auth.uid()::text
+    );
+CREATE POLICY "auth_insert_projects"
+    ON public.projects FOR INSERT TO authenticated
+    WITH CHECK (true);
+CREATE POLICY "auth_update_projects"
+    ON public.projects FOR UPDATE TO authenticated
+    USING (
+        public.is_admin()
+        OR account_manager_id = auth.uid()::text
+    );
+CREATE POLICY "auth_delete_projects"
+    ON public.projects FOR DELETE TO authenticated
+    USING (public.is_admin());
+
+-- ── activity_logs ──────────────────────────────────────────────────────────
+-- Admins see all. Users see logs for contacts they manage.
+CREATE POLICY "auth_select_activity_logs"
+    ON public.activity_logs FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR performed_by = auth.uid()::text
+        OR EXISTS (
+            SELECT 1 FROM public.contacts c
+            WHERE c.id = activity_logs.contact_id
+              AND c.account_manager_id = auth.uid()::text
+        )
+    );
+CREATE POLICY "auth_insert_activity_logs"
+    ON public.activity_logs FOR INSERT TO authenticated
+    WITH CHECK (true);
+
+-- ── ignored_senders ────────────────────────────────────────────────────────
+-- Global blocklist. All authenticated users can read. Only admins can modify.
+CREATE POLICY "auth_select_ignored_senders"
+    ON public.ignored_senders FOR SELECT TO authenticated
+    USING (true);
+CREATE POLICY "auth_insert_ignored_senders"
+    ON public.ignored_senders FOR INSERT TO authenticated
+    WITH CHECK (true);
+CREATE POLICY "auth_delete_ignored_senders"
+    ON public.ignored_senders FOR DELETE TO authenticated
+    USING (public.is_admin());
+
+-- ── campaigns ──────────────────────────────────────────────────────────────
+-- Admins see all. Users see campaigns they created.
+CREATE POLICY "auth_select_campaigns"
+    ON public.campaigns FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR created_by_id = auth.uid()::text
+    );
+CREATE POLICY "auth_insert_campaigns"
+    ON public.campaigns FOR INSERT TO authenticated
+    WITH CHECK (true);
+CREATE POLICY "auth_update_campaigns"
+    ON public.campaigns FOR UPDATE TO authenticated
+    USING (
+        public.is_admin()
+        OR created_by_id = auth.uid()::text
+    );
+CREATE POLICY "auth_delete_campaigns"
+    ON public.campaigns FOR DELETE TO authenticated
+    USING (public.is_admin());
+
+-- ── campaign_steps ─────────────────────────────────────────────────────────
+-- Scoped via parent campaign ownership.
+CREATE POLICY "auth_select_campaign_steps"
+    ON public.campaign_steps FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.campaigns c
+            WHERE c.id = campaign_steps.campaign_id
+              AND c.created_by_id = auth.uid()::text
+        )
+    );
+CREATE POLICY "auth_insert_campaign_steps"
+    ON public.campaign_steps FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.campaigns c
+            WHERE c.id = campaign_id
+              AND (c.created_by_id = auth.uid()::text OR public.is_admin())
+        )
+    );
+CREATE POLICY "auth_update_campaign_steps"
+    ON public.campaign_steps FOR UPDATE TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.campaigns c
+            WHERE c.id = campaign_steps.campaign_id
+              AND c.created_by_id = auth.uid()::text
+        )
+    );
+CREATE POLICY "auth_delete_campaign_steps"
+    ON public.campaign_steps FOR DELETE TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.campaigns c
+            WHERE c.id = campaign_steps.campaign_id
+              AND c.created_by_id = auth.uid()::text
+        )
+    );
+
+-- ── campaign_variants ──────────────────────────────────────────────────────
+-- Scoped via parent step → campaign ownership.
+CREATE POLICY "auth_select_campaign_variants"
+    ON public.campaign_variants FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.campaign_steps cs
+            JOIN public.campaigns c ON c.id = cs.campaign_id
+            WHERE cs.id = campaign_variants.step_id
+              AND c.created_by_id = auth.uid()::text
+        )
+    );
+CREATE POLICY "auth_all_campaign_variants"
+    ON public.campaign_variants FOR INSERT TO authenticated
+    WITH CHECK (true);
+
+-- ── campaign_contacts ──────────────────────────────────────────────────────
+-- Scoped via parent campaign ownership.
+CREATE POLICY "auth_select_campaign_contacts"
+    ON public.campaign_contacts FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.campaigns c
+            WHERE c.id = campaign_contacts.campaign_id
+              AND c.created_by_id = auth.uid()::text
+        )
+    );
+CREATE POLICY "auth_insert_campaign_contacts"
+    ON public.campaign_contacts FOR INSERT TO authenticated
+    WITH CHECK (true);
+CREATE POLICY "auth_update_campaign_contacts"
+    ON public.campaign_contacts FOR UPDATE TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.campaigns c
+            WHERE c.id = campaign_contacts.campaign_id
+              AND c.created_by_id = auth.uid()::text
+        )
+    );
+
+-- ── campaign_emails ────────────────────────────────────────────────────────
+-- Scoped via parent campaign ownership.
+CREATE POLICY "auth_select_campaign_emails"
+    ON public.campaign_emails FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.campaigns c
+            WHERE c.id = campaign_emails.campaign_id
+              AND c.created_by_id = auth.uid()::text
+        )
+    );
+
+-- ── unsubscribes ───────────────────────────────────────────────────────────
+-- Global list. All authenticated can read. Insert open (unsubscribe handler).
+CREATE POLICY "auth_select_unsubscribes"
+    ON public.unsubscribes FOR SELECT TO authenticated
+    USING (true);
+CREATE POLICY "auth_insert_unsubscribes"
+    ON public.unsubscribes FOR INSERT TO authenticated
+    WITH CHECK (true);
+
+-- ── campaign_analytics ─────────────────────────────────────────────────────
+-- Scoped via parent campaign ownership.
+CREATE POLICY "auth_select_campaign_analytics"
+    ON public.campaign_analytics FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.campaigns c
+            WHERE c.id = campaign_analytics.campaign_id
+              AND c.created_by_id = auth.uid()::text
+        )
+    );
+
+-- ── webhook_events ─────────────────────────────────────────────────────────
+-- System table. Admins only.
+CREATE POLICY "auth_select_webhook_events"
+    ON public.webhook_events FOR SELECT TO authenticated
+    USING (public.is_admin());
+
+-- ── campaign_send_queue ────────────────────────────────────────────────────
+-- System table. Admins only.
+CREATE POLICY "auth_select_campaign_send_queue"
+    ON public.campaign_send_queue FOR SELECT TO authenticated
+    USING (public.is_admin());
+
+-- ── email_templates ────────────────────────────────────────────────────────
+-- Users see their own templates + shared ones. Admins see all.
+CREATE POLICY "auth_select_email_templates"
+    ON public.email_templates FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR created_by_id = auth.uid()::text
+        OR is_shared = true
+    );
+CREATE POLICY "auth_insert_email_templates"
+    ON public.email_templates FOR INSERT TO authenticated
+    WITH CHECK (created_by_id = auth.uid()::text);
+CREATE POLICY "auth_update_email_templates"
+    ON public.email_templates FOR UPDATE TO authenticated
+    USING (
+        public.is_admin()
+        OR created_by_id = auth.uid()::text
+    );
+CREATE POLICY "auth_delete_email_templates"
+    ON public.email_templates FOR DELETE TO authenticated
+    USING (
+        public.is_admin()
+        OR created_by_id = auth.uid()::text
+    );
+
+-- ── edit_projects ──────────────────────────────────────────────────────────
+-- Users see their own edit projects. Admins see all.
+CREATE POLICY "auth_select_edit_projects"
+    ON public.edit_projects FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR user_id = auth.uid()::text
+    );
+CREATE POLICY "auth_insert_edit_projects"
+    ON public.edit_projects FOR INSERT TO authenticated
+    WITH CHECK (user_id = auth.uid()::text);
+CREATE POLICY "auth_update_edit_projects"
+    ON public.edit_projects FOR UPDATE TO authenticated
+    USING (
+        public.is_admin()
+        OR user_id = auth.uid()::text
+    );
+CREATE POLICY "auth_delete_edit_projects"
+    ON public.edit_projects FOR DELETE TO authenticated
+    USING (public.is_admin());
+
+-- ── project_comments ───────────────────────────────────────────────────────
+-- Scoped via parent edit_project ownership.
+CREATE POLICY "auth_select_project_comments"
+    ON public.project_comments FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR EXISTS (
+            SELECT 1 FROM public.edit_projects ep
+            WHERE ep.id = project_comments.project_id
+              AND ep.user_id = auth.uid()::text
+        )
+    );
+CREATE POLICY "auth_insert_project_comments"
+    ON public.project_comments FOR INSERT TO authenticated
+    WITH CHECK (true);
+
+
+-- =============================================================================
+-- STEP 5: ANON POLICIES — ONLY for realtime/polling tables
+-- =============================================================================
+-- The anon key is used ONLY by useRealtimeInbox.ts for:
+--   1. Realtime WebSocket subscriptions on email_messages (INSERT/UPDATE/DELETE)
+--   2. Polling queries: SELECT from email_messages with join to gmail_accounts
+--
+-- SELECT only. No INSERT/UPDATE/DELETE via anon.
+-- All other tables: RLS enabled + no anon policy = DENIED.
+
+-- email_messages: realtime subscriptions + polling queries
+-- Anon can read all messages (filtered client-side by gmail_account_id).
+-- Risk is acceptable: email content is semi-public (tracking pixels expose opens),
+-- and the anon key is only sent to authenticated browser sessions.
+CREATE POLICY "anon_select_email_messages"
+    ON public.email_messages
+    FOR SELECT
+    TO anon
+    USING (true);
+
+-- gmail_accounts: needed for FK join in polling query: gmail_accounts ( email )
+-- Only exposes id, email, status — OAuth tokens are AES-256-GCM encrypted.
+CREATE POLICY "anon_select_gmail_accounts"
+    ON public.gmail_accounts
+    FOR SELECT
+    TO anon
     USING (true);
 
 
 -- =============================================================================
--- STEP 5: Verify RLS is enabled on all tables
+-- STEP 6: VERIFICATION
 -- =============================================================================
--- This query returns any tables in public schema that do NOT have RLS enabled.
--- Should return 0 rows after this migration.
+
+-- Check all public tables have RLS enabled
 DO $$
 DECLARE
     unprotected_count INTEGER;
@@ -263,40 +652,47 @@ BEGIN
     WHERE schemaname = 'public'
       AND tablename NOT LIKE '_prisma_%'
       AND tablename NOT LIKE 'pg_%'
-      AND tablename NOT IN (
-          SELECT relname::text FROM pg_class
-          WHERE relrowsecurity = true
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_class
+          WHERE relname = pg_tables.tablename
+            AND relnamespace = 'public'::regnamespace
+            AND relrowsecurity = true
       );
 
     IF unprotected_count > 0 THEN
-        RAISE WARNING 'RLS NOT enabled on % table(s): %', unprotected_count, unprotected_tables;
+        RAISE WARNING '[RLS] Tables WITHOUT RLS (% found): %', unprotected_count, unprotected_tables;
     ELSE
-        RAISE NOTICE 'RLS verification passed: all public tables have RLS enabled.';
+        RAISE NOTICE '[RLS] All public tables have RLS enabled.';
     END IF;
 END $$;
 
-
--- =============================================================================
--- STEP 6: Summary of security posture
--- =============================================================================
--- Print policy summary for audit
+-- Count policies per table
 DO $$
 DECLARE
-    policy_count INTEGER;
+    r RECORD;
+    total INTEGER := 0;
 BEGIN
-    SELECT count(*) INTO policy_count FROM pg_policies WHERE schemaname = 'public';
-    RAISE NOTICE 'Total RLS policies in public schema: %', policy_count;
     RAISE NOTICE '';
-    RAISE NOTICE 'Security posture after migration:';
-    RAISE NOTICE '  anon role:          SELECT on email_messages, gmail_accounts ONLY';
-    RAISE NOTICE '  authenticated role: SELECT on all tables (future Supabase Auth readiness)';
-    RAISE NOTICE '  service_role:       FULL ACCESS (bypasses RLS automatically)';
-    RAISE NOTICE '  All other access:   DENIED (RLS enabled, no matching policy)';
+    RAISE NOTICE '=== RLS POLICY SUMMARY ===';
     RAISE NOTICE '';
-    RAISE NOTICE 'Sensitive tables fully blocked from anon:';
-    RAISE NOTICE '  users, contacts, invitations, campaigns, projects,';
-    RAISE NOTICE '  user_gmail_assignments, email_templates, webhook_events,';
-    RAISE NOTICE '  campaign_send_queue, edit_projects, project_comments';
+    FOR r IN (
+        SELECT tablename, count(*) as cnt
+        FROM pg_policies
+        WHERE schemaname = 'public'
+        GROUP BY tablename
+        ORDER BY tablename
+    ) LOOP
+        RAISE NOTICE '  %-35s %s policies', r.tablename, r.cnt;
+        total := total + r.cnt;
+    END LOOP;
+    RAISE NOTICE '';
+    RAISE NOTICE '  TOTAL: % policies across all tables', total;
+    RAISE NOTICE '';
+    RAISE NOTICE '=== SECURITY POSTURE ===';
+    RAISE NOTICE '  anon:          SELECT on email_messages + gmail_accounts ONLY';
+    RAISE NOTICE '  authenticated: Scoped by auth.uid() (admin=all, sales=own data)';
+    RAISE NOTICE '  service_role:  Explicit USING(true) on ALL tables + auto-bypass';
+    RAISE NOTICE '  All other:     DENIED (RLS enabled, no matching policy)';
 END $$;
 
 COMMIT;
