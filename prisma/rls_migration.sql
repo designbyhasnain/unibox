@@ -46,7 +46,7 @@ STABLE
 AS $$
     SELECT EXISTS (
         SELECT 1 FROM public.users
-        WHERE id = auth.uid()::text
+        WHERE id = auth.uid()
           AND role IN ('ADMIN')
           AND status = 'ACTIVE'
     );
@@ -55,7 +55,7 @@ $$;
 -- Get gmail account IDs the current user can access
 -- Admins → all accounts. SALES → only assigned accounts.
 CREATE OR REPLACE FUNCTION public.user_gmail_account_ids()
-RETURNS text[]
+RETURNS uuid[]
 LANGUAGE sql
 SECURITY DEFINER
 STABLE
@@ -67,13 +67,13 @@ AS $$
             ARRAY(
                 SELECT gmail_account_id
                 FROM public.user_gmail_assignments
-                WHERE user_id = auth.uid()::text
+                WHERE user_id = auth.uid()
             )
     END;
 $$;
 
 -- Check if user owns or is admin for a specific gmail account
-CREATE OR REPLACE FUNCTION public.can_access_gmail_account(account_id text)
+CREATE OR REPLACE FUNCTION public.can_access_gmail_account(account_id uuid)
 RETURNS boolean
 LANGUAGE sql
 SECURITY DEFINER
@@ -81,12 +81,12 @@ STABLE
 AS $$
     SELECT public.is_admin() OR EXISTS (
         SELECT 1 FROM public.user_gmail_assignments
-        WHERE user_id = auth.uid()::text
+        WHERE user_id = auth.uid()
           AND gmail_account_id = account_id
     ) OR EXISTS (
         SELECT 1 FROM public.gmail_accounts
         WHERE id = account_id
-          AND user_id = auth.uid()::text
+          AND user_id = auth.uid()
     );
 $$;
 
@@ -234,14 +234,14 @@ CREATE POLICY "service_role_all_project_comments"
 CREATE POLICY "auth_select_users"
     ON public.users FOR SELECT TO authenticated
     USING (
-        auth.uid()::text = id
+        auth.uid() = id
         OR public.is_admin()
     );
 -- Users can update their own record only.
 CREATE POLICY "auth_update_users"
     ON public.users FOR UPDATE TO authenticated
-    USING (auth.uid()::text = id)
-    WITH CHECK (auth.uid()::text = id);
+    USING (auth.uid() = id)
+    WITH CHECK (auth.uid() = id);
 
 -- ── contacts ───────────────────────────────────────────────────────────────
 -- Admins see all. SALES see contacts they manage or created.
@@ -249,7 +249,7 @@ CREATE POLICY "auth_select_contacts"
     ON public.contacts FOR SELECT TO authenticated
     USING (
         public.is_admin()
-        OR account_manager_id = auth.uid()::text
+        OR account_manager_id = auth.uid()
     );
 CREATE POLICY "auth_insert_contacts"
     ON public.contacts FOR INSERT TO authenticated
@@ -258,7 +258,7 @@ CREATE POLICY "auth_update_contacts"
     ON public.contacts FOR UPDATE TO authenticated
     USING (
         public.is_admin()
-        OR account_manager_id = auth.uid()::text
+        OR account_manager_id = auth.uid()
     );
 CREATE POLICY "auth_delete_contacts"
     ON public.contacts FOR DELETE TO authenticated
@@ -270,12 +270,12 @@ CREATE POLICY "auth_select_gmail_accounts"
     ON public.gmail_accounts FOR SELECT TO authenticated
     USING (
         public.is_admin()
-        OR user_id = auth.uid()::text
+        OR user_id = auth.uid()
         OR id = ANY(public.user_gmail_account_ids())
     );
 CREATE POLICY "auth_update_gmail_accounts"
     ON public.gmail_accounts FOR UPDATE TO authenticated
-    USING (public.is_admin() OR user_id = auth.uid()::text);
+    USING (public.is_admin() OR user_id = auth.uid());
 CREATE POLICY "auth_delete_gmail_accounts"
     ON public.gmail_accounts FOR DELETE TO authenticated
     USING (public.is_admin());
@@ -301,7 +301,7 @@ CREATE POLICY "auth_select_user_gmail_assignments"
     ON public.user_gmail_assignments FOR SELECT TO authenticated
     USING (
         public.is_admin()
-        OR user_id = auth.uid()::text
+        OR user_id = auth.uid()
     );
 CREATE POLICY "auth_insert_user_gmail_assignments"
     ON public.user_gmail_assignments FOR INSERT TO authenticated
@@ -347,7 +347,7 @@ CREATE POLICY "auth_select_projects"
     ON public.projects FOR SELECT TO authenticated
     USING (
         public.is_admin()
-        OR account_manager_id = auth.uid()::text
+        OR account_manager_id = auth.uid()
     );
 CREATE POLICY "auth_insert_projects"
     ON public.projects FOR INSERT TO authenticated
@@ -356,7 +356,7 @@ CREATE POLICY "auth_update_projects"
     ON public.projects FOR UPDATE TO authenticated
     USING (
         public.is_admin()
-        OR account_manager_id = auth.uid()::text
+        OR account_manager_id = auth.uid()
     );
 CREATE POLICY "auth_delete_projects"
     ON public.projects FOR DELETE TO authenticated
@@ -368,11 +368,11 @@ CREATE POLICY "auth_select_activity_logs"
     ON public.activity_logs FOR SELECT TO authenticated
     USING (
         public.is_admin()
-        OR performed_by = auth.uid()::text
+        OR performed_by = auth.uid()
         OR EXISTS (
             SELECT 1 FROM public.contacts c
             WHERE c.id = activity_logs.contact_id
-              AND c.account_manager_id = auth.uid()::text
+              AND c.account_manager_id = auth.uid()
         )
     );
 CREATE POLICY "auth_insert_activity_logs"
@@ -397,7 +397,7 @@ CREATE POLICY "auth_select_campaigns"
     ON public.campaigns FOR SELECT TO authenticated
     USING (
         public.is_admin()
-        OR created_by_id = auth.uid()::text
+        OR created_by_id = auth.uid()
     );
 CREATE POLICY "auth_insert_campaigns"
     ON public.campaigns FOR INSERT TO authenticated
@@ -406,7 +406,7 @@ CREATE POLICY "auth_update_campaigns"
     ON public.campaigns FOR UPDATE TO authenticated
     USING (
         public.is_admin()
-        OR created_by_id = auth.uid()::text
+        OR created_by_id = auth.uid()
     );
 CREATE POLICY "auth_delete_campaigns"
     ON public.campaigns FOR DELETE TO authenticated
@@ -421,7 +421,7 @@ CREATE POLICY "auth_select_campaign_steps"
         OR EXISTS (
             SELECT 1 FROM public.campaigns c
             WHERE c.id = campaign_steps.campaign_id
-              AND c.created_by_id = auth.uid()::text
+              AND c.created_by_id = auth.uid()
         )
     );
 CREATE POLICY "auth_insert_campaign_steps"
@@ -430,7 +430,7 @@ CREATE POLICY "auth_insert_campaign_steps"
         EXISTS (
             SELECT 1 FROM public.campaigns c
             WHERE c.id = campaign_id
-              AND (c.created_by_id = auth.uid()::text OR public.is_admin())
+              AND (c.created_by_id = auth.uid() OR public.is_admin())
         )
     );
 CREATE POLICY "auth_update_campaign_steps"
@@ -440,7 +440,7 @@ CREATE POLICY "auth_update_campaign_steps"
         OR EXISTS (
             SELECT 1 FROM public.campaigns c
             WHERE c.id = campaign_steps.campaign_id
-              AND c.created_by_id = auth.uid()::text
+              AND c.created_by_id = auth.uid()
         )
     );
 CREATE POLICY "auth_delete_campaign_steps"
@@ -450,7 +450,7 @@ CREATE POLICY "auth_delete_campaign_steps"
         OR EXISTS (
             SELECT 1 FROM public.campaigns c
             WHERE c.id = campaign_steps.campaign_id
-              AND c.created_by_id = auth.uid()::text
+              AND c.created_by_id = auth.uid()
         )
     );
 
@@ -464,7 +464,7 @@ CREATE POLICY "auth_select_campaign_variants"
             SELECT 1 FROM public.campaign_steps cs
             JOIN public.campaigns c ON c.id = cs.campaign_id
             WHERE cs.id = campaign_variants.step_id
-              AND c.created_by_id = auth.uid()::text
+              AND c.created_by_id = auth.uid()
         )
     );
 CREATE POLICY "auth_all_campaign_variants"
@@ -480,7 +480,7 @@ CREATE POLICY "auth_select_campaign_contacts"
         OR EXISTS (
             SELECT 1 FROM public.campaigns c
             WHERE c.id = campaign_contacts.campaign_id
-              AND c.created_by_id = auth.uid()::text
+              AND c.created_by_id = auth.uid()
         )
     );
 CREATE POLICY "auth_insert_campaign_contacts"
@@ -493,7 +493,7 @@ CREATE POLICY "auth_update_campaign_contacts"
         OR EXISTS (
             SELECT 1 FROM public.campaigns c
             WHERE c.id = campaign_contacts.campaign_id
-              AND c.created_by_id = auth.uid()::text
+              AND c.created_by_id = auth.uid()
         )
     );
 
@@ -506,7 +506,7 @@ CREATE POLICY "auth_select_campaign_emails"
         OR EXISTS (
             SELECT 1 FROM public.campaigns c
             WHERE c.id = campaign_emails.campaign_id
-              AND c.created_by_id = auth.uid()::text
+              AND c.created_by_id = auth.uid()
         )
     );
 
@@ -528,7 +528,7 @@ CREATE POLICY "auth_select_campaign_analytics"
         OR EXISTS (
             SELECT 1 FROM public.campaigns c
             WHERE c.id = campaign_analytics.campaign_id
-              AND c.created_by_id = auth.uid()::text
+              AND c.created_by_id = auth.uid()
         )
     );
 
@@ -550,23 +550,23 @@ CREATE POLICY "auth_select_email_templates"
     ON public.email_templates FOR SELECT TO authenticated
     USING (
         public.is_admin()
-        OR created_by_id = auth.uid()::text
+        OR created_by_id = auth.uid()
         OR is_shared = true
     );
 CREATE POLICY "auth_insert_email_templates"
     ON public.email_templates FOR INSERT TO authenticated
-    WITH CHECK (created_by_id = auth.uid()::text);
+    WITH CHECK (created_by_id = auth.uid());
 CREATE POLICY "auth_update_email_templates"
     ON public.email_templates FOR UPDATE TO authenticated
     USING (
         public.is_admin()
-        OR created_by_id = auth.uid()::text
+        OR created_by_id = auth.uid()
     );
 CREATE POLICY "auth_delete_email_templates"
     ON public.email_templates FOR DELETE TO authenticated
     USING (
         public.is_admin()
-        OR created_by_id = auth.uid()::text
+        OR created_by_id = auth.uid()
     );
 
 -- ── edit_projects ──────────────────────────────────────────────────────────
@@ -575,16 +575,16 @@ CREATE POLICY "auth_select_edit_projects"
     ON public.edit_projects FOR SELECT TO authenticated
     USING (
         public.is_admin()
-        OR user_id = auth.uid()::text
+        OR user_id = auth.uid()
     );
 CREATE POLICY "auth_insert_edit_projects"
     ON public.edit_projects FOR INSERT TO authenticated
-    WITH CHECK (user_id = auth.uid()::text);
+    WITH CHECK (user_id = auth.uid());
 CREATE POLICY "auth_update_edit_projects"
     ON public.edit_projects FOR UPDATE TO authenticated
     USING (
         public.is_admin()
-        OR user_id = auth.uid()::text
+        OR user_id = auth.uid()
     );
 CREATE POLICY "auth_delete_edit_projects"
     ON public.edit_projects FOR DELETE TO authenticated
@@ -599,7 +599,7 @@ CREATE POLICY "auth_select_project_comments"
         OR EXISTS (
             SELECT 1 FROM public.edit_projects ep
             WHERE ep.id = project_comments.project_id
-              AND ep.user_id = auth.uid()::text
+              AND ep.user_id = auth.uid()
         )
     );
 CREATE POLICY "auth_insert_project_comments"
