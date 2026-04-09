@@ -59,7 +59,11 @@
       "Bash(netstat -ano)",
       "Bash(wmic process:*)",
       "Bash(tasklist /FI \"PID eq 13156\" /V /FO LIST)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git rebase:*)",
+      "Bash(GIT_EDITOR=true git rebase --continue)",
+      "Bash(git checkout:*)"
     ]
   }
 }

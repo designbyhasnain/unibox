@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '../../../src/lib/auth';
 import { JARVIS_TOOLS, JARVIS_SYSTEM_PROMPT, executeJarvisTool } from '../../../src/services/jarvisService';
 
-// Only send 6 essential tools to keep payload small (Groq rate limit friendly)
-const CORE_TOOLS = JARVIS_TOOLS.filter(t =>
-    ['search_contacts', 'get_contact_detail', 'get_morning_briefing', 'get_financial_health', 'create_campaign', 'assess_project_decision'].includes(t.function.name)
-);
-
 export async function POST(req: NextRequest) {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -16,25 +11,33 @@ export async function POST(req: NextRequest) {
     const groqKey = process.env.GROQ_API_KEY;
     if (!groqKey) return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 });
 
-    // Keep last 6 messages
+    // Keep last 6 messages to avoid context overflow (Groq has 128K but tool results bloat fast)
     const recentMessages = messages.slice(-6);
-
-    // First try WITHOUT tools — Jarvis has business data in system prompt
-    // Only use tools if the question requires live CRM lookup
-    const userMsg = recentMessages[recentMessages.length - 1]?.content?.toLowerCase() || '';
-    const needsTools = /search|find|look up|tell me about|who is|client named|create campaign|launch|draft email|morning brief|financial health|should we take|assess/.test(userMsg);
-
     const fullMessages = [
         { role: 'system', content: JARVIS_SYSTEM_PROMPT },
         ...recentMessages,
     ];
 
-    let maxIterations = 2;
+    let maxIterations = 3; // Reduced from 5 to prevent context bloat
     let currentMessages = [...fullMessages];
     const toolsUsed: string[] = [];
 
     while (maxIterations-- > 0) {
-        let response;
+        // Check context size — trim if too large
+        const contextSize = JSON.stringify(currentMessages).length;
+        if (contextSize > 60000) {
+            currentMessages = currentMessages.map((m: any) => {
+                if (m.role === 'tool' && m.content && m.content.length > 500) {
+                    return { ...m, content: m.content.slice(0, 500) + '\n... (truncated)' };
+                }
+                return m;
+            });
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 25_000); // 25s timeout
+
+        let response: Response;
         try {
             response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                 method: 'POST',
@@ -45,14 +48,34 @@ export async function POST(req: NextRequest) {
                 body: JSON.stringify({
                     model: 'llama-3.3-70b-versatile',
                     messages: currentMessages,
-                    ...(needsTools && maxIterations > 0 ? { tools: CORE_TOOLS, tool_choice: 'auto' } : {}),
+                    tools: JARVIS_TOOLS,
+                    tool_choice: 'auto',
                     temperature: 0.4,
-                    max_tokens: 1500,
+                    max_tokens: 2048,
                 }),
+                signal: controller.signal,
             });
-        } catch (err) {
-            console.error('[Jarvis] Fetch error:', err);
-            return NextResponse.json({ error: 'Failed to connect to AI service' }, { status: 502 });
+        } catch (fetchErr: unknown) {
+            clearTimeout(timeout);
+            const isAbort = fetchErr instanceof Error && fetchErr.name === 'AbortError';
+            // On timeout or network error, return collected tool results if any
+            if (toolsUsed.length > 0) {
+                const toolResults = currentMessages
+                    .filter((m: any) => m.role === 'tool')
+                    .map((m: any) => m.content)
+                    .join('\n\n')
+                    .slice(0, 3000);
+                return NextResponse.json({
+                    reply: `Here's what I found:\n\n${toolResults}`,
+                    toolsUsed,
+                });
+            }
+            return NextResponse.json(
+                { error: isAbort ? 'AI request timed out. Try a simpler question.' : 'AI service unreachable' },
+                { status: 504 }
+            );
+        } finally {
+            clearTimeout(timeout);
         }
 
         if (!response.ok) {

@@ -9,7 +9,13 @@ export async function POST(req: NextRequest) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: 'ELEVENLABS_API_KEY not set' }, { status: 500 });
+    if (!apiKey) {
+        // ElevenLabs not configured — client should fall back to browser TTS
+        return NextResponse.json(
+            { error: 'TTS not configured. Use browser voice instead.' },
+            { status: 501 }
+        );
+    }
 
     const { text, voiceId } = await req.json();
     if (!text || text.trim().length === 0) {
