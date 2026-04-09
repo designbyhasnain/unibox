@@ -7,6 +7,7 @@ import { useGlobalFilter } from '../context/FilterContext';
 import { usePrefetch } from '../hooks/usePrefetch';
 import Sidebar from './Sidebar';
 import ComposeModal from './ComposeModal';
+import JarvisVoiceOrb from './JarvisVoiceOrb';
 import { ErrorBoundary } from './ErrorBoundary';
 interface ClientLayoutProps {
     children: React.ReactNode;
@@ -57,6 +58,7 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
                     />
                 </ErrorBoundary>
             )}
+            <JarvisVoiceOrb />
         </>
     );
 }
