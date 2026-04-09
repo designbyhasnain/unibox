@@ -1,6 +1,7 @@
 'use client';
 
-import { useReducer, useEffect, useCallback, useRef } from 'react';
+import { useReducer, useEffect, useCallback, useRef, useState } from 'react';
+import { useIdleDetection } from './useIdleDetection';
 import {
     getInboxEmailsAction,
     getInboxWithCountsAction,
@@ -223,6 +224,9 @@ function mailboxReducer(state: MailboxState, action: MailboxAction): MailboxStat
 }
 
 export function useMailbox({ type, activeStage, clientEmail, searchTerm, selectedAccountId, enabled = true, accounts: initialAccounts }: UseMailboxProps) {
+    // ── Idle detection — pause all polling after 5 min of inactivity ────────
+    const { isIdle, resume: resumeFromIdle } = useIdleDetection();
+
     // 1. Generate a robust cache key
     const getCacheKey = useCallback(() => {
         if (type === 'inbox') return `inbox_${activeStage}_${selectedAccountId}`;
@@ -539,21 +543,21 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     }, [enabled, loadEmails]);
 
     // ── Auto-poll every 60s — catches emails webhooks miss ─────────────────
+    // Paused when user is idle (no interaction for 5 min) to save Vercel CPU.
     useEffect(() => {
-        if (!enabled || type !== 'inbox') return;
+        if (!enabled || type !== 'inbox' || isIdle) return;
         const pollInterval = setInterval(async () => {
             if (document.visibilityState !== 'visible') return;
             try {
                 const res = await fetch('/api/sync/poll');
                 const data = await res.json();
                 if (data.synced > 0) {
-                    // New emails were synced — refresh inbox silently
                     loadEmails(currentPageRef.current);
                 }
             } catch { /* silent fail */ }
         }, 60_000);
         return () => clearInterval(pollInterval);
-    }, [enabled, type, loadEmails]);
+    }, [enabled, type, loadEmails, isIdle]);
 
     // Sync accounts from FilterProvider (single source of truth — no duplicate fetch)
     useEffect(() => {
@@ -688,6 +692,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         onNewEmail: handleNewEmail,
         onEmailUpdated: handleEmailUpdated,
         onEmailDeleted: handleEmailDeleted,
+        pollingIntervalMs: isIdle ? 0 : 30_000, // Disable polling when idle
     });
 
     // ── Interaction Handlers ──────────────────────────────────────────────────
@@ -840,6 +845,12 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         await bulkMarkAsReadAction(ids);
     }, [selectedEmailIds]);
 
+    // Resume handler: wake from idle + refresh data
+    const handleResume = useCallback(() => {
+        resumeFromIdle();
+        loadEmails(currentPageRef.current);
+    }, [resumeFromIdle, loadEmails]);
+
     return {
         // State
         emails,
@@ -855,6 +866,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         accounts,
         isSyncing,
         syncMessage,
+        isIdle,
 
         // Setters
         setSelectedEmail,
@@ -871,5 +883,6 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         handleToggleRead,
         handleBulkMarkAsRead,
         prefetchThread,
+        handleResume,
     };
 }

@@ -76,6 +76,8 @@ export default function InboxPage() {
         handleToggleRead,
         handleBulkMarkAsRead,
         prefetchThread,
+        isIdle,
+        handleResume,
     } = useMailbox({
         type: isSearchResults ? 'search' : 'inbox',
         activeStage,
@@ -310,6 +312,14 @@ export default function InboxPage() {
     return (
         <div className="mailbox-wrapper">
             <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
+            {isIdle && (
+                <div className="idle-banner" role="alert">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                    <span>Sync paused due to inactivity</span>
+                    <button className="idle-resume-btn" onClick={handleResume}>Resume Sync</button>
+                </div>
+            )}
 
             <div className="mailbox-main">
                 <Topbar
@@ -578,6 +588,35 @@ export default function InboxPage() {
             </div>
 
             <style jsx>{`
+                .idle-banner {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 10px 20px;
+                    background: #fef3c7;
+                    border-bottom: 1px solid #fde68a;
+                    color: #92400e;
+                    font-size: 13px;
+                    font-weight: 500;
+                    position: sticky;
+                    top: 0;
+                    z-index: 200;
+                }
+                .idle-resume-btn {
+                    margin-left: auto;
+                    padding: 5px 14px;
+                    background: #f59e0b;
+                    color: #fff;
+                    border: none;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: background 0.15s;
+                }
+                .idle-resume-btn:hover {
+                    background: #d97706;
+                }
                 .email-list-scroll {
                     flex: 1;
                     overflow-y: auto;
