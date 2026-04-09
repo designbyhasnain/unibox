@@ -11,68 +11,115 @@ export async function POST(req: NextRequest) {
     const groqKey = process.env.GROQ_API_KEY;
     if (!groqKey) return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 });
 
-    // Build conversation — keep system prompt short, limit history
-    const recentMessages = messages.slice(-10); // Keep last 10 messages to avoid context overflow
+    // Keep last 6 messages to avoid context overflow (Groq has 128K but tool results bloat fast)
+    const recentMessages = messages.slice(-6);
     const fullMessages = [
         { role: 'system', content: JARVIS_SYSTEM_PROMPT },
         ...recentMessages,
     ];
 
-    // Call Groq with tools — loop until no more tool calls
-    let maxIterations = 5;
+    let maxIterations = 3; // Reduced from 5 to prevent context bloat
     let currentMessages = [...fullMessages];
+    const toolsUsed: string[] = [];
 
     while (maxIterations-- > 0) {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${groqKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
-                messages: currentMessages,
-                tools: JARVIS_TOOLS,
-                tool_choice: 'auto',
-                temperature: 0.3,
-                max_tokens: 4096,
-            }),
-        });
+        // Check context size — trim if too large
+        const contextSize = JSON.stringify(currentMessages).length;
+        if (contextSize > 60000) {
+            // Too large — trim tool results to summaries
+            currentMessages = currentMessages.map((m: any) => {
+                if (m.role === 'tool' && m.content && m.content.length > 500) {
+                    return { ...m, content: m.content.slice(0, 500) + '\n... (truncated)' };
+                }
+                return m;
+            });
+        }
+
+        let response;
+        try {
+            response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${groqKey}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: 'llama-3.3-70b-versatile',
+                    messages: currentMessages,
+                    tools: JARVIS_TOOLS,
+                    tool_choice: 'auto',
+                    temperature: 0.4,
+                    max_tokens: 2048,
+                }),
+            });
+        } catch (err) {
+            console.error('[Jarvis] Fetch error:', err);
+            return NextResponse.json({ error: 'Failed to connect to AI service' }, { status: 502 });
+        }
 
         if (!response.ok) {
-            const errText = await response.text();
-            console.error('[Jarvis] Groq error:', response.status, errText.slice(0, 500));
-            console.error('[Jarvis] Messages count:', currentMessages.length, 'Total chars:', JSON.stringify(currentMessages).length);
-            // On second+ iteration failure, summarize what we found
-            const toolResults = currentMessages.filter((m: any) => m.role === 'tool');
-            if (toolResults.length > 0) {
-                const summary = toolResults.map((t: any) => t.content).join('\n\n').slice(0, 3000);
+            const errText = await response.text().catch(() => 'Unknown error');
+            console.error('[Jarvis] Groq error:', response.status, errText.slice(0, 300));
+
+            // If we have tool results, try a simpler summarization call without tools
+            if (toolsUsed.length > 0) {
+                const toolResults = currentMessages
+                    .filter((m: any) => m.role === 'tool')
+                    .map((m: any) => m.content)
+                    .join('\n')
+                    .slice(0, 3000);
+
+                try {
+                    const retryRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${groqKey}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            model: 'llama-3.3-70b-versatile',
+                            messages: [
+                                { role: 'system', content: 'You are Jarvis, an AI executive assistant for Wedits (wedding video editing company). Summarize the following data in a natural, conversational way. Be concise and insightful. Speak as if briefing a CEO.' },
+                                { role: 'user', content: `The user asked: "${recentMessages[recentMessages.length - 1]?.content || 'briefing'}"\n\nHere is the data from our CRM tools:\n\n${toolResults}` },
+                            ],
+                            temperature: 0.4,
+                            max_tokens: 1500,
+                        }),
+                    });
+
+                    if (retryRes.ok) {
+                        const retryData = await retryRes.json();
+                        const reply = retryData.choices?.[0]?.message?.content;
+                        if (reply) return NextResponse.json({ reply, toolsUsed });
+                    }
+                } catch { /* fall through */ }
+
+                // Last resort — return formatted tool results
                 return NextResponse.json({
-                    reply: `Here's what I found:\n\n${summary}`,
-                    toolsUsed: [],
+                    reply: `Here's your data:\n\n${toolResults}`,
+                    toolsUsed,
                 });
             }
-            return NextResponse.json({ error: 'AI service error', detail: errText.slice(0, 200) }, { status: 502 });
+
+            return NextResponse.json({ error: 'AI service error. Try a simpler question.' }, { status: 502 });
         }
 
         const data = await response.json();
-        const choice = data.choices?.[0];
-        const assistantMessage = choice?.message;
+        const assistantMessage = data.choices?.[0]?.message;
 
         if (!assistantMessage) {
             return NextResponse.json({ error: 'No response from AI' }, { status: 502 });
         }
 
-        // If no tool calls, we're done — return the final response
+        // If no tool calls, return the response
         if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
             return NextResponse.json({
                 reply: assistantMessage.content,
-                toolsUsed: currentMessages.filter((m: any) => m.role === 'tool').map((m: any) => m.name),
+                toolsUsed,
             });
         }
 
         // Process tool calls
-        // Groq requires content to be string or null, ensure proper format
         currentMessages.push({
             role: 'assistant',
             content: assistantMessage.content || '',
@@ -82,13 +129,11 @@ export async function POST(req: NextRequest) {
         for (const toolCall of assistantMessage.tool_calls) {
             const { name, arguments: argsStr } = toolCall.function;
             let args;
-            try {
-                args = JSON.parse(argsStr);
-            } catch {
-                args = {};
-            }
+            try { args = JSON.parse(argsStr); } catch { args = {}; }
 
-            console.log(`[Jarvis] Tool call: ${name}`, args);
+            console.log(`[Jarvis] Tool: ${name}`, JSON.stringify(args).slice(0, 100));
+            toolsUsed.push(name);
+
             let result;
             try {
                 result = await executeJarvisTool(name, args, session.userId);
@@ -97,30 +142,24 @@ export async function POST(req: NextRequest) {
                 result = { error: `Tool ${name} failed` };
             }
 
-            // Format result concisely for the LLM — avoid raw JSON dumps
+            // Format result concisely — keep under 1500 chars per tool
             let resultStr: string;
             if (Array.isArray(result)) {
-                // Summarize arrays: show first 10 items with key fields only
-                const summary = result.slice(0, 10).map((item: any) => {
+                const items = result.slice(0, 8).map((item: any) => {
                     if (item.name || item.email) {
-                        return [item.name, item.email, item.location, item.pipeline_stage, item.total_revenue ? '$' + item.total_revenue : null, item.total_projects ? item.total_projects + ' projects' : null, item.unpaid_amount ? 'UNPAID $' + item.unpaid_amount : null].filter(Boolean).join(' | ');
+                        return [item.name, item.location, item.pipeline_stage, item.total_revenue ? '$' + item.total_revenue : null, item.unpaid_amount ? 'unpaid:$' + item.unpaid_amount : null].filter(Boolean).join(' | ');
                     }
-                    if (item.region) {
-                        return `${item.region}: ${item.count} contacts, $${item.revenue} revenue`;
-                    }
-                    return JSON.stringify(item).slice(0, 150);
+                    if (item.region) return `${item.region}: ${item.count} contacts, $${item.revenue}`;
+                    return JSON.stringify(item).slice(0, 100);
                 });
-                resultStr = `Found ${result.length} results:\n${summary.join('\n')}${result.length > 10 ? '\n... and ' + (result.length - 10) + ' more' : ''}`;
+                resultStr = `${result.length} results:\n${items.join('\n')}`;
             } else if (result && typeof result === 'object') {
-                // For complex objects (briefings, financial health), format key fields
-                const keys = Object.keys(result);
-                const formatted = keys.map(k => {
-                    const v = (result as any)[k];
-                    if (Array.isArray(v)) return `${k}: ${v.length} items — ${JSON.stringify(v.slice(0, 3)).slice(0, 200)}`;
-                    if (typeof v === 'object' && v !== null) return `${k}: ${JSON.stringify(v).slice(0, 200)}`;
+                const entries = Object.entries(result).map(([k, v]) => {
+                    if (Array.isArray(v)) return `${k}: ${JSON.stringify(v).slice(0, 150)}`;
+                    if (typeof v === 'object' && v !== null) return `${k}: ${JSON.stringify(v).slice(0, 150)}`;
                     return `${k}: ${v}`;
                 });
-                resultStr = formatted.join('\n').slice(0, 2500);
+                resultStr = entries.join('\n').slice(0, 1500);
             } else {
                 resultStr = String(result);
             }
