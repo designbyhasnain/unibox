@@ -112,39 +112,65 @@ export default function JarvisPage() {
         .replace(/\n{2,}/g, '. ').replace(/\n/g, '. ')
         .replace(/\.\s*\./g, '.').trim();
 
+    const speakingRef = useRef(false);
+
     const speakBrowser = useCallback((text: string) => {
-        if (!('speechSynthesis' in window)) return;
+        if (!('speechSynthesis' in window)) {
+            console.error('[TTS] speechSynthesis not available');
+            return;
+        }
         window.speechSynthesis.cancel();
         const clean = cleanForSpeech(text).slice(0, 2000);
-        if (!clean) return;
+        if (!clean) { console.error('[TTS] No clean text'); return; }
 
-        setIsSpeaking(true);
         const utterance = new SpeechSynthesisUtterance(clean);
         utterance.rate = 1.05;
         utterance.pitch = 1.0;
+        utterance.volume = 1.0;
 
         // Pick a good voice
         const voices = window.speechSynthesis.getVoices();
-        const preferred = voices.find(v => v.name.includes('Samantha')) // macOS
+        console.log('[TTS] Available voices:', voices.length);
+        const preferred = voices.find(v => v.name.includes('Samantha'))
             || voices.find(v => v.name.includes('Google UK English Female'))
             || voices.find(v => v.name.includes('Google US English'))
-            || voices.find(v => v.lang === 'en-US' && v.localService)
+            || voices.find(v => v.lang.startsWith('en') && v.localService)
             || voices[0];
-        if (preferred) utterance.voice = preferred;
+        if (preferred) {
+            utterance.voice = preferred;
+            console.log('[TTS] Using voice:', preferred.name);
+        }
 
-        // Animate waveform
+        speakingRef.current = true;
+        setIsSpeaking(true);
+
+        // Animate waveform using ref
         const animateWaveform = () => {
-            if (!isSpeaking) { setAudioLevel(0); return; }
+            if (!speakingRef.current) { setAudioLevel(0); return; }
             setAudioLevel(0.3 + Math.random() * 0.7);
             requestAnimationFrame(animateWaveform);
         };
 
-        utterance.onstart = animateWaveform;
-        utterance.onend = () => { setIsSpeaking(false); setAudioLevel(0); };
-        utterance.onerror = () => { setIsSpeaking(false); setAudioLevel(0); };
+        utterance.onstart = () => {
+            console.log('[TTS] Started speaking');
+            animateWaveform();
+        };
+        utterance.onend = () => {
+            console.log('[TTS] Finished speaking');
+            speakingRef.current = false;
+            setIsSpeaking(false);
+            setAudioLevel(0);
+        };
+        utterance.onerror = (e) => {
+            console.error('[TTS] Error:', e);
+            speakingRef.current = false;
+            setIsSpeaking(false);
+            setAudioLevel(0);
+        };
 
         window.speechSynthesis.speak(utterance);
-    }, [isSpeaking]);
+        console.log('[TTS] Queued utterance, length:', clean.length);
+    }, []);
 
     const speakElevenLabs = useCallback(async (text: string) => {
         const clean = cleanForSpeech(text).slice(0, 800);
@@ -186,6 +212,7 @@ export default function JarvisPage() {
     }, [voiceEnabled, ttsMode, speakBrowser, speakElevenLabs]);
 
     const stopSpeaking = useCallback(() => {
+        speakingRef.current = false;
         if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current = null;
