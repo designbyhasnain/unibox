@@ -1,31 +1,45 @@
 -- =============================================================================
 -- UNIBOX — Row Level Security (RLS) Migration — Defense-in-Depth
 -- =============================================================================
--- ALL comparisons use ::uuid on BOTH sides to prevent text=uuid errors.
+-- Fixes: search_path on all functions, pg_trgm schema, tightened INSERT policies
+-- ALL comparisons use ::uuid on BOTH sides.
 -- =============================================================================
 
 BEGIN;
 
+-- =============================================================================
+-- FIX: Move pg_trgm extension out of public schema
+-- =============================================================================
+
+CREATE SCHEMA IF NOT EXISTS extensions;
+ALTER EXTENSION pg_trgm SET SCHEMA extensions;
+
+-- =============================================================================
+-- TEMP HELPERS (with search_path set)
+-- =============================================================================
+
 CREATE OR REPLACE FUNCTION _temp_exec(sql text)
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql SET search_path = public AS $$
 BEGIN EXECUTE sql;
 EXCEPTION WHEN undefined_table THEN
     RAISE NOTICE 'Skipped (table missing): %', left(sql, 80);
 END; $$;
 
 CREATE OR REPLACE FUNCTION _temp_rls(tbl text)
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql SET search_path = public AS $$
 BEGIN EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl);
 EXCEPTION WHEN undefined_table THEN
     RAISE NOTICE 'Skipped RLS enable (table missing): %', tbl;
 END; $$;
 
 -- =============================================================================
--- HELPER FUNCTIONS
+-- HELPER FUNCTIONS (with search_path set)
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE AS $$
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE
+SET search_path = public
+AS $$
     SELECT EXISTS (
         SELECT 1 FROM public.users
         WHERE id::uuid = auth.uid()::uuid
@@ -34,7 +48,9 @@ RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION public.user_gmail_account_ids()
-RETURNS uuid[] LANGUAGE sql SECURITY DEFINER STABLE AS $$
+RETURNS uuid[] LANGUAGE sql SECURITY DEFINER STABLE
+SET search_path = public
+AS $$
     SELECT CASE
         WHEN public.is_admin() THEN
             ARRAY(SELECT id::uuid FROM public.gmail_accounts)
@@ -115,7 +131,8 @@ SELECT _temp_exec('CREATE POLICY "sr_project_comments" ON public.project_comment
 SELECT _temp_exec('CREATE POLICY "sr_competitor_mentions" ON public.competitor_mentions FOR ALL TO service_role USING (true) WITH CHECK (true)');
 
 -- =============================================================================
--- AUTHENTICATED POLICIES — double-sided ::uuid on every comparison
+-- AUTHENTICATED POLICIES
+-- All INSERT policies tightened with owner column checks.
 -- =============================================================================
 
 -- ── users ──────────────────────────────────────────────────────────────────
@@ -125,16 +142,18 @@ SELECT _temp_exec('CREATE POLICY "auth_upd_users" ON public.users FOR UPDATE TO 
     USING (id::uuid = auth.uid()::uuid) WITH CHECK (id::uuid = auth.uid()::uuid)');
 
 -- ── contacts ───────────────────────────────────────────────────────────────
+-- owner: account_manager_id
 SELECT _temp_exec('CREATE POLICY "auth_sel_contacts" ON public.contacts FOR SELECT TO authenticated
     USING (public.is_admin() OR account_manager_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_ins_contacts" ON public.contacts FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin() OR account_manager_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_upd_contacts" ON public.contacts FOR UPDATE TO authenticated
     USING (public.is_admin() OR account_manager_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_del_contacts" ON public.contacts FOR DELETE TO authenticated
     USING (public.is_admin())');
 
 -- ── gmail_accounts ─────────────────────────────────────────────────────────
+-- owner: user_id (createdById)
 SELECT _temp_exec('CREATE POLICY "auth_sel_gmail_accounts" ON public.gmail_accounts FOR SELECT TO authenticated
     USING (public.is_admin() OR user_id::uuid = auth.uid()::uuid OR id::uuid = ANY(public.user_gmail_account_ids()))');
 SELECT _temp_exec('CREATE POLICY "auth_upd_gmail_accounts" ON public.gmail_accounts FOR UPDATE TO authenticated
@@ -143,6 +162,7 @@ SELECT _temp_exec('CREATE POLICY "auth_del_gmail_accounts" ON public.gmail_accou
     USING (public.is_admin())');
 
 -- ── invitations ────────────────────────────────────────────────────────────
+-- admin only
 SELECT _temp_exec('CREATE POLICY "auth_sel_invitations" ON public.invitations FOR SELECT TO authenticated
     USING (public.is_admin())');
 SELECT _temp_exec('CREATE POLICY "auth_ins_invitations" ON public.invitations FOR INSERT TO authenticated
@@ -177,16 +197,18 @@ SELECT _temp_exec('CREATE POLICY "auth_del_email_messages" ON public.email_messa
     USING (public.is_admin())');
 
 -- ── projects ───────────────────────────────────────────────────────────────
+-- owner: account_manager_id
 SELECT _temp_exec('CREATE POLICY "auth_sel_projects" ON public.projects FOR SELECT TO authenticated
     USING (public.is_admin() OR account_manager_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_ins_projects" ON public.projects FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin() OR account_manager_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_upd_projects" ON public.projects FOR UPDATE TO authenticated
     USING (public.is_admin() OR account_manager_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_del_projects" ON public.projects FOR DELETE TO authenticated
     USING (public.is_admin())');
 
 -- ── activity_logs ──────────────────────────────────────────────────────────
+-- owner: performed_by
 SELECT _temp_exec('CREATE POLICY "auth_sel_activity_logs" ON public.activity_logs FOR SELECT TO authenticated
     USING (public.is_admin() OR performed_by::uuid = auth.uid()::uuid OR EXISTS (
         SELECT 1 FROM public.contacts c
@@ -194,27 +216,30 @@ SELECT _temp_exec('CREATE POLICY "auth_sel_activity_logs" ON public.activity_log
           AND c.account_manager_id::uuid = auth.uid()::uuid
     ))');
 SELECT _temp_exec('CREATE POLICY "auth_ins_activity_logs" ON public.activity_logs FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin() OR performed_by::uuid = auth.uid()::uuid)');
 
 -- ── ignored_senders ────────────────────────────────────────────────────────
+-- global table, admin can insert/delete, all can read
 SELECT _temp_exec('CREATE POLICY "auth_sel_ignored_senders" ON public.ignored_senders FOR SELECT TO authenticated
     USING (true)');
 SELECT _temp_exec('CREATE POLICY "auth_ins_ignored_senders" ON public.ignored_senders FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin())');
 SELECT _temp_exec('CREATE POLICY "auth_del_ignored_senders" ON public.ignored_senders FOR DELETE TO authenticated
     USING (public.is_admin())');
 
 -- ── campaigns ──────────────────────────────────────────────────────────────
+-- owner: created_by_id
 SELECT _temp_exec('CREATE POLICY "auth_sel_campaigns" ON public.campaigns FOR SELECT TO authenticated
     USING (public.is_admin() OR created_by_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_ins_campaigns" ON public.campaigns FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin() OR created_by_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_upd_campaigns" ON public.campaigns FOR UPDATE TO authenticated
     USING (public.is_admin() OR created_by_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_del_campaigns" ON public.campaigns FOR DELETE TO authenticated
     USING (public.is_admin())');
 
 -- ── campaign_steps ─────────────────────────────────────────────────────────
+-- owner: via campaign.created_by_id
 SELECT _temp_exec('CREATE POLICY "auth_sel_campaign_steps" ON public.campaign_steps FOR SELECT TO authenticated
     USING (public.is_admin() OR EXISTS (
         SELECT 1 FROM public.campaigns c
@@ -222,7 +247,11 @@ SELECT _temp_exec('CREATE POLICY "auth_sel_campaign_steps" ON public.campaign_st
           AND c.created_by_id::uuid = auth.uid()::uuid
     ))');
 SELECT _temp_exec('CREATE POLICY "auth_ins_campaign_steps" ON public.campaign_steps FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.campaigns c
+        WHERE c.id::uuid = campaign_id::uuid
+          AND c.created_by_id::uuid = auth.uid()::uuid
+    ))');
 SELECT _temp_exec('CREATE POLICY "auth_upd_campaign_steps" ON public.campaign_steps FOR UPDATE TO authenticated
     USING (public.is_admin() OR EXISTS (
         SELECT 1 FROM public.campaigns c
@@ -237,6 +266,7 @@ SELECT _temp_exec('CREATE POLICY "auth_del_campaign_steps" ON public.campaign_st
     ))');
 
 -- ── campaign_variants ──────────────────────────────────────────────────────
+-- owner: via step → campaign.created_by_id
 SELECT _temp_exec('CREATE POLICY "auth_sel_campaign_variants" ON public.campaign_variants FOR SELECT TO authenticated
     USING (public.is_admin() OR EXISTS (
         SELECT 1 FROM public.campaign_steps cs
@@ -245,9 +275,15 @@ SELECT _temp_exec('CREATE POLICY "auth_sel_campaign_variants" ON public.campaign
           AND c.created_by_id::uuid = auth.uid()::uuid
     ))');
 SELECT _temp_exec('CREATE POLICY "auth_ins_campaign_variants" ON public.campaign_variants FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.campaign_steps cs
+        JOIN public.campaigns c ON c.id::uuid = cs.campaign_id::uuid
+        WHERE cs.id::uuid = step_id::uuid
+          AND c.created_by_id::uuid = auth.uid()::uuid
+    ))');
 
 -- ── campaign_contacts ──────────────────────────────────────────────────────
+-- owner: via campaign.created_by_id
 SELECT _temp_exec('CREATE POLICY "auth_sel_campaign_contacts" ON public.campaign_contacts FOR SELECT TO authenticated
     USING (public.is_admin() OR EXISTS (
         SELECT 1 FROM public.campaigns c
@@ -255,7 +291,11 @@ SELECT _temp_exec('CREATE POLICY "auth_sel_campaign_contacts" ON public.campaign
           AND c.created_by_id::uuid = auth.uid()::uuid
     ))');
 SELECT _temp_exec('CREATE POLICY "auth_ins_campaign_contacts" ON public.campaign_contacts FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.campaigns c
+        WHERE c.id::uuid = campaign_id::uuid
+          AND c.created_by_id::uuid = auth.uid()::uuid
+    ))');
 SELECT _temp_exec('CREATE POLICY "auth_upd_campaign_contacts" ON public.campaign_contacts FOR UPDATE TO authenticated
     USING (public.is_admin() OR EXISTS (
         SELECT 1 FROM public.campaigns c
@@ -272,10 +312,11 @@ SELECT _temp_exec('CREATE POLICY "auth_sel_campaign_emails" ON public.campaign_e
     ))');
 
 -- ── unsubscribes ───────────────────────────────────────────────────────────
+-- global: anyone can read, only service_role inserts (via unsubscribe handler)
 SELECT _temp_exec('CREATE POLICY "auth_sel_unsubscribes" ON public.unsubscribes FOR SELECT TO authenticated
     USING (true)');
 SELECT _temp_exec('CREATE POLICY "auth_ins_unsubscribes" ON public.unsubscribes FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin())');
 
 -- ── campaign_analytics ─────────────────────────────────────────────────────
 SELECT _temp_exec('CREATE POLICY "auth_sel_campaign_analytics" ON public.campaign_analytics FOR SELECT TO authenticated
@@ -294,6 +335,7 @@ SELECT _temp_exec('CREATE POLICY "auth_sel_campaign_send_queue" ON public.campai
     USING (public.is_admin())');
 
 -- ── email_templates ────────────────────────────────────────────────────────
+-- owner: created_by_id
 SELECT _temp_exec('CREATE POLICY "auth_sel_email_templates" ON public.email_templates FOR SELECT TO authenticated
     USING (public.is_admin() OR created_by_id::uuid = auth.uid()::uuid OR is_shared = true)');
 SELECT _temp_exec('CREATE POLICY "auth_ins_email_templates" ON public.email_templates FOR INSERT TO authenticated
@@ -304,6 +346,7 @@ SELECT _temp_exec('CREATE POLICY "auth_del_email_templates" ON public.email_temp
     USING (public.is_admin() OR created_by_id::uuid = auth.uid()::uuid)');
 
 -- ── edit_projects ──────────────────────────────────────────────────────────
+-- owner: user_id
 SELECT _temp_exec('CREATE POLICY "auth_sel_edit_projects" ON public.edit_projects FOR SELECT TO authenticated
     USING (public.is_admin() OR user_id::uuid = auth.uid()::uuid)');
 SELECT _temp_exec('CREATE POLICY "auth_ins_edit_projects" ON public.edit_projects FOR INSERT TO authenticated
@@ -314,6 +357,7 @@ SELECT _temp_exec('CREATE POLICY "auth_del_edit_projects" ON public.edit_project
     USING (public.is_admin())');
 
 -- ── project_comments ───────────────────────────────────────────────────────
+-- owner: author_id
 SELECT _temp_exec('CREATE POLICY "auth_sel_project_comments" ON public.project_comments FOR SELECT TO authenticated
     USING (public.is_admin() OR EXISTS (
         SELECT 1 FROM public.edit_projects ep
@@ -321,7 +365,7 @@ SELECT _temp_exec('CREATE POLICY "auth_sel_project_comments" ON public.project_c
           AND ep.user_id::uuid = auth.uid()::uuid
     ))');
 SELECT _temp_exec('CREATE POLICY "auth_ins_project_comments" ON public.project_comments FOR INSERT TO authenticated
-    WITH CHECK (true)');
+    WITH CHECK (public.is_admin() OR author_id::uuid = auth.uid()::uuid)');
 
 -- =============================================================================
 -- ANON POLICIES — realtime/polling only
@@ -350,6 +394,10 @@ BEGIN
         total := total + r.cnt;
     END LOOP;
     RAISE NOTICE '  TOTAL: % policies', total;
+    RAISE NOTICE '';
+    RAISE NOTICE '  All functions have SET search_path = public';
+    RAISE NOTICE '  pg_trgm moved to extensions schema';
+    RAISE NOTICE '  All INSERT policies scoped by owner column';
 END $$;
 
 COMMIT;
