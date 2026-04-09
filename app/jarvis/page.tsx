@@ -37,6 +37,7 @@ export default function JarvisPage() {
     const [mode, setMode] = useState<'chat' | 'agent'>('chat');
     const [agentRunning, setAgentRunning] = useState(false);
     const [voiceEnabled, setVoiceEnabled] = useState(false);
+    const [ttsMode, setTtsMode] = useState<'browser' | 'elevenlabs'>('browser');
     const [isListening, setIsListening] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [audioLevel, setAudioLevel] = useState(0);
@@ -48,6 +49,14 @@ export default function JarvisPage() {
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    // Pre-load browser voices
+    useEffect(() => {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.getVoices();
+            window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+        }
+    }, []);
 
     // ── Web Speech API (STT) ──────────────────────────────────────────────
     const startListening = useCallback(() => {
@@ -93,78 +102,96 @@ export default function JarvisPage() {
         setIsListening(false);
     }, []);
 
-    // ── ElevenLabs TTS ────────────────────────────────────────────────────
-    const speakText = useCallback(async (text: string) => {
-        if (!voiceEnabled) return;
+    // ── Text-to-Speech (Browser native or ElevenLabs) ────────────────────
+    const cleanForSpeech = (text: string) => text
+        .replace(/\*\*/g, '').replace(/\*/g, '')
+        .replace(/#{1,6}\s/g, '')
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[{}[\]|]/g, '')
+        .replace(/\n{2,}/g, '. ').replace(/\n/g, '. ')
+        .replace(/\.\s*\./g, '.').trim();
 
-        // Strip markdown formatting for cleaner speech
-        const cleanText = text
-            .replace(/\*\*/g, '')
-            .replace(/\*/g, '')
-            .replace(/#{1,6}\s/g, '')
-            .replace(/```[\s\S]*?```/g, 'code block omitted')
-            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-            .replace(/\n{2,}/g, '. ')
-            .replace(/\n/g, '. ')
-            .slice(0, 1500);
+    const speakBrowser = useCallback((text: string) => {
+        if (!('speechSynthesis' in window)) return;
+        window.speechSynthesis.cancel();
+        const clean = cleanForSpeech(text).slice(0, 2000);
+        if (!clean) return;
 
+        setIsSpeaking(true);
+        const utterance = new SpeechSynthesisUtterance(clean);
+        utterance.rate = 1.05;
+        utterance.pitch = 1.0;
+
+        // Pick a good voice
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = voices.find(v => v.name.includes('Samantha')) // macOS
+            || voices.find(v => v.name.includes('Google UK English Female'))
+            || voices.find(v => v.name.includes('Google US English'))
+            || voices.find(v => v.lang === 'en-US' && v.localService)
+            || voices[0];
+        if (preferred) utterance.voice = preferred;
+
+        // Animate waveform
+        const animateWaveform = () => {
+            if (!isSpeaking) { setAudioLevel(0); return; }
+            setAudioLevel(0.3 + Math.random() * 0.7);
+            requestAnimationFrame(animateWaveform);
+        };
+
+        utterance.onstart = animateWaveform;
+        utterance.onend = () => { setIsSpeaking(false); setAudioLevel(0); };
+        utterance.onerror = () => { setIsSpeaking(false); setAudioLevel(0); };
+
+        window.speechSynthesis.speak(utterance);
+    }, [isSpeaking]);
+
+    const speakElevenLabs = useCallback(async (text: string) => {
+        const clean = cleanForSpeech(text).slice(0, 800);
+        if (!clean) return;
         setIsSpeaking(true);
 
         try {
             const res = await fetch('/api/jarvis/tts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: cleanText }),
+                body: JSON.stringify({ text: clean }),
             });
-
-            if (!res.ok) {
-                setIsSpeaking(false);
-                return;
-            }
+            if (!res.ok) { setIsSpeaking(false); return; }
 
             const audioBlob = await res.blob();
+            if (audioBlob.size < 500) { setIsSpeaking(false); return; }
+
             const audioUrl = URL.createObjectURL(audioBlob);
             const audio = new Audio(audioUrl);
             audioRef.current = audio;
 
-            // Animate audio level
-            const ctx = new AudioContext();
-            const source = ctx.createMediaElementSource(audio);
-            const analyser = ctx.createAnalyser();
-            analyser.fftSize = 256;
-            source.connect(analyser);
-            analyser.connect(ctx.destination);
+            audio.onended = () => { setIsSpeaking(false); setAudioLevel(0); URL.revokeObjectURL(audioUrl); };
+            audio.onerror = () => { setIsSpeaking(false); setAudioLevel(0); };
 
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            const updateLevel = () => {
-                if (!audioRef.current || audio.paused) {
-                    setAudioLevel(0);
-                    return;
-                }
-                analyser.getByteFrequencyData(dataArray);
-                const avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
-                setAudioLevel(avg / 255);
-                requestAnimationFrame(updateLevel);
+            const animate = () => {
+                if (!audioRef.current || audio.paused || audio.ended) { setAudioLevel(0); return; }
+                setAudioLevel(0.3 + Math.random() * 0.7);
+                requestAnimationFrame(animate);
             };
-
-            audio.onplay = () => { updateLevel(); };
-            audio.onended = () => {
-                setIsSpeaking(false);
-                setAudioLevel(0);
-                URL.revokeObjectURL(audioUrl);
-                ctx.close();
-            };
-
+            audio.onplay = animate;
             await audio.play();
-        } catch {
-            setIsSpeaking(false);
-        }
-    }, [voiceEnabled]);
+        } catch { setIsSpeaking(false); }
+    }, []);
+
+    const speakText = useCallback((text: string) => {
+        if (!voiceEnabled) return;
+        if (ttsMode === 'elevenlabs') speakElevenLabs(text);
+        else speakBrowser(text);
+    }, [voiceEnabled, ttsMode, speakBrowser, speakElevenLabs]);
 
     const stopSpeaking = useCallback(() => {
         if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current = null;
+        }
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
         }
         setIsSpeaking(false);
         setAudioLevel(0);
@@ -360,6 +387,16 @@ export default function JarvisPage() {
                         >
                             {voiceEnabled ? '\u{1F50A}' : '\u{1F507}'}
                         </button>
+                        {voiceEnabled && (
+                            <button
+                                className="jv-voice-btn"
+                                onClick={() => setTtsMode(m => m === 'browser' ? 'elevenlabs' : 'browser')}
+                                title={ttsMode === 'browser' ? 'Using: Browser voice (free). Click for ElevenLabs.' : 'Using: ElevenLabs (premium). Click for browser voice.'}
+                                style={{ fontSize: 10, fontWeight: 700, width: 'auto', padding: '0 10px' }}
+                            >
+                                {ttsMode === 'browser' ? 'LOCAL' : 'AI'}
+                            </button>
+                        )}
                         {isSpeaking && (
                             <>
                                 <div className="jv-waveform">
