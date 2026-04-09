@@ -196,6 +196,23 @@ export async function processSendQueue(): Promise<{ sent: number; failed: number
         }
     }
 
+    // Check campaign completion ONCE per campaign (not per email)
+    const campaignIds = [...new Set(queueItems.map(i => i.campaign_id))];
+    for (const campId of campaignIds) {
+        const { count: activeCount } = await supabase
+            .from('campaign_contacts')
+            .select('id', { count: 'exact', head: true })
+            .eq('campaign_id', campId)
+            .in('status', ['PENDING', 'IN_PROGRESS']);
+
+        if (activeCount === 0) {
+            await supabase
+                .from('campaigns')
+                .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
+                .eq('id', campId);
+        }
+    }
+
     // Clear per-cycle cache
     stepsCache.clear();
 
@@ -273,17 +290,6 @@ async function advanceCampaignContact(
             .eq('id', campaignContactId);
     }
 
-    // Check if campaign is completed
-    const { count: activeCount } = await supabase
-        .from('campaign_contacts')
-        .select('id', { count: 'exact', head: true })
-        .eq('campaign_id', campaignId)
-        .in('status', ['PENDING', 'IN_PROGRESS']);
-
-    if (activeCount === 0) {
-        await supabase
-            .from('campaigns')
-            .update({ status: 'COMPLETED', updated_at: now.toISOString() })
-            .eq('id', campaignId);
-    }
+    // Campaign completion check moved to end of processSendQueue() — done once per
+    // campaign instead of after every single email send.
 }
