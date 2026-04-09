@@ -1,3 +1,33 @@
+---
+
+## Claude Code — Read This Every Session
+
+You are the sole developer on this project. Never ask the user where to push, deploy, or which service to use. All URLs are defined here. Whenever the user says "live karo", "deploy karo", "push karo", or "update karo" — follow the deploy steps below without asking any questions.
+
+### Deploy Steps (run in this exact order):
+
+1. npx tsc --noEmit → fix any TypeScript errors first
+2. npm run lint → fix any lint errors
+3. npm run build → fix any build errors
+4. git add .
+5. git commit -m "describe what changed"
+6. git push origin main
+7. Vercel auto-deploys automatically
+8. Tell user: "Live ho gaya → https://txb-unibox.vercel.app"
+
+### Live Service URLs:
+
+- GitHub: https://github.com/designbyhasnain/unibox
+- Vercel Live: https://txb-unibox.vercel.app
+- Vercel Dashboard: https://vercel.com/designsbyhasnain-6046s-projects/unibox
+- Vercel Env Vars: https://vercel.com/designsbyhasnain-6046s-projects/unibox/settings/environment-variables
+- Supabase URL: https://uksnpmelsxryycnsokxc.supabase.co
+- Supabase Dashboard: https://supabase.com/dashboard/project/uksnpmelsxryycnsokxc
+- Resend: https://resend.com/overview
+- Upstash QStash: https://console.upstash.com/qstash
+
+---
+
 # UNIBOX — Project Memory
 
 Unibox is a **multi-account email CRM** built for video production companies. It manages Gmail and manual IMAP/SMTP accounts, syncs emails in real-time, tracks leads through a sales pipeline, runs automated email campaigns with A/B testing, and provides open/click analytics.
