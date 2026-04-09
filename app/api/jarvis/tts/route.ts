@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '../../../../src/lib/auth';
 
-// George — warm, captivating storyteller voice
-const DEFAULT_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
+// Sarah — mature, reassuring, confident voice
+const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
 
 export async function POST(req: NextRequest) {
     const session = await getSession();
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
             },
             body: JSON.stringify({
                 text: truncated,
-                model_id: 'eleven_monolingual_v1',
+                model_id: 'eleven_multilingual_v2',
                 voice_settings: {
                     stability: 0.5,
                     similarity_boost: 0.75,

@@ -100,19 +100,27 @@ export async function POST(req: NextRequest) {
             // Format result concisely for the LLM — avoid raw JSON dumps
             let resultStr: string;
             if (Array.isArray(result)) {
-                // Summarize arrays: show first 15 items with key fields only
-                const summary = result.slice(0, 15).map((item: any) => {
+                // Summarize arrays: show first 10 items with key fields only
+                const summary = result.slice(0, 10).map((item: any) => {
                     if (item.name || item.email) {
                         return [item.name, item.email, item.location, item.pipeline_stage, item.total_revenue ? '$' + item.total_revenue : null, item.total_projects ? item.total_projects + ' projects' : null, item.unpaid_amount ? 'UNPAID $' + item.unpaid_amount : null].filter(Boolean).join(' | ');
                     }
                     if (item.region) {
                         return `${item.region}: ${item.count} contacts, $${item.revenue} revenue`;
                     }
-                    return JSON.stringify(item);
+                    return JSON.stringify(item).slice(0, 150);
                 });
-                resultStr = `Found ${result.length} results:\n${summary.join('\n')}${result.length > 15 ? '\n... and ' + (result.length - 15) + ' more' : ''}`;
+                resultStr = `Found ${result.length} results:\n${summary.join('\n')}${result.length > 10 ? '\n... and ' + (result.length - 10) + ' more' : ''}`;
             } else if (result && typeof result === 'object') {
-                resultStr = JSON.stringify(result, null, 2).slice(0, 4000);
+                // For complex objects (briefings, financial health), format key fields
+                const keys = Object.keys(result);
+                const formatted = keys.map(k => {
+                    const v = (result as any)[k];
+                    if (Array.isArray(v)) return `${k}: ${v.length} items — ${JSON.stringify(v.slice(0, 3)).slice(0, 200)}`;
+                    if (typeof v === 'object' && v !== null) return `${k}: ${JSON.stringify(v).slice(0, 200)}`;
+                    return `${k}: ${v}`;
+                });
+                resultStr = formatted.join('\n').slice(0, 2500);
             } else {
                 resultStr = String(result);
             }
