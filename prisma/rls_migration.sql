@@ -48,7 +48,6 @@ AS $$
         SELECT 1 FROM public.users
         WHERE id = auth.uid()
           AND role IN ('ADMIN')
-          AND status = 'ACTIVE'
     );
 $$;
 
