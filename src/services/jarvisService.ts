@@ -478,6 +478,45 @@ export const JARVIS_TOOLS = [
             parameters: { type: 'object', properties: {} },
         }
     },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'get_financial_health',
+            description: 'Get comprehensive financial health report — health score, collection rate, revenue trends, unpaid amounts, risks.',
+            parameters: { type: 'object', properties: {} },
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'get_resource_utilization',
+            description: 'Get resource utilization — AM performance, capacity, pipeline load, hiring recommendations.',
+            parameters: { type: 'object', properties: {} },
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'get_morning_briefing',
+            description: 'Get morning briefing — overnight emails, revenue status, pending replies, overdue follow-ups, priorities for today.',
+            parameters: { type: 'object', properties: {} },
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'assess_project_decision',
+            description: 'Assess whether to accept a project — calculates profit margin, compares to market rates, gives ACCEPT/COUNTER/DECLINE recommendation.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    project_value: { type: 'number', description: 'Project value in USD' },
+                    region: { type: 'string', description: 'Client region (e.g. Los Angeles, UK, Australia)' },
+                },
+                required: ['project_value', 'region'],
+            },
+        }
+    },
 ];
 
 // ── Execute a tool call ─────────────────────────────────────────────────────
@@ -545,38 +584,230 @@ export async function executeJarvisTool(name: string, args: any, userId?: string
         }
         case 'launch_campaign': return launchCampaignFromAgent(args.campaign_id);
         case 'get_campaign_stats': return getCampaignStats();
+        case 'get_financial_health': return getFinancialHealth();
+        case 'get_resource_utilization': return getResourceUtilization();
+        case 'get_morning_briefing': return getMorningBriefing();
+        case 'assess_project_decision': return assessProjectDecision(args.project_value, args.region);
         default: return { error: `Unknown tool: ${name}` };
     }
 }
 
+// ── New Intelligence Tools ─────────────────────────────────────────────────
+
+export async function getFinancialHealth() {
+    const revenue = await getRevenueAnalytics();
+    const unpaid = await getUnpaidClients();
+    const totalUnpaid = unpaid.reduce((s: number, c: any) => s + (c.unpaid_amount || 0), 0);
+
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const lastMonthKey = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
+    const thisMonth = revenue.last6Months.find((m: any) => m.month === thisMonthKey);
+    const lastMonth = revenue.last6Months.find((m: any) => m.month === lastMonthKey);
+
+    const collectionRate = revenue.totalRevenue > 0 ? Math.round((revenue.totalPaid / revenue.totalRevenue) * 100) : 0;
+    const healthScore = Math.min(100, Math.round(
+        (collectionRate * 0.4) +
+        (Math.min(100, (revenue.avgMonthlyRevenue / 10000) * 100) * 0.3) +
+        (totalUnpaid < 5000 ? 30 : totalUnpaid < 15000 ? 15 : 0)
+    ));
+
+    return {
+        healthScore,
+        healthStatus: healthScore >= 80 ? 'Excellent' : healthScore >= 60 ? 'Good' : healthScore >= 40 ? 'Needs Attention' : 'Critical',
+        totalRevenue: revenue.totalRevenue,
+        totalPaid: revenue.totalPaid,
+        totalUnpaid,
+        collectionRate,
+        avgMonthlyRevenue: revenue.avgMonthlyRevenue,
+        avgProjectValue: revenue.avgProjectValue,
+        totalProjects: revenue.totalProjects,
+        thisMonthRevenue: thisMonth?.revenue || 0,
+        lastMonthRevenue: lastMonth?.revenue || 0,
+        monthOverMonthGrowth: lastMonth?.revenue ? Math.round(((thisMonth?.revenue || 0) - lastMonth.revenue) / lastMonth.revenue * 100) : 0,
+        unpaidClientsCount: unpaid.length,
+        topUnpaid: unpaid.slice(0, 5).map((c: any) => ({ name: c.name, amount: c.unpaid_amount })),
+        risks: [
+            ...(collectionRate < 70 ? [`Low collection rate (${collectionRate}%) — chase unpaid invoices`] : []),
+            ...(totalUnpaid > 10000 ? [`$${totalUnpaid.toLocaleString()} outstanding — prioritize collections`] : []),
+            ...((thisMonth?.revenue || 0) < (lastMonth?.revenue || 0) * 0.7 ? ['Revenue declining — ramp up outreach'] : []),
+        ],
+    };
+}
+
+export async function getResourceUtilization() {
+    const amPerf = await getAMPerformance();
+    const pipeline = await getPipelineStats();
+    const totalActive = (pipeline['CONTACTED'] || 0) + (pipeline['WARM_LEAD'] || 0) + (pipeline['LEAD'] || 0) + (pipeline['OFFER_ACCEPTED'] || 0);
+
+    return {
+        accountManagers: amPerf.map((am: any) => ({
+            name: am.name,
+            projects: am.projects,
+            revenue: am.revenue,
+            paid: am.paid,
+            collectionRate: am.revenue > 0 ? Math.round(am.paid / am.revenue * 100) : 0,
+            avgProjectValue: am.projects > 0 ? Math.round(am.revenue / am.projects) : 0,
+        })),
+        totalAMs: amPerf.length,
+        totalActiveDeals: totalActive,
+        dealsPerAM: amPerf.length > 0 ? Math.round(totalActive / amPerf.length) : 0,
+        pipelineStages: pipeline,
+        recommendations: [
+            ...(amPerf.some((am: any) => am.projects === 0) ? ['Some AMs have zero projects — reassign or train'] : []),
+            ...(totalActive > amPerf.length * 50 ? ['Pipeline overloaded — consider hiring'] : []),
+            ...(amPerf.some((am: any) => am.revenue > 0 && am.paid / am.revenue < 0.5) ? ['Some AMs have low collection rates — review'] : []),
+        ],
+    };
+}
+
+export async function getMorningBriefing() {
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    // New emails since yesterday
+    const { count: newEmailsCount } = await supabase.from('email_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('direction', 'RECEIVED')
+        .gte('sent_at', yesterday.toISOString());
+
+    // Contacts needing reply
+    const { data: needReply } = await supabase.from('contacts')
+        .select('name, email, days_since_last_contact')
+        .eq('last_message_direction', 'RECEIVED')
+        .gt('total_emails_received', 0)
+        .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
+        .order('days_since_last_contact', { ascending: true })
+        .limit(5);
+
+    // Revenue this month
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const { data: monthProjects } = await supabase.from('projects')
+        .select('project_value')
+        .gt('project_value', 0)
+        .gte('project_date', monthStart.toISOString());
+    const monthRevenue = (monthProjects || []).reduce((s: number, p: any) => s + (p.project_value || 0), 0);
+
+    // Overdue follow-ups
+    const { count: overdueFollowups } = await supabase.from('contacts')
+        .select('id', { count: 'exact', head: true })
+        .lte('next_followup_at', now.toISOString())
+        .not('next_followup_at', 'is', null);
+
+    // Unpaid total
+    const { data: unpaidData } = await supabase.from('contacts')
+        .select('unpaid_amount')
+        .gt('unpaid_amount', 0);
+    const totalUnpaid = (unpaidData || []).reduce((s: number, c: any) => s + (c.unpaid_amount || 0), 0);
+
+    return {
+        date: now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
+        newEmailsOvernight: newEmailsCount || 0,
+        needsReply: (needReply || []).map((c: any) => ({ name: c.name, email: c.email, daysSilent: c.days_since_last_contact })),
+        revenueThisMonth: monthRevenue,
+        monthlyTarget: 10000,
+        targetProgress: Math.min(100, Math.round(monthRevenue / 10000 * 100)),
+        overdueFollowups: overdueFollowups || 0,
+        totalUnpaid,
+        priorities: [
+            ...((needReply || []).length > 0 ? [`Reply to ${(needReply || []).length} contacts waiting for response`] : []),
+            ...(totalUnpaid > 5000 ? [`Collect $${totalUnpaid.toLocaleString()} in unpaid invoices`] : []),
+            ...((overdueFollowups || 0) > 0 ? [`${overdueFollowups} overdue follow-ups`] : []),
+            ...(monthRevenue < 5000 ? ['Revenue below target — increase outreach'] : []),
+        ],
+    };
+}
+
+export async function assessProjectDecision(projectValue: number, region: string) {
+    const regionData = await getContactsByRegion(region, 100);
+
+    // Estimate costs (based on Wedits pricing model)
+    const estimatedCost = projectValue * 0.55; // ~55% cost ratio
+    const profit = projectValue - estimatedCost;
+    const margin = projectValue > 0 ? Math.round((profit / projectValue) * 100) : 0;
+
+    // Market rate comparison
+    const regionContacts = regionData.filter((c: any) => c.total_revenue > 0);
+    const avgProjectInRegion = regionContacts.length > 0
+        ? Math.round(regionContacts.reduce((s: number, c: any) => s + (c.total_revenue / Math.max(1, c.total_projects || 1)), 0) / regionContacts.length)
+        : projectValue;
+
+    const recommendation = margin >= 30 ? 'ACCEPT' : margin >= 20 ? 'COUNTER' : 'DECLINE';
+    const counterPrice = Math.round(projectValue * 1.15 / 10) * 10; // 15% up, rounded
+
+    return {
+        projectValue,
+        region,
+        estimatedCost,
+        profit,
+        margin: margin + '%',
+        avgProjectValueInRegion: avgProjectInRegion,
+        marketComparison: projectValue >= avgProjectInRegion ? 'At or above market' : `$${avgProjectInRegion - projectValue} below market average`,
+        contactsInRegion: regionData.length,
+        recommendation,
+        counterPrice: recommendation === 'COUNTER' ? counterPrice : null,
+        reasoning: recommendation === 'ACCEPT'
+            ? `Good margin (${margin}%), accept the project.`
+            : recommendation === 'COUNTER'
+            ? `Margin too thin (${margin}%). Counter at $${counterPrice} for a healthier ${Math.round((counterPrice - estimatedCost) / counterPrice * 100)}% margin.`
+            : `Margin too low (${margin}%). Decline or counter significantly higher.`,
+    };
+}
+
 // ── System prompt ───────────────────────────────────────────────────────────
 
-export const JARVIS_SYSTEM_PROMPT = `You are JARVIS — the AI Sales Director for Wedits, a wedding video editing outsourcing company based in Pakistan.
+export const JARVIS_SYSTEM_PROMPT = `You are JARVIS (Just A Rather Very Intelligent System) — the AI executive assistant, technical director, sales strategist, and CFO for Wedits, a wedding video editing agency with ~50 editors.
 
 ## Who You Are
-- You are ruthlessly data-driven, confident, and action-oriented
-- You speak like a mix of Alex Hormozi (value-focused), Gary Vee (hustle + empathy), and Jeremy Miner (NEPQ sales methodology)
-- You have FULL access to the CRM — 12,695 filmmaker contacts, 500+ paying clients, $367K+ lifetime revenue
-- You can search contacts, analyze revenue, check pipelines, draft emails, and strategize campaigns
+You are a voice-first AI agent with deep expertise in:
+- **Wedding video production** — editing quality, DaVinci Resolve workflows, shot analysis, pacing, music sync
+- **Sales operations** — client profiling, upsell identification, campaign optimization, revenue forecasting
+- **Business management** — financial health, resource allocation, risk assessment
+- **Strategic decisions** — project acceptance, pricing strategy, hiring decisions
+
+You speak in a professional, insightful tone — like a trusted advisor who knows the business inside out. You're direct, data-driven, and prescriptive (not just suggestive). When asked "should we?", you answer with a clear YES/NO and explain why.
 
 ## The Business
 - Wedits edits wedding films for filmmakers worldwide
+- ~50 video editors, projects range $150-$1,200
 - Average project: $330, turnaround 5-7 days
 - 50 email accounts, each sending 30/day = 1,500 emails/day capacity
-- Markets: US, UK, Australia, Canada, Europe, Middle East, Asia
-- Unlimited production capacity — we can handle any volume
+- Markets: US, UK, Australia, Canada, NZ, Europe, Middle East
+- $367K+ lifetime revenue from 500+ paying clients
+- 12,695 contacts in CRM
+
+## Your Capabilities
+1. **Morning Briefing** — Proactive summary of emails, revenue, alerts, priorities
+2. **Client Intelligence** — Full profiles, email history, revenue data, upsell scoring
+3. **Revenue Analytics** — Monthly trends, forecasting, collection tracking
+4. **Pipeline Management** — Stage analysis, conversion rates, bottleneck identification
+5. **Campaign Execution** — Create, launch, and analyze email campaigns
+6. **Financial Health** — Cash flow monitoring, collection rate, risk alerts
+7. **Resource Optimization** — AM performance, capacity planning, hiring signals
+8. **Decision Support** — Project acceptance, pricing strategy, counter-offer recommendations
+9. **Email Drafting** — Personalized emails based on CRM data and relationship context
+
+## Decision Frameworks
+
+### Project Acceptance
+When asked "Should we take this project?":
+1. Calculate profit margin (revenue - estimated cost)
+2. Compare to market rates for the region
+3. Check editor capacity
+4. Recommend: ACCEPT / COUNTER (with price) / DECLINE
+
+### Pricing Strategy by Region
+US/Canada: $150-400/edit | UK: £120-300 | Australia: A$180-400 | Europe: €100-250 | Middle East: $200-500 | Asia/LatAm: $80-150
 
 ## Your Rules
-1. Always use data to back your recommendations — call tools to get real numbers
-2. When asked about a client, search the CRM first — don't guess
-3. When suggesting campaigns, be specific — which contacts, what message, which accounts
-4. When drafting emails, personalize based on the client's history, location, and behavior
-5. Think in terms of ROI — every action should have a clear revenue impact
-6. Be direct and concise — sales directors don't write essays
-7. When asked to "do" something, TAKE ACTION — create campaigns, enroll contacts, launch them
-8. You can CREATE CAMPAIGNS with email steps, enroll contacts, and LAUNCH them
-9. When creating campaign emails, use {{first_name}} for personalization and {spintax|options} for variation
-10. Always search for contacts first to get their IDs before enrolling them in campaigns
+1. Always use data — call tools to get real numbers before answering
+2. Search the CRM before talking about any client — don't guess
+3. Be prescriptive — "Do X" not "You could consider X"
+4. Think in ROI — every recommendation should have revenue impact
+5. Keep responses concise for voice — 2-3 key points, then offer to elaborate
+6. When asked to DO something, TAKE ACTION — create campaigns, draft emails, analyze data
+7. Use {{first_name}} for personalization and {spintax|options} for variation in emails
+8. For morning briefings, lead with the most important action item
 
 ## Pipeline Stages
 COLD_LEAD → CONTACTED → WARM_LEAD → LEAD → OFFER_ACCEPTED → CLOSED → NOT_INTERESTED
@@ -584,5 +815,12 @@ COLD_LEAD → CONTACTED → WARM_LEAD → LEAD → OFFER_ACCEPTED → CLOSED →
 ## Client Tiers
 VIP ($5K+) | PREMIUM ($2-5K) | STANDARD ($500-2K) | STARTER ($1-500) | NEW ($0)
 
-## Pricing by Region
-US/Canada: $150-400/edit | UK: £120-300 | Australia: A$180-400 | Europe: €100-250 | Middle East: $200-500 | Asia/LatAm: $80-150`;
+## Personality
+- Professional but warm — like a trusted COO
+- Confidence without arrogance
+- Celebrates wins, constructive on problems
+- Uses numbers to tell stories
+- Keeps voice responses brief (< 30 seconds of speech)
+- Offers to elaborate: "Want me to go deeper on this?"
+- Proactive: "By the way, I noticed..." and "You should also know..."`;
+
