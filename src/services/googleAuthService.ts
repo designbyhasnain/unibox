@@ -125,16 +125,56 @@ export async function handleAuthCallback(
     return data;
 }
 
+/**
+ * Refreshes a Gmail OAuth access token.
+ *
+ * Error handling distinguishes PERMANENT vs TRANSIENT failures:
+ * - PERMANENT (invalid_grant, token revoked, bad client): marks account ERROR
+ *   and throws AUTH_REQUIRED. User must reconnect.
+ * - TRANSIENT (network, 5xx, rate limit): keeps account ACTIVE, throws
+ *   TRANSIENT_ERROR. Next refresh cycle will retry.
+ */
 export async function refreshAccessToken(accountId: string): Promise<string> {
-    const { data: account, error } = await supabase
+    const { data: account, error: fetchErr } = await supabase
         .from('gmail_accounts')
-        .select('refresh_token')
+        .select('refresh_token, email, status')
         .eq('id', accountId)
         .single();
 
-    if (error || !account?.refresh_token) throw new Error('No refresh token found');
+    if (fetchErr) {
+        console.error(`[Token Refresh] DB fetch failed for ${accountId}:`, fetchErr.message);
+        throw new Error('DB_ERROR');
+    }
 
-    const decryptedRefreshToken = decrypt(account.refresh_token);
+    if (!account?.refresh_token) {
+        console.error(`[Token Refresh] No refresh_token stored for ${account?.email || accountId}`);
+        await supabase
+            .from('gmail_accounts')
+            .update({
+                status: 'ERROR',
+                last_error_message: 'No refresh token — reconnect required',
+            })
+            .eq('id', accountId);
+        throw new Error('AUTH_REQUIRED');
+    }
+
+    let decryptedRefreshToken: string;
+    try {
+        decryptedRefreshToken = decrypt(account.refresh_token);
+    } catch (decryptErr: unknown) {
+        const msg = decryptErr instanceof Error ? decryptErr.message : String(decryptErr);
+        console.error(`[Token Refresh] Decrypt failed for ${account.email}:`, msg);
+        // Decryption failure usually means ENCRYPTION_KEY rotation — permanent
+        await supabase
+            .from('gmail_accounts')
+            .update({
+                status: 'ERROR',
+                last_error_message: 'Token decryption failed — reconnect required',
+            })
+            .eq('id', accountId);
+        throw new Error('AUTH_REQUIRED');
+    }
+
     const oauth2Client = createOAuth2Client();
     oauth2Client.setCredentials({ refresh_token: decryptedRefreshToken });
 
@@ -142,29 +182,60 @@ export async function refreshAccessToken(accountId: string): Promise<string> {
         const response = await oauth2Client.refreshAccessToken();
         const newAccessToken = response.credentials.access_token;
 
-        if (!newAccessToken) throw new Error('Failed to refresh access token');
-
-        await supabase
-            .from('gmail_accounts')
-            .update({ access_token: newAccessToken, status: 'ACTIVE' })
-            .eq('id', accountId);
-
-        return newAccessToken;
-    } catch (err: any) {
-        const msg = err?.message || '';
-        const isInvalidGrant = msg.includes('invalid_grant') || msg.includes('Token has been expired or revoked');
-        console.error(`[Token Refresh] Failed for account ${accountId}:`, msg);
+        if (!newAccessToken) {
+            throw new Error('Google returned no access_token');
+        }
 
         await supabase
             .from('gmail_accounts')
             .update({
-                status: 'ERROR',
-                last_error_message: isInvalidGrant
-                    ? 'Token expired — reconnect required'
-                    : `Refresh failed: ${msg.slice(0, 100)}`,
+                access_token: newAccessToken,
+                status: 'ACTIVE',
+                last_error_message: null,
             })
             .eq('id', accountId);
 
-        throw new Error('AUTH_REQUIRED');
+        return newAccessToken;
+    } catch (err: unknown) {
+        const error = err as { message?: string; code?: string | number; response?: { status?: number; data?: unknown } };
+        const msg = error?.message || String(err);
+        const status = error?.response?.status;
+        const errData = error?.response?.data;
+
+        // Permanent auth failures — user must reconnect
+        const isPermanent =
+            msg.includes('invalid_grant') ||
+            msg.includes('Token has been expired or revoked') ||
+            msg.includes('invalid_client') ||
+            msg.includes('unauthorized_client') ||
+            status === 400 ||
+            status === 401;
+
+        // Detailed logging for diagnosis
+        console.error(
+            `[Token Refresh] ${isPermanent ? 'PERMANENT' : 'TRANSIENT'} failure for ${account.email} (${accountId})`,
+            {
+                message: msg.slice(0, 200),
+                status,
+                code: error?.code,
+                data: errData ? JSON.stringify(errData).slice(0, 300) : undefined,
+            }
+        );
+
+        if (isPermanent) {
+            await supabase
+                .from('gmail_accounts')
+                .update({
+                    status: 'ERROR',
+                    last_error_message: msg.includes('invalid_grant')
+                        ? 'Token expired — reconnect required'
+                        : `Auth failed: ${msg.slice(0, 100)}`,
+                })
+                .eq('id', accountId);
+            throw new Error('AUTH_REQUIRED');
+        }
+
+        // Transient error — do NOT mark ERROR, let next cycle retry
+        throw new Error('TRANSIENT_ERROR');
     }
 }

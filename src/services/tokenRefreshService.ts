@@ -22,7 +22,7 @@ export async function refreshAllTokens() {
         return { refreshed: 0, failed: 0, recovered: 0, watchesRenewed: 0 };
     }
 
-    let refreshed = 0, failed = 0, recovered = 0, watchesRenewed = 0;
+    let refreshed = 0, failed = 0, recovered = 0, transient = 0, watchesRenewed = 0;
 
     for (const account of accounts) {
         try {
@@ -61,36 +61,35 @@ export async function refreshAllTokens() {
                         await renewWatch(account.id);
                         watchesRenewed++;
                         console.log(`[KeepAlive] Watch renewed for ${account.email}`);
-                    } catch (e: any) {
-                        console.error(`[KeepAlive] Watch renewal failed for ${account.email}:`, e.message);
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        console.error(`[KeepAlive] Watch renewal failed for ${account.email}:`, msg.slice(0, 200));
                     }
                 }
             }
 
-        } catch (err: any) {
-            const msg = err?.message || '';
-            if (msg.includes('AUTH_REQUIRED') || msg.includes('invalid_grant')) {
-                // Only mark as ERROR if it was previously ACTIVE
-                // (don't keep re-marking ERROR accounts)
-                if (account.status === 'ACTIVE') {
-                    await supabase
-                        .from('gmail_accounts')
-                        .update({
-                            status: 'ERROR',
-                            last_error_message: 'Token expired — reconnect via Accounts page',
-                        })
-                        .eq('id', account.id);
-                    console.error(`[KeepAlive] ${account.email} token EXPIRED — needs reconnect`);
-                }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+
+            if (msg === 'AUTH_REQUIRED') {
+                // Permanent failure — account already marked ERROR by refreshAccessToken
+                // with a descriptive last_error_message. Just count it.
                 failed++;
+                console.warn(`[KeepAlive] ${account.email} needs reconnect (permanent)`);
+            } else if (msg === 'TRANSIENT_ERROR') {
+                // Transient — account stays ACTIVE, will retry next cycle
+                transient++;
+                console.log(`[KeepAlive] ${account.email} transient error (kept ACTIVE, will retry)`);
             } else {
-                // Transient error — don't mark as ERROR, just log
-                console.error(`[KeepAlive] ${account.email} transient error:`, msg.slice(0, 100));
+                // Unknown error — log for diagnosis, don't change account state
+                console.error(`[KeepAlive] ${account.email} unknown error:`, msg.slice(0, 200));
             }
         }
     }
 
-    console.log(`[KeepAlive] refreshed:${refreshed} recovered:${recovered} failed:${failed} watches:${watchesRenewed}`);
+    console.log(
+        `[KeepAlive] SUMMARY — total:${accounts.length} refreshed:${refreshed} recovered:${recovered} failed:${failed} transient:${transient} watches:${watchesRenewed}`
+    );
     return { refreshed, failed, recovered, watchesRenewed };
 }
 
