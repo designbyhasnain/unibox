@@ -219,13 +219,14 @@ export async function duplicateEditProject(id: string) {
 // ─── Get Project By ID ───────────────────────────────────────────────────────
 
 export async function getEditProjectById(id: string) {
-  const { userId } = await ensureAuthenticated();
+  await ensureAuthenticated();
 
+  // Match getEditProjects behavior: all authenticated users can view any
+  // project. List query returns all projects, so detail must too.
   const { data: project, error } = await supabase
     .from('edit_projects')
     .select('*, comments:project_comments(id, content, author_name, author_id, image_url, project_id, created_at)')
     .eq('id', id)
-    .eq('user_id', userId)
     .single();
 
   if (error) {

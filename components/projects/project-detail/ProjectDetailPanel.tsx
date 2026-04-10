@@ -30,16 +30,32 @@ export default function ProjectDetailPanel({ projectId, onClose, onUpdate, onDup
   const [commentText, setCommentText] = useState('');
   const [showMore, setShowMore] = useState(false);
   const [editingField, setEditingField] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const debounceRef = useRef<Record<string, NodeJS.Timeout>>({});
 
   useEffect(() => {
-    getEditProjectById(projectId).then(res => {
-      if (res.success && res.data) {
-        setProject(res.data);
-        setComments(Array.isArray(res.data.comments) ? res.data.comments as Record<string, unknown>[] : []);
-      }
-    });
-  }, [projectId]);
+    let cancelled = false;
+    setLoadError(null);
+    setProject(initialData || null);
+
+    getEditProjectById(projectId)
+      .then(res => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setProject(res.data as Record<string, unknown>);
+          setComments(Array.isArray((res.data as Record<string, unknown>).comments) ? (res.data as Record<string, unknown>).comments as Record<string, unknown>[] : []);
+        } else {
+          setLoadError(('error' in res && res.error) || 'Project not found');
+        }
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('[ProjectDetailPanel] Load failed', err);
+        setLoadError(err instanceof Error ? err.message : 'Failed to load project');
+      });
+
+    return () => { cancelled = true; };
+  }, [projectId, initialData]);
 
   const debouncedUpdate = useCallback((field: string, value: unknown) => {
     setProject(prev => prev ? { ...prev, [field]: value } : prev);
@@ -60,6 +76,20 @@ export default function ProjectDetailPanel({ projectId, onClose, onUpdate, onDup
     await deleteProjectComment(commentId);
     setComments(prev => prev.filter(c => c.id !== commentId));
   };
+
+  if (loadError) {
+    return (
+      <div className="ep-detail-panel">
+        <div className="ep-detail-top">
+          <button className="ep-detail-back" onClick={onClose}>← Back</button>
+        </div>
+        <div className="ep-detail-loading" style={{ color: '#dc2626', padding: 20, textAlign: 'center' }}>
+          Failed to load project
+          <div style={{ fontSize: 12, marginTop: 8, color: '#64748b' }}>{loadError}</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!project) return <div className="ep-detail-panel"><div className="ep-detail-loading">Loading...</div></div>;
 
