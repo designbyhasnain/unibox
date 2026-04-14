@@ -258,21 +258,41 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
 }> {
     await ensureAuthenticated();
     try {
-        const { data, error } = await supabase
+        // First try by contact_id
+        const { data: byId } = await supabase
             .from('email_messages')
             .select('id, subject, snippet, body, direction, from_name, from_email, sent_at, thread_id, gmail_account_id')
             .eq('contact_id', contactId)
             .order('sent_at', { ascending: false })
             .limit(5);
 
-        if (error) throw error;
+        if (byId && byId.length > 0) {
+            const emails = byId as LastEmail[];
+            const lastSent = emails.find(e => e.direction === 'SENT');
+            return { emails, gmailAccountId: lastSent?.gmail_account_id || emails[0]?.gmail_account_id || null };
+        }
 
-        const emails = (data || []) as LastEmail[];
-        // Find the gmail account from the most recent SENT email (for reply-from)
+        // Fallback: get the contact's email and search by from_email/to_email
+        const { data: contact } = await supabase
+            .from('contacts')
+            .select('email')
+            .eq('id', contactId)
+            .single();
+
+        if (!contact?.email) return { emails: [], gmailAccountId: null };
+
+        // Search emails where this contact's email appears as sender or recipient
+        const email = contact.email.toLowerCase();
+        const { data: byEmail } = await supabase
+            .from('email_messages')
+            .select('id, subject, snippet, body, direction, from_name, from_email, sent_at, thread_id, gmail_account_id')
+            .or(`from_email.eq.${email},to_email.eq.${email}`)
+            .order('sent_at', { ascending: false })
+            .limit(5);
+
+        const emails = (byEmail || []) as LastEmail[];
         const lastSent = emails.find(e => e.direction === 'SENT');
-        const gmailAccountId = lastSent?.gmail_account_id || emails[0]?.gmail_account_id || null;
-
-        return { emails, gmailAccountId };
+        return { emails, gmailAccountId: lastSent?.gmail_account_id || emails[0]?.gmail_account_id || null };
     } catch (error) {
         console.error('getContactLastEmailsAction error:', error);
         return { emails: [], gmailAccountId: null };
