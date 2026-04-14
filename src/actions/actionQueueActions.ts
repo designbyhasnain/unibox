@@ -252,16 +252,34 @@ export type LastEmail = {
     gmail_account_id: string | null;
 };
 
+const EMAIL_SELECT = 'id, subject, snippet, body, direction, from_name, from_email, sent_at, thread_id, gmail_account_id';
+
+/**
+ * Fetch the last emails for a contact.
+ *
+ * WHY THIS IS NOT TRIVIAL:
+ * email_messages.contact_id is nullable — during Gmail sync, contact lookup
+ * can fail (race condition, unknown sender, first-time contact). So many
+ * messages have contact_id = NULL even though the contact exists.
+ *
+ * STRATEGY (3-tier):
+ * 1. Fast path:     SELECT WHERE contact_id = ?           (indexed, O(1))
+ * 2. Fallback path: SELECT WHERE from/to_email ILIKE ?    (slower but reliable)
+ * 3. Self-heal:     UPDATE orphan rows SET contact_id = ?  (fixes it for next time)
+ *
+ * Tier 3 ensures the system converges — every fallback query patches the data
+ * so the fast path works on the next request. Over time, all emails get linked.
+ */
 export async function getContactLastEmailsAction(contactId: string): Promise<{
     emails: LastEmail[];
     gmailAccountId: string | null;
 }> {
     await ensureAuthenticated();
     try {
-        // First try by contact_id
+        // ── Tier 1: Fast path — query by indexed contact_id ──
         const { data: byId } = await supabase
             .from('email_messages')
-            .select('id, subject, snippet, body, direction, from_name, from_email, sent_at, thread_id, gmail_account_id')
+            .select(EMAIL_SELECT)
             .eq('contact_id', contactId)
             .order('sent_at', { ascending: false })
             .limit(5);
@@ -269,10 +287,15 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
         if (byId && byId.length > 0) {
             const emails = byId as LastEmail[];
             const lastSent = emails.find(e => e.direction === 'SENT');
-            return { emails, gmailAccountId: lastSent?.gmail_account_id || emails[0]?.gmail_account_id || null };
+            return {
+                emails,
+                gmailAccountId: lastSent?.gmail_account_id || emails[0]?.gmail_account_id || null,
+            };
         }
 
-        // Fallback: get the contact's email and search by from_email/to_email
+        // ── Tier 2: Fallback — lookup by contact email address ──
+        // from_email/to_email store raw RFC headers like "Name <email>"
+        // so we must use ILIKE to match the email substring.
         const { data: contact } = await supabase
             .from('contacts')
             .select('email')
@@ -281,19 +304,42 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
 
         if (!contact?.email) return { emails: [], gmailAccountId: null };
 
-        // Search emails where this contact's email appears as sender or recipient
-        // from_email/to_email store raw headers like "Name <email>" so use ilike
-        const email = contact.email.toLowerCase().replace(/[%_\\]/g, '\\$&');
+        // Escape ILIKE special chars (%, _, \) to prevent pattern injection
+        const escapedEmail = contact.email.toLowerCase().replace(/[%_\\]/g, '\\$&');
+
         const { data: byEmail } = await supabase
             .from('email_messages')
-            .select('id, subject, snippet, body, direction, from_name, from_email, sent_at, thread_id, gmail_account_id')
-            .or(`from_email.ilike.%${email}%,to_email.ilike.%${email}%`)
+            .select(EMAIL_SELECT)
+            .or(`from_email.ilike.%${escapedEmail}%,to_email.ilike.%${escapedEmail}%`)
             .order('sent_at', { ascending: false })
             .limit(5);
 
         const emails = (byEmail || []) as LastEmail[];
+
+        // ── Tier 3: Self-heal — backfill contact_id on orphan rows ──
+        // Do this in the background so the response isn't delayed.
+        // Only patch rows that don't already have a contact_id.
+        if (emails.length > 0) {
+            const orphanIds = emails.filter(e => !e.id).length === 0
+                ? emails.map(e => e.id)
+                : [];
+
+            if (orphanIds.length > 0) {
+                // Fire-and-forget: patch orphan rows so Tier 1 works next time
+                void supabase
+                    .from('email_messages')
+                    .update({ contact_id: contactId })
+                    .in('id', orphanIds)
+                    .is('contact_id', null)
+                    .then();
+            }
+        }
+
         const lastSent = emails.find(e => e.direction === 'SENT');
-        return { emails, gmailAccountId: lastSent?.gmail_account_id || emails[0]?.gmail_account_id || null };
+        return {
+            emails,
+            gmailAccountId: lastSent?.gmail_account_id || emails[0]?.gmail_account_id || null,
+        };
     } catch (error) {
         console.error('getContactLastEmailsAction error:', error);
         return { emails: [], gmailAccountId: null };

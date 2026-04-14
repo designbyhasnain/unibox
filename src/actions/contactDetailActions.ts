@@ -6,14 +6,39 @@ import { ensureAuthenticated } from '../lib/safe-action';
 export async function getContactDetailAction(contactId: string) {
     await ensureAuthenticated();
 
-    // Fetch contact, emails, projects, and activity in parallel
-    const [contactRes, emailsRes, projectsRes, activityRes] = await Promise.all([
-        supabase.from('contacts').select('*').eq('id', contactId).single(),
-        supabase.from('email_messages')
+    // Fetch contact first — we need the email for fallback queries
+    const contactRes = await supabase.from('contacts').select('*').eq('id', contactId).single();
+    if (contactRes.error || !contactRes.data) return null;
+
+    // Try fetching emails by contact_id (fast path), fall back to email address match
+    let emailsRes = await supabase.from('email_messages')
+        .select('id, subject, from_email, to_email, direction, sent_at, snippet, body, is_unread, thread_id, gmail_account_id')
+        .eq('contact_id', contactId)
+        .order('sent_at', { ascending: false })
+        .limit(100);
+
+    if ((!emailsRes.data || emailsRes.data.length === 0) && contactRes.data.email) {
+        const escaped = contactRes.data.email.toLowerCase().replace(/[%_\\]/g, '\\$&');
+        emailsRes = await supabase.from('email_messages')
             .select('id, subject, from_email, to_email, direction, sent_at, snippet, body, is_unread, thread_id, gmail_account_id')
-            .eq('contact_id', contactId)
+            .or(`from_email.ilike.%${escaped}%,to_email.ilike.%${escaped}%`)
             .order('sent_at', { ascending: false })
-            .limit(100),
+            .limit(100);
+
+        // Self-heal: backfill contact_id on orphan rows
+        if (emailsRes.data && emailsRes.data.length > 0) {
+            const orphanIds = emailsRes.data.map((e: any) => e.id);
+            void supabase
+                .from('email_messages')
+                .update({ contact_id: contactId })
+                .in('id', orphanIds)
+                .is('contact_id', null)
+                .then();
+        }
+    }
+
+    // Fetch projects and activity in parallel
+    const [projectsRes, activityRes] = await Promise.all([
         supabase.from('projects')
             .select('id, project_name, status, paid_status, project_value, total_amount, project_date, account_manager')
             .eq('client_id', contactId)
@@ -24,10 +49,6 @@ export async function getContactDetailAction(contactId: string) {
             .order('created_at', { ascending: false })
             .limit(50),
     ]);
-
-    if (contactRes.error || !contactRes.data) {
-        return null;
-    }
 
     // Aggregate email stats
     const emails = emailsRes.data || [];
