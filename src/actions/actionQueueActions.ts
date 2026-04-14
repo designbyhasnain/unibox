@@ -282,11 +282,12 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
         if (!contact?.email) return { emails: [], gmailAccountId: null };
 
         // Search emails where this contact's email appears as sender or recipient
-        const email = contact.email.toLowerCase();
+        // from_email/to_email store raw headers like "Name <email>" so use ilike
+        const email = contact.email.toLowerCase().replace(/[%_\\]/g, '\\$&');
         const { data: byEmail } = await supabase
             .from('email_messages')
             .select('id, subject, snippet, body, direction, from_name, from_email, sent_at, thread_id, gmail_account_id')
-            .or(`from_email.eq.${email},to_email.eq.${email}`)
+            .or(`from_email.ilike.%${email}%,to_email.ilike.%${email}%`)
             .order('sent_at', { ascending: false })
             .limit(5);
 
