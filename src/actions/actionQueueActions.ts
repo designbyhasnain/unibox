@@ -25,7 +25,7 @@ export type ActionItem = {
     leadScore: number | null;
 };
 
-const CONTACT_FIELDS = 'id, name, email, company, phone, location, pipeline_stage, days_since_last_contact, total_emails_sent, total_emails_received, estimated_value, lead_score, last_email_subject, last_message_direction';
+const CONTACT_FIELDS = 'id, name, email, company, phone, location, pipeline_stage, days_since_last_contact, total_emails_sent, total_emails_received, lead_score, last_message_direction';
 
 export async function getActionQueueAction(): Promise<{
     actions: ActionItem[];
@@ -117,9 +117,9 @@ export async function getActionQueueAction(): Promise<{
             daysSinceContact: days,
             totalEmailsSent: c.total_emails_sent || 0,
             totalEmailsReceived: c.total_emails_received || 0,
-            lastEmailSubject: c.last_email_subject,
+            lastEmailSubject: null,
             lastEmailDirection: c.last_message_direction,
-            estimatedValue: c.estimated_value,
+            estimatedValue: null,
             leadScore: c.lead_score,
         });
     }
@@ -142,7 +142,7 @@ export async function getActionQueueAction(): Promise<{
             totalEmailsReceived: 0,
             lastEmailSubject: null,
             lastEmailDirection: null,
-            estimatedValue: c.estimated_value,
+            estimatedValue: null,
             leadScore: c.lead_score,
         });
     }
@@ -163,9 +163,9 @@ export async function getActionQueueAction(): Promise<{
             daysSinceContact: c.days_since_last_contact || 0,
             totalEmailsSent: c.total_emails_sent || 0,
             totalEmailsReceived: 0,
-            lastEmailSubject: c.last_email_subject,
+            lastEmailSubject: null,
             lastEmailDirection: 'SENT',
-            estimatedValue: c.estimated_value,
+            estimatedValue: null,
             leadScore: c.lead_score,
         });
     }
@@ -186,9 +186,9 @@ export async function getActionQueueAction(): Promise<{
             daysSinceContact: c.days_since_last_contact || 0,
             totalEmailsSent: c.total_emails_sent || 0,
             totalEmailsReceived: c.total_emails_received || 0,
-            lastEmailSubject: c.last_email_subject,
+            lastEmailSubject: null,
             lastEmailDirection: c.last_message_direction,
-            estimatedValue: c.estimated_value,
+            estimatedValue: null,
             leadScore: c.lead_score,
         });
     }
