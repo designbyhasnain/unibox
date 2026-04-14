@@ -19,6 +19,7 @@ export type ProjectUpdatePayload = {
     deductionOnDelay?: number;
     finalReview?: string;
     priority?: string;
+    status?: string;
 };
 
 // Fetch projects with server-side pagination
@@ -138,6 +139,7 @@ export async function updateProjectAction(projectId: string, payload: ProjectUpd
     }
     if (payload.finalReview !== undefined) updateData.final_review = payload.finalReview;
     if (payload.priority !== undefined) updateData.priority = payload.priority;
+    if (payload.status !== undefined) updateData.status = payload.status;
 
     if (Object.keys(updateData).length === 0) {
         return { success: true, project: null };
