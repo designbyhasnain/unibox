@@ -277,7 +277,60 @@ export async function getOrphanedProjectsAction(page: number = 1, pageSize: numb
         .order('project_value', { ascending: false })
         .range(offset, offset + pageSize - 1);
 
-    if (error) return { projects: [], total: 0, page, pageSize, totalPages: 0 };
+    if (error) return { projects: [], total: 0, page, pageSize, totalPages: 0, suggestions: {} };
+
+    // For each project, find suggested contacts based on AM's email activity around project date
+    const suggestions: Record<string, any[]> = {};
+
+    for (const p of data || []) {
+        if (!p.account_manager_id) continue;
+
+        // Get AM's gmail accounts
+        const { data: assigns } = await supabase.from('user_gmail_assignments')
+            .select('gmail_account_id')
+            .eq('user_id', p.account_manager_id);
+
+        if (!assigns || assigns.length === 0) {
+            // Fallback: get accounts owned by this AM
+            const { data: ownedAccounts } = await supabase.from('gmail_accounts')
+                .select('id')
+                .eq('user_id', p.account_manager_id);
+            if (ownedAccounts) assigns?.push(...ownedAccounts.map(a => ({ gmail_account_id: a.id })));
+        }
+
+        const accIds = (assigns || []).map(a => a.gmail_account_id);
+        if (accIds.length === 0) continue;
+
+        // Find contacts emailed by this AM around the project date (+/- 30 days)
+        if (p.project_date) {
+            const projDate = new Date(p.project_date);
+            const before = new Date(projDate.getTime() - 30 * 86400000).toISOString();
+            const after = new Date(projDate.getTime() + 30 * 86400000).toISOString();
+
+            const { data: nearbyEmails } = await supabase.from('email_messages')
+                .select('contact_id, contacts:contact_id(id, name, email, total_revenue, total_projects)')
+                .in('gmail_account_id', accIds)
+                .gte('sent_at', before)
+                .lte('sent_at', after)
+                .not('contact_id', 'is', null)
+                .order('sent_at', { ascending: false })
+                .limit(50);
+
+            // Deduplicate and rank by frequency
+            const contactFreq: Record<string, { contact: any; count: number }> = {};
+            (nearbyEmails || []).forEach((e: any) => {
+                if (!e.contacts) return;
+                const cid = e.contact_id;
+                if (!contactFreq[cid]) contactFreq[cid] = { contact: e.contacts, count: 0 };
+                contactFreq[cid].count++;
+            });
+
+            suggestions[p.id] = Object.values(contactFreq)
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5)
+                .map(cf => ({ ...cf.contact, emailCount: cf.count }));
+        }
+    }
 
     return {
         projects: data || [],
@@ -285,7 +338,55 @@ export async function getOrphanedProjectsAction(page: number = 1, pageSize: numb
         page,
         pageSize,
         totalPages: Math.ceil((count ?? 0) / pageSize),
+        suggestions,
     };
+}
+
+// Get suspiciously linked projects (many projects, few emails)
+export async function getSuspiciousLinksAction() {
+    await ensureAuthenticated();
+
+    const { data } = await supabase.from('contacts')
+        .select('id, name, email, total_projects, total_emails_sent, total_emails_received, total_revenue')
+        .gt('total_projects', 5)
+        .order('total_projects', { ascending: false })
+        .limit(50);
+
+    return (data || []).filter(c => {
+        const totalEmails = (c.total_emails_sent || 0) + (c.total_emails_received || 0);
+        return totalEmails < c.total_projects * 0.5; // Less than 0.5 emails per project
+    }).map(c => ({
+        ...c,
+        totalEmails: (c.total_emails_sent || 0) + (c.total_emails_received || 0),
+        ratio: ((c.total_emails_sent || 0) + (c.total_emails_received || 0)) / (c.total_projects || 1),
+    }));
+}
+
+// Unlink all projects from a contact (put back into orphan queue)
+export async function unlinkContactProjectsAction(contactId: string) {
+    await ensureAuthenticated();
+    if (!contactId) return { success: false, error: 'contactId required' };
+
+    const { data: projects } = await supabase.from('projects')
+        .select('id')
+        .eq('client_id', contactId);
+
+    const count = projects?.length || 0;
+
+    const { error } = await supabase.from('projects')
+        .update({ client_id: null })
+        .eq('client_id', contactId);
+
+    if (error) return { success: false, error: error.message };
+
+    // Reset contact revenue
+    await supabase.from('contacts').update({
+        total_revenue: 0,
+        unpaid_amount: 0,
+        total_projects: 0,
+    }).eq('id', contactId);
+
+    return { success: true, unlinked: count };
 }
 
 export async function searchContactsForLinkingAction(query: string) {
