@@ -20,6 +20,7 @@ export type ProjectUpdatePayload = {
     finalReview?: string;
     priority?: string;
     status?: string;
+    clientId?: string;
 };
 
 // Fetch projects with server-side pagination
@@ -140,6 +141,7 @@ export async function updateProjectAction(projectId: string, payload: ProjectUpd
     if (payload.finalReview !== undefined) updateData.final_review = payload.finalReview;
     if (payload.priority !== undefined) updateData.priority = payload.priority;
     if (payload.status !== undefined) updateData.status = payload.status;
+    if (payload.clientId !== undefined) updateData.client_id = payload.clientId || null;
 
     if (Object.keys(updateData).length === 0) {
         return { success: true, project: null };
@@ -260,4 +262,72 @@ export async function createProjectAction(payload: {
 
     revalidatePath('/projects');
     return { success: true, project: data };
+}
+
+// ── Orphaned Projects (no client linked) ──────────────────────────────────
+
+export async function getOrphanedProjectsAction(page: number = 1, pageSize: number = 10) {
+    await ensureAuthenticated();
+
+    const offset = (page - 1) * pageSize;
+    const { data, error, count } = await supabase
+        .from('projects')
+        .select('id, project_name, project_value, paid_status, project_date, status, account_manager, account_manager_id', { count: 'exact' })
+        .is('client_id', null)
+        .order('project_value', { ascending: false })
+        .range(offset, offset + pageSize - 1);
+
+    if (error) return { projects: [], total: 0, page, pageSize, totalPages: 0 };
+
+    return {
+        projects: data || [],
+        total: count ?? 0,
+        page,
+        pageSize,
+        totalPages: Math.ceil((count ?? 0) / pageSize),
+    };
+}
+
+export async function searchContactsForLinkingAction(query: string) {
+    await ensureAuthenticated();
+    if (!query || query.trim().length < 2) return [];
+
+    const q = query.trim().replace(/[%_\\]/g, '\\$&');
+    const { data } = await supabase
+        .from('contacts')
+        .select('id, name, email, company, location, total_revenue, total_projects')
+        .or(`name.ilike.%${q}%,email.ilike.%${q}%,company.ilike.%${q}%`)
+        .order('total_revenue', { ascending: false })
+        .limit(10);
+
+    return data || [];
+}
+
+export async function linkProjectToContactAction(projectId: string, contactId: string) {
+    await ensureAuthenticated();
+    if (!projectId || !contactId) return { success: false, error: 'projectId and contactId required' };
+
+    const { error } = await supabase
+        .from('projects')
+        .update({ client_id: contactId })
+        .eq('id', projectId);
+
+    if (error) return { success: false, error: error.message };
+
+    // Recalculate contact revenue
+    const { data: projects } = await supabase
+        .from('projects')
+        .select('project_value, paid_status')
+        .eq('client_id', contactId);
+
+    const totalRevenue = (projects || []).reduce((s: number, p: any) => s + (p.project_value || 0), 0);
+    const paidRevenue = (projects || []).filter((p: any) => p.paid_status === 'PAID').reduce((s: number, p: any) => s + (p.project_value || 0), 0);
+
+    await supabase.from('contacts').update({
+        total_revenue: totalRevenue,
+        unpaid_amount: totalRevenue - paidRevenue,
+        total_projects: (projects || []).length,
+    }).eq('id', contactId);
+
+    return { success: true };
 }
