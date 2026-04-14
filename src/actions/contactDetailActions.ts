@@ -18,20 +18,40 @@ export async function getContactDetailAction(contactId: string) {
         .limit(100);
 
     if ((!emailsRes.data || emailsRes.data.length === 0) && contactRes.data.email) {
-        const escaped = contactRes.data.email.toLowerCase().replace(/[%_\\]/g, '\\$&');
-        emailsRes = await supabase.from('email_messages')
-            .select('id, subject, from_email, to_email, direction, sent_at, snippet, body, is_unread, thread_id, gmail_account_id')
-            .or(`from_email.ilike.%${escaped}%,to_email.ilike.%${escaped}%`)
-            .order('sent_at', { ascending: false })
-            .limit(100);
+        const emailFields = 'id, subject, from_email, to_email, direction, sent_at, snippet, body, is_unread, thread_id, gmail_account_id';
+        const emailPattern = `%${contactRes.data.email}%`;
+
+        const [fromRes, toRes] = await Promise.all([
+            supabase.from('email_messages')
+                .select(emailFields)
+                .ilike('from_email', emailPattern)
+                .order('sent_at', { ascending: false })
+                .limit(100),
+            supabase.from('email_messages')
+                .select(emailFields)
+                .ilike('to_email', emailPattern)
+                .order('sent_at', { ascending: false })
+                .limit(100),
+        ]);
+
+        // Merge and deduplicate
+        const merged = [...(fromRes.data || []), ...(toRes.data || [])];
+        const seen = new Set<string>();
+        const unique = merged.filter((e: any) => {
+            if (seen.has(e.id)) return false;
+            seen.add(e.id);
+            return true;
+        });
+        unique.sort((a: any, b: any) => new Date(b.sent_at || 0).getTime() - new Date(a.sent_at || 0).getTime());
+        emailsRes = { data: unique.slice(0, 100), error: null } as typeof emailsRes;
 
         // Self-heal: backfill contact_id on orphan rows
-        if (emailsRes.data && emailsRes.data.length > 0) {
-            const orphanIds = emailsRes.data.map((e: any) => e.id);
+        if (unique.length > 0) {
+            const ids = unique.map((e: any) => e.id);
             void supabase
                 .from('email_messages')
                 .update({ contact_id: contactId })
-                .in('id', orphanIds)
+                .in('id', ids)
                 .is('contact_id', null)
                 .then();
         }

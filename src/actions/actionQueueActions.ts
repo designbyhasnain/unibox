@@ -295,7 +295,7 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
 
         // ── Tier 2: Fallback — lookup by contact email address ──
         // from_email/to_email store raw RFC headers like "Name <email>"
-        // so we must use ILIKE to match the email substring.
+        // Use two separate queries to avoid PostgREST .or() parsing issues
         const { data: contact } = await supabase
             .from('contacts')
             .select('email')
@@ -304,35 +304,44 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
 
         if (!contact?.email) return { emails: [], gmailAccountId: null };
 
-        // Escape ILIKE special chars (%, _, \) to prevent pattern injection
-        const escapedEmail = contact.email.toLowerCase().replace(/[%_\\]/g, '\\$&');
+        const emailPattern = `%${contact.email}%`;
 
-        const { data: byEmail } = await supabase
-            .from('email_messages')
-            .select(EMAIL_SELECT)
-            .or(`from_email.ilike.%${escapedEmail}%,to_email.ilike.%${escapedEmail}%`)
-            .order('sent_at', { ascending: false })
-            .limit(5);
+        // Run both directions in parallel
+        const [fromRes, toRes] = await Promise.all([
+            supabase
+                .from('email_messages')
+                .select(EMAIL_SELECT)
+                .ilike('from_email', emailPattern)
+                .order('sent_at', { ascending: false })
+                .limit(5),
+            supabase
+                .from('email_messages')
+                .select(EMAIL_SELECT)
+                .ilike('to_email', emailPattern)
+                .order('sent_at', { ascending: false })
+                .limit(5),
+        ]);
 
-        const emails = (byEmail || []) as LastEmail[];
+        // Merge, deduplicate, sort by date descending, take 5
+        const merged = [...(fromRes.data || []), ...(toRes.data || [])];
+        const seen = new Set<string>();
+        const unique = merged.filter(e => {
+            if (seen.has(e.id)) return false;
+            seen.add(e.id);
+            return true;
+        });
+        unique.sort((a, b) => new Date(b.sent_at || 0).getTime() - new Date(a.sent_at || 0).getTime());
+        const emails = unique.slice(0, 5) as LastEmail[];
 
         // ── Tier 3: Self-heal — backfill contact_id on orphan rows ──
-        // Do this in the background so the response isn't delayed.
-        // Only patch rows that don't already have a contact_id.
         if (emails.length > 0) {
-            const orphanIds = emails.filter(e => !e.id).length === 0
-                ? emails.map(e => e.id)
-                : [];
-
-            if (orphanIds.length > 0) {
-                // Fire-and-forget: patch orphan rows so Tier 1 works next time
-                void supabase
-                    .from('email_messages')
-                    .update({ contact_id: contactId })
-                    .in('id', orphanIds)
-                    .is('contact_id', null)
-                    .then();
-            }
+            const ids = emails.map(e => e.id);
+            void supabase
+                .from('email_messages')
+                .update({ contact_id: contactId })
+                .in('id', ids)
+                .is('contact_id', null)
+                .then();
         }
 
         const lastSent = emails.find(e => e.direction === 'SENT');
