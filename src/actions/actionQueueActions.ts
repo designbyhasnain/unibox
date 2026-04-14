@@ -41,8 +41,6 @@ export async function getActionQueueAction(): Promise<{
         return { actions: [], counts: { critical: 0, high: 0, medium: 0, low: 0, total: 0 } };
     }
 
-    const managerFilter = accountIds ? { account_manager_id: userId } : {};
-
     // 1. REPLY_NOW: They replied, you haven't responded
     let replyQuery = supabase
         .from('contacts')
@@ -54,7 +52,7 @@ export async function getActionQueueAction(): Promise<{
         .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('days_since_last_contact', { ascending: true })
         .limit(30);
-    if (accountIds) replyQuery = replyQuery.match(managerFilter);
+    if (accountIds) replyQuery = replyQuery.eq('account_manager_id', userId);
     const { data: needReply } = await replyQuery;
 
     // 2. NEW_LEAD: Added in last 48h, never emailed
@@ -67,7 +65,7 @@ export async function getActionQueueAction(): Promise<{
         .in('pipeline_stage', ['COLD_LEAD', 'LEAD'])
         .order('lead_score', { ascending: false })
         .limit(20);
-    if (accountIds) newQuery = newQuery.match(managerFilter);
+    if (accountIds) newQuery = newQuery.eq('account_manager_id', userId);
     const { data: newLeads } = await newQuery;
 
     // 3. FOLLOW_UP: You emailed, no reply, 3-14 days ago
@@ -83,7 +81,7 @@ export async function getActionQueueAction(): Promise<{
         .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('days_since_last_contact', { ascending: true })
         .limit(30);
-    if (accountIds) followQuery = followQuery.match(managerFilter);
+    if (accountIds) followQuery = followQuery.eq('account_manager_id', userId);
     const { data: needFollowUp } = await followQuery;
 
     // 4. WIN_BACK: Was engaged (5+ replies), went silent 30+ days
@@ -95,7 +93,7 @@ export async function getActionQueueAction(): Promise<{
         .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('total_emails_received', { ascending: false })
         .limit(20);
-    if (accountIds) winQuery = winQuery.match(managerFilter);
+    if (accountIds) winQuery = winQuery.eq('account_manager_id', userId);
     const { data: winBack } = await winQuery;
 
     const actions: ActionItem[] = [];
@@ -238,5 +236,45 @@ export async function markActionDoneAction(contactId: string) {
     } catch (error) {
         console.error('markActionDoneAction error:', error);
         return { success: false, error: 'Failed to mark done' };
+    }
+}
+
+export type LastEmail = {
+    id: string;
+    subject: string | null;
+    snippet: string | null;
+    body: string | null;
+    direction: 'SENT' | 'RECEIVED';
+    from_name: string | null;
+    from_email: string | null;
+    sent_at: string | null;
+    thread_id: string | null;
+    gmail_account_id: string | null;
+};
+
+export async function getContactLastEmailsAction(contactId: string): Promise<{
+    emails: LastEmail[];
+    gmailAccountId: string | null;
+}> {
+    await ensureAuthenticated();
+    try {
+        const { data, error } = await supabase
+            .from('email_messages')
+            .select('id, subject, snippet, body, direction, from_name, from_email, sent_at, thread_id, gmail_account_id')
+            .eq('contact_id', contactId)
+            .order('sent_at', { ascending: false })
+            .limit(5);
+
+        if (error) throw error;
+
+        const emails = (data || []) as LastEmail[];
+        // Find the gmail account from the most recent SENT email (for reply-from)
+        const lastSent = emails.find(e => e.direction === 'SENT');
+        const gmailAccountId = lastSent?.gmail_account_id || emails[0]?.gmail_account_id || null;
+
+        return { emails, gmailAccountId };
+    } catch (error) {
+        console.error('getContactLastEmailsAction error:', error);
+        return { emails: [], gmailAccountId: null };
     }
 }

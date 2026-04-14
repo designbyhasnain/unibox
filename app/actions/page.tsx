@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getActionQueueAction, snoozeActionAction, markActionDoneAction } from '../../src/actions/actionQueueActions';
 import type { ActionItem } from '../../src/actions/actionQueueActions';
 import ActionCard from '../components/ActionCard';
 import QuickActions from '../components/QuickActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useUI } from '../context/UIContext';
+import { useGlobalFilter } from '../context/FilterContext';
 
 export default function ActionsPage() {
     const [actions, setActions] = useState<ActionItem[]>([]);
@@ -14,9 +15,11 @@ export default function ActionsPage() {
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<string>('ALL');
     const [quickAction, setQuickAction] = useState<ActionItem | null>(null);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
 
-    let ui: any = null;
-    try { ui = useUI(); } catch {}
+    const { accounts } = useGlobalFilter();
+    let ui: ReturnType<typeof useUI> | null = null;
+    try { ui = useUI(); } catch { /* outside UIContext */ }
 
     const load = useCallback(async () => {
         try {
@@ -48,7 +51,7 @@ export default function ActionsPage() {
         await markActionDoneAction(contactId);
     };
 
-    const openCompose = (to: string, name: string, subject?: string, body?: string) => {
+    const openCompose = (to: string, _name: string, subject?: string, body?: string) => {
         if (ui) {
             ui.setComposeDefaultTo(to);
             if (subject) ui.setComposeDefaultSubject(subject);
@@ -57,7 +60,18 @@ export default function ActionsPage() {
         }
     };
 
+    const handleToggleExpand = (id: string) => {
+        setExpandedId(prev => prev === id ? null : id);
+    };
+
     const filtered = filter === 'ALL' ? actions : actions.filter(a => a.actionType === filter);
+
+    // Map accounts for ActionCard — need id + email
+    const accountList = (accounts || []).map((a: any) => ({
+        id: a.id,
+        email: a.email || a.gmail_email || '',
+        name: a.name || a.display_name || '',
+    }));
 
     if (loading) return <PageLoader isLoading={true} type="list" count={6}><div /></PageLoader>;
 
@@ -65,12 +79,14 @@ export default function ActionsPage() {
         <>
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
-                .aq-page { font-family: 'DM Sans', system-ui, sans-serif; height: 100%; overflow-y: auto; background: #f8fafc; }
+                .aq-page { font-family: 'DM Sans', system-ui, sans-serif; flex: 1; min-height: 0; overflow-y: auto; background: #f8fafc; }
                 .aq-mono { font-family: 'DM Mono', monospace; }
                 .aq-filter { padding: 6px 14px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; color: #64748b; }
                 .aq-filter:hover { border-color: #2563eb; color: #2563eb; }
                 .aq-filter-active { background: #2563eb !important; color: #fff !important; border-color: #2563eb !important; }
                 @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+                .action-spin { animation: action-spin 1s linear infinite; }
+                @keyframes action-spin { to { transform: rotate(360deg); } }
             `}</style>
 
             <div className="aq-page">
@@ -85,7 +101,7 @@ export default function ActionsPage() {
                             {'\uD83C\uDFAF'} Today&apos;s Actions
                         </h1>
                         <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0', fontWeight: 500 }}>
-                            {counts.total} contacts need your attention
+                            {counts.total} contacts need your attention — click any card to reply inline
                         </p>
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
@@ -116,8 +132,8 @@ export default function ActionsPage() {
                     ].map(s => (
                         <div key={s.l} style={{
                             background: s.bg, borderRadius: 8, padding: '10px 16px', textAlign: 'center',
-                            border: `1px solid ${s.color}20`,
-                        }}>
+                            border: `1px solid ${s.color}20`, cursor: 'pointer',
+                        }} onClick={() => setFilter(s.l === 'Reply Now' ? 'REPLY_NOW' : s.l === 'New Leads' ? 'NEW_LEAD' : s.l === 'Follow Up' ? 'FOLLOW_UP' : 'WIN_BACK')}>
                             <div className="aq-mono" style={{ fontSize: 28, fontWeight: 700, color: s.color }}>{s.n}</div>
                             <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', letterSpacing: '.04em' }}>{s.l.toUpperCase()}</div>
                         </div>
@@ -155,6 +171,9 @@ export default function ActionsPage() {
                             onQuickEmail={handleQuickEmail}
                             onSnooze={handleSnooze}
                             onDone={handleDone}
+                            accounts={accountList}
+                            expandedId={expandedId}
+                            onToggleExpand={handleToggleExpand}
                         />
                     ))}
                 </div>
