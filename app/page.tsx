@@ -129,28 +129,21 @@ export default function InboxPage() {
         setBulkLoading(false);
     };
 
-    // Settings - read from localStorage to connect with settings page (FE-024)
-    const [pollingInterval, setPollingInterval] = useState(() => {
-        if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('settings_polling_interval');
-            return saved ? parseInt(saved, 10) : 300;
-        }
-        return 300;
-    });
-    const [isPollingEnabled, setIsPollingEnabled] = useState(() => {
-        if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('settings_polling_enabled');
-            return saved !== null ? saved === 'true' : true;
-        }
-        return true;
-    });
-    const [isFocusSyncEnabled, setIsFocusSyncEnabled] = useState(() => {
-        if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('settings_focus_sync_enabled');
-            return saved !== null ? saved === 'true' : true;
-        }
-        return true;
-    });
+    // Settings — SSR-safe defaults, sync from localStorage after mount (FE-024)
+    const [pollingInterval, setPollingInterval] = useState(300);
+    const [isPollingEnabled, setIsPollingEnabled] = useState(true);
+    const [isFocusSyncEnabled, setIsFocusSyncEnabled] = useState(true);
+
+    useEffect(() => {
+        try {
+            const pi = localStorage.getItem('settings_polling_interval');
+            if (pi) setPollingInterval(parseInt(pi, 10));
+            const pe = localStorage.getItem('settings_polling_enabled');
+            if (pe !== null) setIsPollingEnabled(pe === 'true');
+            const fs = localStorage.getItem('settings_focus_sync_enabled');
+            if (fs !== null) setIsFocusSyncEnabled(fs === 'true');
+        } catch {}
+    }, []);
 
     const toastTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
     const handleSyncRef = useRef(handleSync);

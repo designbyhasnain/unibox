@@ -24,16 +24,8 @@ const FilterContext = createContext<FilterContextType | undefined>(undefined);
 export function FilterProvider({ children }: { children: ReactNode }) {
     const pathname = usePathname();
 
-    // Initialize directly from localStorage to eliminate double-render on mount
-    const [selectedAccountId, setSelectedAccountIdState] = useState<string>(() => {
-        if (typeof window === 'undefined') return 'ALL';
-        try {
-            const saved = localStorage.getItem('unibox_selected_account_id');
-            return (saved && saved !== 'ALL') ? saved : 'ALL';
-        } catch {
-            return 'ALL';
-        }
-    });
+    // Start with SSR-safe default, then sync from localStorage in effect
+    const [selectedAccountId, setSelectedAccountIdState] = useState<string>('ALL');
 
     // Date range filter
     const [startDate, setStartDate] = useState<string>(() => {
@@ -45,18 +37,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         return new Date().toISOString().split('T')[0] as string;
     });
 
-    // Accounts global state — load from localStorage cache for instant display
-    const [accounts, setAccountsInternal] = useState<any[]>(() => {
-        if (typeof window === 'undefined') return [];
-        try {
-            const cached = localStorage.getItem('unibox_cache_accounts_data');
-            if (cached) {
-                const parsed = JSON.parse(cached);
-                if (Array.isArray(parsed?.data)) return parsed.data;
-            }
-        } catch {}
-        return [];
-    });
+    // Accounts global state — SSR default, sync from cache after mount
+    const [accounts, setAccountsInternal] = useState<any[]>([]);
     const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
 
     const setAccounts = useCallback((newAccounts: any[] | ((prev: any[]) => any[])) => {
@@ -80,6 +62,23 @@ export function FilterProvider({ children }: { children: ReactNode }) {
             setIsLoadingAccounts(false);
         }
     }, [setAccounts]);
+
+    // Sync from localStorage after mount to avoid SSR/client hydration mismatch
+    React.useEffect(() => {
+        try {
+            const saved = localStorage.getItem('unibox_selected_account_id');
+            if (saved && saved !== 'ALL') setSelectedAccountIdState(saved);
+        } catch {}
+        try {
+            const cached = localStorage.getItem('unibox_cache_accounts_data');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed?.data) && parsed.data.length > 0) {
+                    setAccountsInternal(parsed.data);
+                }
+            }
+        } catch {}
+    }, []);
 
     // Fetch accounts once on mount — skip on login page
     const hasInitialized = React.useRef(false);

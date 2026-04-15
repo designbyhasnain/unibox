@@ -240,30 +240,11 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     const activeCountsKey = `inbox_tabs_${selectedAccountId}`;
 
     // Durable initialization logic
+    // Initial state uses ONLY in-memory cache (same on SSR and client) —
+    // localStorage is hydrated post-mount via effect to avoid #310.
     const getInitialState = (): MailboxState => {
-        let initialCache: any = null;
-        if (enabled) {
-            if (globalMailboxCache[cacheKey]) {
-                initialCache = globalMailboxCache[cacheKey];
-            } else if (typeof window !== 'undefined') {
-                const saved = getFromLocalCache(`mailbox_${cacheKey}`);
-                if (saved) {
-                    globalMailboxCache[cacheKey] = saved;
-                    initialCache = saved;
-                }
-            }
-        }
-
-        let initialTabCounts: Record<string, number> = {};
-        if (globalTabCountsCache[activeCountsKey]) {
-            initialTabCounts = globalTabCountsCache[activeCountsKey];
-        } else if (typeof window !== 'undefined') {
-            const saved = getFromLocalCache(activeCountsKey);
-            if (saved) {
-                globalTabCountsCache[activeCountsKey] = saved;
-                initialTabCounts = saved;
-            }
-        }
+        const initialCache = enabled ? globalMailboxCache[cacheKey] ?? null : null;
+        const initialTabCounts = globalTabCountsCache[activeCountsKey] ?? {};
 
         return {
             emails: initialCache?.emails || [],
@@ -285,6 +266,19 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     };
 
     const [state, dispatch] = useReducer(mailboxReducer, undefined, getInitialState);
+
+    // Post-mount: hydrate in-memory cache from localStorage once per cacheKey
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!globalMailboxCache[cacheKey]) {
+            const saved = getFromLocalCache(`mailbox_${cacheKey}`);
+            if (saved) globalMailboxCache[cacheKey] = saved;
+        }
+        if (!globalTabCountsCache[activeCountsKey]) {
+            const saved = getFromLocalCache(activeCountsKey);
+            if (saved) globalTabCountsCache[activeCountsKey] = saved;
+        }
+    }, [cacheKey, activeCountsKey]);
 
     const {
         emails, totalCount, totalPages, currentPage, isLoading,
