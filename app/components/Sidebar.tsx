@@ -105,6 +105,12 @@ const I = {
             <polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
         </svg>
     ),
+    Scraper: () => (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            <line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" />
+        </svg>
+    ),
     Jarvis: () => <span style={{ fontSize: 14, lineHeight: 1 }}>{'\uD83E\uDD16'}</span>,
     EditProj: () => <span style={{ fontSize: 14, lineHeight: 1 }}>{'\uD83C\uDFAC'}</span>,
 };
@@ -123,13 +129,14 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
     const [userRole, setUserRole] = React.useState<string | null>(null);
     const [mounted, setMounted] = React.useState(false);
-    const [collapsed, setCollapsed] = React.useState(() => {
-        if (typeof window === 'undefined') return false;
-        try { return localStorage.getItem('unibox_sidebar_collapsed') === '1'; } catch { return false; }
-    });
+    const [collapsed, setCollapsed] = React.useState(false);
 
     React.useEffect(() => {
         setMounted(true);
+        try {
+            const saved = localStorage.getItem('unibox_sidebar_collapsed');
+            if (saved === '1') setCollapsed(true);
+        } catch {}
         try {
             const cached = localStorage.getItem('unibox_user_role');
             if (cached) setUserRole(cached);
@@ -193,6 +200,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         title: 'Marketing',
         items: [
             { href: '/campaigns', label: isSales ? 'My Campaigns' : 'Campaigns', icon: <I.Campaigns /> },
+            ...(isAdminLike ? [{ href: '/scraper', label: 'Scraper', icon: <I.Scraper /> }] : []),
             { href: '/templates', label: 'Templates', icon: <I.Templates /> },
             { href: '/analytics', label: 'Analytics', icon: <I.Analytics /> },
         ],
@@ -248,7 +256,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
     return (
         <>
             {isOpen && <div className="sidebar-overlay" onClick={onClose} />}
-            <aside className={`sidebar${isOpen ? ' open' : ''}${collapsed ? ' collapsed' : ''}`}>
+            <aside className={`sidebar${isOpen ? ' open' : ''}${collapsed ? ' collapsed' : ''}`} suppressHydrationWarning>
                 {/* Brand */}
                 <div className="sb-header">
                     <div className="sb-brand">
