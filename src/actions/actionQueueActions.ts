@@ -275,15 +275,30 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
 }> {
     await ensureAuthenticated();
     try {
+        // Fetch contact stats upfront so we can decide whether Tier 1 is enough
+        const { data: contact } = await supabase
+            .from('contacts')
+            .select('email, total_emails_sent, total_emails_received')
+            .eq('id', contactId)
+            .single();
+
         // ── Tier 1: Fast path — query by indexed contact_id ──
+        // Fetch up to 20 so habit computation has enough signal (needs 3+ RECEIVED)
         const { data: byId } = await supabase
             .from('email_messages')
             .select(EMAIL_SELECT)
             .eq('contact_id', contactId)
             .order('sent_at', { ascending: false })
-            .limit(5);
+            .limit(20);
 
-        if (byId && byId.length > 0) {
+        // Trigger fallback only if contact_id returned zero but the contact
+        // claims to have emails. Sasha's case: contact_id links are wrong, so
+        // we need to search by email address to find the real conversation.
+        const expectedTotal = (contact?.total_emails_sent || 0) + (contact?.total_emails_received || 0);
+        const foundCount = byId?.length || 0;
+        const tier1Sufficient = foundCount >= Math.min(20, expectedTotal);
+
+        if (byId && byId.length > 0 && tier1Sufficient) {
             const emails = byId as LastEmail[];
             const lastSent = emails.find(e => e.direction === 'SENT');
             return {
@@ -295,12 +310,6 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
         // ── Tier 2: Fallback — lookup by contact email address ──
         // from_email/to_email store raw RFC headers like "Name <email>"
         // Use two separate queries to avoid PostgREST .or() parsing issues
-        const { data: contact } = await supabase
-            .from('contacts')
-            .select('email')
-            .eq('id', contactId)
-            .single();
-
         if (!contact?.email) return { emails: [], gmailAccountId: null };
 
         const emailPattern = `%${contact.email}%`;
@@ -312,16 +321,17 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
                 .select(EMAIL_SELECT)
                 .ilike('from_email', emailPattern)
                 .order('sent_at', { ascending: false })
-                .limit(5),
+                .limit(20),
             supabase
                 .from('email_messages')
                 .select(EMAIL_SELECT)
                 .ilike('to_email', emailPattern)
                 .order('sent_at', { ascending: false })
-                .limit(5),
+                .limit(20),
         ]);
 
-        // Merge, deduplicate, sort by date descending, take 5
+        // Merge, deduplicate, sort by date descending, take top 20
+        // (enough for habit computation; UI only displays the most recent few)
         const merged = [...(fromRes.data || []), ...(toRes.data || [])];
         const seen = new Set<string>();
         const unique = merged.filter(e => {
@@ -330,7 +340,7 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
             return true;
         });
         unique.sort((a, b) => new Date(b.sent_at || 0).getTime() - new Date(a.sent_at || 0).getTime());
-        const emails = unique.slice(0, 5) as LastEmail[];
+        const emails = unique.slice(0, 20) as LastEmail[];
 
         // ── Tier 3: Self-heal — backfill contact_id on orphan rows ──
         if (emails.length > 0) {

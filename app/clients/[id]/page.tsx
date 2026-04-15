@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Topbar from '../../components/Topbar';
 import { getContactDetailAction, updateContactAction } from '../../../src/actions/contactDetailActions';
 import { generateAISummaryAction } from '../../../src/actions/summaryActions';
 import { avatarColor, initials } from '../../utils/helpers';
 import { STAGE_LABELS, STAGE_COLORS } from '../../constants/stages';
+import { formatHabitSummary, formatResponseTime } from '../../../src/utils/clientHabits';
 
 export default function ContactDetailPage() {
     const params = useParams();
@@ -152,6 +153,33 @@ export default function ContactDetailPage() {
                             </div>
                         ))}
                     </div>
+
+                    {/* Communication Habit */}
+                    {data.habit && (() => {
+                        const summary = formatHabitSummary(data.habit);
+                        const responseTime = formatResponseTime(data.habit.avgResponseHours);
+                        return (
+                            <div style={{
+                                background: 'linear-gradient(135deg, rgba(37,99,235,0.06) 0%, rgba(139,92,246,0.06) 100%)',
+                                borderRadius: 12, padding: '14px 18px', border: '1px solid rgba(37,99,235,0.15)',
+                                marginBottom: 20, display: 'flex', alignItems: 'center', gap: 16,
+                            }}>
+                                <div style={{ fontSize: 22 }}>{'\u23F0'}</div>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 2 }}>
+                                        Best Time to Reach
+                                    </div>
+                                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        {summary}
+                                        {responseTime && <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 8 }}>— {responseTime}</span>}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                                        Based on {data.habit.sampleSize} past replies
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* AI Summary */}
                     {aiSummary && (

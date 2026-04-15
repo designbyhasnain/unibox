@@ -7,6 +7,7 @@ import type { ActionItem } from '../../src/actions/actionQueueActions';
 import type { LastEmail } from '../../src/actions/actionQueueActions';
 import { getContactLastEmailsAction } from '../../src/actions/actionQueueActions';
 import { sendEmailAction } from '../../src/actions/emailActions';
+import { computeContactHabit, formatHabitSummary } from '../../src/utils/clientHabits';
 
 const DEFAULT_STYLE = { bg: '#f8fafc', border: '#94a3b8', badge: '#64748b', text: 'LOW', expandBg: '#f9fafb' };
 const URGENCY_STYLES = {
@@ -145,6 +146,8 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
 
     const lastReceived = emails.find(e => e.direction === 'RECEIVED');
     const lastSent = emails.find(e => e.direction === 'SENT');
+    const habit = emails.length >= 3 ? computeContactHabit(emails) : null;
+    const habitSummary = formatHabitSummary(habit);
 
     return (
         <div style={{
@@ -357,6 +360,20 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                     No previous emails found. This will be your first message.
                                 </div>
                             ) : null}
+
+                            {/* Habit hint */}
+                            {habitSummary && (
+                                <div style={{
+                                    background: 'rgba(37,99,235,0.06)',
+                                    border: '1px solid rgba(37,99,235,0.15)',
+                                    borderRadius: 8, padding: '8px 12px', marginBottom: 10,
+                                    fontSize: 11, color: '#1e40af', display: 'flex',
+                                    alignItems: 'center', gap: 6,
+                                }}>
+                                    <span style={{ fontSize: 14 }}>{'\u23F0'}</span>
+                                    <span><strong>Best time to reach:</strong> {habitSummary}</span>
+                                </div>
+                            )}
 
                             {/* Reply Composer */}
                             <div style={{

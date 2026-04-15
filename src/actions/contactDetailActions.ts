@@ -2,6 +2,7 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
+import { computeContactHabit } from '../utils/clientHabits';
 
 export async function getContactDetailAction(contactId: string) {
     await ensureAuthenticated();
@@ -17,7 +18,15 @@ export async function getContactDetailAction(contactId: string) {
         .order('sent_at', { ascending: false })
         .limit(100);
 
-    if ((!emailsRes.data || emailsRes.data.length === 0) && contactRes.data.email) {
+    // Trigger fallback if:
+    // 1. Zero emails found by contact_id, OR
+    // 2. The contact's stored stats indicate many more emails exist than we found
+    //    (common case: emails are linked to a different contact_id due to sync race conditions)
+    const expectedTotal = (contactRes.data.total_emails_sent || 0) + (contactRes.data.total_emails_received || 0);
+    const foundCount = emailsRes.data?.length || 0;
+    const needsFallback = contactRes.data.email && (foundCount === 0 || foundCount < expectedTotal * 0.5);
+
+    if (needsFallback) {
         const emailFields = 'id, subject, from_email, to_email, direction, sent_at, snippet, body, is_unread, thread_id, gmail_account_id';
         const emailPattern = `%${contactRes.data.email}%`;
 
@@ -83,6 +92,15 @@ export async function getContactDetailAction(contactId: string) {
         threads[tid].push(e);
     });
 
+    // Compute communication habit from email history
+    const habit = computeContactHabit(
+        emails.map((e: { direction: string; sent_at: string | null; thread_id: string | null }) => ({
+            direction: e.direction,
+            sent_at: e.sent_at,
+            thread_id: e.thread_id,
+        }))
+    );
+
     return {
         contact: contactRes.data,
         emails,
@@ -95,6 +113,7 @@ export async function getContactDetailAction(contactId: string) {
         projects: projectsRes.data || [],
         activity: activityRes.data || [],
         stats: { sent, received, total: emails.length },
+        habit,
     };
 }
 
