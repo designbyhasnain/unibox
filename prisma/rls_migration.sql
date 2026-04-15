@@ -90,6 +90,8 @@ SELECT _temp_rls('email_templates');
 SELECT _temp_rls('edit_projects');
 SELECT _temp_rls('project_comments');
 SELECT _temp_rls('competitor_mentions');
+SELECT _temp_rls('scrape_jobs');
+SELECT _temp_rls('scrape_results');
 
 -- =============================================================================
 -- DROP ALL EXISTING POLICIES
@@ -129,6 +131,8 @@ SELECT _temp_exec('CREATE POLICY "sr_email_templates" ON public.email_templates 
 SELECT _temp_exec('CREATE POLICY "sr_edit_projects" ON public.edit_projects FOR ALL TO service_role USING (true) WITH CHECK (true)');
 SELECT _temp_exec('CREATE POLICY "sr_project_comments" ON public.project_comments FOR ALL TO service_role USING (true) WITH CHECK (true)');
 SELECT _temp_exec('CREATE POLICY "sr_competitor_mentions" ON public.competitor_mentions FOR ALL TO service_role USING (true) WITH CHECK (true)');
+SELECT _temp_exec('CREATE POLICY "sr_scrape_jobs" ON public.scrape_jobs FOR ALL TO service_role USING (true) WITH CHECK (true)');
+SELECT _temp_exec('CREATE POLICY "sr_scrape_results" ON public.scrape_results FOR ALL TO service_role USING (true) WITH CHECK (true)');
 
 -- =============================================================================
 -- AUTHENTICATED POLICIES
@@ -366,6 +370,40 @@ SELECT _temp_exec('CREATE POLICY "auth_sel_project_comments" ON public.project_c
     ))');
 SELECT _temp_exec('CREATE POLICY "auth_ins_project_comments" ON public.project_comments FOR INSERT TO authenticated
     WITH CHECK (public.is_admin() OR author_id::uuid = auth.uid()::uuid)');
+
+-- ── scrape_jobs ───────────────────────────────────────────────────────────
+-- owner: user_id
+SELECT _temp_exec('CREATE POLICY "auth_sel_scrape_jobs" ON public.scrape_jobs FOR SELECT TO authenticated
+    USING (public.is_admin() OR user_id::uuid = auth.uid()::uuid)');
+SELECT _temp_exec('CREATE POLICY "auth_ins_scrape_jobs" ON public.scrape_jobs FOR INSERT TO authenticated
+    WITH CHECK (public.is_admin() OR user_id::uuid = auth.uid()::uuid)');
+SELECT _temp_exec('CREATE POLICY "auth_upd_scrape_jobs" ON public.scrape_jobs FOR UPDATE TO authenticated
+    USING (public.is_admin() OR user_id::uuid = auth.uid()::uuid)');
+SELECT _temp_exec('CREATE POLICY "auth_del_scrape_jobs" ON public.scrape_jobs FOR DELETE TO authenticated
+    USING (public.is_admin())');
+
+-- ── scrape_results ────────────────────────────────────────────────────────
+-- owner: via scrape_jobs.user_id (JOIN pattern)
+SELECT _temp_exec('CREATE POLICY "auth_sel_scrape_results" ON public.scrape_results FOR SELECT TO authenticated
+    USING (public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.scrape_jobs sj
+        WHERE sj.id::uuid = scrape_results.job_id::uuid
+          AND sj.user_id::uuid = auth.uid()::uuid
+    ))');
+SELECT _temp_exec('CREATE POLICY "auth_ins_scrape_results" ON public.scrape_results FOR INSERT TO authenticated
+    WITH CHECK (public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.scrape_jobs sj
+        WHERE sj.id::uuid = job_id::uuid
+          AND sj.user_id::uuid = auth.uid()::uuid
+    ))');
+SELECT _temp_exec('CREATE POLICY "auth_upd_scrape_results" ON public.scrape_results FOR UPDATE TO authenticated
+    USING (public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.scrape_jobs sj
+        WHERE sj.id::uuid = scrape_results.job_id::uuid
+          AND sj.user_id::uuid = auth.uid()::uuid
+    ))');
+SELECT _temp_exec('CREATE POLICY "auth_del_scrape_results" ON public.scrape_results FOR DELETE TO authenticated
+    USING (public.is_admin())');
 
 -- =============================================================================
 -- ANON POLICIES — realtime/polling only
