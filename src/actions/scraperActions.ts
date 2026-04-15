@@ -3,8 +3,18 @@
 import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { requireAdmin } from '../utils/accessControl';
 import { scrapeUrl } from '../services/leadScraperService';
+
+async function ensureAdmin(userId: string): Promise<void> {
+    const { data: user } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'ACCOUNT_MANAGER')) {
+        throw new Error('ADMIN_REQUIRED');
+    }
+}
 
 export type ScrapeJobSummary = {
     id: string;
@@ -49,8 +59,8 @@ export async function startScrapeJobAction(
     rawUrls: string
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
     try {
-        const { userId, role } = await ensureAuthenticated();
-        requireAdmin(role);
+        const { userId } = await ensureAuthenticated();
+        await ensureAdmin(userId);
 
         const urls = [...new Set(parseUrls(rawUrls))];
         if (urls.length === 0) return { success: false, error: 'No valid URLs provided' };
@@ -120,8 +130,8 @@ export async function startScrapeJobAction(
 }
 
 export async function getScrapeJobsAction(): Promise<ScrapeJobSummary[]> {
-    const { userId, role } = await ensureAuthenticated();
-    requireAdmin(role);
+    const { userId } = await ensureAuthenticated();
+    await ensureAdmin(userId);
     const { data } = await supabase
         .from('scrape_jobs')
         .select('id, status, total_urls, processed_urls, error_count, created_at, completed_at')
@@ -141,8 +151,8 @@ export async function getScrapeJobsAction(): Promise<ScrapeJobSummary[]> {
 }
 
 export async function getScrapeResultsAction(jobId: string): Promise<ScrapeResultRow[]> {
-    const { userId, role } = await ensureAuthenticated();
-    requireAdmin(role);
+    const { userId } = await ensureAuthenticated();
+    await ensureAdmin(userId);
 
     const { data: job } = await supabase
         .from('scrape_jobs')
