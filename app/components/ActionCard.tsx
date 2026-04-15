@@ -290,7 +290,7 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                                                 <div>
                                                     <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>
-                                                        {lastReceived.from_name || action.name}
+                                                        {action.name}
                                                     </span>
                                                     <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>
                                                         {timeAgo(lastReceived.sent_at)}

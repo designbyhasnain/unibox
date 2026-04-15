@@ -245,14 +245,13 @@ export type LastEmail = {
     snippet: string | null;
     body: string | null;
     direction: 'SENT' | 'RECEIVED';
-    from_name: string | null;
     from_email: string | null;
     sent_at: string | null;
     thread_id: string | null;
     gmail_account_id: string | null;
 };
 
-const EMAIL_SELECT = 'id, subject, snippet, body, direction, from_name, from_email, sent_at, thread_id, gmail_account_id';
+const EMAIL_SELECT = 'id, subject, snippet, body, direction, from_email, sent_at, thread_id, gmail_account_id';
 
 /**
  * Fetch the last emails for a contact.
