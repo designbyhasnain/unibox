@@ -99,17 +99,25 @@ export async function handleEmailSent(data: {
     const { toEmail, messageId, threadId } = data;
     const cleanToEmail = extractEmail(toEmail);
 
-    // Skip own Gmail accounts
+    // Skip own Gmail accounts — never attach our own accounts as contacts
     const ownEmails = await getOwnEmails();
+    const isOwnAccount = ownEmails.has(cleanToEmail);
 
-    // 1. Find or create contact — anyone we email = client
-    let { data: contact } = await supabase
-        .from('contacts')
-        .select('id, email, is_lead, is_client, pipeline_stage')
-        .eq('email', cleanToEmail)
-        .maybeSingle();
+    // 1. Find or create contact — anyone we email = client.
+    // But skip the lookup entirely if the recipient is one of our own Gmail
+    // accounts (team forwarding, testing, BCC to self) — those are not leads.
+    let contact: { id: string; email: string; is_lead: boolean; is_client: boolean; pipeline_stage: string } | null = null;
 
-    if (!contact && !ownEmails.has(cleanToEmail)) {
+    if (!isOwnAccount) {
+        const { data: existing } = await supabase
+            .from('contacts')
+            .select('id, email, is_lead, is_client, pipeline_stage')
+            .eq('email', cleanToEmail)
+            .maybeSingle();
+        contact = existing;
+    }
+
+    if (!contact && !isOwnAccount) {
         const nameMatch = toEmail.match(/^([^<]+)</);
         const parsedName = nameMatch ? nameMatch[1]?.trim().replace(/"/g, '') : cleanToEmail.split('@')[0];
 
@@ -218,16 +226,26 @@ export async function handleEmailReceived(data: {
     const { fromEmail, messageId, threadId } = data;
     const cleanFromEmail = extractEmail(fromEmail);
 
+    // Skip own Gmail accounts — team forwarding between own accounts should
+    // never create a self-referential contact.
+    const ownEmails = await getOwnEmails();
+    const isOwnAccount = ownEmails.has(cleanFromEmail);
+
     // 1. Find or create contact from sender
-    let { data: contact } = await supabase
-        .from('contacts')
-        .select('id, email, is_lead, is_client, pipeline_stage')
-        .eq('email', cleanFromEmail)
-        .maybeSingle();
+    let contact: { id: string; email: string; is_lead: boolean; is_client: boolean; pipeline_stage: string } | null = null;
+
+    if (!isOwnAccount) {
+        const { data: existing } = await supabase
+            .from('contacts')
+            .select('id, email, is_lead, is_client, pipeline_stage')
+            .eq('email', cleanFromEmail)
+            .maybeSingle();
+        contact = existing;
+    }
 
     // Auto-create contact ONLY if this is a reply to our outreach (thread has outgoing emails).
     // Random incoming emails still don't create contacts.
-    if (!contact) {
+    if (!contact && !isOwnAccount) {
         const { data: threadMsgs } = await supabase
             .from('email_messages')
             .select('direction')
