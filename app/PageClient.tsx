@@ -228,7 +228,13 @@ export default function InboxPage() {
         setIsSearchResults(false);
     };
 
-    const inboxCount = isHydrated && !isSearchResults ? emails.filter((e: any) => e.is_unread && e.direction === 'RECEIVED').length : 0;
+    const [unreadCount, setUnreadCount] = useState(0);
+
+    useEffect(() => {
+        if (activeTab === 'inbox' && !isSearchResults && isHydrated) {
+            setUnreadCount(emails.filter((e: any) => e.is_unread).length);
+        }
+    }, [emails, activeTab, isSearchResults, isHydrated]);
 
     return (
         <>
@@ -359,7 +365,7 @@ export default function InboxPage() {
                     >
                         <Mail size={15} />
                         Inbox
-                        {inboxCount > 0 && <span className="inbox-tab-count">{inboxCount > 999 ? '999+' : inboxCount}</span>}
+                        {unreadCount > 0 && <span className="inbox-tab-count">{unreadCount > 999 ? '999+' : unreadCount}</span>}
                     </button>
                     <button
                         className={`inbox-tab ${activeTab === 'sent' && !isSearchResults ? 'inbox-tab-active' : ''}`}
