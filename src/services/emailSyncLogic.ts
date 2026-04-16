@@ -41,7 +41,8 @@ async function markAsClient(
     contactId: string,
     emailDate: Date,
     gmailAccountId: string,
-    emailBody?: string
+    emailBody?: string,
+    direction?: 'SENT' | 'RECEIVED'
 ): Promise<void> {
     const { data: contact } = await supabase
         .from('contacts')
@@ -75,6 +76,8 @@ async function markAsClient(
     if (isNewer) {
         updateData.last_email_at = emailDate.toISOString();
         updateData.last_gmail_account_id = gmailAccountId;
+        updateData.last_message_direction = direction;
+        updateData.days_since_last_contact = Math.floor((Date.now() - emailDate.getTime()) / 86400000);
     }
 
     if (extractedPhone) {
@@ -203,7 +206,7 @@ export async function handleEmailSent(data: {
 
     // 6. Mark recipient as client (OUTBOUND = client)
     if (contact && !ownEmails.has(cleanToEmail)) {
-        markAsClient(contact.id, data.sentAt, data.gmailAccountId, data.body).catch(err => {
+        markAsClient(contact.id, data.sentAt, data.gmailAccountId, data.body, 'SENT').catch(err => {
             console.error('[emailSyncLogic] markAsClient (sent) error:', err.message);
         });
     }
@@ -350,7 +353,7 @@ export async function handleEmailReceived(data: {
     if (contact) {
         const ownEmails = await getOwnEmails();
         if (!ownEmails.has(cleanFromEmail)) {
-            markAsClient(contact.id, data.receivedAt, data.gmailAccountId, data.body).catch(err => {
+            markAsClient(contact.id, data.receivedAt, data.gmailAccountId, data.body, 'RECEIVED').catch(err => {
                 console.error('[emailSyncLogic] markAsClient (received) error:', err.message);
             });
         }

@@ -115,6 +115,22 @@ export async function sendEmailAction(params: {
             }
         }
 
+        // Update contact stats so they drop out of "Reply Now" queue immediately
+        if (result && result.success) {
+            const cleanTo = normalizeEmail(params.to);
+            if (cleanTo) {
+                void supabase
+                    .from('contacts')
+                    .update({
+                        last_message_direction: 'SENT',
+                        last_email_at: new Date().toISOString(),
+                        days_since_last_contact: 0,
+                    })
+                    .eq('email', cleanTo)
+                    .then();
+            }
+        }
+
         revalidatePath('/');
         return { ...result, trackingId: isTracked ? trackingId : undefined };
     } catch (error: any) {
