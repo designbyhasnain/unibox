@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { Send, ChevronUp, Clock, ExternalLink, Loader2, MessageSquare } from 'lucide-react';
+import { Send, ChevronUp, Loader2, Clock, ExternalLink } from 'lucide-react';
 import type { ActionItem } from '../../src/actions/actionQueueActions';
 import type { LastEmail } from '../../src/actions/actionQueueActions';
 import { getContactLastEmailsAction } from '../../src/actions/actionQueueActions';
@@ -10,51 +10,19 @@ import { sendEmailAction } from '../../src/actions/emailActions';
 import { computeContactHabit, formatHabitSummary } from '../../src/utils/clientHabits';
 import { extractReplyPreview } from '../../src/utils/emailPreview';
 
-const DEFAULT_STYLE = { bg: '#f8fafc', border: '#94a3b8', badge: '#64748b', text: 'LOW', expandBg: '#f9fafb' };
-const URGENCY_STYLES = {
-    critical: { bg: '#fef2f2', border: '#dc2626', badge: '#dc2626', text: 'URGENT', expandBg: '#fff5f5' },
-    high: { bg: '#fffbeb', border: '#d97706', badge: '#d97706', text: 'HIGH', expandBg: '#fffef5' },
-    medium: { bg: '#eff6ff', border: '#2563eb', badge: '#2563eb', text: 'MEDIUM', expandBg: '#f5f9ff' },
-    low: DEFAULT_STYLE,
-} as const;
-
-const ACTION_ICONS: Record<string, string> = {
-    REPLY_NOW: '\uD83D\uDCE9',
-    NEW_LEAD: '\uD83C\uDD95',
-    FOLLOW_UP: '\uD83D\uDD04',
-    WIN_BACK: '\uD83C\uDFAF',
-    STALE: '\uD83D\uDCA4',
+// Urgency dot colors based on time since reply
+const URGENCY_DOT: Record<string, string> = {
+    critical: '#DC2626',
+    high: '#EA580C',
+    medium: '#D97706',
+    low: '#94A3B8',
 };
 
-function timeAgo(dateStr: string | null): string {
+
+function absoluteDate(dateStr: string | null): string {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
-    const diff = Date.now() - date.getTime();
-    const mins = Math.floor(diff / 60000);
-
-    // Within the last hour: show exact minutes
-    if (mins < 60) return `${mins}m ago`;
-
-    // Within the last 24h: show hours AND the actual time (e.g. "3h ago at 2:15pm")
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) {
-        const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        return `${hrs}h ago (${timeStr})`;
-    }
-
-    // Within the last 7 days: show day name + time
-    const days = Math.floor(hrs / 24);
-    if (days < 7) {
-        const dayName = date.toLocaleDateString([], { weekday: 'short' });
-        const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        return `${dayName} ${timeStr}`;
-    }
-
-    // Older: show date
-    if (days < 30) return `${days}d ago`;
-    return `${Math.floor(days / 30)}mo ago`;
+    return new Date(dateStr).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
-
 
 type Props = {
     action: ActionItem;
@@ -67,8 +35,7 @@ type Props = {
 };
 
 export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, accounts, expandedId, onToggleExpand }: Props) {
-    const style = (URGENCY_STYLES as Record<string, typeof DEFAULT_STYLE>)[action.urgency] ?? DEFAULT_STYLE;
-    const icon = ACTION_ICONS[action.actionType] || '\uD83D\uDCCB';
+    const dotColor = URGENCY_DOT[action.urgency] || URGENCY_DOT.low;
     const isExpanded = expandedId === action.id;
 
     const [emails, setEmails] = useState<LastEmail[]>([]);
@@ -77,19 +44,17 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
     const [emailLoadError, setEmailLoadError] = useState(false);
     const [suggestedAccountId, setSuggestedAccountId] = useState<string | null>(null);
 
-    // Reply state
     const [replyBody, setReplyBody] = useState('');
     const [fromAccountId, setFromAccountId] = useState('');
     const [sending, setSending] = useState(false);
     const [sendSuccess, setSendSuccess] = useState(false);
     const [sendError, setSendError] = useState<string | null>(null);
-    const [showSnoozeOptions, setShowSnoozeOptions] = useState(false);
+    const [showSnooze, setShowSnooze] = useState(false);
+    const [hovered, setHovered] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    // Load emails every time the card is expanded (always fresh data)
     useEffect(() => {
         if (!isExpanded || loadingEmails) return;
-
         setLoadingEmails(true);
         setEmailLoadError(false);
         getContactLastEmailsAction(action.contactId)
@@ -97,33 +62,20 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                 setEmails(result.emails);
                 setSuggestedAccountId(result.gmailAccountId);
                 setEmailsLoaded(true);
-
-                // Auto-select the from account: prefer the one used in conversation,
-                // but only if it exists in the user's available accounts list.
-                // Falls back to first available account if the suggested one isn't accessible
-                // (common for SALES users who only see assigned accounts).
                 const suggestedId = result.gmailAccountId;
                 const matchesAvailable = suggestedId && accounts.some(a => a.id === suggestedId);
                 if (matchesAvailable) {
                     setFromAccountId(suggestedId);
                 } else if (accounts.length > 0 && accounts[0]) {
-                    // Try to find any account that was used in the email thread
-                    const threadAccountIds = result.emails
-                        .filter(e => e.gmail_account_id)
-                        .map(e => e.gmail_account_id);
+                    const threadAccountIds = result.emails.filter(e => e.gmail_account_id).map(e => e.gmail_account_id);
                     const matchFromThread = accounts.find(a => threadAccountIds.includes(a.id));
                     setFromAccountId(matchFromThread?.id || accounts[0].id);
                 }
             })
-            .catch(err => {
-                console.error('Failed to load emails:', err);
-                setEmailsLoaded(true);
-                setEmailLoadError(true);
-            })
+            .catch(() => { setEmailsLoaded(true); setEmailLoadError(true); })
             .finally(() => setLoadingEmails(false));
     }, [isExpanded, action.contactId, accounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Focus textarea when expanded and emails loaded
     useEffect(() => {
         if (isExpanded && emailsLoaded && textareaRef.current) {
             setTimeout(() => textareaRef.current?.focus(), 300);
@@ -140,43 +92,30 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
         if (!replyBody.trim() || !fromAccountId) return;
         setSending(true);
         setSendError(null);
-
         try {
             const lastReceived = emails.find(e => e.direction === 'RECEIVED');
             const lastEmail = emails[0];
             const subject = lastReceived?.subject || lastEmail?.subject || `Re: conversation with ${action.name}`;
             const reSubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
-
             const result = await sendEmailAction({
-                accountId: fromAccountId,
-                to: action.email,
-                subject: reSubject,
-                body: replyBody,
-                threadId: lastEmail?.thread_id || undefined,
+                accountId: fromAccountId, to: action.email, subject: reSubject,
+                body: replyBody, threadId: lastEmail?.thread_id || undefined,
             });
-
             if (result.success) {
                 setSendSuccess(true);
                 setTimeout(() => onDone(action.contactId), 1500);
             } else {
-                setSendError(result.error || 'Failed to send email');
+                setSendError(result.error || 'Failed to send');
             }
-        } catch (err) {
-            console.error('Failed to send:', err);
-            setSendError('Network error — please try again');
-        } finally {
-            setSending(false);
-        }
+        } catch { setSendError('Network error — try again'); }
+        finally { setSending(false); }
     };
 
-    // Find the latest RECEIVED email, then find the SENT email most related
-    // to it (same thread preferred, closest in time as fallback).
-    // This ensures the conversation preview shows a coherent exchange.
+    // Thread-aware conversation pairing
     const lastReceived = emails.find(e => e.direction === 'RECEIVED');
     const sentEmails = emails.filter(e => e.direction === 'SENT');
     let lastSent: typeof lastReceived = undefined;
     if (lastReceived && sentEmails.length > 0) {
-        // Prefer same thread
         const sameThread = sentEmails.find(e => e.thread_id && e.thread_id === lastReceived.thread_id);
         lastSent = sameThread || sentEmails[0];
     } else {
@@ -186,284 +125,281 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
     const habitSummary = formatHabitSummary(habit);
 
     return (
-        <div style={{
-            background: isExpanded ? '#fff' : style.bg,
-            borderLeft: `4px solid ${style.border}`,
-            borderRadius: 10,
-            overflow: 'hidden',
-            transition: 'all .25s ease',
-            boxShadow: isExpanded ? '0 8px 32px rgba(0,0,0,.1)' : 'none',
-        }}>
-            {/* Main Row */}
+        <div
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => { setHovered(false); setShowSnooze(false); }}
+            style={{
+                background: '#fff',
+                border: `1px solid ${isExpanded ? '#2563EB' : hovered ? '#CBD5E1' : '#E2E8F0'}`,
+                borderRadius: isExpanded ? 16 : 12,
+                overflow: 'hidden',
+                transition: 'all .25s cubic-bezier(0.16, 1, 0.3, 1)',
+                boxShadow: isExpanded
+                    ? '0 8px 32px rgba(0,0,0,.08)'
+                    : hovered ? '0 1px 4px rgba(0,0,0,.04)' : 'none',
+                transform: hovered && !isExpanded ? 'translateY(-1px)' : 'none',
+            }}
+        >
+            {/* Collapsed Row */}
             <div
-                style={{
-                    padding: '14px 18px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 14,
-                    cursor: 'pointer',
-                    transition: 'background .15s',
-                    background: isExpanded ? style.bg : 'transparent',
-                }}
                 onClick={toggleExpand}
+                style={{
+                    padding: '14px 20px',
+                    display: 'flex', alignItems: 'center', gap: 14,
+                    cursor: 'pointer',
+                }}
             >
-                <span style={{ fontSize: 24, flexShrink: 0 }}>{icon}</span>
+                {/* Urgency dot */}
+                <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: dotColor, flexShrink: 0,
+                }} />
 
+                {/* Content */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                        <Link href={`/clients/${action.contactId}`} onClick={e => e.stopPropagation()} style={{
-                            fontSize: 14, fontWeight: 700, color: '#0f172a', textDecoration: 'none',
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                        <Link
+                            href={`/clients/${action.contactId}`}
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                                fontSize: 15, fontWeight: 600, color: '#0F172A',
+                                textDecoration: 'none', overflow: 'hidden',
+                                textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}
+                        >
                             {action.name}
                         </Link>
-                        <span style={{
-                            fontSize: 9, fontWeight: 700, background: style.badge, color: '#fff',
-                            padding: '2px 8px', borderRadius: 4, letterSpacing: '.04em', flexShrink: 0,
-                        }}>{style.text}</span>
+                        {action.totalEmailsSent > 0 && (
+                            <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400, flexShrink: 0 }}>
+                                {action.totalEmailsSent}/{action.totalEmailsReceived}
+                            </span>
+                        )}
                     </div>
-                    <div style={{ fontSize: 12, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{
+                        fontSize: 13, color: '#64748B', marginTop: 1,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
                         {action.reason}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, display: 'flex', gap: 12 }}>
-                        <span>{action.email}</span>
-                        {action.location && <span>{action.location}</span>}
-                        {action.totalEmailsSent > 0 && <span>{action.totalEmailsSent} sent / {action.totalEmailsReceived} received</span>}
                     </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button type="button" onClick={toggleExpand} style={{
-                        background: isExpanded ? '#1d4ed8' : '#2563eb', color: '#fff', border: 'none', borderRadius: 6,
-                        padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', gap: 4, transition: 'background .15s',
-                    }}>
-                        {isExpanded ? <ChevronUp size={14} /> : <MessageSquare size={14} />}
-                        {action.actionType === 'REPLY_NOW' ? 'Reply' : 'Email'}
-                    </button>
-
-                    {/* Snooze */}
-                    <div style={{ position: 'relative' }}>
-                        <button type="button" onClick={e => { e.stopPropagation(); setShowSnoozeOptions(!showSnoozeOptions); }} style={{
-                            background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: 6,
-                            padding: '6px 10px', fontSize: 11, fontWeight: 500, cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', gap: 2,
-                        }} title="Snooze">
-                            <Clock size={12} />
-                        </button>
-                        {showSnoozeOptions && (
-                            <div style={{
-                                position: 'absolute', top: '100%', right: 0, marginTop: 4,
-                                background: '#fff', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)',
-                                border: '1px solid #e2e8f0', zIndex: 10, padding: 4, minWidth: 100,
-                            }}>
-                                {[1, 3, 7, 14].map(d => (
-                                    <button key={d} type="button" onClick={e => { e.stopPropagation(); onSnooze(action.contactId, d); setShowSnoozeOptions(false); }} style={{
-                                        display: 'block', width: '100%', padding: '6px 12px', border: 'none',
-                                        background: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                                        textAlign: 'left', borderRadius: 4, color: '#334155',
+                {/* Right side: actions */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {/* Snooze + Done — visible on hover only */}
+                    {(hovered || isExpanded) && !sendSuccess && (
+                        <>
+                            <div style={{ position: 'relative' }}>
+                                <button
+                                    type="button"
+                                    onClick={e => { e.stopPropagation(); setShowSnooze(!showSnooze); }}
+                                    style={{
+                                        width: 30, height: 30, borderRadius: 8,
+                                        border: '1px solid #E2E8F0', background: '#fff',
+                                        color: '#94A3B8', cursor: 'pointer',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        transition: 'all .15s',
+                                    }}
+                                    title="Snooze"
+                                >
+                                    <Clock size={13} />
+                                </button>
+                                {showSnooze && (
+                                    <div style={{
+                                        position: 'absolute', top: '100%', right: 0, marginTop: 4,
+                                        background: '#fff', borderRadius: 10,
+                                        boxShadow: '0 8px 30px rgba(0,0,0,.12)',
+                                        border: '1px solid #E2E8F0', zIndex: 10, padding: 4, minWidth: 110,
                                     }}>
-                                        {d} day{d > 1 ? 's' : ''}
-                                    </button>
-                                ))}
+                                        {[1, 3, 7, 14].map(d => (
+                                            <button key={d} type="button" onClick={e => { e.stopPropagation(); onSnooze(action.contactId, d); setShowSnooze(false); }} style={{
+                                                display: 'block', width: '100%', padding: '7px 12px', border: 'none',
+                                                background: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                                                textAlign: 'left', borderRadius: 6, color: '#334155',
+                                                fontFamily: "'DM Sans', sans-serif",
+                                            }}
+                                            onMouseEnter={e => (e.currentTarget.style.background = '#F1F5F9')}
+                                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                                            >
+                                                {d} day{d > 1 ? 's' : ''}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
+                            <button type="button" onClick={e => { e.stopPropagation(); onDone(action.contactId); }} style={{
+                                width: 30, height: 30, borderRadius: 8,
+                                border: '1px solid #BBF7D0', background: '#F0FDF4',
+                                color: '#16A34A', cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 14, fontWeight: 600, transition: 'all .15s',
+                            }} title="Done">
+                                {'\u2713'}
+                            </button>
+                        </>
+                    )}
 
-                    <button type="button" onClick={e => { e.stopPropagation(); onDone(action.contactId); }} style={{
-                        background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 6,
-                        padding: '6px 10px', fontSize: 11, fontWeight: 500, cursor: 'pointer',
-                    }} title="Mark done">
-                        {'\u2713'}
+                    {/* Reply / Collapse */}
+                    <button type="button" onClick={toggleExpand} style={{
+                        padding: '7px 14px', borderRadius: 8, border: 'none',
+                        fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        transition: 'all .15s',
+                        background: isExpanded ? '#0F172A' : 'transparent',
+                        color: isExpanded ? '#fff' : '#2563EB',
+                    }}>
+                        {isExpanded ? (
+                            <><ChevronUp size={14} /> Collapse</>
+                        ) : (
+                            <>Reply {'\u2192'}</>
+                        )}
                     </button>
                 </div>
             </div>
 
-            {/* Expanded Section — Email Context + Reply */}
+            {/* Expanded Section */}
             {isExpanded && (
                 <div
                     onClick={e => e.stopPropagation()}
                     style={{
-                        borderTop: `1px solid ${style.border}30`,
-                        background: style.expandBg,
+                        borderTop: '1px solid #F1F5F9',
+                        padding: '20px 24px',
+                        animation: 'aq-expand .3s cubic-bezier(0.16,1,0.3,1) both',
                     }}
                 >
+                    <style>{`@keyframes aq-expand { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }`}</style>
+
                     {loadingEmails ? (
-                        <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                        <div style={{ padding: 20, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
                             <Loader2 size={18} className="action-spin" style={{ display: 'inline-block', marginRight: 8 }} />
-                            Loading conversation...
+                            Loading...
                         </div>
                     ) : sendSuccess ? (
-                        <div style={{ padding: 24, textAlign: 'center' }}>
-                            <div style={{ fontSize: 32, marginBottom: 8 }}>{'\u2705'}</div>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>Reply sent!</div>
-                            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Removing from queue...</div>
+                        <div style={{ padding: 32, textAlign: 'center' }}>
+                            <div style={{
+                                width: 48, height: 48, borderRadius: '50%', margin: '0 auto 12px',
+                                background: 'linear-gradient(135deg, #DCFCE7, #F0FDF4)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}>
+                                <Send size={20} color="#16A34A" />
+                            </div>
+                            <div style={{ fontSize: 15, fontWeight: 600, color: '#0F172A' }}>Reply sent</div>
+                            <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>Removing from queue...</div>
                         </div>
                     ) : (
-                        <div style={{ padding: '16px 20px' }}>
-                            {/* Email Load Error */}
+                        <>
                             {emailLoadError && (
                                 <div style={{
-                                    background: '#fef2f2', borderRadius: 8, padding: 12, marginBottom: 12,
-                                    border: '1px solid #fecaca', color: '#dc2626', fontSize: 12, fontWeight: 500,
+                                    background: '#FEF2F2', borderRadius: 10, padding: 12, marginBottom: 16,
+                                    border: '1px solid #FECACA', color: '#DC2626', fontSize: 13,
                                 }}>
-                                    Failed to load conversation. You can still compose a new message below.
+                                    Failed to load conversation.
                                 </div>
                             )}
 
-                            {/* Email Thread Context */}
-                            {!emailLoadError && emails.length > 0 ? (
-                                <div style={{ marginBottom: 16 }}>
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 8 }}>
-                                        CONVERSATION
-                                    </div>
-
-                                    {/* Their last email */}
+                            {/* Conversation */}
+                            {!emailLoadError && emails.length > 0 && (
+                                <div style={{ marginBottom: 20 }}>
                                     {lastReceived && (
                                         <div style={{
-                                            background: '#fff', borderRadius: 10, padding: 14,
-                                            border: '1px solid #e2e8f0', marginBottom: 8,
-                                            borderLeft: '3px solid #2563eb',
+                                            background: '#FAFAFA', borderRadius: 12, padding: 16,
+                                            marginBottom: 8, borderLeft: '3px solid #7C3AED',
                                         }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                                                <div>
-                                                    <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>
-                                                        {action.name}
-                                                    </span>
-                                                    <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>
-                                                        {timeAgo(lastReceived.sent_at)}
-                                                    </span>
-                                                </div>
-                                                <span style={{
-                                                    fontSize: 9, fontWeight: 600, color: '#2563eb', background: '#eff6ff',
-                                                    padding: '2px 6px', borderRadius: 4,
-                                                }}>RECEIVED</span>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                                                <span style={{ fontSize: 11, fontWeight: 600, color: '#7C3AED', letterSpacing: '.04em', textTransform: 'uppercase' }}>
+                                                    Their message
+                                                </span>
+                                                <span style={{ fontSize: 12, color: '#94A3B8' }}>
+                                                    {absoluteDate(lastReceived.sent_at)}
+                                                </span>
                                             </div>
                                             {lastReceived.subject && (
-                                                <div style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                                                <div style={{ fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
                                                     {lastReceived.subject}
                                                 </div>
                                             )}
                                             <div style={{
-                                                fontSize: 12, color: '#475569', lineHeight: 1.5,
-                                                maxHeight: 120, overflow: 'hidden',
-                                                whiteSpace: 'pre-wrap',
-                                                WebkitMaskImage: 'linear-gradient(180deg, black 70%, transparent 100%)',
-                                                maskImage: 'linear-gradient(180deg, black 70%, transparent 100%)',
+                                                fontSize: 13, color: '#475569', lineHeight: 1.6,
+                                                maxHeight: 100, overflow: 'hidden',
+                                                WebkitMaskImage: 'linear-gradient(180deg, black 60%, transparent 100%)',
+                                                maskImage: 'linear-gradient(180deg, black 60%, transparent 100%)',
                                             }}>
-                                                {extractReplyPreview(lastReceived.body, lastReceived.snippet, 300) || 'No preview available'}
+                                                {extractReplyPreview(lastReceived.body, lastReceived.snippet, 300) || 'No preview'}
                                             </div>
                                         </div>
                                     )}
 
-                                    {/* Our last sent email */}
                                     {lastSent && (
                                         <div style={{
-                                            background: '#f8fafc', borderRadius: 10, padding: 12,
-                                            border: '1px solid #e2e8f0', marginBottom: 8,
-                                            borderLeft: '3px solid #94a3b8',
+                                            background: '#FAFAFA', borderRadius: 12, padding: 14,
+                                            marginBottom: 8, borderLeft: '3px solid #CBD5E1',
                                         }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                                                <div>
-                                                    <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>You</span>
-                                                    <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>{timeAgo(lastSent.sent_at)}</span>
-                                                </div>
-                                                <span style={{
-                                                    fontSize: 9, fontWeight: 600, color: '#64748b', background: '#f1f5f9',
-                                                    padding: '2px 6px', borderRadius: 4,
-                                                }}>SENT</span>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                <span style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', letterSpacing: '.04em', textTransform: 'uppercase' }}>
+                                                    Your last email
+                                                </span>
+                                                <span style={{ fontSize: 12, color: '#94A3B8' }}>
+                                                    {absoluteDate(lastSent.sent_at)}
+                                                </span>
                                             </div>
-                                            <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5, maxHeight: 60, overflow: 'hidden' }}>
+                                            <div style={{ fontSize: 12, color: '#64748B', lineHeight: 1.5, maxHeight: 48, overflow: 'hidden' }}>
                                                 {extractReplyPreview(lastSent.body, lastSent.snippet, 200) || 'No preview'}
                                             </div>
                                         </div>
                                     )}
 
-                                    <Link href={`/clients/${action.contactId}`} style={{
-                                        fontSize: 11, color: '#2563eb', fontWeight: 500, textDecoration: 'none',
-                                        display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4,
-                                    }}>
-                                        <ExternalLink size={11} /> View full conversation
-                                    </Link>
-                                </div>
-                            ) : !emailLoadError ? (
-                                <div style={{
-                                    background: '#fff', borderRadius: 8, padding: 16,
-                                    border: '1px dashed #e2e8f0', textAlign: 'center', marginBottom: 16,
-                                    color: '#94a3b8', fontSize: 12,
-                                }}>
-                                    No previous emails found. This will be your first message.
-                                </div>
-                            ) : null}
-
-                            {/* Habit hint */}
-                            {habitSummary && (
-                                <div style={{
-                                    background: 'rgba(37,99,235,0.06)',
-                                    border: '1px solid rgba(37,99,235,0.15)',
-                                    borderRadius: 8, padding: '8px 12px', marginBottom: 10,
-                                    fontSize: 11, color: '#1e40af', display: 'flex',
-                                    alignItems: 'center', gap: 6,
-                                }}>
-                                    <span style={{ fontSize: 14 }}>{'\u23F0'}</span>
-                                    <span><strong>Best time to reach:</strong> {habitSummary}</span>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                                        <Link href={`/clients/${action.contactId}`} style={{
+                                            fontSize: 12, color: '#2563EB', fontWeight: 500, textDecoration: 'none',
+                                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                                        }}>
+                                            <ExternalLink size={11} /> View full conversation
+                                        </Link>
+                                        {habitSummary && (
+                                            <span style={{ fontSize: 11, color: '#64748B' }}>
+                                                Best time: <strong>{habitSummary}</strong>
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
-                            {/* Reply Composer */}
-                            <div style={{
-                                background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0',
-                                overflow: 'hidden',
-                            }}>
-                                {/* From account selector */}
-                                {accounts.length > 0 && (
-                                    <div style={{
-                                        padding: '8px 14px', borderBottom: '1px solid #f1f5f9',
-                                        display: 'flex', alignItems: 'center', gap: 8,
-                                    }}>
-                                        <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500, flexShrink: 0 }}>From:</span>
-                                        <select
-                                            value={fromAccountId}
-                                            onChange={e => setFromAccountId(e.target.value)}
-                                            style={{
-                                                flex: 1, border: 'none', fontSize: 12, color: '#334155',
-                                                background: 'transparent', outline: 'none', fontWeight: 500,
-                                                cursor: 'pointer',
-                                            }}
-                                        >
-                                            <option value="">Select account...</option>
-                                            {accounts.map(acc => (
-                                                <option key={acc.id} value={acc.id}>
-                                                    {acc.email}{acc.id === suggestedAccountId ? ' (conversation account)' : ''}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
-
-                                {/* To */}
+                            {!emailLoadError && emails.length === 0 && (
                                 <div style={{
-                                    padding: '6px 14px', borderBottom: '1px solid #f1f5f9',
-                                    fontSize: 12, display: 'flex', alignItems: 'center', gap: 8,
+                                    background: '#FAFAFA', borderRadius: 10, padding: 20,
+                                    textAlign: 'center', marginBottom: 20, color: '#94A3B8', fontSize: 13,
                                 }}>
-                                    <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>To:</span>
-                                    <span style={{ fontWeight: 500, color: '#334155' }}>{action.name} &lt;{action.email}&gt;</span>
+                                    No previous emails. This will be your first message.
                                 </div>
+                            )}
 
-                                {/* Subject */}
+                            {/* Composer — minimal */}
+                            <div style={{
+                                background: '#FAFAFA', borderRadius: 12,
+                                border: '1px solid #E2E8F0', overflow: 'hidden',
+                            }}>
+                                {/* Single-line From */}
                                 <div style={{
-                                    padding: '6px 14px', borderBottom: '1px solid #f1f5f9',
-                                    fontSize: 12, display: 'flex', alignItems: 'center', gap: 8,
+                                    padding: '8px 16px', borderBottom: '1px solid #F1F5F9',
+                                    display: 'flex', alignItems: 'center', gap: 8,
+                                    fontSize: 12, color: '#94A3B8',
                                 }}>
-                                    <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>Subj:</span>
-                                    <span style={{ fontWeight: 500, color: '#334155' }}>
-                                        {lastReceived?.subject
-                                            ? (lastReceived.subject.startsWith('Re:') ? lastReceived.subject : `Re: ${lastReceived.subject}`)
-                                            : lastSent?.subject
-                                                ? (lastSent.subject.startsWith('Re:') ? lastSent.subject : `Re: ${lastSent.subject}`)
-                                                : 'New conversation'}
-                                    </span>
+                                    <span>via</span>
+                                    <select
+                                        value={fromAccountId}
+                                        onChange={e => setFromAccountId(e.target.value)}
+                                        style={{
+                                            border: 'none', fontSize: 12, color: '#334155',
+                                            background: 'transparent', outline: 'none', fontWeight: 500,
+                                            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                                        }}
+                                    >
+                                        <option value="">Select account...</option>
+                                        {accounts.map(acc => (
+                                            <option key={acc.id} value={acc.id}>
+                                                {acc.email}{acc.id === suggestedAccountId ? ' (thread account)' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
 
                                 {/* Textarea */}
@@ -471,21 +407,13 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                     ref={textareaRef}
                                     value={replyBody}
                                     onChange={e => setReplyBody(e.target.value)}
-                                    placeholder={
-                                        action.actionType === 'REPLY_NOW'
-                                            ? 'Write your reply...'
-                                            : action.actionType === 'FOLLOW_UP'
-                                                ? 'Write a follow-up message...'
-                                                : action.actionType === 'WIN_BACK'
-                                                    ? 'Write a re-engagement message...'
-                                                    : 'Write your message...'
-                                    }
+                                    placeholder="Write your reply..."
                                     style={{
-                                        width: '100%', minHeight: 100, padding: '12px 14px',
+                                        width: '100%', minHeight: 100, padding: '14px 16px',
                                         border: 'none', outline: 'none', resize: 'vertical',
-                                        fontSize: 13, lineHeight: 1.6, color: '#0f172a',
+                                        fontSize: 14, lineHeight: 1.6, color: '#0F172A',
                                         fontFamily: "'DM Sans', system-ui, sans-serif",
-                                        boxSizing: 'border-box',
+                                        boxSizing: 'border-box', background: '#fff',
                                     }}
                                     onKeyDown={e => {
                                         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -495,55 +423,57 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                     }}
                                 />
 
-                                {/* Send error */}
                                 {sendError && (
                                     <div style={{
-                                        padding: '8px 14px', background: '#fef2f2', color: '#dc2626',
-                                        fontSize: 12, fontWeight: 500, borderTop: '1px solid #fecaca',
+                                        padding: '8px 16px', background: '#FEF2F2', color: '#DC2626',
+                                        fontSize: 12, borderTop: '1px solid #FECACA',
                                     }}>
                                         {sendError}
                                     </div>
                                 )}
 
-                                {/* Action bar */}
+                                {/* Bottom bar */}
                                 <div style={{
-                                    padding: '8px 14px', borderTop: '1px solid #f1f5f9',
+                                    padding: '8px 16px', borderTop: '1px solid #F1F5F9',
                                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    background: '#FAFAFA',
                                 }}>
                                     <button type="button" onClick={() => onQuickEmail(action)} style={{
-                                        background: 'none', border: '1px solid #e2e8f0', borderRadius: 6,
-                                        padding: '5px 10px', fontSize: 11, color: '#64748b', cursor: 'pointer',
-                                        fontWeight: 500,
+                                        background: 'none', border: 'none', padding: '4px 0',
+                                        fontSize: 12, color: '#64748B', cursor: 'pointer',
+                                        fontWeight: 500, fontFamily: "'DM Sans', sans-serif",
                                     }}>
-                                        Use template
+                                        Template
                                     </button>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 10, color: '#94a3b8' }}>
-                                            {'\u2318'}+Enter to send
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <span style={{ fontSize: 11, color: '#CBD5E1' }}>
+                                            {'\u2318'}+Enter
                                         </span>
                                         <button
                                             type="button"
                                             onClick={handleSend}
                                             disabled={!replyBody.trim() || !fromAccountId || sending}
                                             style={{
-                                                background: (replyBody.trim() && fromAccountId) ? '#2563eb' : '#94a3b8',
-                                                color: '#fff', border: 'none', borderRadius: 6,
-                                                padding: '7px 16px', fontSize: 12, fontWeight: 600,
+                                                background: (replyBody.trim() && fromAccountId) ? '#0F172A' : '#E2E8F0',
+                                                color: (replyBody.trim() && fromAccountId) ? '#fff' : '#94A3B8',
+                                                border: 'none', borderRadius: 8,
+                                                padding: '8px 20px', fontSize: 13, fontWeight: 600,
                                                 cursor: (replyBody.trim() && fromAccountId) ? 'pointer' : 'not-allowed',
                                                 display: 'flex', alignItems: 'center', gap: 6,
-                                                transition: 'background .15s', opacity: sending ? 0.7 : 1,
+                                                transition: 'all .15s', opacity: sending ? 0.7 : 1,
+                                                fontFamily: "'DM Sans', sans-serif",
                                             }}
                                         >
                                             {sending ? (
-                                                <><Loader2 size={13} className="action-spin" /> Sending...</>
+                                                <><Loader2 size={14} className="action-spin" /> Sending</>
                                             ) : (
-                                                <><Send size={13} /> Send Reply</>
+                                                <>Send</>
                                             )}
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        </>
                     )}
                 </div>
             )}
