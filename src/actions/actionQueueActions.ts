@@ -53,7 +53,35 @@ export async function getActionQueueAction(): Promise<{
         .order('days_since_last_contact', { ascending: true })
         .limit(30);
     if (accountIds) replyQuery = replyQuery.eq('account_manager_id', userId);
-    const { data: needReply } = await replyQuery;
+    const { data: rawReply } = await replyQuery;
+
+    // Validate Reply Now contacts against actual email_messages.
+    // The cached last_message_direction can go stale if a reply was sent
+    // from Gmail directly, or before the sendEmailAction fix was deployed.
+    // This runs 30 parallel single-row queries — ~100ms total.
+    const validated = await Promise.all(
+        (rawReply || []).map(async c => {
+            const { data: latest } = await supabase
+                .from('email_messages')
+                .select('direction')
+                .eq('contact_id', c.id)
+                .order('sent_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            return { contact: c, valid: !latest || latest.direction === 'RECEIVED' };
+        })
+    );
+    const needReply = validated.filter(v => v.valid).map(v => v.contact);
+
+    // Self-heal: fix stale stats on contacts we just filtered out
+    const staleIds = validated.filter(v => !v.valid).map(v => v.contact.id);
+    if (staleIds.length > 0) {
+        void supabase
+            .from('contacts')
+            .update({ last_message_direction: 'SENT' })
+            .in('id', staleIds)
+            .then();
+    }
 
     // 2. NEW_LEAD: Added in last 48h, never emailed
     const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
