@@ -8,6 +8,7 @@ import type { LastEmail } from '../../src/actions/actionQueueActions';
 import { getContactLastEmailsAction } from '../../src/actions/actionQueueActions';
 import { sendEmailAction } from '../../src/actions/emailActions';
 import { computeContactHabit, formatHabitSummary } from '../../src/utils/clientHabits';
+import { extractReplyPreview } from '../../src/utils/emailPreview';
 
 const DEFAULT_STYLE = { bg: '#f8fafc', border: '#94a3b8', badge: '#64748b', text: 'LOW', expandBg: '#f9fafb' };
 const URGENCY_STYLES = {
@@ -37,12 +38,6 @@ function timeAgo(dateStr: string | null): string {
     return `${Math.floor(days / 30)}mo ago`;
 }
 
-function getTextContent(html: string): string {
-    if (typeof window === 'undefined') return html;
-    const div = document.createElement('div');
-    div.innerHTML = html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n');
-    return (div.textContent || div.innerText || '').trim();
-}
 
 type Props = {
     action: ActionItem;
@@ -316,7 +311,7 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                                 WebkitMaskImage: 'linear-gradient(180deg, black 70%, transparent 100%)',
                                                 maskImage: 'linear-gradient(180deg, black 70%, transparent 100%)',
                                             }}>
-                                                {lastReceived.snippet || (lastReceived.body ? getTextContent(lastReceived.body).slice(0, 300) : 'No preview available')}
+                                                {extractReplyPreview(lastReceived.body, lastReceived.snippet, 300) || 'No preview available'}
                                             </div>
                                         </div>
                                     )}
@@ -339,7 +334,7 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                                 }}>SENT</span>
                                             </div>
                                             <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5, maxHeight: 60, overflow: 'hidden' }}>
-                                                {lastSent.snippet || (lastSent.body ? getTextContent(lastSent.body).slice(0, 200) : 'No preview')}
+                                                {extractReplyPreview(lastSent.body, lastSent.snippet, 200) || 'No preview'}
                                             </div>
                                         </div>
                                     )}
