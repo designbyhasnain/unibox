@@ -39,7 +39,6 @@ export default function InboxPage() {
         totalPages,
         currentPage,
         isLoading,
-        tabCounts,
         selectedEmail,
         threadMessages,
         isThreadLoading,
@@ -229,7 +228,7 @@ export default function InboxPage() {
         setIsSearchResults(false);
     };
 
-    const inboxCount = isHydrated ? Object.values(tabCounts).reduce((sum, c) => sum + (c || 0), 0) : 0;
+    const inboxCount = isHydrated && activeTab === 'inbox' && !isSearchResults ? totalCount : 0;
 
     return (
         <>

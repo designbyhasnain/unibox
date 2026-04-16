@@ -357,61 +357,81 @@ export async function getSentEmailsAction(
     if (!accountIds || accountIds.length === 0) return empty;
 
     const offset = (page - 1) * clampedPageSize;
-    const fetchLimit = clampedPageSize + 20;
 
-    // Use inbox RPC (handles 77+ accounts without timeout) then filter for SENT
-    const { data, error } = await supabase.rpc('get_inbox_emails', {
-        p_account_ids: accountIds,
-        p_is_spam: false,
-        p_stage: null,
-        p_limit: fetchLimit,
-        p_offset: offset,
-    });
+    // Direct query for sent emails — works reliably for SALES users with few accounts
+    // For ADMIN with 77+ accounts, use RPC fallback
+    const useDirectQuery = accountIds.length <= 20;
 
-    if (error) {
-        console.error('getSentEmailsAction RPC error:', error);
-        return { ...empty, error: true };
-    }
+    let rows: any[] = [];
 
-    const rawRows = data as any[];
-    if (!rawRows || rawRows.length === 0) return empty;
+    if (useDirectQuery) {
+        const { data, error } = await supabase
+            .from('email_messages')
+            .select(`
+                id, thread_id, from_email, to_email, subject, snippet, direction,
+                sent_at, is_unread, pipeline_stage, gmail_account_id, is_tracked,
+                delivered_at, opened_at, contact_id,
+                gmail_accounts ( email, users ( name ) )
+            `)
+            .in('gmail_account_id', accountIds)
+            .eq('direction', 'SENT')
+            .order('sent_at', { ascending: false, nullsFirst: false })
+            .range(offset, offset + clampedPageSize - 1);
 
-    // Filter to SENT only + deduplicate across accounts
-    const seenSent = new Set<string>();
-    const rows = rawRows.filter((r: any) => {
-        if (r.direction !== 'SENT') return false;
-        const key = `${r.to_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
-        if (seenSent.has(key)) return false;
-        seenSent.add(key);
-        return true;
-    }).slice(0, clampedPageSize);
-    if (rows.length === 0) return empty;
+        if (error) {
+            console.error('getSentEmailsAction direct query error:', error);
+            return { ...empty, error: true };
+        }
 
-    // Fetch account info
-    const uniqueAccountIds = [...new Set(rows.map(r => r.gmail_account_id).filter(Boolean))];
-    const accountMap: Record<string, { email: string; managerName: string }> = {};
-    if (uniqueAccountIds.length > 0) {
-        const { data: accs } = await supabase
-            .from('gmail_accounts')
-            .select('id, email, users ( name )')
-            .in('id', uniqueAccountIds);
-        (accs || []).forEach((a: any) => {
-            const user = Array.isArray(a.users) ? a.users[0] : a.users;
-            accountMap[a.id] = { email: a.email, managerName: user?.name || 'System' };
+        // Deduplicate
+        const seenSent = new Set<string>();
+        rows = (data || []).filter((r: any) => {
+            const key = `${r.to_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
+            if (seenSent.has(key)) return false;
+            seenSent.add(key);
+            return true;
         });
+    } else {
+        // Fallback to RPC for large account sets
+        const fetchLimit = clampedPageSize + 20;
+        const { data, error } = await supabase.rpc('get_inbox_emails', {
+            p_account_ids: accountIds,
+            p_is_spam: false,
+            p_stage: null,
+            p_limit: fetchLimit,
+            p_offset: offset,
+        });
+
+        if (error) {
+            console.error('getSentEmailsAction RPC error:', error);
+            return { ...empty, error: true };
+        }
+
+        const seenSent = new Set<string>();
+        rows = (data as any[] || []).filter((r: any) => {
+            if (r.direction !== 'SENT') return false;
+            const key = `${r.to_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
+            if (seenSent.has(key)) return false;
+            seenSent.add(key);
+            return true;
+        }).slice(0, clampedPageSize);
     }
+
+    if (rows.length === 0) return empty;
 
     const hasMore = rows.length === clampedPageSize;
     const totalCount = hasMore ? (page * clampedPageSize + 1) : ((page - 1) * clampedPageSize + rows.length);
     const totalPages = hasMore ? page + 1 : page;
 
-    const emails = rows.map((r) => {
-        const acc = accountMap[r.gmail_account_id];
+    const emails = rows.map((r: any) => {
+        // Direct query has gmail_accounts joined; RPC does not
+        const joinedAcc = Array.isArray(r.gmail_accounts) ? r.gmail_accounts[0] : r.gmail_accounts;
+        const user = joinedAcc ? (Array.isArray(joinedAcc.users) ? joinedAcc.users[0] : joinedAcc.users) : null;
         return {
             ...r,
-            account_email: acc?.email,
-            manager_name: acc?.managerName || 'System',
-            gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },
+            account_email: joinedAcc?.email,
+            manager_name: user?.name || 'System',
+            gmail_accounts: { email: joinedAcc?.email, user: { name: user?.name || 'System' } },
             has_reply: false,
         };
     });
