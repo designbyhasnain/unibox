@@ -165,6 +165,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
 
     const isSales = userRole === 'SALES';
     const isAdminLike = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
+    const isEditor = userRole === 'VIDEO_EDITOR';
 
     const [actionCount, setActionCount] = React.useState(0);
     React.useEffect(() => {
@@ -183,12 +184,22 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
     }, []);
 
     /* ── Build grouped navigation ── */
+
+    // VIDEO_EDITOR: minimal nav — Dashboard, My Projects, Profile only
+    const editorGroup: NavGroup = {
+        title: 'Workstation',
+        items: [
+            { href: '/dashboard', label: 'Dashboard', icon: <I.Dashboard /> },
+            { href: '/projects', label: 'My Projects', icon: <I.EditProj /> },
+        ],
+    };
+
     const crmGroup: NavGroup = {
         title: 'CRM',
         items: [
             { href: '/actions', label: 'Actions', icon: <I.Actions />, badge: actionCount },
             { href: '/', label: 'Inbox', icon: <I.Inbox /> },
-            { href: '/dashboard', label: isSales ? 'Dashboard' : 'Dashboard', icon: <I.Dashboard /> },
+            { href: '/dashboard', label: 'Dashboard', icon: <I.Dashboard /> },
             { href: '/clients', label: isSales ? 'My Clients' : 'Clients', icon: <I.Clients /> },
             { href: '/my-projects', label: 'My Projects', icon: <I.Projects /> },
             { href: '/accounts', label: 'Accounts', icon: <I.Accounts /> },
@@ -215,7 +226,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         ],
     };
 
-    const groups = [crmGroup, marketingGroup, workGroup];
+    const groups = isEditor ? [editorGroup] : [crmGroup, marketingGroup, workGroup];
 
     /* Bottom items (admin-only items + settings + logout) */
     const bottomItems: NavEntry[] = [
@@ -225,7 +236,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
             { href: '/admin/data-health', label: 'Data Health', icon: <I.Intelligence /> },
             { href: '/team', label: 'Team', icon: <I.Team /> },
         ] : []),
-        { href: '/settings', label: 'Settings', icon: <I.Settings /> },
+        { href: '/settings', label: isEditor ? 'Profile' : 'Settings', icon: <I.Settings /> },
     ];
 
     const handleNavClick = () => { onClose?.(); };
@@ -269,10 +280,12 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                         </div>
                         {!collapsed && <span className="sb-brand-text">Unibox</span>}
                     </div>
-                    <button className="sb-compose" onClick={onOpenCompose} id="compose-btn" title="Compose">
-                        <I.Compose />
-                        {!collapsed && <span>Compose</span>}
-                    </button>
+                    {!isEditor && (
+                        <button className="sb-compose" onClick={onOpenCompose} id="compose-btn" title="Compose">
+                            <I.Compose />
+                            {!collapsed && <span>Compose</span>}
+                        </button>
+                    )}
                 </div>
 
                 {/* Grouped navigation */}
@@ -285,8 +298,8 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                         </div>
                     ))}
 
-                    {/* Account filter — only when expanded */}
-                    {!collapsed && (
+                    {/* Account filter — only when expanded, hidden for editors */}
+                    {!collapsed && !isEditor && (
                         <div className="sb-account-filter">
                             <div className="sb-group-title">Account</div>
                             <div className="account-filter-container">

@@ -5,10 +5,39 @@ import { ensureAuthenticated } from '../../src/lib/safe-action';
 import type { ProjectFilters, CSVImportResult } from './types';
 import { mapCSVRowToProject } from './csv-parser';
 
+async function getFreshRole(userId: string): Promise<string> {
+  const { data } = await supabase.from('users').select('role').eq('id', userId).maybeSingle();
+  return data?.role ?? 'SALES';
+}
+
+function maskProjectForEditor(p: Record<string, unknown>): Record<string, unknown> {
+  const pseudonym = `Project – ${(p.id as string).slice(0, 6)}`;
+  return {
+    ...p,
+    // Mask both camelCase (transformed) and snake_case (raw DB) keys
+    clientName: pseudonym,
+    client_name: pseudonym,
+    clientEmail: null,
+    client_email: null,
+    initialProjectValue: null,
+    initial_project_value: null,
+    totalProjectValue: null,
+    total_project_value: null,
+    totalAmount: null,
+    total_amount: null,
+    paid: null,
+    received1: null,
+    received_1: null,
+    reviewerValue: null,
+    reviewer_value: null,
+  };
+}
+
 // ─── Get Projects (paginated) ────────────────────────────────────────────────
 
 export async function getEditProjects(filters?: ProjectFilters, page: number = 1, limit: number = 50) {
   const { userId } = await ensureAuthenticated();
+  const role = await getFreshRole(userId);
 
   const sortBy = filters?.sortBy || 'createdAt';
   const sortOrder = filters?.sortOrder === 'asc';
@@ -52,9 +81,10 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
   const totalPages = Math.ceil(total / clampedLimit);
 
   // Transform: snake_case → camelCase + count comments
+  const isEditor = role === 'VIDEO_EDITOR';
   const projects = (data || []).map((p: Record<string, unknown>) => {
     const comments = Array.isArray(p.comments) ? p.comments : [];
-    return {
+    const row: Record<string, unknown> = {
       id: p.id, date: p.date, clientName: p.client_name, clientEmail: p.client_email, name: p.name,
       progress: p.progress, isChecked: p.is_checked,
       initialProjectValue: p.initial_project_value, dueDate: p.due_date,
@@ -77,6 +107,7 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
       createdAt: p.created_at, updatedAt: p.updated_at,
       _count: { comments: comments.length },
     };
+    return isEditor ? maskProjectForEditor(row) : row;
   });
 
   return { success: true as const, data: projects, total, page, limit: clampedLimit, totalPages };
@@ -219,10 +250,9 @@ export async function duplicateEditProject(id: string) {
 // ─── Get Project By ID ───────────────────────────────────────────────────────
 
 export async function getEditProjectById(id: string) {
-  await ensureAuthenticated();
+  const { userId } = await ensureAuthenticated();
+  const role = await getFreshRole(userId);
 
-  // Match getEditProjects behavior: all authenticated users can view any
-  // project. List query returns all projects, so detail must too.
   const { data: project, error } = await supabase
     .from('edit_projects')
     .select('*, comments:project_comments(id, content, author_name, author_id, image_url, project_id, created_at)')
@@ -234,7 +264,8 @@ export async function getEditProjectById(id: string) {
     return { success: false as const, error: error.message };
   }
 
-  return { success: true as const, data: project };
+  const masked = role === 'VIDEO_EDITOR' ? maskProjectForEditor(project as Record<string, unknown>) : project;
+  return { success: true as const, data: masked };
 }
 
 // ─── Add Comment ─────────────────────────────────────────────────────────────
