@@ -24,7 +24,7 @@ export default function TeamPage() {
     // Modal states
     const [showInviteModal, setShowInviteModal] = useState(false);
     const [showManageAccountsModal, setShowManageAccountsModal] = useState<any>(null);
-    const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'SALES' as 'ADMIN' | 'SALES', assignedGmailAccountIds: [] as string[] });
+    const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'SALES' as 'ADMIN' | 'SALES' | 'VIDEO_EDITOR', assignedGmailAccountIds: [] as string[] });
     const [inviteResult, setInviteResult] = useState<{ success: boolean; inviteUrl?: string; error?: string } | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [passwordModal, setPasswordModal] = useState<{ userId: string; name: string } | null>(null);
@@ -105,7 +105,7 @@ export default function TeamPage() {
         setActionLoading(null);
     };
 
-    const handleRoleChange = async (targetUserId: string, newRole: 'ADMIN' | 'SALES') => {
+    const handleRoleChange = async (targetUserId: string, newRole: 'ADMIN' | 'SALES' | 'VIDEO_EDITOR') => {
         setActionLoading(targetUserId);
         await updateUserRoleAction(targetUserId, newRole);
         await loadData();
@@ -232,10 +232,11 @@ export default function TeamPage() {
                                             </td>
                                             <td style={tdRowStyle}>
                                                 <select value={user.role} disabled={user.id === currentUser?.userId || actionLoading === user.id}
-                                                    onChange={(e) => handleRoleChange(user.id, e.target.value as 'ADMIN' | 'SALES')}
+                                                    onChange={(e) => handleRoleChange(user.id, e.target.value as 'ADMIN' | 'SALES' | 'VIDEO_EDITOR')}
                                                     style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border-color, #dadce0)', background: 'var(--bg-surface)', cursor: 'pointer' }}>
                                                     <option value="ADMIN">Admin</option>
                                                     <option value="SALES">Sales</option>
+                                                    <option value="VIDEO_EDITOR">Video Editor</option>
                                                 </select>
                                             </td>
                                             <td style={tdRowStyle}>
@@ -332,9 +333,9 @@ export default function TeamPage() {
                                             <td style={tdStyle}>
                                                 <span style={{
                                                     fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                                                    background: inv.role === 'ADMIN' ? '#e8f0fe' : '#fef7e0',
-                                                    color: inv.role === 'ADMIN' ? '#1a73e8' : '#e37400',
-                                                }}>{inv.role}</span>
+                                                    background: inv.role === 'ADMIN' ? '#e8f0fe' : inv.role === 'VIDEO_EDITOR' ? '#f5f3ff' : '#fef7e0',
+                                                    color: inv.role === 'ADMIN' ? '#1a73e8' : inv.role === 'VIDEO_EDITOR' ? '#7c3aed' : '#e37400',
+                                                }}>{{ ADMIN: 'Admin', SALES: 'Sales', VIDEO_EDITOR: 'Video Editor' }[inv.role as string] || inv.role}</span>
                                             </td>
                                             <td style={tdStyle}>
                                                 <span style={{
@@ -408,9 +409,10 @@ export default function TeamPage() {
                                 </div>
                                 <div style={{ marginBottom: 16 }}>
                                     <label style={labelStyle}>Role</label>
-                                    <select value={inviteForm.role} onChange={e => setInviteForm(f => ({ ...f, role: e.target.value as 'ADMIN' | 'SALES' }))} style={inputStyle}>
+                                    <select value={inviteForm.role} onChange={e => setInviteForm(f => ({ ...f, role: e.target.value as 'ADMIN' | 'SALES' | 'VIDEO_EDITOR' }))} style={inputStyle}>
                                         <option value="SALES">Sales</option>
                                         <option value="ADMIN">Admin</option>
+                                        <option value="VIDEO_EDITOR">Video Editor</option>
                                     </select>
                                 </div>
                                 {inviteForm.role === 'SALES' && allAccounts.length > 0 && (

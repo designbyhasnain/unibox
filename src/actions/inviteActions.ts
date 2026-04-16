@@ -47,7 +47,7 @@ async function sendInviteViaResend(toEmail: string, inviteUrl: string) {
 export async function sendInviteAction(params: {
     email: string;
     name: string;
-    role: 'ADMIN' | 'SALES';
+    role: 'ADMIN' | 'SALES' | 'VIDEO_EDITOR';
     assignedGmailAccountIds: string[];
 }) {
     console.error('[INVITE] sendInviteAction called for:', params.email);

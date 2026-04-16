@@ -96,7 +96,7 @@ export async function removeGmailFromUserAction(targetUserId: string, gmailAccou
 /**
  * Update a user's role. ADMIN only.
  */
-export async function updateUserRoleAction(targetUserId: string, newRole: 'ADMIN' | 'SALES') {
+export async function updateUserRoleAction(targetUserId: string, newRole: 'ADMIN' | 'SALES' | 'VIDEO_EDITOR') {
     const { userId, role } = await ensureAuthenticated();
     if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
     if (targetUserId === userId) return { success: false, error: 'Cannot change your own role' };
