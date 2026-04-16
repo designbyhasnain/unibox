@@ -343,40 +343,54 @@ export async function getSentEmailsAction(
     if (!accountIds || accountIds.length === 0) return empty;
 
     const offset = (page - 1) * clampedPageSize;
+    const fetchLimit = clampedPageSize + 20;
 
-    const { data, error } = await supabase
-        .from('email_messages')
-        .select(`
-            id, thread_id, from_email, to_email, subject, snippet, direction,
-            sent_at, is_unread, pipeline_stage, gmail_account_id, is_tracked,
-            delivered_at, opened_at, contact_id,
-            gmail_accounts ( email, users ( name ) )
-        `)
-        .in('gmail_account_id', accountIds)
-        .eq('direction', 'SENT')
-        .order('sent_at', { ascending: false, nullsFirst: false })
-        .range(offset, offset + clampedPageSize - 1);
+    // Use inbox RPC (handles 77+ accounts without timeout) then filter for SENT
+    const { data, error } = await supabase.rpc('get_inbox_emails', {
+        p_account_ids: accountIds,
+        p_is_spam: false,
+        p_stage: null,
+        p_limit: fetchLimit,
+        p_offset: offset,
+    });
 
     if (error) {
-        console.error('getSentEmailsAction error:', error);
+        console.error('getSentEmailsAction RPC error:', error);
         return { ...empty, error: true };
     }
 
-    const rows = data as any[];
-    if (!rows || rows.length === 0) return empty;
+    const rawRows = data as any[];
+    if (!rawRows || rawRows.length === 0) return empty;
+
+    // Filter to SENT only
+    const rows = rawRows.filter((r: any) => r.direction === 'SENT').slice(0, clampedPageSize);
+    if (rows.length === 0) return empty;
+
+    // Fetch account info
+    const uniqueAccountIds = [...new Set(rows.map(r => r.gmail_account_id).filter(Boolean))];
+    const accountMap: Record<string, { email: string; managerName: string }> = {};
+    if (uniqueAccountIds.length > 0) {
+        const { data: accs } = await supabase
+            .from('gmail_accounts')
+            .select('id, email, users ( name )')
+            .in('id', uniqueAccountIds);
+        (accs || []).forEach((a: any) => {
+            const user = Array.isArray(a.users) ? a.users[0] : a.users;
+            accountMap[a.id] = { email: a.email, managerName: user?.name || 'System' };
+        });
+    }
 
     const hasMore = rows.length === clampedPageSize;
     const totalCount = hasMore ? (page * clampedPageSize + 1) : ((page - 1) * clampedPageSize + rows.length);
     const totalPages = hasMore ? page + 1 : page;
 
     const emails = rows.map((r) => {
-        const acc = Array.isArray(r.gmail_accounts) ? r.gmail_accounts[0] : r.gmail_accounts;
-        const user = acc ? (Array.isArray(acc.users) ? acc.users[0] : acc.users) : null;
+        const acc = accountMap[r.gmail_account_id];
         return {
             ...r,
             account_email: acc?.email,
-            manager_name: user?.name || 'System',
-            gmail_accounts: { email: acc?.email, user: { name: user?.name || 'System' } },
+            manager_name: acc?.managerName || 'System',
+            gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },
             has_reply: false,
         };
     });
