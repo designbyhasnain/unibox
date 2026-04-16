@@ -65,32 +65,75 @@ export async function getActionQueueAction(): Promise<{
     if (accountIds) replyQuery = replyQuery.eq('account_manager_id', userId);
     const { data: rawReply } = await replyQuery;
 
-    // Validate Reply Now contacts against actual email_messages.
-    // The cached last_message_direction can go stale if a reply was sent
-    // from Gmail directly, or before the sendEmailAction fix was deployed.
-    // This runs 30 parallel single-row queries — ~100ms total.
+    // ── Validate Reply Now against actual email_messages (2-tier + fail closed) ──
+    // Cached last_message_direction goes stale. We validate each candidate
+    // against the real latest email. If we can't determine truth, EXCLUDE
+    // the contact (fail closed — false negative beats false positive).
     const validated = await Promise.all(
-        (rawReply || []).map(async c => {
-            const { data: latest } = await supabase
+        (rawReply || []).map(async (c): Promise<{ contact: typeof c; valid: boolean; healDirection?: string; healContactId?: string; healEmailId?: string }> => {
+            // TIER 1: Fast path — check by indexed contact_id
+            const { data: tier1 } = await supabase
                 .from('email_messages')
-                .select('direction')
+                .select('direction, id')
                 .eq('contact_id', c.id)
                 .order('sent_at', { ascending: false })
                 .limit(1)
                 .maybeSingle();
-            return { contact: c, valid: !latest || latest.direction === 'RECEIVED' };
+
+            if (tier1) {
+                if (tier1.direction === 'RECEIVED') return { contact: c, valid: true };
+                return { contact: c, valid: false, healDirection: 'SENT' };
+            }
+
+            // TIER 2: Fallback — check by email address (ILIKE on raw headers)
+            if (!c.email) return { contact: c, valid: false };
+
+            const emailPattern = `%${c.email}%`;
+            const [fromRes, toRes] = await Promise.all([
+                supabase.from('email_messages').select('direction, id')
+                    .ilike('from_email', emailPattern)
+                    .order('sent_at', { ascending: false }).limit(1).maybeSingle(),
+                supabase.from('email_messages').select('direction, id')
+                    .ilike('to_email', emailPattern)
+                    .order('sent_at', { ascending: false }).limit(1).maybeSingle(),
+            ]);
+
+            // Pick the newer of the two results
+            const candidates = [fromRes.data, toRes.data].filter(Boolean) as { direction: string; id: string }[];
+            if (candidates.length === 0) {
+                // No emails found at all — shouldn't be in Reply Now
+                return { contact: c, valid: false, healDirection: 'zero' };
+            }
+
+            const latest = candidates[0]!;
+            if (latest.direction === 'RECEIVED') {
+                // Valid — also self-heal by linking this email to the contact
+                return { contact: c, valid: true, healContactId: c.id, healEmailId: latest.id };
+            }
+            return { contact: c, valid: false, healDirection: 'SENT' };
         })
     );
-    const needReply = validated.filter(v => v.valid).map(v => v.contact);
 
-    // Self-heal: fix stale stats on contacts we just filtered out
-    const staleIds = validated.filter(v => !v.valid).map(v => v.contact.id);
+    const needReply = validated.filter(v => v.valid).map(v => v.contact).slice(0, 30);
+
+    // ── Self-heal stale data found during validation ──
+    // Fix last_message_direction on contacts we filtered out
+    const staleIds = validated.filter(v => !v.valid && v.healDirection === 'SENT').map(v => v.contact.id);
     if (staleIds.length > 0) {
-        void supabase
-            .from('contacts')
-            .update({ last_message_direction: 'SENT' })
-            .in('id', staleIds)
-            .then();
+        void supabase.from('contacts').update({ last_message_direction: 'SENT' }).in('id', staleIds).then();
+    }
+
+    // Zero out stats on contacts with no emails at all
+    const zeroIds = validated.filter(v => !v.valid && v.healDirection === 'zero').map(v => v.contact.id);
+    if (zeroIds.length > 0) {
+        void supabase.from('contacts').update({ total_emails_received: 0, last_message_direction: null }).in('id', zeroIds).then();
+    }
+
+    // Backfill contact_id on orphan emails found via ILIKE
+    for (const v of validated) {
+        if (v.healContactId && v.healEmailId) {
+            void supabase.from('email_messages').update({ contact_id: v.healContactId }).eq('id', v.healEmailId).is('contact_id', null).then();
+        }
     }
 
     // 2. NEW_LEAD: Added in last 48h, never emailed
