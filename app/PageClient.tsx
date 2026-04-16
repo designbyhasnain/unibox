@@ -59,7 +59,7 @@ export default function InboxPage() {
         handleResume,
     } = useMailbox({
         type: mailboxType,
-        activeStage: 'COLD_LEAD',
+        activeStage: 'ALL',
         searchTerm,
         selectedAccountId,
         enabled: !isSearchResults || !!searchTerm,
@@ -476,7 +476,7 @@ export default function InboxPage() {
                                                 email={email}
                                                 isSelected={selectedEmail?.id === email.id}
                                                 isRowChecked={selectedEmailIds.has(email.id)}
-                                                showBadge={activeTab === 'inbox' && shouldShowStageBadge('COLD_LEAD', email.pipeline_stage, isSearchResults)}
+                                                showBadge={shouldShowStageBadge('ALL', email.pipeline_stage, isSearchResults)}
                                                 onClick={() => handleSelectEmail(email)}
                                                 onToggleSelect={toggleSelectEmail}
                                                 onPrefetch={prefetchThread ? () => prefetchThread(email.thread_id) : undefined}
