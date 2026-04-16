@@ -41,17 +41,27 @@ export async function getActionQueueAction(): Promise<{
         return { actions: [], counts: { critical: 0, high: 0, medium: 0, low: 0, total: 0 } };
     }
 
+    // Automated/notification senders that should never appear as actionable contacts
+    const JUNK_PATTERNS = [
+        '%noreply%', '%no-reply%', '%mailer-daemon%', '%postmaster%',
+        '%notification%', '%mailsuite%', '%mailtrack%', '%hubspot%',
+        '%calendly%', '%zoom.us%', '%donotreply%', '%unsubscribe%',
+        '%bounce%', '%feedback@%', '%support@%', '%billing@%',
+        '%newsletter%', '%updates@%', '%digest@%', '%automated%',
+    ];
+
     // 1. REPLY_NOW: They replied, you haven't responded
     let replyQuery = supabase
         .from('contacts')
         .select(CONTACT_FIELDS)
         .eq('last_message_direction', 'RECEIVED')
         .gt('total_emails_received', 0)
-        .not('email', 'ilike', '%noreply%')
-        .not('email', 'ilike', '%mailer-daemon%')
         .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('days_since_last_contact', { ascending: true })
-        .limit(30);
+        .limit(50);
+    for (const pat of JUNK_PATTERNS) {
+        replyQuery = replyQuery.not('email', 'ilike', pat);
+    }
     if (accountIds) replyQuery = replyQuery.eq('account_manager_id', userId);
     const { data: rawReply } = await replyQuery;
 
@@ -93,6 +103,7 @@ export async function getActionQueueAction(): Promise<{
         .in('pipeline_stage', ['COLD_LEAD', 'LEAD'])
         .order('lead_score', { ascending: false })
         .limit(20);
+    for (const pat of JUNK_PATTERNS) { newQuery = newQuery.not('email', 'ilike', pat); }
     if (accountIds) newQuery = newQuery.eq('account_manager_id', userId);
     const { data: newLeads } = await newQuery;
 
@@ -109,6 +120,7 @@ export async function getActionQueueAction(): Promise<{
         .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('days_since_last_contact', { ascending: true })
         .limit(30);
+    for (const pat of JUNK_PATTERNS) { followQuery = followQuery.not('email', 'ilike', pat); }
     if (accountIds) followQuery = followQuery.eq('account_manager_id', userId);
     const { data: needFollowUp } = await followQuery;
 
@@ -121,6 +133,7 @@ export async function getActionQueueAction(): Promise<{
         .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .order('total_emails_received', { ascending: false })
         .limit(20);
+    for (const pat of JUNK_PATTERNS) { winQuery = winQuery.not('email', 'ilike', pat); }
     if (accountIds) winQuery = winQuery.eq('account_manager_id', userId);
     const { data: winBack } = await winQuery;
 

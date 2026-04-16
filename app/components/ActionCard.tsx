@@ -28,12 +28,29 @@ const ACTION_ICONS: Record<string, string> = {
 
 function timeAgo(dateStr: string | null): string {
     if (!dateStr) return '';
-    const diff = Date.now() - new Date(dateStr).getTime();
+    const date = new Date(dateStr);
+    const diff = Date.now() - date.getTime();
     const mins = Math.floor(diff / 60000);
+
+    // Within the last hour: show exact minutes
     if (mins < 60) return `${mins}m ago`;
+
+    // Within the last 24h: show hours AND the actual time (e.g. "3h ago at 2:15pm")
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
+    if (hrs < 24) {
+        const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        return `${hrs}h ago (${timeStr})`;
+    }
+
+    // Within the last 7 days: show day name + time
     const days = Math.floor(hrs / 24);
+    if (days < 7) {
+        const dayName = date.toLocaleDateString([], { weekday: 'short' });
+        const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        return `${dayName} ${timeStr}`;
+    }
+
+    // Older: show date
     if (days < 30) return `${days}d ago`;
     return `${Math.floor(days / 30)}mo ago`;
 }
@@ -80,10 +97,22 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                 setEmails(result.emails);
                 setSuggestedAccountId(result.gmailAccountId);
                 setEmailsLoaded(true);
-                if (result.gmailAccountId) {
-                    setFromAccountId(result.gmailAccountId);
+
+                // Auto-select the from account: prefer the one used in conversation,
+                // but only if it exists in the user's available accounts list.
+                // Falls back to first available account if the suggested one isn't accessible
+                // (common for SALES users who only see assigned accounts).
+                const suggestedId = result.gmailAccountId;
+                const matchesAvailable = suggestedId && accounts.some(a => a.id === suggestedId);
+                if (matchesAvailable) {
+                    setFromAccountId(suggestedId);
                 } else if (accounts.length > 0 && accounts[0]) {
-                    setFromAccountId(accounts[0].id);
+                    // Try to find any account that was used in the email thread
+                    const threadAccountIds = result.emails
+                        .filter(e => e.gmail_account_id)
+                        .map(e => e.gmail_account_id);
+                    const matchFromThread = accounts.find(a => threadAccountIds.includes(a.id));
+                    setFromAccountId(matchFromThread?.id || accounts[0].id);
                 }
             })
             .catch(err => {
@@ -140,8 +169,19 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
         }
     };
 
+    // Find the latest RECEIVED email, then find the SENT email most related
+    // to it (same thread preferred, closest in time as fallback).
+    // This ensures the conversation preview shows a coherent exchange.
     const lastReceived = emails.find(e => e.direction === 'RECEIVED');
-    const lastSent = emails.find(e => e.direction === 'SENT');
+    const sentEmails = emails.filter(e => e.direction === 'SENT');
+    let lastSent: typeof lastReceived = undefined;
+    if (lastReceived && sentEmails.length > 0) {
+        // Prefer same thread
+        const sameThread = sentEmails.find(e => e.thread_id && e.thread_id === lastReceived.thread_id);
+        lastSent = sameThread || sentEmails[0];
+    } else {
+        lastSent = sentEmails[0];
+    }
     const habit = emails.length >= 3 ? computeContactHabit(emails) : null;
     const habitSummary = formatHabitSummary(habit);
 
