@@ -228,7 +228,7 @@ export default function InboxPage() {
         setIsSearchResults(false);
     };
 
-    const inboxCount = isHydrated && activeTab === 'inbox' && !isSearchResults ? totalCount : 0;
+    const inboxCount = isHydrated && !isSearchResults ? emails.filter((e: any) => e.is_unread && e.direction === 'RECEIVED').length : 0;
 
     return (
         <>
