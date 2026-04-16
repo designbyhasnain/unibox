@@ -222,8 +222,15 @@ export async function getInboxEmailsAction(
     const rawRows = data as any[];
     if (!rawRows || rawRows.length === 0) return empty;
 
-    // Filter to RECEIVED only (inbox = incoming emails)
-    const rows = rawRows.filter((r: any) => r.direction === 'RECEIVED').slice(0, clampedPageSize);
+    // Filter to RECEIVED only + deduplicate across accounts
+    const seen = new Set<string>();
+    const rows = rawRows.filter((r: any) => {
+        if (r.direction !== 'RECEIVED') return false;
+        const key = `${r.from_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    }).slice(0, clampedPageSize);
 
     if (rows.length === 0) return empty;
 
@@ -303,8 +310,15 @@ export async function getInboxWithCountsAction(
         counts[k] = Number(v);
     }
 
-    // Filter to RECEIVED only (inbox = incoming emails)
-    const rows = rawRows.filter((r: any) => r.direction === 'RECEIVED').slice(0, clampedPageSize);
+    // Filter to RECEIVED only + deduplicate across accounts
+    const seenInbox = new Set<string>();
+    const rows = rawRows.filter((r: any) => {
+        if (r.direction !== 'RECEIVED') return false;
+        const key = `${r.from_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
+        if (seenInbox.has(key)) return false;
+        seenInbox.add(key);
+        return true;
+    }).slice(0, clampedPageSize);
 
     const hasMore = rows.length === clampedPageSize;
     const totalCount = hasMore ? (page * clampedPageSize + 1) : ((page - 1) * clampedPageSize + rows.length);
@@ -362,8 +376,15 @@ export async function getSentEmailsAction(
     const rawRows = data as any[];
     if (!rawRows || rawRows.length === 0) return empty;
 
-    // Filter to SENT only
-    const rows = rawRows.filter((r: any) => r.direction === 'SENT').slice(0, clampedPageSize);
+    // Filter to SENT only + deduplicate across accounts
+    const seenSent = new Set<string>();
+    const rows = rawRows.filter((r: any) => {
+        if (r.direction !== 'SENT') return false;
+        const key = `${r.to_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
+        if (seenSent.has(key)) return false;
+        seenSent.add(key);
+        return true;
+    }).slice(0, clampedPageSize);
     if (rows.length === 0) return empty;
 
     // Fetch account info
@@ -679,11 +700,18 @@ export async function getThreadMessagesAction(threadId: string) {
         return [];
     }
 
-    // Since has_reply might not be a column, we compute it:
-    // a thread "has_reply" if at least one message is RECEIVED.
-    const threadHasReply = (messages || []).some((m: any) => m.direction === 'RECEIVED');
+    // Deduplicate: same email synced under multiple gmail accounts
+    const seen = new Set<string>();
+    const unique = (messages || []).filter((m: any) => {
+        const key = `${m.from_email}|${m.sent_at}|${(m.subject || '').slice(0, 50)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
 
-    return (messages || []).map((m: any) => ({
+    const threadHasReply = unique.some((m: any) => m.direction === 'RECEIVED');
+
+    return unique.map((m: any) => ({
         ...m,
         has_reply: threadHasReply,
         account_email: m.gmail_accounts?.email,
