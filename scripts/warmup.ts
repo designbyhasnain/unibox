@@ -193,7 +193,7 @@ async function main() {
     let totalFailed = 0;
 
     for (let i = 0; i < accounts.length; i++) {
-        const acc = accounts[i];
+        const acc = accounts[i]!;
         const num = `[${(i + 1).toString().padStart(2)}/${accounts.length}]`;
         const templates = getTemplates(acc.email, i + 1);
 
@@ -204,7 +204,7 @@ async function main() {
         let token = acc.access_token;
 
         for (let j = 0; j < templates.length; j++) {
-            const tpl = templates[j];
+            const tpl = templates[j]!;
             const label = `  └─ Email ${j + 1}/3: "${tpl.subject.slice(0, 40)}..."`;
 
             if (DRY_RUN) {
