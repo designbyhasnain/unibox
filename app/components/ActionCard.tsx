@@ -69,11 +69,12 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
     const [showSnoozeOptions, setShowSnoozeOptions] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    // Load emails when expanded
+    // Load emails every time the card is expanded (always fresh data)
     useEffect(() => {
-        if (!isExpanded || emailsLoaded || loadingEmails) return;
+        if (!isExpanded || loadingEmails) return;
 
         setLoadingEmails(true);
+        setEmailLoadError(false);
         getContactLastEmailsAction(action.contactId)
             .then(result => {
                 setEmails(result.emails);
@@ -91,7 +92,7 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                 setEmailLoadError(true);
             })
             .finally(() => setLoadingEmails(false));
-    }, [isExpanded, emailsLoaded, loadingEmails, action.contactId, accounts]);
+    }, [isExpanded, action.contactId, accounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Focus textarea when expanded and emails loaded
     useEffect(() => {
