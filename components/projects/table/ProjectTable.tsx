@@ -7,6 +7,8 @@ import ProjectTableRow from './ProjectTableRow';
 import TableFooter from './TableFooter';
 import TablePagination from './TablePagination';
 
+const EDITOR_HIDDEN_COLS = new Set(['clientEmail', 'initialProjectValue', 'totalAmount', 'paid', 'received1', 'reviewerValue']);
+
 type Props = {
   projects: ProjectWithCommentCount[];
   selectedIds: Set<string>;
@@ -25,6 +27,7 @@ type Props = {
   limit: number;
   onPageChange: (page: number) => void;
   isLoading: boolean;
+  isEditor?: boolean;
 };
 
 const COL_WIDTHS_KEY = 'unibox_project_col_widths';
@@ -32,7 +35,7 @@ const COL_WIDTHS_KEY = 'unibox_project_col_widths';
 export default function ProjectTable({
   projects, selectedIds, onToggleSelect, onUpdate, onOpen,
   onDuplicate, onDelete, onCreateNew, sortBy, sortOrder, onSort,
-  page, totalPages, total, limit, onPageChange, isLoading,
+  page, totalPages, total, limit, onPageChange, isLoading, isEditor,
 }: Props) {
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => {
     if (typeof window === 'undefined') return {};
@@ -50,7 +53,8 @@ export default function ProjectTable({
     });
   }, []);
 
-  const totalWidth = TABLE_COLUMNS.reduce((s, c) => s + (columnWidths[c.id] || c.width), 0) + 100;
+  const visibleColumns = isEditor ? TABLE_COLUMNS.filter(c => !EDITOR_HIDDEN_COLS.has(c.id)) : [...TABLE_COLUMNS];
+  const totalWidth = visibleColumns.reduce((s: number, c) => s + (columnWidths[c.id] || c.width), 0) + 100;
 
   return (
     <div className="ep-table-wrapper">
@@ -62,6 +66,7 @@ export default function ProjectTable({
             sortBy={sortBy}
             sortOrder={sortOrder}
             onSort={onSort}
+            columns={isEditor ? visibleColumns : undefined}
           />
           <div className={isLoading ? 'ep-table-loading' : ''}>
             {projects.map(project => (
@@ -75,6 +80,7 @@ export default function ProjectTable({
                 onDuplicate={() => onDuplicate(project.id)}
                 onDelete={() => onDelete(project.id)}
                 columnWidths={columnWidths}
+                columns={isEditor ? visibleColumns : undefined}
               />
             ))}
           </div>

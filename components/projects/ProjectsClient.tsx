@@ -13,7 +13,8 @@ import { ErrorBoundary } from '../../app/components/ErrorBoundary';
 
 const PAGE_SIZE = 50;
 
-export default function ProjectsClient() {
+export default function ProjectsClient({ userRole }: { userRole?: string }) {
+  const isEditor = userRole === 'VIDEO_EDITOR';
   const [projects, setProjects] = useState<ProjectWithCommentCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageLoading, setPageLoading] = useState(false);
@@ -195,6 +196,7 @@ export default function ProjectsClient() {
                 limit={PAGE_SIZE}
                 onPageChange={handlePageChange}
                 isLoading={pageLoading}
+                isEditor={isEditor}
               />
             </ErrorBoundary>
           )}

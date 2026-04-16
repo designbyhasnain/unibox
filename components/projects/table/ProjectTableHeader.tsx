@@ -9,9 +9,11 @@ type Props = {
   sortBy: ProjectSortField | null;
   sortOrder: 'asc' | 'desc';
   onSort: (field: ProjectSortField) => void;
+  columns?: readonly { id: string; label: string; width: number; type: string; fixed?: boolean }[];
 };
 
-export default function ProjectTableHeader({ columnWidths, onResize, sortBy, sortOrder, onSort }: Props) {
+export default function ProjectTableHeader({ columnWidths, onResize, sortBy, sortOrder, onSort, columns }: Props) {
+  const cols = columns || TABLE_COLUMNS;
   const dragRef = useRef<{ id: string; startX: number; startW: number } | null>(null);
 
   const handleMouseDown = useCallback((id: string, e: React.MouseEvent) => {
@@ -36,7 +38,7 @@ export default function ProjectTableHeader({ columnWidths, onResize, sortBy, sor
 
   return (
     <div className="ep-header-row">
-      {TABLE_COLUMNS.map(col => {
+      {cols.map(col => {
         const w = columnWidths[col.id] || col.width;
         const isSorted = sortBy === col.id;
         const arrow = isSorted ? (sortOrder === 'asc' ? ' ↑' : ' ↓') : '';

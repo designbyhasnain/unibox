@@ -39,12 +39,13 @@ const PS: Record<string, { color: string; bg: string; label: string }> = {
 };
 
 /* ── Component ──────────────────────────────────────────────────────────── */
-export default function Dashboard() {
+export default function Dashboard({ userRole }: { userRole?: string }) {
     const hydrated = useHydrated();
     const [name, setName] = useState('');
     const [d, setD] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [onboard, setOnboard] = useState(false);
+    const isEditor = userRole === 'VIDEO_EDITOR';
 
     useEffect(() => {
         Promise.all([getCurrentUserAction(), getSalesDashboardAction()])
@@ -193,62 +194,91 @@ export default function Dashboard() {
                     <h1>{name ? `${name}\u2019s Dashboard` : 'Dashboard'}</h1>
                     <p>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
                 </div>
-                <div className="se-hd-actions">
-                    <div className="se-score">
-                        <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: 11, color: '#a3a3a3', fontWeight: 500 }}>Performance</div>
-                            <div style={{ fontSize: 11, color: '#a3a3a3' }}>{fmt(r.thisMonth)} / {fmt(r.monthlyTarget)}</div>
+                {!isEditor && (
+                    <div className="se-hd-actions">
+                        <div className="se-score">
+                            <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: 11, color: '#a3a3a3', fontWeight: 500 }}>Performance</div>
+                                <div style={{ fontSize: 11, color: '#a3a3a3' }}>{fmt(r.thisMonth)} / {fmt(r.monthlyTarget)}</div>
+                            </div>
+                            <div className="se-ring">
+                                <svg width="48" height="48" viewBox="0 0 48 48">
+                                    <circle cx="24" cy="24" r="20" fill="none" stroke="#f5f5f5" strokeWidth="3"/>
+                                    <circle cx="24" cy="24" r="20" fill="none" stroke={score >= 60 ? '#22c55e' : score >= 30 ? '#f59e0b' : '#ef4444'} strokeWidth="3" strokeLinecap="round" strokeDasharray={`${score * 1.257} 125.7`}/>
+                                </svg>
+                                <div className="se-ring-n">{score}</div>
+                            </div>
                         </div>
-                        <div className="se-ring">
-                            <svg width="48" height="48" viewBox="0 0 48 48">
-                                <circle cx="24" cy="24" r="20" fill="none" stroke="#f5f5f5" strokeWidth="3"/>
-                                <circle cx="24" cy="24" r="20" fill="none" stroke={score >= 60 ? '#22c55e' : score >= 30 ? '#f59e0b' : '#ef4444'} strokeWidth="3" strokeLinecap="round" strokeDasharray={`${score * 1.257} 125.7`}/>
-                            </svg>
-                            <div className="se-ring-n">{score}</div>
-                        </div>
+                        <Link href="/campaigns/new" className="se-btn-primary">+ New Campaign</Link>
                     </div>
-                    <Link href="/campaigns/new" className="se-btn-primary">+ New Campaign</Link>
-                </div>
+                )}
             </div>
 
-            {/* ── KPI Cards (PRD: Total Revenue, Paid Revenue, Active Projects, Clients Owned) ── */}
+            {/* ── KPI Cards ── */}
             <div className="se-kpis se-a se-a2">
-                <div className="se-kpi">
-                    <div className="se-kpi-icon" style={{ background: '#f0f9ff', color: '#0ea5e9' }}>$</div>
-                    <div className="se-kpi-l">Total Revenue</div>
-                    <div className="se-kpi-v">{fmt(r.total)}</div>
-                    <span className={`se-kpi-t ${r.monthGrowth >= 0 ? 'g' : 'r'}`}>
-                        {r.monthGrowth !== 0 ? pct(r.monthGrowth) + ' vs last month' : 'This month: ' + fmt(r.thisMonth)}
-                    </span>
-                </div>
-                <div className="se-kpi">
-                    <div className="se-kpi-icon" style={{ background: '#f0fdf4', color: '#22c55e' }}>&#10003;</div>
-                    <div className="se-kpi-l">Paid Revenue</div>
-                    <div className="se-kpi-v">{fmt(r.paid)}</div>
-                    <span className={`se-kpi-t ${r.collectionRate >= 70 ? 'g' : 'r'}`}>
-                        {r.collectionRate}% collection rate
-                    </span>
-                </div>
-                <div className="se-kpi">
-                    <div className="se-kpi-icon" style={{ background: '#faf5ff', color: '#8b5cf6' }}>&#9881;</div>
-                    <div className="se-kpi-l">Active Projects</div>
-                    <div className="se-kpi-v">{activeProjects}</div>
-                    <span className="se-kpi-t n">
-                        {r.unpaid > 0 ? fmt(r.unpaid) + ' unpaid' : 'All collected'}
-                    </span>
-                </div>
-                <div className="se-kpi">
-                    <div className="se-kpi-icon" style={{ background: '#fff7ed', color: '#f97316' }}>&#9734;</div>
-                    <div className="se-kpi-l">Clients Owned</div>
-                    <div className="se-kpi-v">{clientsOwned}</div>
-                    <span className="se-kpi-t n">
-                        {deals > 0 ? deals + ' active deals' : 'No active deals'}
-                    </span>
-                </div>
+                {isEditor ? (<>
+                    <div className="se-kpi">
+                        <div className="se-kpi-icon" style={{ background: '#f0f9ff', color: '#0ea5e9' }}>{'\u{1F4CB}'}</div>
+                        <div className="se-kpi-l">Total Assigned</div>
+                        <div className="se-kpi-v">{activeProjects}</div>
+                        <span className="se-kpi-t n">All projects</span>
+                    </div>
+                    <div className="se-kpi">
+                        <div className="se-kpi-icon" style={{ background: '#fffbeb', color: '#d97706' }}>{'\u26A1'}</div>
+                        <div className="se-kpi-l">In Progress</div>
+                        <div className="se-kpi-v">{recentProj.filter((p: any) => p.status === 'In Progress' || p.status === 'Downloaded').length || 0}</div>
+                        <span className="se-kpi-t n">Active tasks</span>
+                    </div>
+                    <div className="se-kpi">
+                        <div className="se-kpi-icon" style={{ background: '#f0fdf4', color: '#22c55e' }}>{'\u2714'}</div>
+                        <div className="se-kpi-l">Completed</div>
+                        <div className="se-kpi-v">{won}</div>
+                        <span className="se-kpi-t g">Done &amp; delivered</span>
+                    </div>
+                    <div className="se-kpi">
+                        <div className="se-kpi-icon" style={{ background: '#faf5ff', color: '#8b5cf6' }}>{'\u{1F4C5}'}</div>
+                        <div className="se-kpi-l">Monthly Projects</div>
+                        <div className="se-kpi-v">{o.thisMonth || recentProj.length}</div>
+                        <span className="se-kpi-t n">This month</span>
+                    </div>
+                </>) : (<>
+                    <div className="se-kpi">
+                        <div className="se-kpi-icon" style={{ background: '#f0f9ff', color: '#0ea5e9' }}>$</div>
+                        <div className="se-kpi-l">Total Revenue</div>
+                        <div className="se-kpi-v">{fmt(r.total)}</div>
+                        <span className={`se-kpi-t ${r.monthGrowth >= 0 ? 'g' : 'r'}`}>
+                            {r.monthGrowth !== 0 ? pct(r.monthGrowth) + ' vs last month' : 'This month: ' + fmt(r.thisMonth)}
+                        </span>
+                    </div>
+                    <div className="se-kpi">
+                        <div className="se-kpi-icon" style={{ background: '#f0fdf4', color: '#22c55e' }}>&#10003;</div>
+                        <div className="se-kpi-l">Paid Revenue</div>
+                        <div className="se-kpi-v">{fmt(r.paid)}</div>
+                        <span className={`se-kpi-t ${r.collectionRate >= 70 ? 'g' : 'r'}`}>
+                            {r.collectionRate}% collection rate
+                        </span>
+                    </div>
+                    <div className="se-kpi">
+                        <div className="se-kpi-icon" style={{ background: '#faf5ff', color: '#8b5cf6' }}>&#9881;</div>
+                        <div className="se-kpi-l">Active Projects</div>
+                        <div className="se-kpi-v">{activeProjects}</div>
+                        <span className="se-kpi-t n">
+                            {r.unpaid > 0 ? fmt(r.unpaid) + ' unpaid' : 'All collected'}
+                        </span>
+                    </div>
+                    <div className="se-kpi">
+                        <div className="se-kpi-icon" style={{ background: '#fff7ed', color: '#f97316' }}>&#9734;</div>
+                        <div className="se-kpi-l">Clients Owned</div>
+                        <div className="se-kpi-v">{clientsOwned}</div>
+                        <span className="se-kpi-t n">
+                            {deals > 0 ? deals + ' active deals' : 'No active deals'}
+                        </span>
+                    </div>
+                </>)}
             </div>
 
             {/* ── Outreach Metrics (PRD: Today / This Week / This Month) ── */}
-            <div className="se-outreach se-a se-a3">
+            {!isEditor && <div className="se-outreach se-a se-a3">
                 <div className="se-out-card">
                     <div className="se-out-v">{o.today}</div>
                     <div className="se-out-l">Emails Today</div>
@@ -261,10 +291,10 @@ export default function Dashboard() {
                     <div className="se-out-v">{o.thisMonth}</div>
                     <div className="se-out-l">This Month</div>
                 </div>
-            </div>
+            </div>}
 
             {/* ── CTAs ── */}
-            <div className="se-cta se-a se-a3">
+            {!isEditor && <div className="se-cta se-a se-a3">
                 <Link href="/actions" style={{ background: '#171717' }}>
                     <span style={{ fontSize: 16 }}>{'\u2192'}</span>
                     Action Queue
@@ -282,11 +312,11 @@ export default function Dashboard() {
                         Ask Jarvis
                     </Link>
                 )}
-            </div>
+            </div>}
 
             {/* ── Revenue Chart + Recent Projects Table ── */}
-            <div className="se-row se-r3 se-a se-a4">
-                <div className="se-c">
+            <div className={`se-row ${isEditor ? 'se-r2' : 'se-r3'} se-a se-a4`}>
+                {!isEditor && <div className="se-c">
                     <div className="se-c-h">
                         <span className="se-c-t">Monthly Revenue</span>
                         <span style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.03em' }}>{fmt(r.thisMonth)}</span>
@@ -312,7 +342,7 @@ export default function Dashboard() {
                         </div>
                         <span className="se-target-pct">{r.targetProgress}%</span>
                     </div>
-                </div>
+                </div>}
 
                 {/* ── Recent Projects Table (PRD) ── */}
                 <div className="se-c" style={{ padding: '24px 0' }}>
@@ -328,7 +358,7 @@ export default function Dashboard() {
                         </div>
                     ) : (
                         <table className="se-tbl">
-                            <thead><tr><th>Project</th><th>Status</th><th style={{ textAlign: 'right' }}>Revenue</th><th style={{ textAlign: 'right' }}>Payment</th></tr></thead>
+                            <thead><tr><th>Project</th><th>Status</th>{!isEditor && <><th style={{ textAlign: 'right' }}>Revenue</th><th style={{ textAlign: 'right' }}>Payment</th></>}</tr></thead>
                             <tbody>
                                 {recentProj.map((p: any) => {
                                     const pay = PS[p.payment] || PS.UNPAID!;
@@ -336,13 +366,15 @@ export default function Dashboard() {
                                         <tr key={p.id}>
                                             <td>
                                                 <div style={{ fontWeight: 600, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{p.name}</div>
-                                                <div style={{ fontSize: 10, color: '#a3a3a3' }}>{p.client} &middot; {relDate(p.date)}</div>
+                                                <div style={{ fontSize: 10, color: '#a3a3a3' }}>{isEditor ? `Project – ${(p.id as string)?.slice(0, 6) || ''}` : p.client} &middot; {relDate(p.date)}</div>
                                             </td>
                                             <td><span style={{ fontSize: 11, color: '#525252' }}>{p.status}</span></td>
-                                            <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{fmt(p.value)}</td>
-                                            <td style={{ textAlign: 'right' }}>
-                                                <span className="se-pay" style={{ color: pay.color, background: pay.bg }}>{pay.label}</span>
-                                            </td>
+                                            {!isEditor && <>
+                                                <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{fmt(p.value)}</td>
+                                                <td style={{ textAlign: 'right' }}>
+                                                    <span className="se-pay" style={{ color: pay.color, background: pay.bg }}>{pay.label}</span>
+                                                </td>
+                                            </>}
                                         </tr>
                                     );
                                 })}
@@ -353,7 +385,7 @@ export default function Dashboard() {
             </div>
 
             {/* ── Pipeline Health + Funnel + Top Clients ── */}
-            <div className="se-row se-r4 se-a se-a5">
+            {!isEditor && <div className="se-row se-r4 se-a se-a5">
                 <div className="se-c">
                     <div className="se-c-h"><span className="se-c-t">Pipeline Health</span></div>
                     <div className="se-bars">
@@ -401,10 +433,10 @@ export default function Dashboard() {
                         </div>
                     ))}
                 </div>
-            </div>
+            </div>}
 
             {/* ── Pipeline Table + Unpaid ── */}
-            <div className="se-row se-r3 se-a se-a5">
+            {!isEditor && <div className="se-row se-r3 se-a se-a5">
                 <div className="se-c" style={{ padding: '24px 0' }}>
                     <div className="se-c-h" style={{ padding: '0 24px' }}>
                         <span className="se-c-t">Pipeline</span>
@@ -454,10 +486,10 @@ export default function Dashboard() {
                         </Link>
                     ))}
                 </div>
-            </div>
+            </div>}
 
             {/* ── Reply Now + Activity ── */}
-            <div className="se-row se-r2 se-a se-a6">
+            {!isEditor && <div className="se-row se-r2 se-a se-a6">
                 <div className="se-c">
                     <div className="se-c-h">
                         <span className="se-c-t">Needs Reply</span>
@@ -504,7 +536,7 @@ export default function Dashboard() {
                         </div>
                     ))}
                 </div>
-            </div>
+            </div>}
 
         </div></div>
         </>

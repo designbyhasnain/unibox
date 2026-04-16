@@ -24,13 +24,15 @@ type Props = {
   onDuplicate: () => void;
   onDelete: () => void;
   columnWidths: ColumnWidths;
+  columns?: readonly { id: string; label: string; width: number; type: string; fixed?: boolean; primary?: boolean }[];
 };
 
-function ProjectTableRow({ project, selected, onSelect, onUpdate, onOpen, onDuplicate, onDelete, columnWidths }: Props) {
+function ProjectTableRow({ project, selected, onSelect, onUpdate, onOpen, onDuplicate, onDelete, columnWidths, columns }: Props) {
   const p = project;
-  const w = (id: string) => columnWidths[id] || TABLE_COLUMNS.find(c => c.id === id)?.width || 100;
+  const cols = columns || TABLE_COLUMNS;
+  const w = (id: string) => columnWidths[id] || cols.find(c => c.id === id)?.width || 100;
 
-  const renderCell = (col: (typeof TABLE_COLUMNS)[number]) => {
+  const renderCell = (col: { id: string; label: string; width: number; type: string; fixed?: boolean; primary?: boolean }) => {
     const key = col.id as string;
     const val = (p as Record<string, unknown>)[key];
     switch (col.type) {
@@ -63,7 +65,7 @@ function ProjectTableRow({ project, selected, onSelect, onUpdate, onOpen, onDupl
 
   return (
     <div className={`ep-row ${selected ? 'ep-row-selected' : ''}`}>
-      {TABLE_COLUMNS.map(col => (
+      {cols.map(col => (
         <div
           key={col.id}
           className="ep-cell"
