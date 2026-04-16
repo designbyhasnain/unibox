@@ -200,50 +200,61 @@ export async function getInboxEmailsAction(
 
     const offset = (page - 1) * clampedPageSize;
 
-    let query = supabase
-        .from('email_messages')
-        .select(`
-            id, thread_id, from_email, to_email, subject, snippet, direction,
-            sent_at, is_unread, pipeline_stage, gmail_account_id, is_tracked,
-            delivered_at, opened_at, contact_id,
-            gmail_accounts ( email, users ( name ) )
-        `)
-        .in('gmail_account_id', accountIds)
-        .eq('direction', 'RECEIVED')
-        .order('sent_at', { ascending: false, nullsFirst: false })
-        .range(offset, offset + clampedPageSize - 1);
+    const stageParam = stage === 'SPAM' ? null : (stage !== 'ALL' ? stage : null);
+    const isSpamParam = stage === 'SPAM';
 
-    if (stage === 'SPAM') {
-        query = query.eq('pipeline_stage', 'SPAM');
-    } else if (stage !== 'ALL') {
-        query = query.eq('pipeline_stage', stage).neq('pipeline_stage', 'SPAM');
-    } else {
-        query = query.neq('pipeline_stage', 'SPAM');
-    }
+    // Overfetch to compensate for post-fetch direction filtering
+    const fetchLimit = clampedPageSize + 20;
 
-    const { data, error } = await query;
+    const { data, error } = await supabase.rpc('get_inbox_emails', {
+        p_account_ids: accountIds,
+        p_is_spam: isSpamParam,
+        p_stage: stageParam,
+        p_limit: fetchLimit,
+        p_offset: offset,
+    });
 
     if (error) {
         console.error('[getInboxEmailsAction] query error:', error);
         return { ...empty, error: true, errorMessage: error.message || 'Unknown DB error', errorCode: error.code } as any;
     }
 
-    const rows = data as any[];
-    if (!rows || rows.length === 0) return empty;
+    const rawRows = data as any[];
+    if (!rawRows || rawRows.length === 0) return empty;
+
+    // Filter to RECEIVED only (inbox = incoming emails)
+    const rows = rawRows.filter((r: any) => r.direction === 'RECEIVED').slice(0, clampedPageSize);
+
+    if (rows.length === 0) return empty;
+
+    // Fetch account info separately
+    const uniqueAccountIds = [...new Set(rows.map(r => r.gmail_account_id).filter(Boolean))];
+    const accountMap: Record<string, { email: string; managerName: string }> = {};
+    if (uniqueAccountIds.length > 0) {
+        const { data: accs } = await supabase
+            .from('gmail_accounts')
+            .select('id, email, users ( name )')
+            .in('id', uniqueAccountIds);
+        (accs || []).forEach((a: any) => {
+            const user = Array.isArray(a.users) ? a.users[0] : a.users;
+            accountMap[a.id] = { email: a.email, managerName: user?.name || 'System' };
+        });
+    }
 
     const hasMore = rows.length === clampedPageSize;
     const totalCount = hasMore ? (page * clampedPageSize + 1) : ((page - 1) * clampedPageSize + rows.length);
     const totalPages = hasMore ? page + 1 : page;
 
+    const stageOverride = stage === 'SPAM' ? { pipeline_stage: 'SPAM' } : undefined;
     const emails = rows.map((r) => {
-        const acc = Array.isArray(r.gmail_accounts) ? r.gmail_accounts[0] : r.gmail_accounts;
-        const user = acc ? (Array.isArray(acc.users) ? acc.users[0] : acc.users) : null;
+        const acc = accountMap[r.gmail_account_id];
         return {
             ...r,
             account_email: acc?.email,
-            manager_name: user?.name || 'System',
-            gmail_accounts: { email: acc?.email, user: { name: user?.name || 'System' } },
+            manager_name: acc?.managerName || 'System',
+            gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },
             has_reply: false,
+            ...stageOverride,
         };
     });
 
@@ -258,11 +269,61 @@ export async function getInboxWithCountsAction(
     stage: string = 'ALL',
     gmailAccountId?: string
 ): Promise<{ emails: PaginatedEmailResult; counts: Record<string, number> }> {
-    const [emailResult, counts] = await Promise.all([
-        getInboxEmailsAction(page, pageSize, stage, gmailAccountId),
-        getTabCountsAction(gmailAccountId),
-    ]);
-    return { emails: emailResult, counts };
+    const { userId, role } = await ensureAuthenticated();
+    const clampedPageSize = clampPageSize(pageSize);
+    if (page < 1 || !Number.isFinite(page)) page = 1;
+    const empty: PaginatedEmailResult = { emails: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
+
+    const accountIds = await resolveAccountIds(userId, role, gmailAccountId);
+    if (!accountIds || accountIds.length === 0) return { emails: empty, counts: {} };
+
+    const offset = (page - 1) * clampedPageSize;
+    const stageParam = stage === 'SPAM' ? null : (stage !== 'ALL' ? stage : null);
+    const isSpamParam = stage === 'SPAM';
+    const fetchLimit = clampedPageSize + 20;
+
+    const { data: rpcData, error } = await supabase.rpc('get_inbox_page', {
+        p_account_ids: accountIds,
+        p_is_spam: isSpamParam,
+        p_stage: stageParam,
+        p_limit: fetchLimit,
+        p_offset: offset,
+    });
+
+    if (error || !rpcData) {
+        console.error('[getInboxWithCountsAction] RPC error:', error);
+        return { emails: empty, counts: {} };
+    }
+
+    const rawRows = rpcData.emails || [];
+    const accountMap = rpcData.accounts || {};
+    const counts: Record<string, number> = {};
+    const rawCounts = rpcData.counts || {};
+    for (const [k, v] of Object.entries(rawCounts)) {
+        counts[k] = Number(v);
+    }
+
+    // Filter to RECEIVED only (inbox = incoming emails)
+    const rows = rawRows.filter((r: any) => r.direction === 'RECEIVED').slice(0, clampedPageSize);
+
+    const hasMore = rows.length === clampedPageSize;
+    const totalCount = hasMore ? (page * clampedPageSize + 1) : ((page - 1) * clampedPageSize + rows.length);
+    const totalPages = hasMore ? page + 1 : page;
+
+    const stageOverride = stage === 'SPAM' ? { pipeline_stage: 'SPAM' } : undefined;
+    const emails = rows.map((r: any) => {
+        const acc = accountMap[r.gmail_account_id] || {};
+        return {
+            ...r,
+            account_email: acc.email,
+            manager_name: acc.managerName || 'System',
+            gmail_accounts: { email: acc.email, user: { name: acc.managerName || 'System' } },
+            has_reply: false,
+            ...stageOverride,
+        };
+    });
+
+    return { emails: { emails, totalCount, page, pageSize: clampedPageSize, totalPages }, counts };
 }
 
 // ─── Sent Emails (DB-level thread grouping via RPC) ───────────────────────────
