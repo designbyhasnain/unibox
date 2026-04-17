@@ -357,3 +357,171 @@ export async function renewAllWatchesAction(): Promise<{
         };
     }
 }
+
+/**
+ * Re-test a MANUAL (IMAP/SMTP) account's stored credentials without asking the
+ * user to retype the app password. Decrypts the stored password, runs the
+ * existing IMAP+SMTP probe, and writes the outcome back to the row.
+ * ADMIN only.
+ */
+export async function retestManualAccountAction(accountId: string): Promise<{
+    success: boolean;
+    imap?: boolean;
+    smtp?: boolean;
+    error?: string;
+}> {
+    const { role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
+    if (!accountId) return { success: false, error: 'accountId is required' };
+
+    const { data: account, error: fetchErr } = await supabase
+        .from('gmail_accounts')
+        .select('id, email, connection_method, app_password, imap_host, imap_port, smtp_host, smtp_port')
+        .eq('id', accountId)
+        .maybeSingle();
+    if (fetchErr || !account) return { success: false, error: 'Account not found' };
+    if (account.connection_method !== 'MANUAL') return { success: false, error: 'Only manual accounts can be re-tested this way' };
+    if (!account.app_password) return { success: false, error: 'No stored app password on this account' };
+
+    let password: string;
+    try {
+        password = decrypt(account.app_password);
+    } catch {
+        return { success: false, error: 'Stored app password could not be decrypted (ENCRYPTION_KEY may have changed)' };
+    }
+
+    const result = await testManualConnection(account.email, password, {
+        imapHost: account.imap_host || undefined,
+        imapPort: account.imap_port || undefined,
+        smtpHost: account.smtp_host || undefined,
+        smtpPort: account.smtp_port || undefined,
+    });
+
+    if (result.success) {
+        await supabase.from('gmail_accounts').update({
+            status: 'ACTIVE',
+            last_error_message: null,
+            last_error_at: null,
+            sync_fail_count: 0,
+        }).eq('id', accountId);
+        return { success: true, imap: true, smtp: true };
+    }
+
+    // Connection failed — record the error but never mark ERROR automatically.
+    // The user decides whether to rotate the app password.
+    await supabase.from('gmail_accounts').update({
+        last_error_message: (result.error || 'Connection test failed').slice(0, 200),
+        last_error_at: new Date().toISOString(),
+    }).eq('id', accountId);
+    return { success: false, error: result.error || 'Connection test failed' };
+}
+
+/**
+ * Bulk recovery tool. Attempts a token refresh (OAuth) or connection probe
+ * (MANUAL) for every account, in batches of 5 to avoid timeouts or burst
+ * rate limits. Never marks an account ERROR by itself — that still only
+ * happens on a confirmed invalid_grant from Google. Returns a summary the
+ * UI can render.
+ * ADMIN only.
+ */
+export async function syncAllAccountsHealthAction(): Promise<{
+    success: boolean;
+    checked: number;
+    recovered: number;
+    stillFailing: number;
+    permanent: number;
+    failures: { email: string; reason: string }[];
+    error?: string;
+}> {
+    const { role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return {
+        success: false, checked: 0, recovered: 0, stillFailing: 0, permanent: 0, failures: [],
+        error: 'Admin access required',
+    };
+
+    const { data: accounts, error: fetchErr } = await supabase
+        .from('gmail_accounts')
+        .select('id, email, connection_method, status, app_password, imap_host, imap_port, smtp_host, smtp_port')
+        .order('email');
+    if (fetchErr || !accounts) return {
+        success: false, checked: 0, recovered: 0, stillFailing: 0, permanent: 0, failures: [],
+        error: fetchErr?.message || 'Failed to load accounts',
+    };
+
+    const { refreshAccessToken } = await import('../services/googleAuthService');
+    const BATCH = 5;
+
+    let recovered = 0;
+    let stillFailing = 0;
+    let permanent = 0;
+    const failures: { email: string; reason: string }[] = [];
+
+    type HealthAccount = NonNullable<typeof accounts>[number];
+    async function handleOne(acc: HealthAccount) {
+        try {
+            if (acc.connection_method === 'OAUTH') {
+                await refreshAccessToken(acc.id);
+                recovered++;
+                return;
+            }
+            // MANUAL — decrypt + probe
+            if (!acc.app_password) {
+                stillFailing++;
+                failures.push({ email: acc.email, reason: 'No stored app password' });
+                return;
+            }
+            let password: string;
+            try { password = decrypt(acc.app_password); }
+            catch {
+                stillFailing++;
+                failures.push({ email: acc.email, reason: 'Password decryption failed' });
+                return;
+            }
+            const res = await testManualConnection(acc.email, password, {
+                imapHost: acc.imap_host || undefined,
+                imapPort: acc.imap_port || undefined,
+                smtpHost: acc.smtp_host || undefined,
+                smtpPort: acc.smtp_port || undefined,
+            });
+            if (res.success) {
+                await supabase.from('gmail_accounts').update({
+                    status: 'ACTIVE',
+                    last_error_message: null,
+                    last_error_at: null,
+                    sync_fail_count: 0,
+                }).eq('id', acc.id);
+                recovered++;
+            } else {
+                stillFailing++;
+                failures.push({ email: acc.email, reason: (res.error || 'Connection failed').slice(0, 160) });
+                await supabase.from('gmail_accounts').update({
+                    last_error_message: (res.error || 'Connection failed').slice(0, 200),
+                    last_error_at: new Date().toISOString(),
+                }).eq('id', acc.id);
+            }
+        } catch (e: any) {
+            const m = e?.message || String(e);
+            if (m === 'AUTH_REQUIRED') {
+                permanent++;
+                failures.push({ email: acc.email, reason: 'Reconnect required (token revoked)' });
+            } else {
+                stillFailing++;
+                failures.push({ email: acc.email, reason: m.slice(0, 160) });
+            }
+        }
+    }
+
+    for (let i = 0; i < accounts.length; i += BATCH) {
+        const batch = accounts.slice(i, i + BATCH);
+        await Promise.all(batch.map(handleOne));
+    }
+
+    return {
+        success: true,
+        checked: accounts.length,
+        recovered,
+        stillFailing,
+        permanent,
+        failures: failures.slice(0, 50),
+    };
+}

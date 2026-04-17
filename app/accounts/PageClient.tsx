@@ -13,6 +13,8 @@ import {
     toggleSyncStatusAction,
     stopSyncingAction,
     renewAllWatchesAction,
+    retestManualAccountAction,
+    syncAllAccountsHealthAction,
 } from '../../src/actions/accountActions';
 import { PageLoader } from '../components/LoadingStates';
 import { getCurrentUserAction } from '../../src/actions/authActions';
@@ -272,6 +274,49 @@ export default function AccountsPage() {
         }
     };
 
+    const handleRetestManual = async (account: GmailAccount) => {
+        setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: 'SYNCING' as AccountStatus } : a));
+        try {
+            const result = await retestManualAccountAction(account.id);
+            if (result.success) {
+                setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: 'ACTIVE', last_error_message: null } : a));
+                alert('Connection OK — IMAP + SMTP verified.');
+            } else {
+                setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status, last_error_message: result.error || 'Test failed' } : a));
+                alert('Re-test failed: ' + (result.error || 'Unknown error'));
+            }
+        } catch (err: any) {
+            setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
+            alert('Re-test failed: ' + (err?.message || 'Unknown error'));
+        }
+    };
+
+    const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+    const handleSyncAllHealth = async () => {
+        if (!confirm(`Run a bulk health check on all ${accounts.length} accounts?\n\nThis refreshes OAuth tokens + re-tests manual credentials in batches of 5. It does not send any email.`)) return;
+        setIsCheckingHealth(true);
+        try {
+            const result = await syncAllAccountsHealthAction();
+            if (result.success) {
+                alert(
+                    `Health check complete.\n` +
+                    `Checked: ${result.checked}\n` +
+                    `Recovered: ${result.recovered}\n` +
+                    `Still failing: ${result.stillFailing}\n` +
+                    `Permanently revoked: ${result.permanent}\n\n` +
+                    (result.failures.length > 0 ? 'First few failures:\n' + result.failures.slice(0, 8).map(f => `• ${f.email}: ${f.reason}`).join('\n') : '')
+                );
+                fetchAccounts();
+            } else {
+                alert('Health check failed: ' + (result.error || 'Unknown error'));
+            }
+        } catch (err: any) {
+            alert('Health check failed: ' + (err?.message || 'Unknown error'));
+        } finally {
+            setIsCheckingHealth(false);
+        }
+    };
+
     const handleRemove = async (accountId: string) => {
         try {
             const result = await removeAccountAction(accountId);
@@ -431,6 +476,14 @@ export default function AccountsPage() {
                             </div>
                             {isAdmin && (
                             <div className="list-toolbar-right">
+                                <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={handleSyncAllHealth}
+                                    disabled={isCheckingHealth}
+                                    title="Refresh tokens + re-test every account in batches of 5. Never sends email."
+                                >
+                                    {isCheckingHealth ? 'Checking…' : 'Check All Health'}
+                                </button>
                                 <button className="icon-btn" onClick={handleSync} disabled={isSyncing} title="Sync All">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
                                         <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
@@ -604,6 +657,15 @@ export default function AccountsPage() {
                                                                 onClick={() => handleToggleSync(acc)}
                                                             >
                                                                 {acc.status === 'PAUSED' ? 'Resume Sync' : 'Pause Sync'}
+                                                            </button>
+                                                        )}
+                                                        {acc.connection_method === 'MANUAL' && acc.status !== 'SYNCING' && (
+                                                            <button
+                                                                className="btn btn-sm btn-secondary"
+                                                                onClick={() => handleRetestManual(acc)}
+                                                                title="Re-test IMAP/SMTP with the stored app password"
+                                                            >
+                                                                Re-test
                                                             </button>
                                                         )}
                                                         <button

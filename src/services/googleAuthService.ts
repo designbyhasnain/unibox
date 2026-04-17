@@ -192,6 +192,8 @@ export async function refreshAccessToken(accountId: string): Promise<string> {
                 access_token: newAccessToken,
                 status: 'ACTIVE',
                 last_error_message: null,
+                sync_fail_count: 0,
+                last_error_at: null,
             })
             .eq('id', accountId);
 
@@ -200,23 +202,31 @@ export async function refreshAccessToken(accountId: string): Promise<string> {
         const error = err as { message?: string; code?: string | number; response?: { status?: number; data?: unknown } };
         const msg = error?.message || String(err);
         const status = error?.response?.status;
-        const errData = error?.response?.data;
+        const errData = error?.response?.data as { error?: string; error_description?: string } | undefined;
+        const errCode = (errData?.error || '').toLowerCase();
 
-        // Permanent auth failures — user must reconnect
+        // Permanent auth failures = Google has explicitly revoked / invalidated the
+        // refresh token. ONLY trust the OAuth error code in the response body, or an
+        // unambiguous error message. Do NOT treat bare 400/401 as permanent — Google
+        // returns those for transient issues too (clock skew, short-lived outages,
+        // rate-limit overflow on the token endpoint).
         const isPermanent =
-            msg.includes('invalid_grant') ||
+            errCode === 'invalid_grant' ||
+            errCode === 'invalid_client' ||
+            errCode === 'unauthorized_client' ||
             msg.includes('Token has been expired or revoked') ||
-            msg.includes('invalid_client') ||
-            msg.includes('unauthorized_client') ||
-            status === 400 ||
-            status === 401;
+            /invalid_grant/i.test(msg);
 
-        // Detailed logging for diagnosis
+        // Rate limit / transient server error — never marks ERROR.
+        const isRateLimit = status === 429 || errCode === 'slow_down' || errCode === 'temporarily_unavailable';
+        const isServerError = typeof status === 'number' && status >= 500;
+
         console.error(
-            `[Token Refresh] ${isPermanent ? 'PERMANENT' : 'TRANSIENT'} failure for ${account.email} (${accountId})`,
+            `[Token Refresh] ${isPermanent ? 'PERMANENT' : isRateLimit ? 'RATE_LIMIT' : isServerError ? 'SERVER_ERROR' : 'TRANSIENT'} failure for ${account.email} (${accountId})`,
             {
                 message: msg.slice(0, 200),
                 status,
+                oauthError: errCode || undefined,
                 code: error?.code,
                 data: errData ? JSON.stringify(errData).slice(0, 300) : undefined,
             }
@@ -227,15 +237,73 @@ export async function refreshAccessToken(accountId: string): Promise<string> {
                 .from('gmail_accounts')
                 .update({
                     status: 'ERROR',
-                    last_error_message: msg.includes('invalid_grant')
-                        ? 'Token expired — reconnect required'
-                        : `Auth failed: ${msg.slice(0, 100)}`,
+                    last_error_message: errCode === 'invalid_grant'
+                        ? 'Token revoked — reconnect required'
+                        : `Auth failed (${errCode || 'unknown'}): ${msg.slice(0, 100)}`,
+                    last_error_at: new Date().toISOString(),
                 })
                 .eq('id', accountId);
             throw new Error('AUTH_REQUIRED');
         }
 
-        // Transient error — do NOT mark ERROR, let next cycle retry
+        // Transient: bump the counter + timestamp, but keep status ACTIVE.
+        // Next sync cycle retries automatically. Never disconnects over a blip.
+        try {
+            const { data: cur } = await supabase
+                .from('gmail_accounts')
+                .select('sync_fail_count')
+                .eq('id', accountId)
+                .maybeSingle();
+            await supabase
+                .from('gmail_accounts')
+                .update({
+                    last_error_message: `Transient: ${msg.slice(0, 100)} (will retry)`,
+                    last_error_at: new Date().toISOString(),
+                    sync_fail_count: (cur?.sync_fail_count ?? 0) + 1,
+                })
+                .eq('id', accountId);
+        } catch {
+            // counter increment is best-effort; never let it swallow the original error
+        }
         throw new Error('TRANSIENT_ERROR');
+    }
+}
+
+/**
+ * Fast token-validity probe. Calls a cheap Gmail endpoint to confirm the
+ * current access token works. On 401/invalid_grant triggers refresh.
+ * Returns the valid access token, or throws AUTH_REQUIRED / TRANSIENT_ERROR.
+ *
+ * Call this BEFORE a full sync to avoid burning an expensive history call on
+ * a dead token.
+ */
+export async function verifyAccessToken(accountId: string): Promise<string> {
+    const { data: account } = await supabase
+        .from('gmail_accounts')
+        .select('access_token, email')
+        .eq('id', accountId)
+        .maybeSingle();
+
+    if (!account?.access_token) {
+        // No access token cached — do a full refresh.
+        return await refreshAccessToken(accountId);
+    }
+
+    try {
+        const res = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/profile?fields=emailAddress`,
+            { headers: { Authorization: `Bearer ${account.access_token}` } }
+        );
+        if (res.ok) return account.access_token;
+        if (res.status === 401) {
+            // Access token expired — refresh.
+            return await refreshAccessToken(accountId);
+        }
+        // 5xx / 429 / other — consider transient; return the current token so the
+        // caller can attempt the operation and hit its own retry path.
+        return account.access_token;
+    } catch {
+        // Network hiccup — return current token; caller's error path will sort it out.
+        return account.access_token;
     }
 }

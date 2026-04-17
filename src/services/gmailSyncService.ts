@@ -7,12 +7,34 @@ import { decrypt } from '../utils/encryption';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function isAuthError(error: any) {
-    const msg = error?.message?.toLowerCase() || '';
-    return msg.includes('invalid_grant') ||
-        msg.includes('invalid_token') ||
-        error.code === 401 ||
-        error.status === 401 ||
-        (error.code === 403 && msg.includes('unauthorized'));
+    const msg = (error?.message || '').toLowerCase();
+    const status = error?.code ?? error?.status ?? error?.response?.status;
+    const bodyError = (error?.response?.data?.error || error?.errors?.[0]?.reason || '').toString().toLowerCase();
+
+    // ONLY true OAuth revocations count as auth errors. Google returns 401 for
+    // expired access tokens (refreshable) and 403 for all kinds of things
+    // (watch quota, permission, etc.) — we must not disconnect the account for
+    // any of those.
+    if (bodyError === 'invalid_grant') return true;
+    if (msg.includes('invalid_grant')) return true;
+    if (msg.includes('token has been expired or revoked')) return true;
+    if (status === 401 && (msg.includes('invalid credentials') || msg.includes('unauthorized'))) return true;
+    return false;
+}
+
+function isRateLimitError(error: any) {
+    const status = error?.code ?? error?.status ?? error?.response?.status;
+    const reason = (error?.errors?.[0]?.reason || error?.response?.data?.error || '').toString().toLowerCase();
+    if (status === 429) return true;
+    if (status === 403 && (reason.includes('ratelimit') || reason.includes('userratelimitexceeded') || reason.includes('quotaexceeded'))) return true;
+    return false;
+}
+
+function isTransientError(error: any) {
+    const status = error?.code ?? error?.status ?? error?.response?.status;
+    if (typeof status === 'number' && status >= 500) return true;
+    const code = (error?.code || error?.errno || '').toString();
+    return /ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up/i.test(code + ' ' + (error?.message || ''));
 }
 
 // ─── OAuth Client ─────────────────────────────────────────────────────────────
@@ -616,8 +638,26 @@ export async function syncGmailEmails(accountId: string) {
         console.error(`[Full Sync] Skipping ${account.email} — status is ${account.status}`);
         return;
     }
-    if (!account.access_token || account.connection_method !== 'OAUTH') {
+    if (account.connection_method !== 'OAUTH') {
         throw new Error('Invalid account for Gmail API sync');
+    }
+
+    // Pre-sync token verification — refreshes the access token if needed, so
+    // the expensive history/list call below can't waste quota on a dead token.
+    // refreshAccessToken() handles its own transient/permanent classification.
+    try {
+        const { verifyAccessToken } = await import('./googleAuthService');
+        const validToken = await verifyAccessToken(accountId);
+        account.access_token = validToken;
+    } catch (err: any) {
+        const m = err?.message || String(err);
+        if (m === 'AUTH_REQUIRED') {
+            console.error(`[Full Sync] Pre-sync token check failed (permanent) for ${account.email}`);
+            throw err;
+        }
+        // TRANSIENT_ERROR — continue with the cached token; downstream error
+        // handling will classify and never falsely disconnect.
+        console.warn(`[Full Sync] Pre-sync token check transient for ${account.email}: ${m}`);
     }
 
     // CONCURRENCY GUARD: Atomic check-and-set to prevent TOCTOU race condition.
@@ -746,20 +786,44 @@ export async function syncGmailEmails(accountId: string) {
     } catch (error: any) {
         console.error(`[SYNC ERROR] ${new Date().toISOString()}: ${error?.message || error}`, error?.stack);
 
-        if (isAuthError(error)) {
+        const auth = isAuthError(error);
+        const rateLimit = isRateLimitError(error);
+        const transient = isTransientError(error);
+
+        // Fetch current fail count so we can bump it (best-effort — never fatal).
+        const { data: cur } = await supabase
+            .from('gmail_accounts')
+            .select('sync_fail_count')
+            .eq('id', accountId)
+            .maybeSingle();
+        const failCount = (cur?.sync_fail_count ?? 0) + 1;
+
+        if (auth) {
+            // Confirmed invalid_grant — the only case that ever disconnects an account.
             await supabase.from('gmail_accounts').update({
                 status: 'ERROR',
                 last_error_message: error?.message?.slice(0, 200) || 'Auth error',
+                last_error_at: new Date().toISOString(),
+                sync_fail_count: failCount,
             }).eq('id', accountId);
-        } else {
-            // Revert to ACTIVE so they can retry — deduplication ensures already-synced
-            // messages are skipped, making retry safe and resumable
-            await supabase.from('gmail_accounts').update({
-                status: 'ACTIVE',
-                last_error_message: error?.message?.slice(0, 200) || 'Sync error',
-            }).eq('id', accountId);
+            throw new Error('AUTH_REQUIRED');
         }
-        throw new Error(isAuthError(error) ? 'AUTH_REQUIRED' : 'Email sync failed. Please try again later.');
+
+        // Rate limit, 5xx, network — never disconnect. Keep ACTIVE, bump fail
+        // counter + timestamp so dashboards/health can surface "retry pending".
+        const reason = rateLimit ? 'Rate limited — retry pending'
+            : transient ? 'Transient error — retry pending'
+            : `Sync error — retry pending (${(error?.message || 'unknown').slice(0, 80)})`;
+
+        await supabase.from('gmail_accounts').update({
+            status: 'ACTIVE',
+            sync_progress: 100, // unstick the progress bar
+            last_error_message: reason,
+            last_error_at: new Date().toISOString(),
+            sync_fail_count: failCount,
+        }).eq('id', accountId);
+
+        throw new Error('Email sync failed. Please try again later.');
     }
 }
 
