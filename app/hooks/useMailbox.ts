@@ -689,6 +689,15 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         pollingIntervalMs: isIdle ? 0 : 30_000, // Disable polling when idle
     });
 
+    // ── Optimistic Thread Updates ─────────────────────────────────────────────
+    const appendThreadMessage = useCallback((message: any) => {
+        dispatch({ type: 'UPDATE_THREAD_MESSAGES', updater: (prev) => [...prev, message] });
+    }, []);
+
+    const removeThreadMessage = useCallback((messageId: string) => {
+        dispatch({ type: 'UPDATE_THREAD_MESSAGES', updater: (prev) => prev.filter((m: any) => m.id !== messageId) });
+    }, []);
+
     // ── Interaction Handlers ──────────────────────────────────────────────────
     const prefetchThread = useCallback(async (threadId: string) => {
         if (!threadId) return;
@@ -878,5 +887,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         handleBulkMarkAsRead,
         prefetchThread,
         handleResume,
+        appendThreadMessage,
+        removeThreadMessage,
     };
 }

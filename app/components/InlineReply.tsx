@@ -15,9 +15,13 @@ interface InlineReplyProps {
     accountId: string;
     onSuccess: () => void;
     onCancel: () => void;
+    // Optional optimistic hooks — when provided, the reply is appended to the
+    // thread immediately and rolled back only if the server rejects it.
+    onOptimisticAppend?: (message: any) => void;
+    onOptimisticRollback?: (messageId: string) => void;
 }
 
-export default function InlineReply({ threadId, to, subject, accountId, onSuccess, onCancel }: InlineReplyProps) {
+export default function InlineReply({ threadId, to, subject, accountId, onSuccess, onCancel, onOptimisticAppend, onOptimisticRollback }: InlineReplyProps) {
     const { accounts: ctxAccounts } = useGlobalFilter();
     const [body, setBody] = useState('');
     const [isSending, setIsSending] = useState(false);
@@ -155,20 +159,65 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
         sendingRef.current = true;
         setIsSending(true);
         setError(null);
+        const replySubject = subject?.startsWith('Re:') ? subject : `Re: ${subject}`;
+
+        // Optimistic append: show the reply in the thread immediately.
+        const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const senderAccount = accounts.find(a => a.id === selectedAccountId);
+        const optimisticMsg = {
+            id: optimisticId,
+            thread_id: threadId,
+            from_email: senderAccount?.email || '',
+            to_email: to,
+            subject: replySubject,
+            body,
+            snippet: body.replace(/<[^>]+>/g, ' ').slice(0, 200),
+            direction: 'SENT',
+            sent_at: new Date().toISOString(),
+            is_unread: false,
+            is_tracked: true,
+            opened_at: null,
+            delivered_at: null,
+            pipeline_stage: null,
+            gmail_account_id: selectedAccountId,
+            account_email: senderAccount?.email,
+            manager_name: 'You',
+            gmail_accounts: { email: senderAccount?.email, user: { name: 'You' } },
+            has_reply: false,
+            _optimistic: true,
+        };
+
+        if (onOptimisticAppend) {
+            onOptimisticAppend(optimisticMsg);
+            // Close the composer instantly — the thread shows the new message.
+            onSuccess();
+        }
+
         try {
-            const replySubject = subject?.startsWith('Re:') ? subject : `Re: ${subject}`;
             const result = await sendEmailAction({ to, subject: replySubject, body, accountId: selectedAccountId, threadId }) as { success: boolean, error?: string, messageId?: string };
             if (result.success) {
-                onSuccess();
+                // Only close here when we didn't already close optimistically
+                if (!onOptimisticAppend) onSuccess();
             } else {
-                setError(result.error || 'Failed to send reply.');
+                // Roll back the optimistic append
+                if (onOptimisticAppend && onOptimisticRollback) {
+                    onOptimisticRollback(optimisticId);
+                    alert(result.error || 'Failed to send reply. Please try again.');
+                } else {
+                    setError(result.error || 'Failed to send reply.');
+                    setIsSending(false);
+                    sendingRef.current = false;
+                }
+            }
+        } catch (err: any) {
+            if (onOptimisticAppend && onOptimisticRollback) {
+                onOptimisticRollback(optimisticId);
+                alert(err?.message || 'An unexpected error occurred.');
+            } else {
+                setError(err?.message || 'An unexpected error occurred.');
                 setIsSending(false);
                 sendingRef.current = false;
             }
-        } catch (err: any) {
-            setError(err.message || 'An unexpected error occurred.');
-            setIsSending(false);
-            sendingRef.current = false;
         }
     };
 

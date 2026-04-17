@@ -56,6 +56,8 @@ export default function InboxPage() {
         prefetchThread,
         isIdle,
         handleResume,
+        appendThreadMessage,
+        removeThreadMessage,
     } = useMailbox({
         type: mailboxType,
         activeStage: 'ALL',
@@ -526,6 +528,8 @@ export default function InboxPage() {
                                             : selectedEmail.from_email?.match(/<([^>]+)>/)?.[1] || selectedEmail.from_email}
                                         subject={selectedEmail.subject}
                                         accountId={selectedEmail.gmail_account_id}
+                                        onOptimisticAppend={appendThreadMessage}
+                                        onOptimisticRollback={removeThreadMessage}
                                         onSuccess={() => setIsReplyingInline(false)}
                                         onCancel={() => setIsReplyingInline(false)}
                                     />

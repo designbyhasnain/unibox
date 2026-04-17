@@ -124,7 +124,7 @@ export async function deactivateUserAction(targetUserId: string) {
 
     const { error } = await supabase
         .from('users')
-        .update({ status: 'REVOKED' })
+        .update({ crm_status: 'REVOKED' })
         .eq('id', targetUserId);
 
     if (error) {
@@ -144,7 +144,7 @@ export async function reactivateUserAction(targetUserId: string) {
 
     const { error } = await supabase
         .from('users')
-        .update({ status: 'ACTIVE' })
+        .update({ crm_status: 'ACTIVE' })
         .eq('id', targetUserId);
 
     if (error) {

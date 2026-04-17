@@ -123,7 +123,8 @@ export async function sendInviteAction(params: {
 }
 
 /**
- * List all invitations. ADMIN only.
+ * List pending + expired invitations. ADMIN only.
+ * ACCEPTED invitations are hidden (those users live in the Team Members list).
  */
 export async function listInvitesAction() {
     const { role } = await ensureAuthenticated();
@@ -132,6 +133,7 @@ export async function listInvitesAction() {
     const { data, error } = await supabase
         .from('invitations')
         .select('*, users!invitations_invited_by_fkey(name, email)')
+        .in('status', ['PENDING', 'EXPIRED'])
         .order('created_at', { ascending: false });
 
     if (error) {
@@ -139,6 +141,7 @@ export async function listInvitesAction() {
         const { data: fallbackData } = await supabase
             .from('invitations')
             .select('*')
+            .in('status', ['PENDING', 'EXPIRED'])
             .order('created_at', { ascending: false });
         return { success: true, invitations: fallbackData || [] };
     }
@@ -147,7 +150,8 @@ export async function listInvitesAction() {
 }
 
 /**
- * Revoke a pending invitation. ADMIN only.
+ * Revoke (delete) an invitation. Works on both PENDING and EXPIRED.
+ * ADMIN only. Row is permanently removed so it disappears from the list.
  */
 export async function revokeInviteAction(inviteId: string) {
     const { role } = await ensureAuthenticated();
@@ -155,9 +159,9 @@ export async function revokeInviteAction(inviteId: string) {
 
     const { error } = await supabase
         .from('invitations')
-        .update({ status: 'EXPIRED' })
+        .delete()
         .eq('id', inviteId)
-        .eq('status', 'PENDING');
+        .in('status', ['PENDING', 'EXPIRED']);
 
     if (error) {
         console.error('[inviteActions] revokeInviteAction error:', error);
@@ -168,7 +172,8 @@ export async function revokeInviteAction(inviteId: string) {
 }
 
 /**
- * Resend a pending invitation. ADMIN only.
+ * Resend an invitation. Works on both PENDING and EXPIRED — expired invitations
+ * are reset to PENDING with a fresh 7-day token. ADMIN only.
  */
 export async function resendInviteAction(inviteId: string) {
     console.error('[INVITE] resendInviteAction called for id:', inviteId);
@@ -183,9 +188,10 @@ export async function resendInviteAction(inviteId: string) {
         .update({
             token: newToken,
             expires_at: newExpiry,
+            status: 'PENDING',
         })
         .eq('id', inviteId)
-        .eq('status', 'PENDING')
+        .in('status', ['PENDING', 'EXPIRED'])
         .select()
         .single();
 

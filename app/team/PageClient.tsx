@@ -79,7 +79,14 @@ export default function TeamPage() {
 
     const handleSendInvite = async () => {
         setActionLoading('invite');
-        const result = await sendInviteAction(inviteForm);
+        // For ADMIN: auto-assign all accounts; for VIDEO_EDITOR: none; for SALES: as-selected
+        const effectiveIds = inviteForm.role === 'ADMIN'
+            ? allAccounts.map(a => a.id)
+            : inviteForm.role === 'VIDEO_EDITOR'
+                ? []
+                : inviteForm.assignedGmailAccountIds;
+        const payload = { ...inviteForm, assignedGmailAccountIds: effectiveIds };
+        const result = await sendInviteAction(payload);
         setInviteResult(result);
         if (result.success) {
             await loadData();
@@ -87,53 +94,100 @@ export default function TeamPage() {
         setActionLoading(null);
     };
 
+    // Optimistic: remove the row immediately; reload in background to reconcile.
     const handleRevokeInvite = async (id: string) => {
         if (!confirm('Revoke this invitation?')) return;
-        setActionLoading(id);
-        await revokeInviteAction(id);
-        await loadData();
-        setActionLoading(null);
+        const snapshot = invitations;
+        setInvitations(prev => prev.filter(i => i.id !== id));
+        const res = await revokeInviteAction(id);
+        if (!res.success) {
+            setInvitations(snapshot);
+            alert(res.error || 'Failed to revoke invitation');
+            return;
+        }
+        loadData();
     };
 
+    // Optimistic: mark row as PENDING immediately, update created_at timestamp.
     const handleResendInvite = async (id: string) => {
+        const snapshot = invitations;
+        setInvitations(prev => prev.map(i => i.id === id ? { ...i, status: 'PENDING', created_at: new Date().toISOString() } : i));
         setActionLoading(id);
         const result = await resendInviteAction(id);
-        if (result.success && result.inviteUrl) {
-            alert('Invitation resent! New link:\n' + result.inviteUrl);
+        setActionLoading(null);
+        if (!result.success) {
+            setInvitations(snapshot);
+            alert(result.error || 'Failed to resend invitation');
+            return;
         }
-        await loadData();
-        setActionLoading(null);
+        if (result.inviteUrl) alert('Invitation resent! New link:\n' + result.inviteUrl);
+        loadData();
     };
 
+    // Optimistic: update role in local state immediately.
     const handleRoleChange = async (targetUserId: string, newRole: 'ADMIN' | 'SALES' | 'VIDEO_EDITOR') => {
-        setActionLoading(targetUserId);
-        await updateUserRoleAction(targetUserId, newRole);
-        await loadData();
-        setActionLoading(null);
+        const snapshot = users;
+        setUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, role: newRole } : u));
+        const res = await updateUserRoleAction(targetUserId, newRole);
+        if (!res.success) {
+            setUsers(snapshot);
+            alert(res.error || 'Failed to update role');
+            return;
+        }
+        loadData();
     };
 
+    // Optimistic deactivate — flip crm_status locally, reload in background.
     const handleDeactivate = async (targetUserId: string) => {
         if (!confirm('Deactivate this user? They will lose access.')) return;
-        setActionLoading(targetUserId);
-        await deactivateUserAction(targetUserId);
-        await loadData();
-        setActionLoading(null);
+        const snapshot = users;
+        setUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, crm_status: 'REVOKED' } : u));
+        const res = await deactivateUserAction(targetUserId);
+        if (!res.success) {
+            setUsers(snapshot);
+            alert(res.error || 'Failed to deactivate user');
+            return;
+        }
+        loadData();
     };
 
     const handleReactivate = async (targetUserId: string) => {
-        setActionLoading(targetUserId);
-        await reactivateUserAction(targetUserId);
-        await loadData();
-        setActionLoading(null);
+        const snapshot = users;
+        setUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, crm_status: 'ACTIVE' } : u));
+        const res = await reactivateUserAction(targetUserId);
+        if (!res.success) {
+            setUsers(snapshot);
+            alert(res.error || 'Failed to reactivate user');
+            return;
+        }
+        loadData();
     };
 
+    // Optimistic checkbox toggle — mutate assignedAccounts locally first.
     const handleToggleAccount = async (targetUserId: string, gmailAccountId: string, isAssigned: boolean) => {
-        if (isAssigned) {
-            await removeGmailFromUserAction(targetUserId, gmailAccountId);
-        } else {
-            await assignGmailToUserAction(targetUserId, gmailAccountId);
+        const snapshot = users;
+        setUsers(prev => prev.map(u => {
+            if (u.id !== targetUserId) return u;
+            const assignedAccounts = isAssigned
+                ? (u.assignedAccounts || []).filter((a: any) => a.gmailAccountId !== gmailAccountId)
+                : [...(u.assignedAccounts || []), { gmailAccountId, email: allAccounts.find(x => x.id === gmailAccountId)?.email || '' }];
+            return { ...u, assignedAccounts };
+        }));
+        // Keep the open modal synced with the new state
+        setShowManageAccountsModal((prev: any) => prev && prev.id === targetUserId
+            ? { ...prev, assignedAccounts: isAssigned
+                ? (prev.assignedAccounts || []).filter((a: any) => a.gmailAccountId !== gmailAccountId)
+                : [...(prev.assignedAccounts || []), { gmailAccountId, email: allAccounts.find(x => x.id === gmailAccountId)?.email || '' }] }
+            : prev);
+        const res = isAssigned
+            ? await removeGmailFromUserAction(targetUserId, gmailAccountId)
+            : await assignGmailToUserAction(targetUserId, gmailAccountId);
+        if (!res.success) {
+            setUsers(snapshot);
+            alert(res.error || 'Failed to update account assignment');
+            return;
         }
-        await loadData();
+        loadData();
     };
 
     const handleSetPassword = async () => {
@@ -362,6 +416,18 @@ export default function TeamPage() {
                                                         </button>
                                                     </div>
                                                 )}
+                                                {inv.status === 'EXPIRED' && (
+                                                    <div style={{ display: 'flex', gap: 8 }}>
+                                                        <button onClick={() => handleResendInvite(inv.id)} disabled={actionLoading === inv.id}
+                                                            style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: '1px solid var(--accent)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
+                                                            Resend
+                                                        </button>
+                                                        <button onClick={() => handleRevokeInvite(inv.id)} disabled={actionLoading === inv.id}
+                                                            style={{ fontSize: 12, color: '#6b7280', background: 'none', border: '1px solid #d1d5db', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
@@ -415,6 +481,22 @@ export default function TeamPage() {
                                         <option value="VIDEO_EDITOR">Video Editor</option>
                                     </select>
                                 </div>
+                                {inviteForm.role === 'ADMIN' && allAccounts.length > 0 && (
+                                    <div style={{ marginBottom: 16 }}>
+                                        <label style={labelStyle}>Assign Gmail Accounts</label>
+                                        <div style={{ maxHeight: 150, overflow: 'auto', border: '1px solid var(--border-color, #dadce0)', borderRadius: 8, padding: 8, background: '#f9fafb' }}>
+                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 6px 8px', fontStyle: 'italic' }}>
+                                                Admins automatically have access to all {allAccounts.length} accounts.
+                                            </div>
+                                            {allAccounts.map(acc => (
+                                                <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', fontSize: 13, opacity: 0.6 }}>
+                                                    <input type="checkbox" checked disabled readOnly />
+                                                    {acc.email}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                                 {inviteForm.role === 'SALES' && allAccounts.length > 0 && (
                                     <div style={{ marginBottom: 16 }}>
                                         <label style={labelStyle}>Assign Gmail Accounts</label>
@@ -436,6 +518,7 @@ export default function TeamPage() {
                                         </div>
                                     </div>
                                 )}
+                                {/* VIDEO_EDITOR: no Gmail section — editors do not need email access */}
                                 <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
                                     <button onClick={() => setShowInviteModal(false)} style={btnSecondary}>Cancel</button>
                                     <button onClick={handleSendInvite} disabled={!inviteForm.name || !inviteForm.email || actionLoading === 'invite'} style={btnPrimary}>
@@ -492,22 +575,49 @@ export default function TeamPage() {
                 <div style={overlayStyle} onClick={() => setShowManageAccountsModal(null)}>
                     <div style={modalStyle} onClick={e => e.stopPropagation()}>
                         <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Manage Account Access</h2>
-                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>{showManageAccountsModal.name} ({showManageAccountsModal.email})</p>
-                        <div style={{ maxHeight: 300, overflow: 'auto' }}>
-                            {allAccounts.map(acc => {
-                                const isAssigned = showManageAccountsModal.assignedAccounts?.some((a: any) => a.gmailAccountId === acc.id);
-                                return (
-                                    <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', cursor: 'pointer', borderBottom: '1px solid var(--border-color, #f0f0f0)' }}>
-                                        <input type="checkbox" checked={isAssigned}
-                                            onChange={() => handleToggleAccount(showManageAccountsModal.id, acc.id, isAssigned)} />
-                                        <div>
-                                            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{acc.email}</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{acc.connection_method} · {acc.status}</div>
-                                        </div>
-                                    </label>
-                                );
-                            })}
-                        </div>
+                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+                            {showManageAccountsModal.name} ({showManageAccountsModal.email}) — {showManageAccountsModal.role}
+                        </p>
+
+                        {showManageAccountsModal.role === 'VIDEO_EDITOR' ? (
+                            <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, background: '#f9fafb', borderRadius: 8 }}>
+                                Video editors do not need Gmail account access.
+                            </div>
+                        ) : showManageAccountsModal.role === 'ADMIN' || showManageAccountsModal.role === 'ACCOUNT_MANAGER' ? (
+                            <>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 0 12px', fontStyle: 'italic' }}>
+                                    Admins automatically have access to all {allAccounts.length} accounts.
+                                </div>
+                                <div style={{ maxHeight: 300, overflow: 'auto' }}>
+                                    {allAccounts.map(acc => (
+                                        <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', borderBottom: '1px solid var(--border-color, #f0f0f0)', opacity: 0.6 }}>
+                                            <input type="checkbox" checked disabled readOnly />
+                                            <div>
+                                                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{acc.email}</div>
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{acc.connection_method} · {acc.status}</div>
+                                            </div>
+                                        </label>
+                                    ))}
+                                </div>
+                            </>
+                        ) : (
+                            <div style={{ maxHeight: 300, overflow: 'auto' }}>
+                                {allAccounts.map(acc => {
+                                    const isAssigned = showManageAccountsModal.assignedAccounts?.some((a: any) => a.gmailAccountId === acc.id);
+                                    return (
+                                        <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', cursor: 'pointer', borderBottom: '1px solid var(--border-color, #f0f0f0)' }}>
+                                            <input type="checkbox" checked={isAssigned}
+                                                onChange={() => handleToggleAccount(showManageAccountsModal.id, acc.id, isAssigned)} />
+                                            <div>
+                                                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{acc.email}</div>
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{acc.connection_method} · {acc.status}</div>
+                                            </div>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        )}
+
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
                             <button onClick={() => setShowManageAccountsModal(null)} style={btnPrimary}>Done</button>
                         </div>
