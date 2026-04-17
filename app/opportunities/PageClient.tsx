@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import DOMPurify from 'dompurify';
 import Topbar from '../components/Topbar';
-import { getRevenueOpportunitiesAction } from '../../src/actions/revenueActions';
+import { getRevenueOpportunitiesAction, getPipelineVisualizationAction, type PipelineStageSummary } from '../../src/actions/revenueActions';
 import { generateAISummaryAction } from '../../src/actions/summaryActions';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
@@ -23,6 +23,13 @@ export default function OpportunitiesPage() {
         'opportunities',
         () => getRevenueOpportunitiesAction()
     );
+
+    const [pipeline, setPipeline] = useState<{ stages: PipelineStageSummary[]; totalValue: number; totalDeals: number } | null>(null);
+    React.useEffect(() => {
+        getPipelineVisualizationAction().then(r => {
+            if (r.success) setPipeline({ stages: r.stages, totalValue: r.totalValue, totalDeals: r.totalDeals });
+        });
+    }, []);
 
     const handleAIAudit = async (contactId: string) => {
         setAiLoading(contactId);
@@ -107,6 +114,58 @@ export default function OpportunitiesPage() {
                         <PageLoader isLoading={!isHydrated || isLoading} type="list" count={8}>
                             {data && (
                                 <>
+                                    {/* Visual Pipeline — stage-by-stage funnel with deal values */}
+                                    {pipeline && pipeline.totalDeals > 0 && (
+                                        <div style={{ padding: '16px 16px 8px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                                <h2 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-muted, #64748b)', margin: 0 }}>
+                                                    Pipeline
+                                                </h2>
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted, #64748b)' }}>
+                                                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{pipeline.totalDeals.toLocaleString()}</span> deals · <span style={{ fontWeight: 600, color: '#10B981' }}>${pipeline.totalValue.toLocaleString()}</span> estimated
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: `repeat(${pipeline.stages.length}, minmax(0, 1fr))`,
+                                                gap: 8,
+                                            }}>
+                                                {pipeline.stages.map(s => {
+                                                    const pctOfMax = pipeline.stages.reduce((m, x) => Math.max(m, x.count), 1);
+                                                    const barHeight = Math.max(14, Math.round((s.count / pctOfMax) * 72));
+                                                    return (
+                                                        <div key={s.stage} style={{
+                                                            border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 10,
+                                                            background: 'var(--bg-surface, #fff)',
+                                                            display: 'flex', flexDirection: 'column', gap: 6,
+                                                            minHeight: 150,
+                                                        }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
+                                                                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{s.label}</span>
+                                                            </div>
+                                                            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{s.count}</div>
+                                                            <div style={{ fontSize: 11, color: '#10B981', fontWeight: 600 }}>${s.estimatedValue.toLocaleString()}</div>
+                                                            <div style={{
+                                                                marginTop: 2, width: '100%',
+                                                                height: barHeight, background: s.color, opacity: 0.18, borderRadius: 4,
+                                                            }} />
+                                                            {s.samples.length > 0 && (
+                                                                <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                                                    {s.samples.slice(0, 3).map(d => (
+                                                                        <div key={d.id} style={{ fontSize: 10, color: 'var(--text-muted, #64748b)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                            {(d.company || d.name).slice(0, 22)} · ${d.estimatedValue}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Revenue Estimate Cards */}
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, padding: '16px 16px 0' }}>
                                         {[

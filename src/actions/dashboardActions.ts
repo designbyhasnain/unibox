@@ -267,3 +267,132 @@ function emptyDashboard() {
         followUpsDue: 0, topClients: [], recentProjects: [], pipelineContacts: [], recentActivity: [],
     };
 }
+
+/**
+ * Extra dashboard cards: Active Campaigns overview + short-term Revenue Forecast.
+ * Kept in a second action so first paint of the main dashboard isn't blocked.
+ */
+export type DashboardAddons = {
+    campaigns: {
+        totalActive: number;
+        running: number;
+        paused: number;
+        sentToday: number;
+        topRunning: { id: string; name: string; status: string; dailyLimit: number; createdAt: string }[];
+    };
+    forecast: {
+        nextMonthProjected: number;
+        last3MonthAvg: number;
+        last6MonthAvg: number;
+        trend: 'up' | 'down' | 'flat';
+        trendPct: number;
+        monthly: { month: string; projected: boolean; revenue: number }[];
+    };
+};
+
+export async function getDashboardAddonsAction(): Promise<{ success: boolean; data?: DashboardAddons; error?: string }> {
+    try {
+        const { userId, role } = await ensureAuthenticated();
+        const isAdmin = role === 'ADMIN' || role === 'ACCOUNT_MANAGER';
+
+        // ── Campaigns ──────────────────────────────────────────────────────────
+        let campQuery = supabase
+            .from('campaigns')
+            .select('id, name, status, daily_send_limit, created_at, created_by_id')
+            .neq('status', 'ARCHIVED')
+            .order('created_at', { ascending: false });
+        if (!isAdmin) campQuery = campQuery.eq('created_by_id', userId);
+        const { data: campaigns } = await campQuery;
+
+        const activeCampaigns = (campaigns || []).filter(c => c.status !== 'COMPLETED');
+        const running = activeCampaigns.filter(c => c.status === 'RUNNING');
+        const paused = activeCampaigns.filter(c => c.status === 'PAUSED');
+
+        // Count sends from today (best-effort, single query)
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const activeIds = activeCampaigns.map(c => c.id);
+        let sentToday = 0;
+        if (activeIds.length > 0) {
+            const { count } = await supabase
+                .from('campaign_send_queue')
+                .select('id', { count: 'estimated', head: true })
+                .in('campaign_id', activeIds)
+                .eq('status', 'SENT')
+                .gte('sent_at', todayStart.toISOString());
+            sentToday = count || 0;
+        }
+
+        // ── Forecast from the last 6 months of paid revenue ───────────────────
+        const now = new Date();
+        const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+        let projQuery = supabase
+            .from('projects')
+            .select('project_value, paid_status, project_date, account_manager_id')
+            .not('project_date', 'is', null)
+            .not('project_value', 'is', null)
+            .gte('project_date', sixMonthsAgo.toISOString());
+        if (!isAdmin) projQuery = projQuery.eq('account_manager_id', userId);
+        const { data: projects } = await projQuery;
+
+        const buckets = new Map<string, number>();
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            buckets.set(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, 0);
+        }
+        for (const p of projects || []) {
+            if (p.paid_status !== 'PAID') continue;
+            const d = new Date(p.project_date!);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (buckets.has(key)) buckets.set(key, (buckets.get(key) || 0) + (p.project_value || 0));
+        }
+        const values = [...buckets.values()];
+        const last3 = values.slice(-3);
+        const last6 = values;
+        const last3Avg = last3.length ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+        const last6Avg = last6.length ? last6.reduce((a, b) => a + b, 0) / last6.length : 0;
+        // Simple projection: weighted average of last 3 months (recent) + trend from last 2 months
+        const latest = values[values.length - 1] || 0;
+        const prev = values[values.length - 2] || 0;
+        const momChange = prev > 0 ? (latest - prev) / prev : 0;
+        const nextMonthProjected = Math.max(0, Math.round(last3Avg * (1 + momChange * 0.5)));
+        const trendPct = prev > 0 ? Math.round(((latest - prev) / prev) * 100) : 0;
+        const trend: 'up' | 'down' | 'flat' = trendPct > 3 ? 'up' : trendPct < -3 ? 'down' : 'flat';
+
+        const monthly = [...buckets.entries()].map(([k, v]) => ({ month: k, revenue: Math.round(v), projected: false }));
+        // Append next month projection
+        const future = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        monthly.push({
+            month: `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}`,
+            revenue: nextMonthProjected,
+            projected: true,
+        });
+
+        return {
+            success: true,
+            data: {
+                campaigns: {
+                    totalActive: activeCampaigns.length,
+                    running: running.length,
+                    paused: paused.length,
+                    sentToday,
+                    topRunning: running.slice(0, 5).map(c => ({
+                        id: c.id, name: c.name, status: c.status,
+                        dailyLimit: c.daily_send_limit, createdAt: c.created_at,
+                    })),
+                },
+                forecast: {
+                    nextMonthProjected,
+                    last3MonthAvg: Math.round(last3Avg),
+                    last6MonthAvg: Math.round(last6Avg),
+                    trend,
+                    trendPct,
+                    monthly,
+                },
+            },
+        };
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'Failed to load dashboard addons';
+        return { success: false, error: msg };
+    }
+}

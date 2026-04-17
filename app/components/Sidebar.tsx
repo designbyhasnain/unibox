@@ -233,7 +233,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         ...(isAdminLike ? [
             { href: '/intelligence', label: 'Intelligence', icon: <I.Intelligence /> },
             { href: '/finance', label: 'Finance', icon: <I.Finance /> },
-            { href: '/admin/data-health', label: 'Data Health', icon: <I.Intelligence /> },
+            { href: '/data-health', label: 'Data Health', icon: <I.Intelligence /> },
             { href: '/team', label: 'Team', icon: <I.Team /> },
         ] : []),
         { href: '/settings', label: isEditor ? 'Profile' : 'Settings', icon: <I.Settings /> },

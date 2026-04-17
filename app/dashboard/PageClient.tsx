@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { getSalesDashboardAction } from '../../src/actions/dashboardActions';
+import { getSalesDashboardAction, getDashboardAddonsAction, type DashboardAddons } from '../../src/actions/dashboardActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
@@ -43,6 +43,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     const hydrated = useHydrated();
     const [name, setName] = useState('');
     const [d, setD] = useState<any>(null);
+    const [addons, setAddons] = useState<DashboardAddons | null>(null);
     const [loading, setLoading] = useState(true);
     const [onboard, setOnboard] = useState(false);
     const isEditor = userRole === 'VIDEO_EDITOR';
@@ -55,6 +56,8 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                 setLoading(false);
                 try { if (!localStorage.getItem('unibox_onboarding_done')) setOnboard(true); } catch {}
             }).catch(() => setLoading(false));
+        // Fire the addons request in parallel — don't block first paint.
+        getDashboardAddonsAction().then(res => { if (res.success && res.data) setAddons(res.data); }).catch(() => {});
     }, []);
 
     if (!hydrated || loading) return <PageLoader isLoading type="grid" count={6}><div /></PageLoader>;
@@ -313,6 +316,97 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                     </Link>
                 )}
             </div>}
+
+            {/* ── Revenue Forecast + Active Campaigns (admin/sales) ── */}
+            {!isEditor && addons && (
+                <div className="se-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    {/* Revenue Forecast */}
+                    <div className="se-c">
+                        <div className="se-c-h">
+                            <span className="se-c-t">Revenue Forecast</span>
+                            <span style={{
+                                fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                                background: addons.forecast.trend === 'up' ? '#f0fdf4' : addons.forecast.trend === 'down' ? '#fef2f2' : '#fafafa',
+                                color: addons.forecast.trend === 'up' ? '#22c55e' : addons.forecast.trend === 'down' ? '#ef4444' : '#a3a3a3',
+                            }}>
+                                {addons.forecast.trend === 'up' ? '▲' : addons.forecast.trend === 'down' ? '▼' : '–'} {Math.abs(addons.forecast.trendPct)}% MoM
+                            </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-.03em', color: '#171717' }}>{fmt(addons.forecast.nextMonthProjected)}</span>
+                            <span style={{ fontSize: 12, color: '#a3a3a3' }}>projected next month</span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14, padding: '12px 0', borderTop: '1px solid #f5f5f5' }}>
+                            <div>
+                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>3-mo avg</div>
+                                <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{fmt(addons.forecast.last3MonthAvg)}</div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>6-mo avg</div>
+                                <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{fmt(addons.forecast.last6MonthAvg)}</div>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 48, marginTop: 12 }}>
+                            {addons.forecast.monthly.map((m) => {
+                                const max = Math.max(...addons.forecast.monthly.map(x => x.revenue), 1);
+                                const h = Math.max(2, Math.round((m.revenue / max) * 42));
+                                return (
+                                    <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                                        <div style={{
+                                            width: '100%', height: h,
+                                            background: m.projected ? 'repeating-linear-gradient(45deg, #0ea5e9, #0ea5e9 4px, #bae6fd 4px, #bae6fd 8px)' : '#0ea5e9',
+                                            borderRadius: 3,
+                                        }} title={`${m.month}: ${fmt(m.revenue)}${m.projected ? ' (projected)' : ''}`} />
+                                        <span style={{ fontSize: 9, color: '#a3a3a3' }}>{m.month.slice(5)}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Active Campaigns */}
+                    <div className="se-c">
+                        <div className="se-c-h">
+                            <span className="se-c-t">Active Campaigns</span>
+                            <Link href="/campaigns" className="se-c-a">View All →</Link>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+                            <div>
+                                <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-.03em', color: '#22c55e' }}>{addons.campaigns.running}</div>
+                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>Running</div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-.03em', color: '#f59e0b' }}>{addons.campaigns.paused}</div>
+                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>Paused</div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-.03em', color: '#171717' }}>{addons.campaigns.sentToday}</div>
+                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>Sent today</div>
+                            </div>
+                        </div>
+                        {addons.campaigns.topRunning.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {addons.campaigns.topRunning.map(c => (
+                                    <Link key={c.id} href={`/campaigns/${c.id}`} style={{
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        padding: '8px 12px', background: '#fafafa', borderRadius: 8,
+                                        textDecoration: 'none', color: 'inherit', fontSize: 12,
+                                    }}>
+                                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+                                            <span style={{ fontWeight: 600 }}>{c.name}</span>
+                                        </div>
+                                        <span style={{ color: '#a3a3a3', fontSize: 11 }}>{c.dailyLimit}/day</span>
+                                    </Link>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ padding: '20px 0', textAlign: 'center', color: '#a3a3a3', fontSize: 12 }}>
+                                No running campaigns. <Link href="/campaigns/new" style={{ color: '#0ea5e9', fontWeight: 600, textDecoration: 'none' }}>Launch one →</Link>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* ── Revenue Chart + Recent Projects Table ── */}
             <div className={`se-row ${isEditor ? 'se-r2' : 'se-r3'} se-a se-a4`}>

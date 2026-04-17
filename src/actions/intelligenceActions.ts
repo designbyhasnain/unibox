@@ -209,3 +209,114 @@ export async function getIntelligenceDashboardAction() {
         escalations: data?.escalations || null,
     };
 }
+
+/**
+ * Weekly Insight — Jarvis-generated summary of what's happened + what to focus on.
+ * Uses Groq (Llama 3.1 8B Instant) for speed. Admin-only.
+ */
+export async function getJarvisWeeklyInsightAction(): Promise<{
+    success: boolean;
+    summary: string | null;
+    generatedAt: string;
+    snapshot: {
+        newLeads: number;
+        repliesReceived: number;
+        emailsSent: number;
+        dealsClosed: number;
+        revenueClosed: number;
+        topReplyer: string | null;
+    };
+    error?: string;
+}> {
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
+
+    const weekAgo = new Date(Date.now() - 7 * 86400_000);
+    const weekAgoISO = weekAgo.toISOString();
+    const now = new Date();
+
+    const [sentRes, recvRes, newLeadsRes, closedRes, topReplyerRes] = await Promise.all([
+        supabase.from('email_messages').select('id', { count: 'exact', head: true })
+            .eq('direction', 'SENT').gte('sent_at', weekAgoISO),
+        supabase.from('email_messages').select('id', { count: 'exact', head: true })
+            .eq('direction', 'RECEIVED').eq('is_spam', false).gte('sent_at', weekAgoISO),
+        supabase.from('contacts').select('id', { count: 'exact', head: true }).gte('created_at', weekAgoISO),
+        supabase.from('projects').select('project_value, paid_status, project_date, client_id, contacts:client_id(company)')
+            .gte('project_date', weekAgoISO).eq('paid_status', 'PAID').limit(50),
+        supabase.from('email_messages').select('from_email')
+            .eq('direction', 'RECEIVED').eq('is_spam', false)
+            .gte('sent_at', weekAgoISO).limit(500),
+    ]);
+
+    const closed = (closedRes.data || []);
+    const revenueClosed = closed.reduce((s, p: any) => s + (p.project_value || 0), 0);
+
+    // Top industry/replier by domain (rough proxy)
+    const domainCounts = new Map<string, number>();
+    for (const m of (topReplyerRes.data || [])) {
+        const e = (m.from_email || '').toLowerCase();
+        const match = e.match(/<([^>]+)>/);
+        const addr = match ? match[1] : e;
+        const domain = (addr || '').split('@')[1];
+        if (!domain) continue;
+        domainCounts.set(domain, (domainCounts.get(domain) || 0) + 1);
+    }
+    const topDomain = [...domainCounts.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+    // Also bucket closed deals by company domain to hint at winning industry
+    const closedCompanies = closed.map((p: any) => {
+        const c = Array.isArray(p.contacts) ? p.contacts[0] : p.contacts;
+        return (c?.company || '').toLowerCase();
+    }).filter(Boolean);
+
+    const snapshot = {
+        newLeads: newLeadsRes.count || 0,
+        repliesReceived: recvRes.count || 0,
+        emailsSent: sentRes.count || 0,
+        dealsClosed: closed.length,
+        revenueClosed: Math.round(revenueClosed),
+        topReplyer: topDomain ? `${topDomain[0]} (${topDomain[1]} replies)` : null,
+    };
+
+    const GROQ_KEY = process.env.GROQ_API_KEY;
+    if (!GROQ_KEY) {
+        return { success: true, summary: null, generatedAt: now.toISOString(), snapshot, error: 'GROQ_API_KEY not set' };
+    }
+
+    const prompt = `You are Jarvis, a sales analyst. Produce a 3-4 sentence weekly insight in plain text (no markdown, no bullets). Use the numbers below. Start with the most important observation (what stood out). Then mention a trend, and end with ONE concrete recommendation for the week ahead. Keep it punchy and specific.
+
+Snapshot (last 7 days):
+- Emails sent: ${snapshot.emailsSent}
+- Replies received: ${snapshot.repliesReceived}
+- Reply rate: ${snapshot.emailsSent > 0 ? ((snapshot.repliesReceived / snapshot.emailsSent) * 100).toFixed(1) : 0}%
+- New leads added: ${snapshot.newLeads}
+- Deals closed: ${snapshot.dealsClosed}
+- Revenue closed: $${snapshot.revenueClosed.toLocaleString()}
+- Top reply source domain: ${snapshot.topReplyer ?? 'n/a'}
+- Closed-deal companies this week: ${closedCompanies.slice(0, 10).join(', ') || 'none'}
+
+Write the insight now:`;
+
+    try {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${GROQ_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'llama-3.1-8b-instant',
+                messages: [
+                    { role: 'system', content: 'You are a concise, action-oriented sales analyst. Plain text only. No markdown.' },
+                    { role: 'user', content: prompt },
+                ],
+                max_tokens: 250,
+                temperature: 0.5,
+            }),
+        });
+        if (!res.ok) {
+            return { success: true, summary: null, generatedAt: now.toISOString(), snapshot, error: `Groq ${res.status}` };
+        }
+        const data = await res.json();
+        const text = (data?.choices?.[0]?.message?.content || '').trim();
+        return { success: true, summary: text || null, generatedAt: now.toISOString(), snapshot };
+    } catch (e: any) {
+        return { success: true, summary: null, generatedAt: now.toISOString(), snapshot, error: e?.message || 'Jarvis failed' };
+    }
+}

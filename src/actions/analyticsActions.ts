@@ -218,6 +218,15 @@ export async function getAnalyticsDataAction(params: {
             };
         });
 
+        // ─── Open rate vs Reply rate per day ──────────────────────────────
+        // Distinct series so users can compare "how many opened" vs
+        // "how many actually replied" over time.
+        const openVsReplyData = dailyData.map((d: any) => ({
+            name: d.name,
+            openRate: d.sent > 0 ? Math.round((d.opened / d.sent) * 1000) / 10 : 0,
+            replyRate: d.sent > 0 ? Math.round((d.received / d.sent) * 1000) / 10 : 0,
+        }));
+
         // ─── Hourly Engagement (from RPC) ────────────────────────────────
         const hourlyMap = new Map<number, number>();
         (agg.hourly_data || []).forEach((h: any) => hourlyMap.set(h.hour, h.count));
@@ -365,6 +374,7 @@ export async function getAnalyticsDataAction(params: {
             success: true,
             stats: { ...stats, avgResponseHours: avgResponseHours.toFixed(1), avgDealSize: Math.round(avgDealSize), totalThreads: Number(ts.total_threads) || 0 },
             funnelData,
+            openVsReplyData,
             leaderboard,
             deliverability,
             sentimentData,
@@ -581,7 +591,7 @@ function emptyAnalytics() {
             outreachFirst: 0, followUps: 0, conversational: 0,
             firstReplies: 0, continuedReplies: 0, uniqueProspectsOutreached: 0,
         },
-        funnelData: [], leaderboard: [], deliverability: { inboxRate: '100%', spamRate: '0%', health: 'Excellent' },
+        funnelData: [], openVsReplyData: [], leaderboard: [], deliverability: { inboxRate: '100%', spamRate: '0%', health: 'Excellent' },
         sentimentData: [], dailyData: [], hourlyEngagement: [], topSubjects: [], accountPerformance: [],
         volumeByDay: [], heatmapData: [], threadDepthData: [], unreadData: [], bestSubjects: [],
         topClients: [], pipelineFunnel: [], paidBreakdown: [], revenueTrend: [], priorityDist: [],

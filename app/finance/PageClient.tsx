@@ -8,7 +8,7 @@ import { PageLoader } from '../components/LoadingStates';
 import { useSWRData } from '../utils/staleWhileRevalidate';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    PieChart, Pie, Cell, Legend
+    PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine,
 } from 'recharts';
 
 const COLORS = ['#10B981', '#F59E0B', '#EF4444'];
@@ -77,6 +77,49 @@ export default function FinancePage() {
                                             </div>
                                         ))}
                                     </div>
+
+                                    {/* Monthly Growth (MoM %) */}
+                                    {Array.isArray(data.revenueByMonth) && data.revenueByMonth.length > 1 && (() => {
+                                        const rows = data.revenueByMonth.map((r: any, i: number, arr: any[]) => {
+                                            const prev = i > 0 ? arr[i - 1]?.revenue || 0 : 0;
+                                            const cur = r.revenue || 0;
+                                            const growth = prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : 0;
+                                            return { month: r.month, revenue: cur, growth };
+                                        });
+                                        const last = rows[rows.length - 1] || { month: '', revenue: 0, growth: 0 };
+                                        const avg = rows.length > 1
+                                            ? rows.slice(1).reduce((s: number, r: any) => s + r.growth, 0) / (rows.length - 1)
+                                            : 0;
+                                        return (
+                                            <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: '1.25rem', border: '1px solid var(--border-subtle)', marginBottom: 24 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                                    <div>
+                                                        <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>Monthly Growth</h3>
+                                                        <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '2px 0 0' }}>
+                                                            Month-over-month revenue change. Avg {avg.toFixed(1)}% · Latest {last.growth.toFixed(1)}%
+                                                        </p>
+                                                    </div>
+                                                    <span style={{
+                                                        fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 6,
+                                                        background: last.growth >= 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                                                        color: last.growth >= 0 ? '#10B981' : '#EF4444',
+                                                    }}>
+                                                        {last.growth >= 0 ? '▲' : '▼'} {Math.abs(last.growth).toFixed(1)}%
+                                                    </span>
+                                                </div>
+                                                <ResponsiveContainer width="100%" height={180}>
+                                                    <LineChart data={rows}>
+                                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+                                                        <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--text-tertiary)' }} />
+                                                        <YAxis unit="%" tick={{ fontSize: 11, fill: 'var(--text-tertiary)' }} />
+                                                        <Tooltip formatter={(v: any) => `${v}%`} />
+                                                        <ReferenceLine y={0} stroke="#94a3b8" />
+                                                        <Line type="monotone" dataKey="growth" stroke="#1a73e8" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                                    </LineChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        );
+                                    })()}
 
                                     {/* Charts Row */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 24 }}>

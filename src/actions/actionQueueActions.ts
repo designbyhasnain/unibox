@@ -2,7 +2,7 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds, getOwnerFilter, blockEditorAccess } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, getOwnerFilter, blockEditorAccess, isAdmin } from '../utils/accessControl';
 
 export type ActionItem = {
     id: string;
@@ -458,5 +458,101 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
     } catch (error) {
         console.error('getContactLastEmailsAction error:', error);
         return { emails: [], gmailAccountId: null };
+    }
+}
+
+// ─── AI Recommendations (fallback when queue is empty) ──────────────────────
+
+export type AIRecommendation = {
+    contactId: string;
+    name: string;
+    email: string;
+    company: string | null;
+    leadScore: number | null;
+    pipelineStage: string;
+    reason: string;
+    suggestedAction: 'REACH_OUT' | 'SEND_FOLLOW_UP' | 'WIN_BACK' | 'CHECK_IN';
+    totalRevenue: number | null;
+};
+
+/**
+ * Smart suggestions for who to contact next when there's nothing in the queue.
+ * Ranks by a composite score: lead score, past revenue, engagement signals,
+ * pipeline stage value. Uses only per-user scoping (same RBAC as the queue).
+ */
+export async function getAIRecommendationsAction(): Promise<{
+    success: boolean;
+    recommendations: AIRecommendation[];
+}> {
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
+
+    try {
+        // Candidate pool: any contact not in a terminal stage.
+        let q = supabase
+            .from('contacts')
+            .select('id, name, email, company, lead_score, pipeline_stage, total_revenue, days_since_last_contact, total_emails_received, total_emails_sent, last_message_direction, relationship_health')
+            .not('pipeline_stage', 'is', null)
+            .not('pipeline_stage', 'in', '(CLOSED,NOT_INTERESTED)')
+            .not('email', 'ilike', '%noreply%')
+            .not('email', 'ilike', '%mailer-daemon%');
+        if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+        const { data, error } = await q.order('lead_score', { ascending: false, nullsFirst: false }).limit(150);
+
+        if (error || !data) return { success: false, recommendations: [] };
+
+        const stageWeight: Record<string, number> = {
+            OFFER_ACCEPTED: 100, LEAD: 70, WARM_LEAD: 55, CONTACTED: 35, COLD_LEAD: 15,
+        };
+
+        const scored = data.map(c => {
+            const stageScore = stageWeight[c.pipeline_stage as string] || 10;
+            const leadScore = c.lead_score || 0;
+            const revenueBoost = Math.min(30, Math.round((Number(c.total_revenue) || 0) / 1000));
+            const recencyBoost = c.days_since_last_contact && c.days_since_last_contact < 14 ? 10 : 0;
+            const engagementBoost = (c.total_emails_received || 0) > 2 ? 10 : 0;
+            const total = stageScore + leadScore + revenueBoost + recencyBoost + engagementBoost;
+
+            let suggestedAction: AIRecommendation['suggestedAction'] = 'CHECK_IN';
+            let reason = 'Strong fit — worth a personal touch.';
+            if (c.last_message_direction === 'RECEIVED' && (c.days_since_last_contact ?? 0) <= 5) {
+                suggestedAction = 'REACH_OUT';
+                reason = `They replied recently (${c.days_since_last_contact ?? 0}d ago) — keep momentum.`;
+            } else if ((c.total_emails_received ?? 0) > 3 && (c.days_since_last_contact ?? 0) > 21) {
+                suggestedAction = 'WIN_BACK';
+                reason = `Was active (${c.total_emails_received} replies) then went quiet ${c.days_since_last_contact}d ago.`;
+            } else if (c.pipeline_stage === 'OFFER_ACCEPTED') {
+                suggestedAction = 'SEND_FOLLOW_UP';
+                reason = 'Offer accepted — push to close.';
+            } else if (c.pipeline_stage === 'WARM_LEAD' || c.pipeline_stage === 'LEAD') {
+                suggestedAction = 'SEND_FOLLOW_UP';
+                reason = 'Warm prospect — nudge toward next step.';
+            } else if ((c.total_revenue ?? 0) > 500) {
+                suggestedAction = 'CHECK_IN';
+                reason = `Past revenue $${Math.round(Number(c.total_revenue) || 0)} — check in to reopen the door.`;
+            }
+
+            return { c, total, reason, suggestedAction };
+        });
+
+        scored.sort((a, b) => b.total - a.total);
+
+        const recommendations: AIRecommendation[] = scored.slice(0, 12).map(({ c, reason, suggestedAction }) => ({
+            contactId: c.id,
+            name: c.name || c.email,
+            email: c.email,
+            company: c.company,
+            leadScore: c.lead_score,
+            pipelineStage: c.pipeline_stage!,
+            reason,
+            suggestedAction,
+            totalRevenue: c.total_revenue ? Number(c.total_revenue) : null,
+        }));
+
+        return { success: true, recommendations };
+    } catch (e) {
+        console.error('[getAIRecommendationsAction] error:', e);
+        return { success: false, recommendations: [] };
     }
 }

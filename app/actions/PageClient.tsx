@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getActionQueueAction, snoozeActionAction, markActionDoneAction } from '../../src/actions/actionQueueActions';
-import type { ActionItem } from '../../src/actions/actionQueueActions';
+import { getActionQueueAction, snoozeActionAction, markActionDoneAction, getAIRecommendationsAction } from '../../src/actions/actionQueueActions';
+import type { ActionItem, AIRecommendation } from '../../src/actions/actionQueueActions';
 import ActionCard from '../components/ActionCard';
 import QuickActions from '../components/QuickActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useUI } from '../context/UIContext';
 import { useGlobalFilter } from '../context/FilterContext';
-import { RefreshCw, Check } from 'lucide-react';
+import { RefreshCw, Check, Sparkles, TrendingUp } from 'lucide-react';
 
 const CATEGORIES = [
     { key: 'ALL', label: 'All', filterKey: '' },
@@ -26,6 +26,7 @@ export default function ActionsPage() {
     const [filter, setFilter] = useState<string>('ALL');
     const [quickAction, setQuickAction] = useState<ActionItem | null>(null);
     const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [recommendations, setRecommendations] = useState<AIRecommendation[]>([]);
 
     const { accounts } = useGlobalFilter();
     const ui = useUI();
@@ -35,6 +36,13 @@ export default function ActionsPage() {
             const result = await getActionQueueAction();
             setActions(result.actions);
             setCounts(result.counts);
+            // If the queue is empty, pull AI recommendations in the background
+            if (result.actions.length === 0) {
+                const rec = await getAIRecommendationsAction();
+                if (rec.success) setRecommendations(rec.recommendations);
+            } else {
+                setRecommendations([]);
+            }
         } catch (e) {
             console.error('Failed to load action queue:', e);
         } finally {
@@ -175,15 +183,56 @@ export default function ActionsPage() {
 
                 <div style={{ padding: '0 32px 32px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {filtered.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '64px 20px' }}>
-                            <div style={{ width: 56, height: 56, borderRadius: '50%', margin: '0 auto 16px', background: 'linear-gradient(135deg, #DCFCE7, #F0FDF4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <Check size={28} color="#16A34A" strokeWidth={2.5} />
+                        <div>
+                            <div style={{ textAlign: 'center', padding: '40px 20px 8px' }}>
+                                <div style={{ width: 56, height: 56, borderRadius: '50%', margin: '0 auto 16px', background: 'linear-gradient(135deg, #DCFCE7, #F0FDF4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Check size={28} color="#16A34A" strokeWidth={2.5} />
+                                </div>
+                                <div style={{ fontSize: 17, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>Nothing needs your attention</div>
+                                <div style={{ fontSize: 13, color: '#94A3B8', lineHeight: 1.5 }}>
+                                    You&apos;ve responded to every client{filter !== 'ALL' ? ' in this category' : ''}.
+                                </div>
                             </div>
-                            <div style={{ fontSize: 17, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>Nothing needs your attention</div>
-                            <div style={{ fontSize: 13, color: '#94A3B8', lineHeight: 1.5 }}>
-                                You&apos;ve responded to every client{filter !== 'ALL' ? ' in this category' : ''}.<br />
-                                Next check-in: tomorrow at 9:00 AM.
-                            </div>
+
+                            {filter === 'ALL' && recommendations.length > 0 && (
+                                <div style={{ marginTop: 24 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: '#7C3AED', fontWeight: 600, fontSize: 13 }}>
+                                        <Sparkles size={16} />
+                                        <span>Jarvis recommends — your best next moves</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10 }}>
+                                        {recommendations.map(r => (
+                                            <div key={r.contactId} style={{
+                                                border: '1px solid #e5e7eb', borderRadius: 10, padding: 14,
+                                                background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.03), rgba(59, 130, 246, 0.02))',
+                                            }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 6 }}>
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                                        <div style={{ fontWeight: 600, fontSize: 14, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                                                        <div style={{ fontSize: 12, color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}{r.company ? ` · ${r.company}` : ''}</div>
+                                                    </div>
+                                                    <span style={{
+                                                        fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 6, whiteSpace: 'nowrap',
+                                                        background: '#7C3AED', color: '#fff',
+                                                    }}>{r.suggestedAction.replace(/_/g, ' ')}</span>
+                                                </div>
+                                                <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.45, marginBottom: 10 }}>{r.reason}</div>
+                                                <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
+                                                    <div style={{ display: 'flex', gap: 8, fontSize: 11, color: '#64748B' }}>
+                                                        <span><TrendingUp size={11} style={{ display: 'inline', verticalAlign: 'middle' }} /> {r.leadScore ?? 0}</span>
+                                                        {r.totalRevenue && r.totalRevenue > 0 && <span>${Math.round(r.totalRevenue).toLocaleString()} past</span>}
+                                                        <span style={{ opacity: 0.6 }}>{r.pipelineStage.replace(/_/g, ' ')}</span>
+                                                    </div>
+                                                    <button onClick={() => openCompose(r.email, r.name)} style={{
+                                                        fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 6,
+                                                        background: '#7C3AED', color: '#fff', border: 'none', cursor: 'pointer',
+                                                    }}>Email →</button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ) : filtered.map((action, i) => (
                         <div key={action.id} className="aq-card-item" style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}>

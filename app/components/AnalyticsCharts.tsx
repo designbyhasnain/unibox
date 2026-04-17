@@ -161,6 +161,37 @@ export default function AnalyticsCharts({ data, deviceData, stats, kpis }: Analy
                 </div>
             )}
 
+            {/* ── Open Rate vs Reply Rate ── */}
+            {(data?.openVsReplyData || []).length > 0 && (
+                <div className="a-card a-card-full">
+                    <div className="a-card-header">
+                        <h3 className="a-card-title">Open Rate vs Reply Rate</h3>
+                        <p className="a-card-sub">% of sent emails opened (attention) vs replied to (intent)</p>
+                    </div>
+                    <div className="a-chart-container" style={{ height: 280 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={data.openVsReplyData}>
+                                <defs>
+                                    <linearGradient id="openGrad" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.18} />
+                                        <stop offset="100%" stopColor="#7c3aed" stopOpacity={0} />
+                                    </linearGradient>
+                                    <linearGradient id="replyGrad" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.18} />
+                                        <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} interval="preserveStartEnd" tick={{ fill: '#5f6368' }} />
+                                <YAxis unit="%" fontSize={11} tickLine={false} axisLine={false} tick={{ fill: '#5f6368' }} />
+                                <Tooltip content={<ChartTooltip />} />
+                                <Area type="monotone" dataKey="openRate" name="Open rate" stroke="#7c3aed" strokeWidth={2} fillOpacity={1} fill="url(#openGrad)" />
+                                <Area type="monotone" dataKey="replyRate" name="Reply rate" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#replyGrad)" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            )}
+
             {/* ── Row 2: Funnel + Reply Categories ── */}
             <div className="a-grid">
                 <div className="a-card a-card--7">

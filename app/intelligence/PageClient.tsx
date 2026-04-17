@@ -2,7 +2,8 @@
 
 import React from 'react';
 import Topbar from '../components/Topbar';
-import { getIntelligenceDashboardAction, getPricingAnalyticsAction } from '../../src/actions/intelligenceActions';
+import { getIntelligenceDashboardAction, getPricingAnalyticsAction, getJarvisWeeklyInsightAction } from '../../src/actions/intelligenceActions';
+import { Sparkles, RefreshCw } from 'lucide-react';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import { avatarColor, initials } from '../utils/helpers';
@@ -21,6 +22,16 @@ export default function IntelligencePage() {
         () => getPricingAnalyticsAction()
     );
 
+    // Jarvis Weekly Insight — fetched once on mount, user can regenerate.
+    const [weekly, setWeekly] = React.useState<Awaited<ReturnType<typeof getJarvisWeeklyInsightAction>> | null>(null);
+    const [weeklyLoading, setWeeklyLoading] = React.useState(false);
+    const loadWeekly = React.useCallback(async () => {
+        setWeeklyLoading(true);
+        try { setWeekly(await getJarvisWeeklyInsightAction()); }
+        finally { setWeeklyLoading(false); }
+    }, []);
+    React.useEffect(() => { loadWeekly(); }, [loadWeekly]);
+
     const fmt = (v: number) => '$' + (v || 0).toLocaleString();
     const riskColors: Record<string, string> = { critical: '#EF4444', high: '#F59E0B', medium: '#3B82F6', low: '#10B981' };
 
@@ -38,6 +49,57 @@ export default function IntelligencePage() {
                         <PageLoader isLoading={!isHydrated || isLoading} type="list" count={6}>
                             {data && (
                                 <>
+                                    {/* Jarvis Weekly Insight */}
+                                    <div style={{
+                                        marginBottom: 24,
+                                        background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.06), rgba(59, 130, 246, 0.04))',
+                                        border: '1px solid rgba(124, 58, 237, 0.15)',
+                                        borderRadius: 14,
+                                        padding: 18,
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <Sparkles size={16} style={{ color: '#7c3aed' }} />
+                                                <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: '#7c3aed', letterSpacing: 0.2 }}>
+                                                    JARVIS WEEKLY INSIGHT
+                                                </h3>
+                                            </div>
+                                            <button onClick={loadWeekly} disabled={weeklyLoading} style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                                background: 'transparent', border: '1px solid rgba(124, 58, 237, 0.25)',
+                                                borderRadius: 6, padding: '3px 10px', fontSize: 11,
+                                                color: '#7c3aed', fontWeight: 600, cursor: weeklyLoading ? 'wait' : 'pointer',
+                                            }}>
+                                                <RefreshCw size={11} style={{ animation: weeklyLoading ? 'spin 1s linear infinite' : 'none' }} />
+                                                {weeklyLoading ? 'Thinking…' : 'Regenerate'}
+                                            </button>
+                                        </div>
+
+                                        {weekly?.summary ? (
+                                            <p style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.55, margin: '0 0 12px', whiteSpace: 'pre-wrap' }}>
+                                                {weekly.summary}
+                                            </p>
+                                        ) : weeklyLoading ? (
+                                            <p style={{ fontSize: 13, color: 'var(--text-muted, #94a3b8)', fontStyle: 'italic', margin: 0 }}>
+                                                Reading your last 7 days and drafting an insight…
+                                            </p>
+                                        ) : (
+                                            <p style={{ fontSize: 13, color: 'var(--text-muted, #94a3b8)', margin: 0 }}>
+                                                {weekly?.error || 'No insight available yet. Click Regenerate.'}
+                                            </p>
+                                        )}
+
+                                        {weekly?.snapshot && (
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, fontSize: 12 }}>
+                                                <Stat label="Sent" value={weekly.snapshot.emailsSent.toLocaleString()} />
+                                                <Stat label="Replies" value={weekly.snapshot.repliesReceived.toLocaleString()} />
+                                                <Stat label="New leads" value={weekly.snapshot.newLeads.toLocaleString()} />
+                                                <Stat label="Deals closed" value={weekly.snapshot.dealsClosed.toLocaleString()} />
+                                                <Stat label="Revenue" value={fmt(weekly.snapshot.revenueClosed)} />
+                                            </div>
+                                        )}
+                                    </div>
+
                                     {/* Revenue Forecast */}
                                     {data.forecast && (
                                         <div style={{ marginBottom: 24 }}>
@@ -325,6 +387,18 @@ export default function IntelligencePage() {
                     </div>
                 </div>
             </div>
+        </div>
+    );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+    return (
+        <div style={{
+            background: 'var(--bg-surface, #fff)', border: '1px solid var(--border-subtle, #e5e7eb)',
+            borderRadius: 8, padding: '6px 10px',
+        }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>{label}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{value}</div>
         </div>
     );
 }
