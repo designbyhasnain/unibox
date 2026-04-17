@@ -199,6 +199,7 @@ interface EmailDetailProps {
     onNotInterested?: ((email: string) => void) | undefined;
     onNotSpam?: ((messageId: string) => void) | undefined;
     replySlot?: React.ReactNode;
+    suggestionSlot?: React.ReactNode;
     onDelete?: () => void;
     totalCount?: number;
 }
@@ -613,6 +614,7 @@ export function EmailDetail({
     onNotInterested,
     onNotSpam,
     replySlot,
+    suggestionSlot,
     onDelete,
     totalCount = 0,
 }: EmailDetailProps) {
@@ -1023,6 +1025,9 @@ export function EmailDetail({
                     </div>
                 )}
             </div>
+
+            {/* ─── Jarvis Suggestion (above reply footer) ─── */}
+            {suggestionSlot}
 
             {/* ─── Reply Footer ─── */}
             <div className="gmail-reply-footer">

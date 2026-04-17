@@ -19,9 +19,13 @@ interface InlineReplyProps {
     // thread immediately and rolled back only if the server rejects it.
     onOptimisticAppend?: (message: any) => void;
     onOptimisticRollback?: (messageId: string) => void;
+    // Jarvis-suggested draft. Changing the `initialBodyKey` re-seeds the editor
+    // so the same text can be copied twice if the user clears it in between.
+    initialBody?: string;
+    initialBodyKey?: number;
 }
 
-export default function InlineReply({ threadId, to, subject, accountId, onSuccess, onCancel, onOptimisticAppend, onOptimisticRollback }: InlineReplyProps) {
+export default function InlineReply({ threadId, to, subject, accountId, onSuccess, onCancel, onOptimisticAppend, onOptimisticRollback, initialBody, initialBodyKey }: InlineReplyProps) {
     const { accounts: ctxAccounts } = useGlobalFilter();
     const [body, setBody] = useState('');
     const [isSending, setIsSending] = useState(false);
@@ -48,7 +52,25 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
         if (editorRef.current) {
             editorRef.current.focus();
         }
+    }, []);
 
+    // Seed editor with a Jarvis suggestion when requested.
+    useEffect(() => {
+        if (!editorRef.current) return;
+        if (initialBodyKey === undefined || !initialBody) return;
+        const safe = DOMPurify.sanitize(initialBody.replace(/\n/g, '<br/>'));
+        editorRef.current.innerHTML = safe;
+        setBody(editorRef.current.innerHTML);
+        // Move cursor to end
+        const range = document.createRange();
+        range.selectNodeContents(editorRef.current);
+        range.collapse(false);
+        const sel = window.getSelection();
+        if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+        editorRef.current.focus();
+    }, [initialBody, initialBodyKey]);
+
+    useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
                 setShowEmojiPicker(false);

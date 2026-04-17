@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useUI } from './context/UIContext';
 import InlineReply from './components/InlineReply';
+import JarvisSuggestionBox from './components/JarvisSuggestionBox';
 import { EmailRow, EmailDetail, PaginationControls, ToastStack } from './components/InboxComponents';
 import { PageLoader } from './components/LoadingStates';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -71,6 +72,14 @@ export default function InboxPage() {
     const [isReplyingInline, setIsReplyingInline] = useState(false);
     const [toasts, setToasts] = useState<ToastItem[]>([]);
     const [bulkLoading, setBulkLoading] = useState(false);
+    const [jarvisDraft, setJarvisDraft] = useState<string>('');
+    const [jarvisDraftVersion, setJarvisDraftVersion] = useState(0);
+
+    const handleCopyJarvisDraft = useCallback((text: string) => {
+        setJarvisDraft(text);
+        setJarvisDraftVersion(v => v + 1);
+        setIsReplyingInline(true);
+    }, []);
 
     const handleBulkStageChange = async (stage: string) => {
         if (selectedEmailIds.size === 0) return;
@@ -520,6 +529,14 @@ export default function InboxPage() {
                                 }}
                                 onNotInterested={activeTab === 'inbox' ? handleNotInterested : undefined}
                                 totalCount={totalCount}
+                                suggestionSlot={
+                                    !isReplyingInline && selectedEmail.thread_id ? (
+                                        <JarvisSuggestionBox
+                                            threadId={selectedEmail.thread_id}
+                                            onCopy={handleCopyJarvisDraft}
+                                        />
+                                    ) : null
+                                }
                                 replySlot={
                                     <InlineReply
                                         threadId={selectedEmail.thread_id}
@@ -530,6 +547,8 @@ export default function InboxPage() {
                                         accountId={selectedEmail.gmail_account_id}
                                         onOptimisticAppend={appendThreadMessage}
                                         onOptimisticRollback={removeThreadMessage}
+                                        initialBody={jarvisDraft}
+                                        initialBodyKey={jarvisDraftVersion}
                                         onSuccess={() => setIsReplyingInline(false)}
                                         onCancel={() => setIsReplyingInline(false)}
                                     />
