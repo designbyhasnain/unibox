@@ -167,7 +167,7 @@ export default function OpportunitiesPage() {
                                     )}
 
                                     {/* Revenue Estimate Cards */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, padding: '16px 16px 0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, padding: '16px 16px 0' }}>
                                         {[
                                             { label: 'Waiting for Reply', value: data.waitingCount, revenue: data.estimatedRevenue.waiting, color: '#EF4444', desc: 'Reply = instant deal' },
                                             { label: 'Win-Back Targets', value: data.winBackCount, revenue: data.estimatedRevenue.winBack, color: '#F59E0B', desc: '10% will convert' },
@@ -215,8 +215,36 @@ export default function OpportunitiesPage() {
                                         {/* Contact List */}
                                         <div style={{ flex: 1, overflowY: 'auto', borderRight: aiSummary || aiLoading ? '1px solid var(--border-subtle)' : 'none' }}>
                                             {(activeList || []).length === 0 ? (
-                                                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                                                    No contacts in this category
+                                                <div style={{ padding: '3.5rem 2rem', textAlign: 'center' }}>
+                                                    <div style={{
+                                                        width: 56, height: 56, borderRadius: '50%',
+                                                        margin: '0 auto 14px',
+                                                        background: 'linear-gradient(135deg, rgba(16,185,129,0.1), rgba(59,130,246,0.06))',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        fontSize: 24,
+                                                    }}>
+                                                        {activeTab === 'waiting' ? '\u23F0' : activeTab === 'winback' ? '\uD83D\uDC4B' : '\uD83D\uDCE8'}
+                                                    </div>
+                                                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+                                                        {activeTab === 'waiting' ? 'No replies waiting' : activeTab === 'winback' ? 'No win-back targets' : 'No stale follow-ups'}
+                                                    </div>
+                                                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5, marginBottom: 14, maxWidth: 320, margin: '0 auto 14px' }}>
+                                                        {activeTab === 'waiting'
+                                                            ? 'When a lead replies and is waiting for your response, they will appear here.'
+                                                            : activeTab === 'winback'
+                                                            ? 'Contacts who were engaged then went silent for 30+ days will surface here.'
+                                                            : 'Outreach that got no reply after a few days will queue up here for a gentle nudge.'}
+                                                    </div>
+                                                    <button
+                                                        onClick={() => { setComposeOpen(true); }}
+                                                        style={{
+                                                            background: 'var(--accent, #1a73e8)', color: '#fff',
+                                                            border: 'none', padding: '8px 18px', borderRadius: 8,
+                                                            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        {activeTab === 'waiting' ? 'Add your first deal \u2192' : 'Start outreach \u2192'}
+                                                    </button>
                                                 </div>
                                             ) : (
                                                 (activeList || []).map((c: any) => renderContactRow(c, activeTab === 'waiting'))

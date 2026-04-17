@@ -97,7 +97,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
 .se-hd-actions{display:flex;align-items:center;gap:10px}
 
 /* ── KPI Cards ── */
-.se-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.se-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:24px}
 .se-kpi{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:20px 24px;transition:box-shadow .15s}
 .se-kpi:hover{box-shadow:0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -2px rgba(0,0,0,0.1)}
 .se-kpi-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:12px}
@@ -111,6 +111,11 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
 .se-r2{grid-template-columns:1fr 1fr}
 .se-r3{grid-template-columns:3fr 2fr}
 .se-r4{grid-template-columns:3fr 2fr 2fr}
+@media (max-width:960px){
+  .se-in{padding:20px}
+  .se-r2,.se-r3,.se-r4{grid-template-columns:1fr}
+  .se-cta{grid-template-columns:1fr}
+}
 .se-c{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:24px;transition:box-shadow .15s}
 .se-c:hover{box-shadow:0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -2px rgba(0,0,0,0.1)}
 .se-c-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
@@ -119,7 +124,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
 .se-c-a:hover{color:#171717}
 
 /* ── Outreach Metrics ── */
-.se-outreach{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+.se-outreach{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:24px}
 .se-out-card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:18px 20px;text-align:center}
 .se-out-v{font-size:32px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:#171717;line-height:1}
 .se-out-l{font-size:12px;color:#a3a3a3;font-weight:500;margin-top:6px}
@@ -319,7 +324,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
 
             {/* ── Revenue Forecast + Active Campaigns (admin/sales) ── */}
             {!isEditor && addons && (
-                <div className="se-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                <div className="se-row se-r2">
                     {/* Revenue Forecast */}
                     <div className="se-c">
                         <div className="se-c-h">
@@ -400,8 +405,18 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                                 ))}
                             </div>
                         ) : (
-                            <div style={{ padding: '20px 0', textAlign: 'center', color: '#a3a3a3', fontSize: 12 }}>
-                                No running campaigns. <Link href="/campaigns/new" style={{ color: '#0ea5e9', fontWeight: 600, textDecoration: 'none' }}>Launch one →</Link>
+                            <div style={{ padding: '18px 16px', textAlign: 'center', borderRadius: 10, background: 'linear-gradient(135deg, #fafafa, #f5f5f5)', border: '1px dashed #e5e5e5' }}>
+                                <div style={{ fontSize: 12, color: '#525252', marginBottom: 10, fontWeight: 500 }}>
+                                    No running campaigns yet.
+                                </div>
+                                <Link href="/campaigns/new" style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                                    background: 'var(--accent, #1a73e8)', color: '#fff',
+                                    padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                                    textDecoration: 'none',
+                                }}>
+                                    Launch Campaign →
+                                </Link>
                             </div>
                         )}
                     </div>
@@ -482,20 +497,43 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
             {!isEditor && <div className="se-row se-r4 se-a se-a5">
                 <div className="se-c">
                     <div className="se-c-h"><span className="se-c-t">Pipeline Health</span></div>
-                    <div className="se-bars">
-                        {['COLD_LEAD', 'CONTACTED', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'].map(stage => {
-                            const n = Number(pl[stage]) || 0;
-                            const vals = Object.values(pl).map(v => Number(v) || 0);
-                            const max = vals.length > 0 ? Math.max(...vals, 1) : 1;
+                    {(() => {
+                        const stageKeys = ['COLD_LEAD', 'CONTACTED', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'];
+                        const totalInStages = stageKeys.reduce((s, k) => s + (Number(pl[k]) || 0), 0);
+                        if (totalInStages === 0) {
                             return (
-                                <div className="se-bar-row" key={stage}>
-                                    <span className="se-bar-l">{SL[stage]}</span>
-                                    <div className="se-bar-track"><div className="se-bar-fill" style={{ width: `${(n / max) * 100}%`, background: SC[stage] }}/></div>
-                                    <span className="se-bar-n">{n}</span>
+                                <div className="se-empty">
+                                    <div className="se-empty-icon">&#128200;</div>
+                                    <div className="se-empty-text">No leads in your pipeline yet</div>
+                                    <div className="se-empty-sub">Start outreach to see stages populate.</div>
+                                    <Link href="/campaigns/new" style={{
+                                        display: 'inline-block', marginTop: 12,
+                                        background: '#171717', color: '#fff',
+                                        padding: '8px 16px', borderRadius: 8,
+                                        fontSize: 12, fontWeight: 600, textDecoration: 'none',
+                                    }}>
+                                        Start Outreach →
+                                    </Link>
                                 </div>
                             );
-                        })}
-                    </div>
+                        }
+                        return (
+                            <div className="se-bars">
+                                {stageKeys.map(stage => {
+                                    const n = Number(pl[stage]) || 0;
+                                    const vals = Object.values(pl).map(v => Number(v) || 0);
+                                    const max = vals.length > 0 ? Math.max(...vals, 1) : 1;
+                                    return (
+                                        <div className="se-bar-row" key={stage}>
+                                            <span className="se-bar-l">{SL[stage]}</span>
+                                            <div className="se-bar-track"><div className="se-bar-fill" style={{ width: `${(n / max) * 100}%`, background: SC[stage] }}/></div>
+                                            <span className="se-bar-n">{n}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })()}
                 </div>
 
                 <div className="se-c">

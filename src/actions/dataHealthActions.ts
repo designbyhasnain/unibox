@@ -111,16 +111,16 @@ export async function getDataHealthAction(): Promise<{ success: boolean; data?: 
             stale,
             overdue,
         ] = await Promise.all([
-            supabase.from('email_messages').select('id', { count: 'exact', head: true }),
-            supabase.from('contacts').select('id', { count: 'exact', head: true }),
-            supabase.from('projects').select('id', { count: 'exact', head: true }),
-            supabase.from('email_messages').select('id', { count: 'exact', head: true }).is('contact_id', null),
-            supabase.from('projects').select('id', { count: 'exact', head: true }).is('client_id', null),
-            supabase.from('contacts').select('id', { count: 'exact', head: true }).is('account_manager_id', null),
-            supabase.from('contacts').select('id', { count: 'exact', head: true })
+            supabase.from('email_messages').select('id', { count: 'estimated', head: true }),
+            supabase.from('contacts').select('id', { count: 'estimated', head: true }),
+            supabase.from('projects').select('id', { count: 'estimated', head: true }),
+            supabase.from('email_messages').select('id', { count: 'estimated', head: true }).is('contact_id', null),
+            supabase.from('projects').select('id', { count: 'estimated', head: true }).is('client_id', null),
+            supabase.from('contacts').select('id', { count: 'estimated', head: true }).is('account_manager_id', null),
+            supabase.from('contacts').select('id', { count: 'estimated', head: true })
                 .lt('updated_at', sixtyDaysAgo)
                 .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED']),
-            supabase.from('projects').select('id', { count: 'exact', head: true })
+            supabase.from('projects').select('id', { count: 'estimated', head: true })
                 .eq('paid_status', 'UNPAID')
                 .lt('project_date', thirtyDaysAgo),
         ]);
