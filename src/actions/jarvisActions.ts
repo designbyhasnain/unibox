@@ -4,6 +4,21 @@ import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { getAccessibleGmailAccountIds, blockEditorAccess } from '../utils/accessControl';
 import { generateReplySuggestion } from '../services/replySuggestionService';
+import { generateDailyBriefing, type DailyBriefing } from '../services/dailyBriefingService';
+
+/**
+ * Jarvis Daily Briefing — role-aware 24h summary.
+ * All three roles call the same action; the service routes based on role.
+ */
+export async function getDailyBriefingAction(): Promise<{ success: boolean; briefing?: DailyBriefing; error?: string }> {
+    try {
+        const { userId, role } = await ensureAuthenticated();
+        const briefing = await generateDailyBriefing(userId, role);
+        return { success: true, briefing };
+    } catch (e: any) {
+        return { success: false, error: e?.message || 'Failed to generate briefing' };
+    }
+}
 
 /**
  * Generate a Jarvis-suggested reply for the given thread.

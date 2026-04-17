@@ -7,6 +7,7 @@ import { getSalesDashboardAction, getDashboardAddonsAction, type DashboardAddons
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
+import JarvisDailyBriefing from '../components/JarvisDailyBriefing';
 
 const RevenueBarChart = dynamic(() => import('../components/RevenueBarChart'), { ssr: false });
 const OnboardingWizard = dynamic(() => import('../components/OnboardingWizard'), { ssr: false });
@@ -221,6 +222,9 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                     </div>
                 )}
             </div>
+
+            {/* ── Jarvis Daily Briefing (role-aware, identical layout) ── */}
+            <JarvisDailyBriefing />
 
             {/* ── KPI Cards ── */}
             <div className="se-kpis se-a se-a2">
