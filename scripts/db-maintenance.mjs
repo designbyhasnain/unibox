@@ -226,6 +226,188 @@ if (APPLY) {
     console.log(`    Before: ${orphanProjectsBefore ?? 0}  Linked: ${projLinked}  After: ${orphanProjectsAfter ?? 0}`);
 }
 
+// ── Phase 5: Assign ownerless contacts to admin ─────────────────────────────
+console.log('\n[5] Assign ownerless contacts (account_manager_id IS NULL) to admin');
+const { count: ownerlessBefore } = await supabase.from('contacts')
+    .select('id', { count: 'exact', head: true })
+    .is('account_manager_id', null);
+console.log(`    Ownerless contacts: ${ownerlessBefore ?? 0}`);
+
+if (APPLY && (ownerlessBefore ?? 0) > 0) {
+    const { error: assignErr, count } = await supabase
+        .from('contacts')
+        .update({ account_manager_id: admin.id }, { count: 'exact' })
+        .is('account_manager_id', null);
+    if (assignErr) { console.error(`    FAILED: ${assignErr.message}`); process.exit(1); }
+    console.log(`    Assigned to admin: ${count ?? 0}`);
+}
+
+// ── Phase 6: Fuzzy match orphan projects to contacts by client name ─────────
+console.log('\n[6] Smart project matcher — fuzzy match orphan projects to contacts by name');
+
+// Normalize a string to lowercase alphanumeric token set. We strip common
+// suffixes ("Wedding", "Video", "Reels", etc.), dates, and trailing numbers
+// so "Halsey Wedding" -> ["halsey"] can match contact "Halsey Johnson".
+const STOP_WORDS = new Set([
+    // project-type words
+    'wedding', 'weddings', 'video', 'videos', 'film', 'films', 'reel', 'reels',
+    'edit', 'edits', 'project', 'final', 'copy', 'draft', 'revision', 'rev',
+    'highlight', 'highlights', 'teaser', 'trailer', 'ceremony', 'reception', 'engagement',
+    'prewedding', 'preview', 'screenshot', 'youtube', 'instagram', 'tiktok',
+    'vlog', 'vlogs', 'short', 'shorts', 'main', 'full', 'raw', 'categories', 'category',
+    'files', 'data', 'shoot', 'session', 'part', 'round', 'version',
+    // english stop words
+    'the', 'a', 'an', 'and', 'of', 'for', 'to', 'no', 'yes', 'with', 'from', 'by',
+    'or', 'on', 'in', 'at', 'is', 'are', 'was', 'were', 'not', 'new', 'old',
+    // version markers
+    'v1', 'v2', 'v3', 'v4', 'v5',
+]);
+
+function normalize(s) {
+    if (!s) return [];
+    return String(s)
+        .toLowerCase()
+        .replace(/\d{1,4}[._-]\d{1,2}[._-]\d{1,4}/g, ' ')    // dates
+        .replace(/\([^)]*\)/g, ' ')                            // parens content
+        .replace(/[^a-z0-9\s]/g, ' ')                          // punctuation
+        .replace(/\d+/g, ' ')                                  // bare numbers
+        .split(/\s+/)
+        .filter(t => t.length >= 3 && !STOP_WORDS.has(t));   // min 3 chars
+}
+
+// Fetch all orphan projects
+const { data: allOrphanProjects } = await supabase
+    .from('projects')
+    .select('id, project_name')
+    .is('client_id', null)
+    .not('project_name', 'is', null);
+
+// Paginate ALL contacts (13k+). Supabase default limit is 1000 per fetch.
+const allContacts = [];
+let cFrom = 0;
+while (true) {
+    const { data: page } = await supabase
+        .from('contacts')
+        .select('id, name, email')
+        .order('id', { ascending: true })
+        .range(cFrom, cFrom + 999);
+    if (!page || page.length === 0) break;
+    allContacts.push(...page);
+    cFrom += page.length;
+    if (page.length < 1000) break;
+}
+
+console.log(`    Orphan projects w/ name: ${(allOrphanProjects || []).length}`);
+console.log(`    Contacts in CRM        : ${(allContacts || []).length}`);
+
+// Build a lookup: every contact-name token -> set of contact IDs that contain it
+const tokenIndex = new Map();  // token -> Set<contactId>
+const contactTokens = new Map();  // contactId -> Set<token>
+for (const c of allContacts || []) {
+    const tokens = new Set(normalize(c.name));
+    if (tokens.size === 0) continue;
+    contactTokens.set(c.id, tokens);
+    for (const t of tokens) {
+        if (!tokenIndex.has(t)) tokenIndex.set(t, new Set());
+        tokenIndex.get(t).add(c.id);
+    }
+}
+
+// For each orphan project:
+//   1. Extract meaningful tokens from project_name.
+//   2. Find candidate contacts whose name contains AT LEAST ONE of the tokens.
+//   3. Score each candidate by how many project tokens match.
+//   4. Link only if there is a UNIQUE best match.
+const matches = [];  // { projId, contactId, projName, contactName }
+let skippedEmpty = 0;
+let skippedAmbiguous = 0;
+
+// Build a quick contactId -> name lookup for reporting
+const contactNameById = new Map((allContacts || []).map(c => [c.id, c.name]));
+
+for (const p of allOrphanProjects || []) {
+    // Dedup the project token list so a doubled surname ("Paz ... Paz") doesn't
+    // score twice against a contact.
+    const pTokenSet = new Set(normalize(p.project_name));
+    if (pTokenSet.size === 0) { skippedEmpty++; continue; }
+
+    // Union of candidate contact IDs across all project tokens
+    const candidates = new Set();
+    for (const t of pTokenSet) {
+        const set = tokenIndex.get(t);
+        if (set) for (const cid of set) candidates.add(cid);
+    }
+    if (candidates.size === 0) continue;
+
+    // Score each candidate: how many UNIQUE project tokens appear in contact name?
+    let bestScore = 0, bestIds = [];
+    for (const cid of candidates) {
+        const cTokens = contactTokens.get(cid);
+        if (!cTokens) continue;
+        let score = 0;
+        for (const t of pTokenSet) if (cTokens.has(t)) score++;
+        if (score > bestScore) { bestScore = score; bestIds = [cid]; }
+        else if (score === bestScore) bestIds.push(cid);
+    }
+
+    // Require AT LEAST 2 matching unique tokens to avoid single-surname false
+    // positives. (An "Ant" -> "Ant Wilson" single-token match is too risky on
+    // 13k contacts.) Exception: a 1-token project can match a 1-token contact
+    // if the tokens are identical (exact full-name match).
+    const MIN_SCORE = 2;
+    const firstProjToken = [...pTokenSet][0];
+    const contactFullMatch =
+        bestIds.length === 1
+        && pTokenSet.size === 1
+        && contactTokens.get(bestIds[0])?.size === 1
+        && contactTokens.get(bestIds[0])?.has(firstProjToken);
+
+    if (bestScore < MIN_SCORE && !contactFullMatch) continue;
+    if (bestIds.length !== 1) { skippedAmbiguous++; continue; }
+
+    const cid = bestIds[0];
+    matches.push({
+        projId: p.id, contactId: cid,
+        projName: p.project_name, contactName: contactNameById.get(cid) || '',
+        score: bestScore, pTokenCount: pTokenSet.size,
+    });
+}
+
+console.log(`    Projects skipped (no usable tokens): ${skippedEmpty}`);
+console.log(`    Projects skipped (ambiguous match) : ${skippedAmbiguous}`);
+console.log(`    Unique matches found               : ${matches.length}`);
+
+// Show a sample so the user can eyeball the quality
+if (matches.length > 0) {
+    console.log('\n    Sample matches (first 15):');
+    for (const m of matches.slice(0, 15)) {
+        console.log(`      [${m.score}/${m.pTokenCount}] "${String(m.projName).slice(0, 42).padEnd(42)}" -> ${m.contactName}`);
+    }
+}
+
+if (APPLY && matches.length > 0) {
+    let fuzzyLinked = 0;
+    // Group by contact_id to batch
+    const byClient = new Map();
+    for (const m of matches) {
+        if (!byClient.has(m.contactId)) byClient.set(m.contactId, []);
+        byClient.get(m.contactId).push(m.projId);
+    }
+    for (const [clientId, ids] of byClient) {
+        for (let i = 0; i < ids.length; i += 500) {
+            const chunk = ids.slice(i, i + 500);
+            const { error } = await supabase.from('projects').update({ client_id: clientId }).in('id', chunk);
+            if (error) { console.error(`    FAILED: ${error.message}`); break; }
+            fuzzyLinked += chunk.length;
+        }
+    }
+    console.log(`    Linked: ${fuzzyLinked}`);
+
+    const { count: orphanProjectsAfterFuzzy } = await supabase
+        .from('projects').select('id', { count: 'exact', head: true }).is('client_id', null);
+    console.log(`    Orphan projects remaining: ${orphanProjectsAfterFuzzy ?? 0}`);
+}
+
 // ── Phase 4: Deactivate target user ─────────────────────────────────────────
 console.log('\n[4] Deactivate target user');
 console.log(`    Current crm_status: ${target.crm_status}`);
