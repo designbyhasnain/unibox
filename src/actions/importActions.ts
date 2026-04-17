@@ -3,6 +3,7 @@
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { normalizeEmail } from '../utils/emailNormalizer';
+import { blockEditorAccess } from '../utils/accessControl';
 
 export type ImportRow = {
     email: string;
@@ -23,7 +24,8 @@ export type ImportPreview = {
 };
 
 export async function previewCSVImportAction(rows: ImportRow[]): Promise<ImportPreview> {
-    await ensureAuthenticated();
+    const { role } = await ensureAuthenticated();
+    blockEditorAccess(role);
 
     const validRows: ImportRow[] = [];
     const invalidCount = rows.filter(r => !r.email || !r.email.includes('@')).length;
@@ -72,7 +74,8 @@ export async function importCSVAction(rows: ImportRow[]): Promise<{
     skipped: number;
     errors: number;
 }> {
-    const { userId } = await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
 
     let imported = 0;
     let skipped = 0;

@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { normalizeEmail } from '../utils/emailNormalizer';
-import { getAccessibleGmailAccountIds } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, getOwnerFilter, blockEditorAccess, isAdmin } from '../utils/accessControl';
 
 // 9.0 — Ensure a contact exists for a given email address
 export async function ensureContactAction(email: string, name?: string) {
@@ -208,16 +208,20 @@ export async function getClientsAction(
 }
 
 export async function getStageCounts(): Promise<Record<string, number>> {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
     const stages = ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
     const counts: Record<string, number> = {};
     let total = 0;
 
     await Promise.all(stages.map(async (stage) => {
-        const { count } = await supabase
+        let q = supabase
             .from('contacts')
             .select('id', { count: 'exact', head: true })
             .eq('pipeline_stage', stage);
+        if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+        const { count } = await q;
         counts[stage] = count ?? 0;
         total += counts[stage];
     }));
@@ -300,12 +304,16 @@ export async function checkDuplicateAction(
 // 9.x — Fetch a single contact by ID
 export async function getContactAction(contactId: string) {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!contactId) return null;
-    const { data, error } = await supabase
+    const ownerFilter = getOwnerFilter(userId, role);
+
+    let q = supabase
         .from('contacts')
-        .select('id, name, email')
-        .eq('id', contactId)
-        .single();
+        .select('id, name, email, account_manager_id')
+        .eq('id', contactId);
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { data, error } = await q.maybeSingle();
 
     if (error) {
         console.error('getContactAction error:', error);
@@ -318,8 +326,22 @@ export async function getContactAction(contactId: string) {
 // 9.2 Tab 2 — Fetch projects for a specific contact
 export async function getClientProjectsAction(contactId: string) {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!contactId) return [];
-    const { data, error } = await supabase
+    const ownerFilter = getOwnerFilter(userId, role);
+
+    // Ensure the contact itself is accessible before returning its projects
+    if (ownerFilter) {
+        const { data: owned } = await supabase
+            .from('contacts')
+            .select('id')
+            .eq('id', contactId)
+            .eq('account_manager_id', ownerFilter)
+            .maybeSingle();
+        if (!owned) return [];
+    }
+
+    let q = supabase
         .from('projects')
         .select(`
             id,
@@ -330,9 +352,9 @@ export async function getClientProjectsAction(contactId: string) {
             priority,
             created_at
         `)
-        .eq('client_id', contactId)
-        .order('created_at', { ascending: false })
-        .limit(100);
+        .eq('client_id', contactId);
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { data, error } = await q.order('created_at', { ascending: false }).limit(100);
 
     if (error) {
         console.error('getClientProjectsAction error:', error);
@@ -359,18 +381,33 @@ export type ClientUpdatePayload = {
 // Delete clients — hard delete from database
 export async function removeClientsAction(contactIds: string[]) {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!contactIds || contactIds.length === 0) return { success: false, error: 'No contacts selected' };
+
+    // SALES can only delete contacts they own. Restrict IDs to owned rows first.
+    let allowedIds = contactIds;
+    if (!isAdmin(role)) {
+        const { data: owned } = await supabase
+            .from('contacts')
+            .select('id')
+            .in('id', contactIds)
+            .eq('account_manager_id', userId);
+        allowedIds = (owned || []).map((r: any) => r.id);
+        if (allowedIds.length === 0) {
+            return { success: false, error: 'No accessible contacts to delete' };
+        }
+    }
 
     // Nullify foreign keys on email_messages to preserve email history
     await supabase
         .from('email_messages')
         .update({ contact_id: null })
-        .in('contact_id', contactIds);
+        .in('contact_id', allowedIds);
 
     const { error } = await supabase
         .from('contacts')
         .delete()
-        .in('id', contactIds);
+        .in('id', allowedIds);
 
     if (error) {
         console.error('removeClientsAction error:', error);
@@ -378,26 +415,29 @@ export async function removeClientsAction(contactIds: string[]) {
     }
 
     revalidatePath('/clients');
-    return { success: true, removed: contactIds.length };
+    return { success: true, removed: allowedIds.length };
 }
 
 export async function updateClientAction(clientId: string, updates: ClientUpdatePayload) {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!clientId) return { success: false, error: 'clientId is required' };
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    // Whitelist allowed fields to prevent mass assignment
+    // Whitelist allowed fields to prevent mass assignment.
+    // SALES users cannot reassign a contact to a different manager.
     const allowedFields: (keyof ClientUpdatePayload)[] = ['name', 'email', 'company', 'phone', 'location', 'priority', 'estimated_value', 'expected_close_date', 'pipeline_stage', 'contact_status', 'account_manager_id'];
     const payload: Record<string, any> = { updated_at: new Date().toISOString() };
     for (const field of allowedFields) {
         if (updates[field] !== undefined) {
+            if (field === 'account_manager_id' && !isAdmin(role)) continue;
             payload[field] = field === 'email' ? normalizeEmail(updates[field] as string) : updates[field];
         }
     }
 
-    const { data, error } = await supabase
-        .from('contacts')
-        .update(payload)
-        .eq('id', clientId)
+    let q = supabase.from('contacts').update(payload).eq('id', clientId);
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { data, error } = await q
         .select(`
             id,
             name,
@@ -406,7 +446,7 @@ export async function updateClientAction(clientId: string, updates: ClientUpdate
             updated_at,
             account_manager:users(name)
         `)
-        .single();
+        .maybeSingle();
 
     if (error) {
         console.error('updateClientAction error:', error);

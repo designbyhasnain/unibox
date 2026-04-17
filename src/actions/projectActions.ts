@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, getOwnerFilter, blockEditorAccess, isAdmin } from '../utils/accessControl';
 
 export type ProjectUpdatePayload = {
     projectName?: string;
@@ -39,7 +39,9 @@ export async function getAllProjectsAction(
     search?: string,
 ): Promise<PaginatedProjectsResult | any[]> {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     const accessible = await getAccessibleGmailAccountIds(userId, role);
+    const ownerFilter = getOwnerFilter(userId, role);
 
     if (gmailAccountId && gmailAccountId !== 'ALL') {
         if (accessible !== 'ALL' && !accessible.includes(gmailAccountId)) {
@@ -54,9 +56,9 @@ export async function getAllProjectsAction(
         .from('projects')
         .select(`id, project_name, project_date, due_date, paid_status, priority, final_review, quote, project_value, project_link, brief, reference, deduction_on_delay, status, person, editor, account_manager, team, tags, client_id, account_manager_id, source_email_id, created_at, contacts:client_id(id, name, email)`, { count: 'exact' });
 
-    // Filter projects for SALES users: only show projects assigned to them
-    if (accessible !== 'ALL') {
-        query = query.eq('account_manager_id', userId);
+    // Filter projects for non-admin users: only projects where they are the account manager
+    if (ownerFilter) {
+        query = query.eq('account_manager_id', ownerFilter);
     }
 
     if (search && search.trim()) {
@@ -109,7 +111,13 @@ export async function getManagersAction() {
 // Update an existing project
 export async function updateProjectAction(projectId: string, payload: ProjectUpdatePayload) {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!projectId) return { success: false, error: 'projectId is required' };
+    const ownerFilter = getOwnerFilter(userId, role);
+    // Non-admins cannot reassign a project to a different manager
+    if (payload.accountManagerId !== undefined && !isAdmin(role)) {
+        delete payload.accountManagerId;
+    }
     // Build update object, filtering out undefined values to avoid nullifying existing fields
     const updateData: Record<string, any> = {};
     if (payload.projectName !== undefined) updateData.project_name = payload.projectName;
@@ -147,16 +155,21 @@ export async function updateProjectAction(projectId: string, payload: ProjectUpd
         return { success: true, project: null };
     }
 
-    const { data, error } = await supabase
+    let updateQuery = supabase
         .from('projects')
         .update(updateData)
-        .eq('id', projectId)
+        .eq('id', projectId);
+    if (ownerFilter) updateQuery = updateQuery.eq('account_manager_id', ownerFilter);
+    const { data, error } = await updateQuery
         .select('id, project_name, project_date, due_date, paid_status, priority, quote, project_value, project_link, brief, reference, deduction_on_delay, final_review, source_email_id, client_id, account_manager_id, created_at')
-        .single();
+        .maybeSingle();
 
     if (error) {
         console.error('updateProjectAction error:', error);
         return { success: false, error: 'An error occurred while processing your request' };
+    }
+    if (!data) {
+        return { success: false, error: 'Project not found or access denied' };
     }
 
     revalidatePath('/projects');
@@ -172,16 +185,19 @@ export async function createProjectFromEmailAction(payload: {
     accountManagerId?: string;
 }) {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!payload.clientId || !payload.projectName || !payload.sourceEmailId) {
         return { success: false, error: 'clientId, projectName, and sourceEmailId are required' };
     }
+    // Non-admins can only create projects under their own manager id
+    const managerId = isAdmin(role) ? (payload.accountManagerId || userId) : userId;
     const { data, error } = await supabase
         .from('projects')
         .insert({
             client_id: payload.clientId,
             project_name: payload.projectName,
             source_email_id: payload.sourceEmailId,
-            account_manager_id: payload.accountManagerId || userId,
+            account_manager_id: managerId,
             project_date: new Date().toISOString(),
             due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // +7 days default
             paid_status: 'UNPAID',
@@ -219,9 +235,12 @@ export async function createProjectAction(payload: {
     sourceEmailId?: string | null;
 }) {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!payload.clientId || !payload.projectName || !payload.projectDate || !payload.dueDate || !payload.accountManagerId) {
         return { success: false, error: 'clientId, projectName, projectDate, dueDate, and accountManagerId are required' };
     }
+    // SALES users can only create projects they own
+    const managerId = isAdmin(role) ? payload.accountManagerId : userId;
     // Validate numeric fields
     if (payload.quote != null && (typeof payload.quote !== 'number' || !Number.isFinite(payload.quote) || payload.quote < 0)) {
         return { success: false, error: 'Invalid quote value' };
@@ -240,7 +259,7 @@ export async function createProjectAction(payload: {
             project_name: payload.projectName,
             project_date: payload.projectDate,
             due_date: payload.dueDate,
-            account_manager_id: payload.accountManagerId,
+            account_manager_id: managerId,
             priority: payload.priority || 'MEDIUM',
             paid_status: payload.paidStatus || 'UNPAID',
             quote: payload.quote ?? null,
@@ -267,13 +286,17 @@ export async function createProjectAction(payload: {
 // ── Orphaned Projects (no client linked) ──────────────────────────────────
 
 export async function getOrphanedProjectsAction(page: number = 1, pageSize: number = 10) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
 
     const offset = (page - 1) * pageSize;
-    const { data, error, count } = await supabase
+    let orphanQuery = supabase
         .from('projects')
         .select('id, project_name, project_value, paid_status, project_date, status, account_manager, account_manager_id', { count: 'exact' })
-        .is('client_id', null)
+        .is('client_id', null);
+    if (ownerFilter) orphanQuery = orphanQuery.eq('account_manager_id', ownerFilter);
+    const { data, error, count } = await orphanQuery
         .order('project_value', { ascending: false })
         .range(offset, offset + pageSize - 1);
 
@@ -344,13 +367,15 @@ export async function getOrphanedProjectsAction(page: number = 1, pageSize: numb
 
 // Get suspiciously linked projects (many projects, few emails)
 export async function getSuspiciousLinksAction() {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    const { data } = await supabase.from('contacts')
+    let q = supabase.from('contacts')
         .select('id, name, email, total_projects, total_emails_sent, total_emails_received, total_revenue')
-        .gt('total_projects', 5)
-        .order('total_projects', { ascending: false })
-        .limit(50);
+        .gt('total_projects', 5);
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { data } = await q.order('total_projects', { ascending: false }).limit(50);
 
     return (data || []).filter(c => {
         const totalEmails = (c.total_emails_sent || 0) + (c.total_emails_received || 0);
@@ -364,54 +389,62 @@ export async function getSuspiciousLinksAction() {
 
 // Unlink all projects from a contact (put back into orphan queue)
 export async function unlinkContactProjectsAction(contactId: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!contactId) return { success: false, error: 'contactId required' };
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    const { data: projects } = await supabase.from('projects')
-        .select('id')
-        .eq('client_id', contactId);
+    let listQuery = supabase.from('projects').select('id').eq('client_id', contactId);
+    if (ownerFilter) listQuery = listQuery.eq('account_manager_id', ownerFilter);
+    const { data: projects } = await listQuery;
 
     const count = projects?.length || 0;
+    if (count === 0) return { success: true, unlinked: 0 };
 
-    const { error } = await supabase.from('projects')
-        .update({ client_id: null })
-        .eq('client_id', contactId);
+    let unlinkQuery = supabase.from('projects').update({ client_id: null }).eq('client_id', contactId);
+    if (ownerFilter) unlinkQuery = unlinkQuery.eq('account_manager_id', ownerFilter);
+    const { error } = await unlinkQuery;
 
     if (error) return { success: false, error: error.message };
 
-    // Reset contact revenue
-    await supabase.from('contacts').update({
-        total_revenue: 0,
-        unpaid_amount: 0,
-        total_projects: 0,
-    }).eq('id', contactId);
+    // Reset contact revenue (admin only — SALES can't zero out another manager's counters)
+    if (isAdmin(role)) {
+        await supabase.from('contacts').update({
+            total_revenue: 0,
+            unpaid_amount: 0,
+            total_projects: 0,
+        }).eq('id', contactId);
+    }
 
     return { success: true, unlinked: count };
 }
 
 export async function searchContactsForLinkingAction(query: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!query || query.trim().length < 2) return [];
+    const ownerFilter = getOwnerFilter(userId, role);
 
     const q = query.trim().replace(/[%_\\]/g, '\\$&');
-    const { data } = await supabase
+    let search = supabase
         .from('contacts')
         .select('id, name, email, company, location, total_revenue, total_projects')
-        .or(`name.ilike.%${q}%,email.ilike.%${q}%,company.ilike.%${q}%`)
-        .order('total_revenue', { ascending: false })
-        .limit(10);
+        .or(`name.ilike.%${q}%,email.ilike.%${q}%,company.ilike.%${q}%`);
+    if (ownerFilter) search = search.eq('account_manager_id', ownerFilter);
+    const { data } = await search.order('total_revenue', { ascending: false }).limit(10);
 
     return data || [];
 }
 
 export async function linkProjectToContactAction(projectId: string, contactId: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!projectId || !contactId) return { success: false, error: 'projectId and contactId required' };
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    const { error } = await supabase
-        .from('projects')
-        .update({ client_id: contactId })
-        .eq('id', projectId);
+    let linkQuery = supabase.from('projects').update({ client_id: contactId }).eq('id', projectId);
+    if (ownerFilter) linkQuery = linkQuery.eq('account_manager_id', ownerFilter);
+    const { error } = await linkQuery;
 
     if (error) return { success: false, error: error.message };
 

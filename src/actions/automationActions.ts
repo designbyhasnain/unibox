@@ -1,6 +1,7 @@
 'use server';
 
 import { ensureAuthenticated } from '../lib/safe-action';
+import { requireAdmin } from '../utils/accessControl';
 import {
     getContactsNeedingFollowUp,
     detectWarmLeads,
@@ -14,7 +15,8 @@ import {
 
 /** Get automation dashboard data */
 export async function getAutomationDashboardAction() {
-    await ensureAuthenticated();
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
 
     const [followUps, topLeads, sendTimes, warmLeads, reEngagement] = await Promise.all([
         getContactsNeedingFollowUp(3, 3),
@@ -38,28 +40,32 @@ export async function getAutomationDashboardAction() {
 
 /** Recalculate all lead scores */
 export async function recalculateScoresAction() {
-    await ensureAuthenticated();
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
     const updated = await recalculateLeadScores();
     return { success: true, updated };
 }
 
 /** Run all automations manually */
 export async function runAutomationsAction() {
-    await ensureAuthenticated();
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
     const result = await runAllAutomations();
     return { success: true, ...result };
 }
 
 /** Get follow-up candidates */
 export async function getFollowUpCandidatesAction(days: number = 3, maxFollowups: number = 3) {
-    await ensureAuthenticated();
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
     const candidates = await getContactsNeedingFollowUp(days, maxFollowups);
     return { success: true, candidates };
 }
 
 /** Get best send times */
 export async function getBestSendTimesAction() {
-    await ensureAuthenticated();
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
     const data = await getBestSendTimes();
     return { success: true, ...data };
 }

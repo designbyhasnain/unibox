@@ -39,6 +39,10 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
   const { userId } = await ensureAuthenticated();
   const role = await getFreshRole(userId);
 
+  const isAdminRole = role === 'ADMIN' || role === 'ACCOUNT_MANAGER';
+  const isEditorRole = role === 'VIDEO_EDITOR';
+  const isSalesRole = role === 'SALES';
+
   const sortBy = filters?.sortBy || 'createdAt';
   const sortOrder = filters?.sortOrder === 'asc';
 
@@ -57,6 +61,11 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
   let query = supabase
     .from('edit_projects')
     .select('*, comments:project_comments(id)', { count: 'exact' });
+
+  // Strict identity scoping for non-admin roles
+  if (!isAdminRole) {
+    query = query.eq('user_id', userId);
+  }
 
   if (filters?.progress) query = query.eq('progress', filters.progress);
   if (filters?.editor) query = query.eq('editor', filters.editor);
@@ -136,6 +145,8 @@ export async function createEditProject(data: Record<string, unknown>) {
 
 export async function updateEditProject(id: string, updates: Record<string, unknown>) {
   const { userId } = await ensureAuthenticated();
+  const role = await getFreshRole(userId);
+  const isAdminRole = role === 'ADMIN' || role === 'ACCOUNT_MANAGER';
 
   // Map camelCase keys to snake_case DB columns
   const snakeMap: Record<string, string> = {
@@ -162,17 +173,19 @@ export async function updateEditProject(id: string, updates: Record<string, unkn
     dbUpdates[dbKey] = val;
   }
 
-  const { data: project, error } = await supabase
+  let updQuery = supabase
     .from('edit_projects')
     .update(dbUpdates)
-    .eq('id', id)
-    .eq('user_id', userId)
-    .select()
-    .single();
+    .eq('id', id);
+  if (!isAdminRole) updQuery = updQuery.eq('user_id', userId);
+  const { data: project, error } = await updQuery.select().maybeSingle();
 
   if (error) {
     console.error('[updateEditProject]', error);
     return { success: false as const, error: error.message };
+  }
+  if (!project) {
+    return { success: false as const, error: 'Project not found or access denied' };
   }
 
   return { success: true as const, data: project };
@@ -182,12 +195,12 @@ export async function updateEditProject(id: string, updates: Record<string, unkn
 
 export async function deleteEditProject(id: string) {
   const { userId } = await ensureAuthenticated();
+  const role = await getFreshRole(userId);
+  const isAdminRole = role === 'ADMIN' || role === 'ACCOUNT_MANAGER';
 
-  const { error } = await supabase
-    .from('edit_projects')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', userId);
+  let delQuery = supabase.from('edit_projects').delete().eq('id', id);
+  if (!isAdminRole) delQuery = delQuery.eq('user_id', userId);
+  const { error } = await delQuery;
 
   if (error) {
     console.error('[deleteEditProject]', error);
@@ -201,12 +214,12 @@ export async function deleteEditProject(id: string) {
 
 export async function deleteMultipleEditProjects(ids: string[]) {
   const { userId } = await ensureAuthenticated();
+  const role = await getFreshRole(userId);
+  const isAdminRole = role === 'ADMIN' || role === 'ACCOUNT_MANAGER';
 
-  const { error } = await supabase
-    .from('edit_projects')
-    .delete()
-    .in('id', ids)
-    .eq('user_id', userId);
+  let delMultiQuery = supabase.from('edit_projects').delete().in('id', ids);
+  if (!isAdminRole) delMultiQuery = delMultiQuery.eq('user_id', userId);
+  const { error } = await delMultiQuery;
 
   if (error) {
     console.error('[deleteMultipleEditProjects]', error);
@@ -220,13 +233,12 @@ export async function deleteMultipleEditProjects(ids: string[]) {
 
 export async function duplicateEditProject(id: string) {
   const { userId } = await ensureAuthenticated();
+  const role = await getFreshRole(userId);
+  const isAdminRole = role === 'ADMIN' || role === 'ACCOUNT_MANAGER';
 
-  const { data: original, error: fetchErr } = await supabase
-    .from('edit_projects')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', userId)
-    .single();
+  let origQuery = supabase.from('edit_projects').select('*').eq('id', id);
+  if (!isAdminRole) origQuery = origQuery.eq('user_id', userId);
+  const { data: original, error: fetchErr } = await origQuery.maybeSingle();
 
   if (fetchErr || !original) {
     return { success: false as const, error: 'Project not found' };
@@ -253,15 +265,21 @@ export async function getEditProjectById(id: string) {
   const { userId } = await ensureAuthenticated();
   const role = await getFreshRole(userId);
 
-  const { data: project, error } = await supabase
+  const isAdminRole = role === 'ADMIN' || role === 'ACCOUNT_MANAGER';
+
+  let byIdQuery = supabase
     .from('edit_projects')
     .select('*, comments:project_comments(id, content, author_name, author_id, image_url, project_id, created_at)')
-    .eq('id', id)
-    .single();
+    .eq('id', id);
+  if (!isAdminRole) byIdQuery = byIdQuery.eq('user_id', userId);
+  const { data: project, error } = await byIdQuery.maybeSingle();
 
   if (error) {
     console.error('[getEditProjectById]', error);
     return { success: false as const, error: error.message };
+  }
+  if (!project) {
+    return { success: false as const, error: 'Project not found' };
   }
 
   const masked = role === 'VIDEO_EDITOR' ? maskProjectForEditor(project as Record<string, unknown>) : project;
@@ -272,14 +290,13 @@ export async function getEditProjectById(id: string) {
 
 export async function addProjectComment(projectId: string, content: string) {
   const { userId } = await ensureAuthenticated();
+  const role = await getFreshRole(userId);
+  const isAdminRole = role === 'ADMIN' || role === 'ACCOUNT_MANAGER';
 
-  // Verify ownership
-  const { data: project } = await supabase
-    .from('edit_projects')
-    .select('id')
-    .eq('id', projectId)
-    .eq('user_id', userId)
-    .single();
+  // Verify access (admins can comment on any project; others only on their own)
+  let projCheckQuery = supabase.from('edit_projects').select('id').eq('id', projectId);
+  if (!isAdminRole) projCheckQuery = projCheckQuery.eq('user_id', userId);
+  const { data: project } = await projCheckQuery.maybeSingle();
 
   if (!project) return { success: false as const, error: 'Project not found' };
 
@@ -315,19 +332,23 @@ export async function addProjectComment(projectId: string, content: string) {
 
 export async function deleteProjectComment(commentId: string) {
   const { userId } = await ensureAuthenticated();
+  const role = await getFreshRole(userId);
+  const isAdminRole = role === 'ADMIN' || role === 'ACCOUNT_MANAGER';
 
-  // Verify comment belongs to user's project
+  // Verify comment belongs to user's project (admins bypass ownership check)
   const { data: comment } = await supabase
     .from('project_comments')
     .select('id, project:edit_projects!inner(user_id)')
     .eq('id', commentId)
-    .single();
+    .maybeSingle();
 
   if (!comment) return { success: false as const, error: 'Comment not found' };
 
-  const proj = comment.project as unknown as { user_id: string };
-  if (proj.user_id !== userId) {
-    return { success: false as const, error: 'Unauthorized' };
+  if (!isAdminRole) {
+    const proj = comment.project as unknown as { user_id: string };
+    if (proj.user_id !== userId) {
+      return { success: false as const, error: 'Unauthorized' };
+    }
   }
 
   const { error } = await supabase

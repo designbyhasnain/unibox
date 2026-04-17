@@ -2,12 +2,15 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
+import { getOwnerFilter, blockEditorAccess } from '../utils/accessControl';
 
 /** 1.1 — Get contacts waiting for YOUR reply (money on the table) */
 export async function getWaitingForReplyAction() {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    const { data } = await supabase
+    let q = supabase
         .from('contacts')
         .select('id, name, email, company, pipeline_stage, total_emails_received, total_emails_sent, days_since_last_contact, relationship_health, lead_score')
         .eq('last_message_direction', 'RECEIVED')
@@ -15,9 +18,9 @@ export async function getWaitingForReplyAction() {
         .not('email', 'ilike', '%rafay%')
         .not('email', 'ilike', '%mailer-daemon%')
         .not('email', 'ilike', '%noreply%')
-        .not('email', 'ilike', '%notify%')
-        .order('days_since_last_contact', { ascending: true })
-        .limit(50);
+        .not('email', 'ilike', '%notify%');
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { data } = await q.order('days_since_last_contact', { ascending: true }).limit(50);
 
     return (data || []).map(c => ({
         ...c,
@@ -27,27 +30,31 @@ export async function getWaitingForReplyAction() {
 
 /** 1.2 — Get win-back candidates (engaged then went silent) */
 export async function getWinBackCandidatesAction() {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    const { data } = await supabase
+    let q = supabase
         .from('contacts')
         .select('id, name, email, company, pipeline_stage, total_emails_received, total_emails_sent, days_since_last_contact, lead_score')
         .gt('total_emails_received', 4)
         .gt('days_since_last_contact', 30)
         .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'])
         .not('email', 'ilike', '%rafay%')
-        .not('email', 'ilike', '%mailer-daemon%')
-        .order('total_emails_received', { ascending: false })
-        .limit(50);
+        .not('email', 'ilike', '%mailer-daemon%');
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { data } = await q.order('total_emails_received', { ascending: false }).limit(50);
 
     return data || [];
 }
 
 /** 1.3 — Get stale follow-ups (sent 1-2 emails, never followed up) */
 export async function getStaleFollowUpsAction() {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    const { data } = await supabase
+    let q = supabase
         .from('contacts')
         .select('id, name, email, company, pipeline_stage, total_emails_sent, total_emails_received, days_since_last_contact, followup_count')
         .in('pipeline_stage', ['COLD_LEAD', 'CONTACTED'])
@@ -57,16 +64,17 @@ export async function getStaleFollowUpsAction() {
         .gt('days_since_last_contact', 3)
         .eq('auto_followup_enabled', true)
         .not('email', 'ilike', '%rafay%')
-        .not('email', 'ilike', '%noreply%')
-        .order('days_since_last_contact', { ascending: true })
-        .limit(100);
+        .not('email', 'ilike', '%noreply%');
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { data } = await q.order('days_since_last_contact', { ascending: true }).limit(100);
 
     return data || [];
 }
 
 /** Revenue opportunity dashboard stats */
 export async function getRevenueOpportunitiesAction() {
-    await ensureAuthenticated();
+    const { role } = await ensureAuthenticated();
+    blockEditorAccess(role);
 
     const [waiting, winBack, stale] = await Promise.all([
         getWaitingForReplyAction(),
@@ -82,9 +90,9 @@ export async function getRevenueOpportunitiesAction() {
         staleFollowUps: stale,
         staleCount: stale.length,
         estimatedRevenue: {
-            waiting: waiting.length * 450, // avg deal $450
-            winBack: Math.round(winBack.length * 0.1 * 450), // 10% conversion
-            stale: Math.round(stale.length * 0.05 * 450), // 5% conversion
+            waiting: waiting.length * 450,
+            winBack: Math.round(winBack.length * 0.1 * 450),
+            stale: Math.round(stale.length * 0.05 * 450),
         },
     };
 }

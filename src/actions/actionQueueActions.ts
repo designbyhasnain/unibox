@@ -2,7 +2,7 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, getOwnerFilter, blockEditorAccess } from '../utils/accessControl';
 
 export type ActionItem = {
     id: string;
@@ -32,6 +32,7 @@ export async function getActionQueueAction(): Promise<{
     counts: { critical: number; high: number; medium: number; low: number; total: number };
 }> {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
 
     try {
     const accessible = await getAccessibleGmailAccountIds(userId, role);
@@ -296,10 +297,14 @@ export async function getActionQueueAction(): Promise<{
 }
 
 export async function snoozeActionAction(contactId: string, days: number) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
     try {
         const snoozeUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-        const { error } = await supabase.from('contacts').update({ next_followup_at: snoozeUntil }).eq('id', contactId);
+        let q = supabase.from('contacts').update({ next_followup_at: snoozeUntil }).eq('id', contactId);
+        if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+        const { error } = await q;
         if (error) throw error;
         return { success: true };
     } catch (error) {
@@ -309,12 +314,16 @@ export async function snoozeActionAction(contactId: string, days: number) {
 }
 
 export async function markActionDoneAction(contactId: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
     try {
-        const { error } = await supabase.from('contacts').update({
+        let q = supabase.from('contacts').update({
             next_followup_at: null,
             auto_followup_enabled: false,
         }).eq('id', contactId);
+        if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+        const { error } = await q;
         if (error) throw error;
         return { success: true };
     } catch (error) {
@@ -357,14 +366,18 @@ export async function getContactLastEmailsAction(contactId: string): Promise<{
     emails: LastEmail[];
     gmailAccountId: string | null;
 }> {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
     try {
         // Fetch contact stats upfront so we can decide whether Tier 1 is enough
-        const { data: contact } = await supabase
+        let contactQuery = supabase
             .from('contacts')
-            .select('email, total_emails_sent, total_emails_received')
-            .eq('id', contactId)
-            .single();
+            .select('email, total_emails_sent, total_emails_received, account_manager_id')
+            .eq('id', contactId);
+        if (ownerFilter) contactQuery = contactQuery.eq('account_manager_id', ownerFilter);
+        const { data: contact } = await contactQuery.maybeSingle();
+        if (!contact) return { emails: [], gmailAccountId: null };
 
         // ── Tier 1: Fast path — query by indexed contact_id ──
         // Fetch up to 20 so habit computation has enough signal (needs 3+ RECEIVED)

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds, requireAdmin } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, requireAdmin, blockEditorAccess, getOwnerFilter } from '../utils/accessControl';
 import { getNextValidSendTime } from '../services/campaignProcessorService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -186,6 +186,7 @@ export async function createCampaignAction(payload: CreateCampaignPayload) {
 export async function getCampaignsAction() {
     try {
         const { userId, role } = await ensureAuthenticated();
+        blockEditorAccess(role);
 
         let query = supabase
             .from('campaigns')
@@ -355,6 +356,7 @@ export async function getCampaignsAction() {
 export async function getCampaignDetailAction(campaignId: string) {
     try {
         const { userId, role } = await ensureAuthenticated();
+        blockEditorAccess(role);
 
         if (!campaignId) return null;
 
@@ -1229,13 +1231,20 @@ export async function getVariantAnalyticsAction(campaignId: string): Promise<Var
 export async function getEnrollableContactsAction(campaignId: string, search?: string) {
     try {
         const { userId, role } = await ensureAuthenticated();
+        blockEditorAccess(role);
 
-        // Fetch all contacts
+        const campaign = await verifyCampaignOwnership(campaignId, userId, role);
+        if (!campaign) return [];
+
+        const ownerFilter = getOwnerFilter(userId, role);
+
+        // Fetch contacts visible to this user
         let query = supabase
             .from('contacts')
             .select('id, name, email, company, pipeline_stage, priority, location')
             .order('updated_at', { ascending: false })
             .limit(200);
+        if (ownerFilter) query = query.eq('account_manager_id', ownerFilter);
 
         if (search && search.trim()) {
             const escaped = search.replace(/[%_\\]/g, '\\$&');
@@ -1287,7 +1296,11 @@ export async function getEnrollableContactsAction(campaignId: string, search?: s
 import { parseLeadsCSV } from '../utils/csvParser';
 
 export async function importLeadsFromCSVAction(campaignId: string, csvText: string) {
-    const { userId } = await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+
+    const campaign = await verifyCampaignOwnership(campaignId, userId, role);
+    if (!campaign) return { success: false, error: 'Campaign not found or access denied' };
 
     const { leads, errors, customColumns } = parseLeadsCSV(csvText);
     if (!leads.length) return { success: false, error: 'No valid leads found', errors };
@@ -1360,7 +1373,12 @@ export async function sendTestEmailAction(data: {
     body: string;
     fromAccountId: string;
 }) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+
+    if (!(await verifyAccountAccess(userId, role, data.fromAccountId))) {
+        return { success: false, error: 'Account access denied' };
+    }
 
     const sampleContact = {
         name: 'Test User', email: data.toEmail,
@@ -1397,13 +1415,19 @@ export async function previewWithLeadAction(data: {
     contactId: string;
     campaignId: string;
 }) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
 
-    const { data: contact } = await supabase
+    const campaign = await verifyCampaignOwnership(data.campaignId, userId, role);
+    if (!campaign) return null;
+
+    const ownerFilter = getOwnerFilter(userId, role);
+    let contactQuery = supabase
         .from('contacts')
-        .select('id, name, email, company, phone')
-        .eq('id', data.contactId)
-        .single();
+        .select('id, name, email, company, phone, account_manager_id')
+        .eq('id', data.contactId);
+    if (ownerFilter) contactQuery = contactQuery.eq('account_manager_id', ownerFilter);
+    const { data: contact } = await contactQuery.maybeSingle();
 
     if (!contact) return null;
 
@@ -1425,7 +1449,11 @@ export async function previewWithLeadAction(data: {
 // ─── Diagnose Campaign ──────────────────────────────────────────────────────
 
 export async function diagnoseCampaignAction(campaignId: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+
+    const campaignOwnership = await verifyCampaignOwnership(campaignId, userId, role);
+    if (!campaignOwnership) return { issues: ['Campaign not found'] };
 
     const { data: campaign } = await supabase
         .from('campaigns')
@@ -1514,7 +1542,11 @@ export async function diagnoseCampaignAction(campaignId: string) {
 // ─── Update Campaign Options ─────────────────────────────────────────────────
 
 export async function updateCampaignOptionsAction(campaignId: string, updates: Record<string, any>) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+
+    const campaign = await verifyCampaignOwnership(campaignId, userId, role);
+    if (!campaign) return { success: false, error: 'Campaign not found or access denied' };
 
     const allowedFields = [
         'schedule_enabled', 'schedule_days', 'schedule_start_time', 'schedule_end_time',

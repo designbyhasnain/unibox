@@ -2,6 +2,7 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
+import { getOwnerFilter, blockEditorAccess } from '../utils/accessControl';
 
 export type RelationshipAlert = {
     type: string;
@@ -24,8 +25,21 @@ export type RelationshipInsight = {
 
 /** Analyze a single contact's relationship */
 export async function getRelationshipInsightAction(contactId: string): Promise<RelationshipInsight | null> {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!contactId) return null;
+
+    // For SALES, confirm the contact belongs to them before running analysis
+    const ownerFilter = getOwnerFilter(userId, role);
+    if (ownerFilter) {
+        const { data: owned } = await supabase
+            .from('contacts')
+            .select('id')
+            .eq('id', contactId)
+            .eq('account_manager_id', ownerFilter)
+            .maybeSingle();
+        if (!owned) return null;
+    }
 
     const { data, error } = await supabase.rpc('analyze_contact_relationship', {
         p_contact_id: contactId,
@@ -52,30 +66,34 @@ export async function getRelationshipInsightAction(contactId: string): Promise<R
 
 /** Get all contacts with critical/high alerts */
 export async function getCriticalRelationshipsAction(): Promise<any[]> {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    const { data } = await supabase
+    let q = supabase
         .from('contacts')
         .select('id, name, email, relationship_health, alerts, total_emails_received, days_since_last_contact, pipeline_stage')
         .in('relationship_health', ['critical'])
-        .gt('total_emails_received', 0)
-        .order('total_emails_received', { ascending: false })
-        .limit(20);
+        .gt('total_emails_received', 0);
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { data } = await q.order('total_emails_received', { ascending: false }).limit(20);
 
     return (data || []).filter(c => !c.email?.includes('rafay') && !c.email?.includes('mailer-daemon'));
 }
 
 /** Get lost engagement opportunities */
 export async function getLostEngagementAction(): Promise<any[]> {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    const { data } = await supabase
+    let q = supabase
         .from('contacts')
         .select('id, name, email, total_emails_received, days_since_last_contact, pipeline_stage')
         .eq('relationship_health', 'dead')
-        .gt('total_emails_received', 2)
-        .order('total_emails_received', { ascending: false })
-        .limit(20);
+        .gt('total_emails_received', 2);
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { data } = await q.order('total_emails_received', { ascending: false }).limit(20);
 
     return data || [];
 }

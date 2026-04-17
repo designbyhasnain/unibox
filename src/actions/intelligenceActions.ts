@@ -2,10 +2,14 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
+import { requireAdmin } from '../utils/accessControl';
 
 /** 2.2 — Churn Predictor: contacts whose response speed is slowing */
 export async function getChurnRisksAction() {
-    await ensureAuthenticated();
+    {
+        const { role } = await ensureAuthenticated();
+        requireAdmin(role);
+    }
     const { data, error } = await supabase.rpc('detect_churn_risk');
     if (error) { console.error('Churn RPC error:', error); return []; }
     return (data || []).map((r: any) => ({
@@ -17,7 +21,10 @@ export async function getChurnRisksAction() {
 
 /** 2.4 — Competitor mentions in received emails */
 export async function getCompetitorMentionsAction() {
-    await ensureAuthenticated();
+    {
+        const { role } = await ensureAuthenticated();
+        requireAdmin(role);
+    }
     const { data, error } = await supabase.rpc('detect_competitor_mentions');
     if (error) { console.error('Competitor RPC error:', error); return []; }
     return (data || []).map((r: any) => ({
@@ -28,7 +35,10 @@ export async function getCompetitorMentionsAction() {
 
 /** 3.2 — Revenue Forecasting */
 export async function getRevenueForecastAction() {
-    await ensureAuthenticated();
+    {
+        const { role } = await ensureAuthenticated();
+        requireAdmin(role);
+    }
     const { data, error } = await supabase.rpc('get_revenue_forecast');
     if (error) { console.error('Forecast RPC error:', error); return null; }
     return data;
@@ -36,7 +46,10 @@ export async function getRevenueForecastAction() {
 
 /** 3.4 — Auto-Escalation Alerts */
 export async function getEscalationAlertsAction() {
-    await ensureAuthenticated();
+    {
+        const { role } = await ensureAuthenticated();
+        requireAdmin(role);
+    }
     const { data, error } = await supabase.rpc('get_escalation_alerts');
     if (error) { console.error('Escalation RPC error:', error); return null; }
     return data;
@@ -44,7 +57,10 @@ export async function getEscalationAlertsAction() {
 
 /** Pricing Analytics — avg project values, monthly trends, best clients, price brackets */
 export async function getPricingAnalyticsAction() {
-    await ensureAuthenticated();
+    {
+        const { role } = await ensureAuthenticated();
+        requireAdmin(role);
+    }
 
     // All projects with value
     const { data: projects } = await supabase
@@ -177,7 +193,10 @@ export async function getPricingAnalyticsAction() {
 
 /** Combined intelligence dashboard (single RPC — fast) */
 export async function getIntelligenceDashboardAction() {
-    await ensureAuthenticated();
+    {
+        const { role } = await ensureAuthenticated();
+        requireAdmin(role);
+    }
     const { data, error } = await supabase.rpc('get_intelligence_dashboard');
     if (error) {
         console.error('Intelligence RPC error:', error);

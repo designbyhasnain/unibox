@@ -2,6 +2,7 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
+import { getOwnerFilter, blockEditorAccess } from '../utils/accessControl';
 
 export type ContactSummary = {
     contactName: string;
@@ -28,8 +29,18 @@ export type ContactSummary = {
 };
 
 export async function generateContactSummaryAction(contactId: string): Promise<ContactSummary | null> {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!contactId) return null;
+
+    const ownerFilter = getOwnerFilter(userId, role);
+    if (ownerFilter) {
+        const { data: owned } = await supabase
+            .from('contacts').select('id')
+            .eq('id', contactId).eq('account_manager_id', ownerFilter)
+            .maybeSingle();
+        if (!owned) return null;
+    }
 
     const { data, error } = await supabase.rpc('generate_contact_summary', {
         p_contact_id: contactId,
@@ -79,15 +90,17 @@ export async function generateContactSummaryAction(contactId: string): Promise<C
 
 /** Generate AI-powered relationship audit (Gemini) */
 export async function generateAISummaryAction(contactId: string): Promise<string> {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!contactId) return 'No contact ID provided.';
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    // Get contact
-    const { data: contact } = await supabase
+    let contactQuery = supabase
         .from('contacts')
-        .select('name, email, pipeline_stage')
-        .eq('id', contactId)
-        .single();
+        .select('name, email, pipeline_stage, account_manager_id')
+        .eq('id', contactId);
+    if (ownerFilter) contactQuery = contactQuery.eq('account_manager_id', ownerFilter);
+    const { data: contact } = await contactQuery.maybeSingle();
 
     if (!contact) return 'Contact not found.';
 

@@ -46,9 +46,18 @@ export async function getAnalyticsDataAction(params: {
 }) {
     const { userId, role } = await ensureAuthenticated();
     try {
-        const { startDate, endDate, managerId, accountId } = params;
+        let { startDate, endDate, managerId, accountId } = params;
         if (!startDate || !endDate || !managerId || !accountId) {
             return { success: false, error: 'startDate, endDate, managerId, and accountId are required' };
+        }
+
+        // Non-admin users cannot query analytics scoped to a different manager
+        if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') {
+            if (managerId !== userId && managerId !== 'ALL') {
+                return emptyAnalytics();
+            }
+            // Force the manager filter to the current user regardless of input
+            managerId = userId;
         }
 
         const filterIds = await resolveFilterAccountIds(accountId, managerId);

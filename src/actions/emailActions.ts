@@ -13,7 +13,7 @@ import { transformEmailRow, transformJoinedEmailRow } from '../utils/emailTransf
 import { clampPageSize } from '../utils/pagination';
 import { PAGINATION } from '../constants/limits';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, canAccessGmailAccount, blockEditorAccess } from '../utils/accessControl';
 
 const PAGE_SIZE = PAGINATION.DEFAULT_PAGE_SIZE;
 
@@ -49,9 +49,17 @@ export async function sendEmailAction(params: {
     isTracked?: boolean;
 }) {
     try {
+        const { userId, role } = await ensureAuthenticated();
+        blockEditorAccess(role);
+
         // Input validation
         if (!params.accountId || !params.to || !params.subject) {
             return { success: false, error: 'accountId, to, and subject are required' };
+        }
+
+        // RBAC: verify current user can send from this account
+        if (!(await canAccessGmailAccount(userId, role, params.accountId))) {
+            return { success: false, error: 'You do not have access to this sending account' };
         }
 
         const { data: account, error: accError } = await supabase
@@ -702,9 +710,14 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
 // ─── Get Thread Messages ──────────────────────────────────────────────────────
 
 export async function getThreadMessagesAction(threadId: string) {
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!threadId) return [];
 
-    const { data: messages, error } = await supabase
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return [];
+
+    let threadQuery = supabase
         .from('email_messages')
         .select(`
             id, thread_id, from_email, to_email, subject,
@@ -712,8 +725,11 @@ export async function getThreadMessagesAction(threadId: string) {
             gmail_account_id, is_tracked, delivered_at, opened_at,
             gmail_accounts ( email, users ( name ) )
         `)
-        .eq('thread_id', threadId)
-        .order('sent_at', { ascending: true });
+        .eq('thread_id', threadId);
+    if (accessible !== 'ALL') {
+        threadQuery = threadQuery.in('gmail_account_id', accessible);
+    }
+    const { data: messages, error } = await threadQuery.order('sent_at', { ascending: true });
 
     if (error) {
         console.error('getThreadMessagesAction error:', error);

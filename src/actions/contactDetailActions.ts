@@ -3,12 +3,16 @@
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { computeContactHabit } from '../utils/clientHabits';
+import { getOwnerFilter, blockEditorAccess } from '../utils/accessControl';
 
 export async function getContactDetailAction(contactId: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
 
-    // Fetch contact first — we need the email for fallback queries
-    const contactRes = await supabase.from('contacts').select('*').eq('id', contactId).single();
+    const ownerFilter = getOwnerFilter(userId, role);
+    let contactQuery = supabase.from('contacts').select('*').eq('id', contactId);
+    if (ownerFilter) contactQuery = contactQuery.eq('account_manager_id', ownerFilter);
+    const contactRes = await contactQuery.maybeSingle();
     if (contactRes.error || !contactRes.data) return null;
 
     // Try fetching emails by contact_id (fast path), fall back to email address match
@@ -120,8 +124,13 @@ export async function getContactDetailAction(contactId: string) {
 export async function updateContactAction(contactId: string, data: {
     name?: string; company?: string; phone?: string; notes?: string; priority?: string;
 }) {
-    await ensureAuthenticated();
-    const { error } = await supabase.from('contacts').update(data).eq('id', contactId);
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const ownerFilter = getOwnerFilter(userId, role);
+
+    let q = supabase.from('contacts').update(data).eq('id', contactId);
+    if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
+    const { error } = await q;
     if (error) throw new Error(error.message);
     return { success: true };
 }
