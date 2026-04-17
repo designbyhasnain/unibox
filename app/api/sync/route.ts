@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { syncGmailEmails, syncAccountHistory, startGmailWatch } from '../../../src/services/gmailSyncService';
+import { syncGmailEmails, syncAccountHistory, startGmailWatch, deepGapFillSync } from '../../../src/services/gmailSyncService';
 import { syncManualEmails } from '../../../src/services/manualEmailService';
 import { supabase } from '../../../src/lib/supabase';
 import { getSession } from '../../../src/lib/auth';
@@ -60,12 +60,29 @@ export async function POST(req: NextRequest) {
         }
 
         const shortId = accountId.substring(0, 8);
+        // Auto-route by how stale the account is:
+        //   • gap ≤ 24h and history_id present → fast partial (history API)
+        //   • gap between 24h and 90 days → bounded deep gap-fill (last 30d)
+        //   • gap > 90 days or no history_id → full sync from scratch
+        // Rationale: history_id is only valid for ~7 days on Google's side, so
+        // a stale history_id fails with 404 and forces a wasteful full sync.
+        // The deep window catches everything webhooks may have missed while
+        // the account was in ERROR, rate-limited, or between retries.
+        const lastSync = account?.last_synced_at ? new Date(account.last_synced_at).getTime() : 0;
+        const gapHours = lastSync ? (Date.now() - lastSync) / 3_600_000 : Infinity;
+        const hasHistory = !!(account?.history_id && account?.last_synced_at);
+
         if (account?.connection_method === 'MANUAL') {
             syncManualEmails(accountId).catch((err) => {
                 console.error(`[Sync API] Manual sync error for ${shortId}:`, err?.message);
             });
-        } else if (account?.history_id && account?.last_synced_at) {
+        } else if (hasHistory && gapHours <= 24) {
             await syncAccountHistory(accountId);
+        } else if (gapHours < 24 * 90) {
+            // Recovery path — deep but bounded. Runs in background.
+            deepGapFillSync(accountId, 30).catch((err) => {
+                console.error(`[Sync API] Deep sync error for ${shortId}:`, err?.message);
+            });
         } else {
             syncGmailEmails(accountId).catch((err) => {
                 console.error(`[Sync API] Full sync error for ${shortId}:`, err?.message);

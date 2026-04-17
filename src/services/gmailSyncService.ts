@@ -828,6 +828,211 @@ export async function syncGmailEmails(accountId: string) {
 }
 
 /**
+ * Deep Gap-Fill Sync — used by the Re-sync button and by auto-recovery
+ * after an account has been offline for a while.
+ *
+ * Unlike the full sync (all history, ~50 msg/sec), this one:
+ *   - Bounds the scope with Gmail's `newer_than:{N}d` query so we never
+ *     blow past 30 days of mail in one pass.
+ *   - Uses concurrency=5 + a longer throttle (300ms) between batches,
+ *     keeping us well under Gmail's per-user quota (no 429s).
+ *   - Is idempotent: processSingleMessage deduplicates by message id,
+ *     so already-synced messages are skipped cheaply.
+ *   - Advances history_id at the end so subsequent partial syncs are
+ *     exact and don't re-scan the same window.
+ *
+ * Call this when:
+ *   - The user clicks Re-sync.
+ *   - /api/sync detects last_synced_at > 24h ago (normal webhooks stalled).
+ *   - A freshly-recovered account hasn't synced in a while.
+ */
+export async function deepGapFillSync(accountId: string, daysBack: number = 30) {
+    const { data: account, error: accountError } = await supabase
+        .from('gmail_accounts')
+        .select('*')
+        .eq('id', accountId)
+        .single();
+
+    if (accountError || !account) throw new Error('Account not found');
+    if (account.connection_method !== 'OAUTH') throw new Error('Deep sync requires OAuth');
+    if (['ERROR', 'DISCONNECTED', 'PAUSED'].includes(account.status)) {
+        console.warn(`[Deep Sync] Skipping ${account.email} — status is ${account.status}`);
+        return { success: false as const, reason: `status=${account.status}` };
+    }
+
+    // Pre-sync token verification — never burn quota on a dead token.
+    try {
+        const { verifyAccessToken } = await import('./googleAuthService');
+        const validToken = await verifyAccessToken(accountId);
+        account.access_token = validToken;
+    } catch (err: any) {
+        if (err?.message === 'AUTH_REQUIRED') throw err;
+        console.warn(`[Deep Sync] Pre-sync token transient for ${account.email}: ${err?.message}`);
+    }
+
+    // Atomic lock
+    const { data: lockResult } = await supabase
+        .from('gmail_accounts')
+        .update({ status: 'SYNCING', sync_progress: 0 })
+        .eq('id', accountId)
+        .eq('status', 'ACTIVE')
+        .select('id');
+    if (!lockResult || lockResult.length === 0) {
+        // Recover stale SYNCING state if > 5 min
+        const lastSync = account.last_synced_at ? new Date(account.last_synced_at).getTime() : 0;
+        const staleMins = (Date.now() - lastSync) / 60000;
+        if (account.status === 'SYNCING' && staleMins > 5) {
+            await supabase.from('gmail_accounts').update({ status: 'ACTIVE' }).eq('id', accountId).eq('status', 'SYNCING');
+            const { data: retryLock } = await supabase
+                .from('gmail_accounts').update({ status: 'SYNCING', sync_progress: 0 })
+                .eq('id', accountId).eq('status', 'ACTIVE').select('id');
+            if (!retryLock || retryLock.length === 0) {
+                console.log(`[Deep Sync] Could not acquire lock for ${account.email}`);
+                return { success: false as const, reason: 'lock_busy' };
+            }
+        } else {
+            console.log(`[Deep Sync] Sync already in progress for ${account.email}`);
+            return { success: false as const, reason: 'lock_busy' };
+        }
+    }
+
+    const gmail = google.gmail({ version: 'v1', auth: getOAuthClient(account) });
+
+    try {
+        console.log(`[Deep Sync] Starting ${account.email} — last ${daysBack} days`);
+
+        // Pre-fetch SENT thread IDs + ignored senders (same as full sync)
+        const { data: sentThreads } = await supabase
+            .from('email_messages')
+            .select('thread_id')
+            .eq('gmail_account_id', accountId)
+            .eq('direction', 'SENT');
+        const sentThreadIds = new Set((sentThreads || []).map((t: any) => t.thread_id));
+
+        const { data: ignoredData } = await supabase.from('ignored_senders').select('email');
+        const ignoredSenders = new Set((ignoredData || []).map((i: any) => i.email?.toLowerCase()).filter(Boolean));
+
+        // Gmail query: every message from the last N days across INBOX + SENT + elsewhere
+        const query = `newer_than:${daysBack}d in:anywhere`;
+        let pageToken: string | undefined = undefined;
+        let totalSeen = 0;
+        let totalProcessed = 0;
+        const PAGE_SIZE = 200; // smaller pages = faster feedback, less bursty
+        const DEEP_CONCURRENCY = 5;
+
+        do {
+            const res: any = await gmail.users.messages.list({
+                userId: 'me', q: query, maxResults: PAGE_SIZE,
+                ...(pageToken ? { pageToken } : {}),
+            });
+
+            const messages: Array<{ id: string; threadId?: string }> = res.data.messages || [];
+            if (messages.length === 0) break;
+
+            // Skip messages we already have a rich body for — avoids re-downloading.
+            const ids = messages.map(m => m.id);
+            const { data: existing } = await supabase
+                .from('email_messages')
+                .select('id, body, gmail_account_id')
+                .in('id', ids);
+            const existingMap = new Map((existing || []).map((e: any) => [e.id, e]));
+            const toFetch = messages.filter(m => {
+                const e = existingMap.get(m.id);
+                if (!e) return true;
+                if (e.gmail_account_id !== accountId) return true; // re-link to this account
+                return !(e.body && (e.body.includes('<div') || e.body.includes('<p') || e.body.includes('<br')));
+            });
+
+            totalSeen += messages.length;
+
+            if (toFetch.length > 0) {
+                await processBatch(
+                    gmail, account, toFetch,
+                    undefined,
+                    DEEP_CONCURRENCY,
+                    sentThreadIds,
+                    ignoredSenders,
+                    messages.length,
+                    0,
+                );
+                totalProcessed += toFetch.length;
+            }
+
+            // Extra breathing room between pages (on top of per-batch sleep)
+            await sleep(300);
+
+            const progress = Math.min(Math.round((totalSeen / Math.max(res.data.resultSizeEstimate || totalSeen, 1)) * 100), 99);
+            await supabase
+                .from('gmail_accounts')
+                .update({ sync_progress: progress, last_synced_at: new Date().toISOString() })
+                .eq('id', accountId);
+
+            console.log(`[Deep Sync] ${account.email}: seen ${totalSeen}, new ${totalProcessed} (${progress}%)`);
+            pageToken = res.data.nextPageToken;
+        } while (pageToken);
+
+        // Advance history_id to the latest so future partial syncs are exact.
+        let latestHistoryId: string | undefined = undefined;
+        try {
+            const profile = await gmail.users.getProfile({ userId: 'me' });
+            latestHistoryId = profile.data.historyId || undefined;
+        } catch {
+            /* best-effort only */
+        }
+
+        await supabase.from('gmail_accounts').update({
+            status: 'ACTIVE',
+            last_synced_at: new Date().toISOString(),
+            sync_progress: 100,
+            sync_fail_count: 0,
+            last_error_message: null,
+            last_error_at: null,
+            ...(latestHistoryId ? { history_id: latestHistoryId.toString() } : {}),
+        }).eq('id', accountId);
+
+        // Ensure watch is alive
+        await startGmailWatch(accountId).catch(e => console.warn('[Deep Sync] watch renewal failed:', e?.message));
+
+        console.log(`[Deep Sync] Complete for ${account.email}. Seen ${totalSeen}, processed ${totalProcessed}.`);
+        return { success: true as const, seen: totalSeen, processed: totalProcessed };
+    } catch (error: any) {
+        console.error(`[Deep Sync ERROR] ${account.email}:`, error?.message || error);
+
+        const auth = isAuthError(error);
+        const rateLimit = isRateLimitError(error);
+        const transient = isTransientError(error);
+
+        const { data: cur } = await supabase
+            .from('gmail_accounts').select('sync_fail_count').eq('id', accountId).maybeSingle();
+        const failCount = (cur?.sync_fail_count ?? 0) + 1;
+
+        if (auth) {
+            await supabase.from('gmail_accounts').update({
+                status: 'ERROR',
+                last_error_message: error?.message?.slice(0, 200) || 'Auth error',
+                last_error_at: new Date().toISOString(),
+                sync_fail_count: failCount,
+            }).eq('id', accountId);
+            throw new Error('AUTH_REQUIRED');
+        }
+
+        const reason = rateLimit ? 'Rate limited — will retry in next cycle'
+            : transient ? 'Transient error — will retry in next cycle'
+            : `Sync error — retry pending (${(error?.message || 'unknown').slice(0, 80)})`;
+
+        await supabase.from('gmail_accounts').update({
+            status: 'ACTIVE',
+            sync_progress: 100,
+            last_error_message: reason,
+            last_error_at: new Date().toISOString(),
+            sync_fail_count: failCount,
+        }).eq('id', accountId);
+
+        return { success: false as const, reason };
+    }
+}
+
+/**
  * Removes SPAM/TRASH labels and adds INBOX label for a Gmail message
  */
 export async function unspamGmailMessage(account: any, messageId: string) {

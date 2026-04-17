@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { getGoogleAuthUrl, generateOAuthState, handleAuthCallback } from '../services/googleAuthService';
 import { testManualConnection } from '../services/manualEmailService';
 import { encrypt, decrypt } from '../utils/encryption';
-import { syncGmailEmails } from '../services/gmailSyncService';
+import { syncGmailEmails, deepGapFillSync } from '../services/gmailSyncService';
 import { syncManualEmails } from '../services/manualEmailService';
 import { normalizeEmail } from '../utils/emailNormalizer';
 import { ensureAuthenticated } from '../lib/safe-action';
@@ -191,8 +191,12 @@ export async function reSyncAccountAction(accountId: string, connectionMethod: '
     if (!accountId) return { success: false, error: 'accountId is required' };
     try {
         if (connectionMethod === 'OAUTH') {
-            // Trigger sync in the background so we don't block the UI forever
-            syncGmailEmails(accountId).catch(console.error);
+            // Deep gap-fill (last 30 days, batched 5-at-a-time) — this backfills
+            // any mail the account missed while in ERROR or between webhook hits.
+            // Runs in the background so the UI returns immediately.
+            deepGapFillSync(accountId, 30).catch(err => {
+                console.error('[reSyncAccountAction] deep sync error:', err?.message || err);
+            });
         } else {
             syncManualEmails(accountId).catch(console.error);
         }
