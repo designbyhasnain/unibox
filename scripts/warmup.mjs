@@ -312,6 +312,37 @@ async function main() {
 
         results.push(accountResult);
 
+        // Persist warm-up outcome on the account row so the Accounts page can
+        // show a warning badge for any account that couldn't send cleanly.
+        // We never flip status to ERROR — the user's stability rule is
+        // "only confirmed invalid_grant disconnects". Warm-up failures are
+        // informational: app-password wrong / SMTP quota / network blip / etc.
+        if (!DRY_RUN) {
+            try {
+                if (accountResult.failed > 0) {
+                    const firstErr = (accountResult.errors[0] || 'Warm-up failed').slice(0, 200);
+                    await prisma.gmailAccount.update({
+                        where: { id: acc.id },
+                        data: {
+                            last_error_message: `Warm-up: ${firstErr}`,
+                            last_error_at: new Date(),
+                        },
+                    });
+                } else if (accountResult.sent > 0) {
+                    // Clear any stale warm-up error when the run succeeds.
+                    await prisma.gmailAccount.update({
+                        where: { id: acc.id },
+                        data: {
+                            last_error_message: null,
+                            last_error_at: null,
+                        },
+                    });
+                }
+            } catch (e) {
+                console.warn(`   Could not persist warm-up outcome for ${acc.email}: ${e?.message || e}`);
+            }
+        }
+
         // 60s safe delay between accounts (skip after the last one)
         if (i < accounts.length - 1) {
             console.log(`   Waiting ${DELAY_BETWEEN_ACCOUNTS_MS / 1000}s before next account...\n`);

@@ -598,6 +598,21 @@ export default function AccountsPage() {
                                                     </div>
                                                 )}
 
+                                                {/* Warm-up failure warning. Shows when a recent warm-up run for this
+                                                    account couldn't send. Not a token issue — usually app-password
+                                                    rotation, SMTP quota, or a transient network blip. */}
+                                                {acc.last_error_message && acc.status !== 'ERROR' && acc.last_error_message.startsWith('Warm-up:') && (
+                                                    <div className="acct-warning-banner acct-warning-yellow">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                                        <span>Warm-up failed: {acc.last_error_message.replace(/^Warm-up:\s*/, '').slice(0, 80)}</span>
+                                                        {acc.connection_method === 'MANUAL' ? (
+                                                            <button className="btn btn-xs btn-primary" onClick={() => handleRetestManual(acc)}>Re-test</button>
+                                                        ) : (
+                                                            <button className="btn btn-xs btn-primary" onClick={() => handleOAuthFlow()}>Reconnect</button>
+                                                        )}
+                                                    </div>
+                                                )}
+
                                                 {acc.connection_method === 'OAUTH' && acc.watch_status !== 'ACTIVE' && acc.status !== 'ERROR' && (
                                                     <div className="acct-warning-banner acct-warning-red">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
