@@ -6504,4 +6504,290 @@ textarea:focus-visible {
 .ep-import-progress-bar { height: 6px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; margin-bottom: 12px; }
 .ep-import-progress-fill { height: 100%; background: var(--accent); transition: width 300ms; border-radius: 3px; }
 .ep-import-done { padding: 3rem 2rem; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   LIGHTNING PERFORMANCE — Phase 1-10 CSS
+   Notion / Apple / Gmail-level polish
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Staggered Skeleton Entrance ─────────────────────────────────── */
+.skeleton-row-stagger {
+    opacity: 0;
+    animation: skeletonStaggerIn 0.35s ease-out forwards;
+    will-change: opacity, transform;
+}
+
+@keyframes skeletonStaggerIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 0.7;
+        transform: translateY(0);
+    }
+}
+
+/* ── Content Crossfade (skeleton → real content) ─────────────────── */
+.content-loaded {
+    animation: contentCrossfade 0.22s ease-out;
+}
+
+@keyframes contentCrossfade {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Page Route Transitions ──────────────────────────────────────── */
+.page-transition-enter {
+    animation: pageEnter 0.2s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+}
+
+@keyframes pageEnter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Interactive Press Feedback ──────────────────────────────────── */
+.btn-primary,
+.btn-secondary,
+.btn-ghost,
+.action-btn,
+button[type="submit"] {
+    transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-primary:active,
+.btn-secondary:active,
+.btn-ghost:active,
+.action-btn:active,
+button[type="submit"]:active {
+    transform: scale(0.97);
+}
+
+/* ── Card Hover Lift ─────────────────────────────────────────────── */
+.skeleton-card,
+.account-card,
+.client-card,
+.campaign-card,
+.template-card,
+.project-card,
+.stat-card,
+.metric-card,
+.opp-card {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.account-card:hover,
+.client-card:hover,
+.campaign-card:hover,
+.template-card:hover,
+.project-card:hover,
+.stat-card:hover,
+.metric-card:hover,
+.opp-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Email Row Hover (Gmail-style) ───────────────────────────────── */
+.gmail-email-row {
+    transition: background 0.1s ease, box-shadow 0.1s ease;
+}
+
+.gmail-email-row:hover {
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* ── Sidebar Link Transitions ────────────────────────────────────── */
+.nav-item {
+    transition: background 0.12s ease, color 0.12s ease, border-left-color 0.12s ease;
+}
+
+/* ── Search Bar Expand ───────────────────────────────────────────── */
+.search-input-wrap {
+    transition: width 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.search-input-wrap:focus-within {
+    box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
+}
+
+/* ── Modal Animations (Polished) ─────────────────────────────────── */
+.modal-overlay {
+    animation: overlayFadeIn 0.15s ease forwards;
+}
+
+@keyframes overlayFadeIn {
+    from { background: transparent; backdrop-filter: blur(0px); }
+    to { background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(4px); }
+}
+
+.modal-content,
+.compose-modal {
+    animation: modalSlideUp 0.22s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+}
+
+@keyframes modalSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* ── Toast Notifications (Notion-style) ──────────────────────────── */
+.undo-toast,
+.toast-notification {
+    animation: toastSlideIn 0.3s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+}
+
+@keyframes toastSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(100%) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* ── Badge Count Bounce ──────────────────────────────────────────── */
+.badge-bounce {
+    animation: badgeBounce 0.3s ease;
+}
+
+@keyframes badgeBounce {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.25); }
+    100% { transform: scale(1); }
+}
+
+/* ── Pipeline Card Drag ──────────────────────────────────────────── */
+.dragging {
+    transform: rotate(1.5deg) scale(1.03) !important;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15) !important;
+    z-index: 999;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.drop-target-active {
+    background: rgba(26, 115, 232, 0.04);
+    border: 2px dashed var(--accent) !important;
+    transition: all 0.2s ease;
+}
+
+/* ── Tab Indicator Slide ─────────────────────────────────────────── */
+.tab-active {
+    position: relative;
+}
+
+.tab-active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--accent);
+    animation: tabSlideIn 0.2s ease forwards;
+}
+
+@keyframes tabSlideIn {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+}
+
+/* ── Checkbox / Toggle Animations ────────────────────────────────── */
+input[type="checkbox"] {
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+/* ── Empty State Entrance ────────────────────────────────────────── */
+.empty-state {
+    animation: emptyFadeIn 0.4s ease-out 0.1s forwards;
+    opacity: 0;
+}
+
+@keyframes emptyFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── GPU Acceleration for Animated Elements ──────────────────────── */
+.gmail-email-row,
+.modal-content,
+.compose-modal,
+.undo-toast,
+.toast-notification,
+.sidebar,
+.skeleton-row-stagger,
+.dragging {
+    will-change: transform, opacity;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+}
+
+/* ── Smooth Scrolling ────────────────────────────────────────────── */
+.email-list-container,
+.thread-messages,
+.client-list,
+.main-content {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ── Focus Ring (Apple-style) ────────────────────────────────────── */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+    transition: outline-offset 0.1s ease;
+}
+
+/* ── Link / Clickable Hover Transitions ──────────────────────────── */
+a,
+[role="button"],
+[data-clickable] {
+    transition: color 0.12s ease, opacity 0.12s ease;
+}
+
+/* ── Reduced Motion (Accessibility) ──────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    .skeleton-row-stagger {
+        opacity: 0.7 !important;
+    }
+}
 

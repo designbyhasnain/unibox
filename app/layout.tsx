@@ -6,8 +6,6 @@ import { UIProvider } from './context/UIContext'
 import { UndoToastProvider } from './context/UndoToastContext'
 import ClientLayout from './components/ClientLayout'
 
-export const dynamic = 'force-dynamic'
-
 export const metadata: Metadata = {
     title: 'VideoMail CRM',
     description: 'Gmail-inspired CRM for Video Production',
