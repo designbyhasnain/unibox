@@ -123,11 +123,11 @@ export async function suggestReplyAction(threadId: string) {
         sentAt: m.sent_at || '',
     }));
 
-    const { suggestion, error } = await generateReplySuggestion(contact, thread);
+    const { suggestion, error, mode } = await generateReplySuggestion(contact, thread);
     if (!suggestion) {
         return { success: false as const, error: error || 'Jarvis could not generate a draft' };
     }
-    return { success: true as const, suggestion };
+    return { success: true as const, suggestion, mode: mode || 'reply' };
 }
 
 /**

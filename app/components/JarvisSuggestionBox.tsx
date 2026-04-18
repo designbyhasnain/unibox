@@ -31,6 +31,7 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
     const [error, setError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
     const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+    const [mode, setMode] = useState<'reply' | 'coaching'>('reply');
     const activeThreadRef = useRef<string | null>(null);
 
     const load = useCallback(async (tid: string) => {
@@ -45,7 +46,10 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
             if (activeThreadRef.current !== tid) return;
             if (res.success) {
                 setSuggestion(res.suggestion);
-                lastJarvisSuggestion = { threadId: tid, suggestion: res.suggestion };
+                setMode((res as { mode?: string }).mode === 'coaching' ? 'coaching' : 'reply');
+                if ((res as { mode?: string }).mode !== 'coaching') {
+                    lastJarvisSuggestion = { threadId: tid, suggestion: res.suggestion };
+                }
             } else {
                 setError(res.error || 'Jarvis could not generate a draft.');
             }
@@ -94,7 +98,9 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
             style={{
                 border: '1px solid var(--border-color, #e5e7eb)',
                 borderRadius: 10,
-                background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.04), rgba(59, 130, 246, 0.04))',
+                background: mode === 'coaching'
+                    ? 'linear-gradient(135deg, rgba(5, 150, 105, 0.04), rgba(16, 185, 129, 0.04))'
+                    : 'linear-gradient(135deg, rgba(124, 58, 237, 0.04), rgba(59, 130, 246, 0.04))',
                 padding: '10px 14px',
                 margin: '8px 16px 4px',
                 fontSize: 13,
@@ -102,13 +108,13 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
             }}
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: suggestion || isLoading || error ? 6 : 0 }}>
-                <Sparkles size={14} style={{ color: '#7c3aed' }} />
-                <span style={{ fontWeight: 600, fontSize: 12, color: '#7c3aed', letterSpacing: 0.2 }}>
-                    Jarvis suggests…
+                <Sparkles size={14} style={{ color: mode === 'coaching' ? '#059669' : '#7c3aed' }} />
+                <span style={{ fontWeight: 600, fontSize: 12, color: mode === 'coaching' ? '#059669' : '#7c3aed', letterSpacing: 0.2 }}>
+                    {mode === 'coaching' ? 'Jarvis coaching…' : 'Jarvis suggests…'}
                 </span>
                 <span style={{ flex: 1 }} />
 
-                {suggestion && !isLoading && (
+                {suggestion && !isLoading && mode === 'reply' && (
                     <>
                         <button
                             onClick={() => handleFeedback('up')}
@@ -153,20 +159,22 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
                     <RefreshCw size={11} style={{ animation: isLoading ? 'jarvis-spin 1s linear infinite' : 'none' }} />
                     {isLoading ? 'Thinking…' : 'Regenerate'}
                 </button>
-                <button
-                    onClick={handleCopy}
-                    disabled={!suggestion || isLoading}
-                    style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        background: suggestion && !isLoading ? '#7c3aed' : '#d1d5db',
-                        color: '#fff', border: 'none', borderRadius: 6,
-                        padding: '3px 10px', fontSize: 11, fontWeight: 600,
-                        cursor: suggestion && !isLoading ? 'pointer' : 'not-allowed',
-                    }}
-                >
-                    <Copy size={11} />
-                    {copied ? 'Copied!' : 'Copy to Reply'}
-                </button>
+                {mode === 'reply' && (
+                    <button
+                        onClick={handleCopy}
+                        disabled={!suggestion || isLoading}
+                        style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            background: suggestion && !isLoading ? '#7c3aed' : '#d1d5db',
+                            color: '#fff', border: 'none', borderRadius: 6,
+                            padding: '3px 10px', fontSize: 11, fontWeight: 600,
+                            cursor: suggestion && !isLoading ? 'pointer' : 'not-allowed',
+                        }}
+                    >
+                        <Copy size={11} />
+                        {copied ? 'Copied!' : 'Copy to Reply'}
+                    </button>
+                )}
             </div>
 
             {isLoading && (

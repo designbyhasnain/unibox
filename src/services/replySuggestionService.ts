@@ -190,12 +190,25 @@ function formatExamples(examples: Array<{ category: string; client_question: str
     return `\n## WINNING REPLIES FROM SIMILAR SITUATIONS\nThese are real replies that led to closed deals. Use them as style/content reference:\n\n${lines.join('\n\n')}`;
 }
 
+const COACHING_PROMPT = `You are Jarvis — a sales coach for Wedits, a wedding video editing agency. The agent has already sent the last reply in this thread. You are NOT drafting a reply. Instead, give brief coaching feedback.
+
+Rules:
+- If the reply looks good → say so in 1 sentence + suggest when to follow up if no response (e.g. "Follow up in 3 days if no reply")
+- If something could be improved → give 1 specific tip (e.g. "Next time, mention the free test film to lower the barrier")
+- If they forgot to mention pricing when asked → flag it
+- If the conversation is waiting for the client → suggest a follow-up timeline
+- Keep it to 1-2 sentences max. Be supportive, not critical.
+- Output plain text only. No markdown, no headers.`;
+
 export async function generateReplySuggestion(
     contact: SuggestionContact,
     thread: SuggestionMessage[],
-): Promise<{ suggestion: string | null; error?: string }> {
+): Promise<{ suggestion: string | null; error?: string; mode?: 'reply' | 'coaching' }> {
     if (!GROQ_API_KEY) return { suggestion: null, error: 'GROQ_API_KEY not configured' };
     if (!thread || thread.length === 0) return { suggestion: null, error: 'No thread context available' };
+
+    const lastMessage = thread[thread.length - 1];
+    const isCoachingMode = lastMessage?.direction === 'SENT';
 
     const slice = thread.slice(-8);
     const formatted = slice.map((m, i) => {
@@ -215,6 +228,23 @@ export async function generateReplySuggestion(
         contact.totalRevenue && contact.totalRevenue > 0 ? `Lifetime revenue: $${contact.totalRevenue}` : null,
     ].filter(Boolean).join('\n');
 
+    if (isCoachingMode) {
+        const userPrompt = `## THIS CONTACT\n${contactLines}\n\n## RECENT THREAD (oldest first)\n\n${formatted}\n\nThe last message was sent by US. Review our reply and give brief coaching feedback.`;
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15_000);
+        try {
+            const out = await callGroq([
+                { role: 'system', content: COACHING_PROMPT },
+                { role: 'user', content: userPrompt },
+            ], controller.signal);
+            if (!out) return { suggestion: null, mode: 'coaching' };
+            return { suggestion: out, mode: 'coaching' };
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
     const lastReceived = [...thread].reverse().find(m => m.direction === 'RECEIVED');
     const lastClientMsg = lastReceived ? cleanBody(lastReceived.body) : '';
     const examples = await fetchRelevantExamples(lastClientMsg, contact.region || null);
@@ -229,7 +259,7 @@ export async function generateReplySuggestion(
             { role: 'user', content: userPrompt },
         ], controller.signal);
         if (!out) return { suggestion: null, error: 'Jarvis returned no draft' };
-        return { suggestion: out };
+        return { suggestion: out, mode: 'reply' };
     } finally {
         clearTimeout(timeout);
     }
