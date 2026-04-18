@@ -203,7 +203,7 @@ export default function MyProjectsPage() {
         setSaving(null);
     };
 
-    if (!hydrated) return <PageLoader isLoading type="list"><div /></PageLoader>;
+    if (!hydrated) return <PageLoader isLoading type="list" context="projects"><div /></PageLoader>;
 
     return (
         <>

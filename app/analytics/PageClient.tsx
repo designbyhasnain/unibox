@@ -157,7 +157,7 @@ export default function AnalyticsPage() {
                         </div>
                     )}
 
-                    <PageLoader isLoading={!isHydrated || (loading && !data)} type="grid">
+                    <PageLoader isLoading={!isHydrated || (loading && !data)} type="grid" context="analytics">
                         {hasData && (
                             <ErrorBoundary section="Analytics Charts">
                                 <AnalyticsCharts

@@ -210,7 +210,7 @@ export default function TemplatesPage() {
 
                 {/* Template Grid */}
                 {isLoading ? (
-                    <PageLoader isLoading={true}><div /></PageLoader>
+                    <PageLoader isLoading={true} context="templates"><div /></PageLoader>
                 ) : filtered.length === 0 ? (
                     <div style={{
                         textAlign: 'center', padding: '4rem 2rem',

@@ -463,7 +463,7 @@ export default function InboxPage() {
                                     <div className="gmail-lh-manager">MANAGER</div>
                                     <div className="gmail-lh-date">DATE</div>
                                 </div>
-                                <PageLoader isLoading={!isHydrated || isLoading} type="list" count={PAGE_SIZE}>
+                                <PageLoader isLoading={!isHydrated || isLoading} type="list" count={PAGE_SIZE} context={activeTab === 'sent' ? 'sent' : 'inbox'}>
                                     {emails.length === 0 ? (
                                         <div className="inbox-empty">
                                             <div className="inbox-empty-icon">

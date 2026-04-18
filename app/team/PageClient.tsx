@@ -8,6 +8,7 @@ import { sendInviteAction, listInvitesAction, revokeInviteAction, resendInviteAc
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import Topbar from '../components/Topbar';
+import { PageLoader } from '../components/LoadingStates';
 
 // Cache for instant team page load
 let teamCache: { users: any[]; invitations: any[]; accounts: any[] } | null = null;
@@ -213,9 +214,7 @@ export default function TeamPage() {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <Topbar searchTerm="" setSearchTerm={() => {}} onSearch={() => {}} onClearSearch={() => {}} leftContent={<h1 className="page-title">Team Management</h1>} />
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-                    <div className="login-spinner"></div>
-                </div>
+                <PageLoader isLoading={true} type="table" count={5} context="team"><div /></PageLoader>
             </div>
         );
     }

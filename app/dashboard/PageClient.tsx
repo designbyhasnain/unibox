@@ -61,7 +61,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
         getDashboardAddonsAction().then(res => { if (res.success && res.data) setAddons(res.data); }).catch(() => {});
     }, []);
 
-    if (!hydrated || loading) return <PageLoader isLoading type="grid" count={6}><div /></PageLoader>;
+    if (!hydrated || loading) return <PageLoader isLoading type="grid" count={6} context="dashboard"><div /></PageLoader>;
 
     const s = d?.stats || { sent: 0, replies: 0, newLeads: 0, replyRate: 0 };
     const o = d?.outreach || { today: 0, thisWeek: 0, thisMonth: 0 };

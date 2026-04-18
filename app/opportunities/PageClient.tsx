@@ -111,7 +111,7 @@ export default function OpportunitiesPage() {
 
                 <div className="content-split content-split-bg">
                     <div className="list-panel list-panel-flex" style={{ maxWidth: '100%' }}>
-                        <PageLoader isLoading={!isHydrated || isLoading} type="list" count={8}>
+                        <PageLoader isLoading={!isHydrated || isLoading} type="list" count={8} context="opportunities">
                             {data && (
                                 <>
                                     {/* Visual Pipeline — stage-by-stage funnel with deal values */}

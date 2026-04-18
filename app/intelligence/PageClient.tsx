@@ -46,7 +46,7 @@ export default function IntelligencePage() {
 
                 <div className="content-split content-split-bg">
                     <div className="list-panel list-panel-flex" style={{ padding: '1.5rem', overflowY: 'auto' }}>
-                        <PageLoader isLoading={!isHydrated || isLoading} type="list" count={6}>
+                        <PageLoader isLoading={!isHydrated || isLoading} type="list" count={6} context="default">
                             {data && (
                                 <>
                                     {/* Jarvis Weekly Insight */}

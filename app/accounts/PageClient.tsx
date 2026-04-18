@@ -523,7 +523,7 @@ export default function AccountsPage() {
                                 </div>
                             )}
 
-                            <PageLoader isLoading={!isHydrated || isLoading} type="grid" count={6}>
+                            <PageLoader isLoading={!isHydrated || isLoading} type="grid" count={6} context="accounts">
                                 {filteredAccounts.length === 0 ? (
                                     <div className="empty-state">
                                         <div className="empty-state-icon">

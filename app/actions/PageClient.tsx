@@ -97,7 +97,7 @@ export default function ActionsPage() {
     };
     const replyCount = catCounts.REPLY_NOW ?? 0;
 
-    if (loading) return <PageLoader isLoading={true} type="list" count={6}><div /></PageLoader>;
+    if (loading) return <PageLoader isLoading={true} type="list" count={6} context="inbox"><div /></PageLoader>;
 
     return (
         <>

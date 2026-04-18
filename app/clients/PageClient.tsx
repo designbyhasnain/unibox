@@ -721,7 +721,7 @@ export default function ClientsPage() {
                     {/* Client List — Notion Table */}
                     {!selectedClient ? (
                         <div className="list-panel list-panel-flex">
-                            <PageLoader isLoading={!isHydrated || isLoading} type="list" count={12}>
+                            <PageLoader isLoading={!isHydrated || isLoading} type="list" count={12} context="clients">
                                 {filteredClients.length === 0 ? (
                                     <div className="empty-state">
                                         <div className="empty-state-icon">
