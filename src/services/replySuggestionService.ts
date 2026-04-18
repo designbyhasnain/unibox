@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { supabase } from '../lib/supabase';
+
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 export interface SuggestionMessage {
@@ -128,6 +130,66 @@ function cleanBody(input: string | null | undefined): string {
     return text;
 }
 
+async function fetchRelevantExamples(lastClientMsg: string, region: string | null): Promise<string> {
+    try {
+        const keywords = lastClientMsg.toLowerCase();
+        let category = 'INTRO';
+        if (keywords.includes('price') || keywords.includes('cost') || keywords.includes('charge') || keywords.includes('how much') || keywords.includes('rate') || keywords.includes('quote') || keywords.includes('budget')) {
+            category = 'PRICING';
+        } else if (keywords.includes('already') || keywords.includes('not sure') || keywords.includes('expensive') || keywords.includes('too much') || keywords.includes("don't need") || keywords.includes('not interested')) {
+            category = 'OBJECTION';
+        } else if (keywords.includes('turnaround') || keywords.includes('deadline') || keywords.includes('deliver') || keywords.includes('how long') || keywords.includes('when')) {
+            category = 'LOGISTICS';
+        } else if (keywords.includes('deal') || keywords.includes('discount') || keywords.includes('package') || keywords.includes('bundle')) {
+            category = 'NEGOTIATION';
+        } else if (keywords.includes('footage') || keywords.includes('upload') || keywords.includes('drive') || keywords.includes('dropbox') || keywords.includes('send') || keywords.includes('file')) {
+            category = 'ONBOARDING';
+        } else if (keywords.includes('update') || keywords.includes('check in') || keywords.includes('follow') || keywords.includes('any news')) {
+            category = 'FOLLOW_UP';
+        }
+
+        let query = supabase
+            .from('jarvis_knowledge')
+            .select('category, client_question, our_reply, outcome, contact_region, price_mentioned')
+            .eq('category', category)
+            .order('success_score', { ascending: false })
+            .limit(5);
+
+        if (region) {
+            query = query.eq('contact_region', region);
+        }
+
+        const { data } = await query;
+
+        if (!data || data.length === 0) {
+            const { data: fallback } = await supabase
+                .from('jarvis_knowledge')
+                .select('category, client_question, our_reply, outcome, contact_region, price_mentioned')
+                .eq('category', category)
+                .order('success_score', { ascending: false })
+                .limit(3);
+            if (!fallback || fallback.length === 0) return '';
+            return formatExamples(fallback);
+        }
+
+        return formatExamples(data.slice(0, 3));
+    } catch {
+        return '';
+    }
+}
+
+function formatExamples(examples: Array<{ category: string; client_question: string; our_reply: string; outcome: string; contact_region: string | null; price_mentioned: number | null }>): string {
+    if (examples.length === 0) return '';
+
+    const lines = examples.map((ex, i) => {
+        const regionTag = ex.contact_region ? ` [${ex.contact_region}]` : '';
+        const priceTag = ex.price_mentioned ? ` ($${ex.price_mentioned})` : '';
+        return `Example ${i + 1} (${ex.category}${regionTag}${priceTag} → ${ex.outcome}):\nClient: "${ex.client_question.slice(0, 200)}"\nWe replied: "${ex.our_reply.slice(0, 300)}"`;
+    });
+
+    return `\n## WINNING REPLIES FROM SIMILAR SITUATIONS\nThese are real replies that led to closed deals. Use them as style/content reference:\n\n${lines.join('\n\n')}`;
+}
+
 export async function generateReplySuggestion(
     contact: SuggestionContact,
     thread: SuggestionMessage[],
@@ -153,7 +215,11 @@ export async function generateReplySuggestion(
         contact.totalRevenue && contact.totalRevenue > 0 ? `Lifetime revenue: $${contact.totalRevenue}` : null,
     ].filter(Boolean).join('\n');
 
-    const userPrompt = `## THIS CONTACT\n${contactLines}\n\n## RECENT THREAD (oldest first)\n\n${formatted}\n\nDraft the next reply from US.`;
+    const lastReceived = [...thread].reverse().find(m => m.direction === 'RECEIVED');
+    const lastClientMsg = lastReceived ? cleanBody(lastReceived.body) : '';
+    const examples = await fetchRelevantExamples(lastClientMsg, contact.region || null);
+
+    const userPrompt = `## THIS CONTACT\n${contactLines}\n\n## RECENT THREAD (oldest first)\n\n${formatted}${examples}\n\nDraft the next reply from US.`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20_000);

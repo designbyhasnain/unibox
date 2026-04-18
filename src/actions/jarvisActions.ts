@@ -129,3 +129,89 @@ export async function suggestReplyAction(threadId: string) {
     }
     return { success: true as const, suggestion };
 }
+
+/**
+ * Agent feedback — log when an agent sends a different reply than Jarvis suggested.
+ * This teaches Jarvis what the agent actually prefers.
+ */
+export async function logJarvisFeedbackAction(params: {
+    threadId: string;
+    jarvisSuggestion: string;
+    actualReply: string;
+    contactId?: string;
+    wasUsed: boolean;
+}) {
+    try {
+        await ensureAuthenticated();
+        const { jarvisSuggestion, actualReply, wasUsed, contactId } = params;
+
+        if (wasUsed) {
+            await supabase.from('jarvis_feedback').insert({
+                thread_id: params.threadId,
+                jarvis_suggestion: jarvisSuggestion,
+                actual_reply: actualReply,
+                was_used: true,
+                contact_id: contactId || null,
+            });
+            return { success: true };
+        }
+
+        const similarity = calculateSimilarity(jarvisSuggestion, actualReply);
+
+        await supabase.from('jarvis_feedback').insert({
+            thread_id: params.threadId,
+            jarvis_suggestion: jarvisSuggestion,
+            actual_reply: actualReply,
+            was_used: false,
+            similarity_score: similarity,
+            contact_id: contactId || null,
+        });
+
+        return { success: true };
+    } catch {
+        return { success: false };
+    }
+}
+
+function calculateSimilarity(a: string, b: string): number {
+    const wordsA = new Set(a.toLowerCase().split(/\s+/));
+    const wordsB = new Set(b.toLowerCase().split(/\s+/));
+    let overlap = 0;
+    for (const w of wordsA) if (wordsB.has(w)) overlap++;
+    const union = new Set([...wordsA, ...wordsB]).size;
+    return union === 0 ? 0 : Math.round((overlap / union) * 100) / 100;
+}
+
+/**
+ * Agent verifies or corrects a knowledge base entry.
+ * Called from a UI where the agent sees Jarvis's extracted Q&A and can approve or fix it.
+ */
+export async function verifyKnowledgeAction(params: {
+    knowledgeId: string;
+    verified: boolean;
+    correction?: string;
+    correctPrice?: number;
+}) {
+    try {
+        const { role } = await ensureAuthenticated();
+        if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') {
+            return { success: false, error: 'Admin only' };
+        }
+
+        const update: Record<string, unknown> = {
+            agent_verified: params.verified,
+        };
+        if (params.correction) update.agent_correction = params.correction;
+        if (params.correctPrice !== undefined) update.price_mentioned = params.correctPrice;
+        if (params.verified) update.success_score = 1.0;
+
+        await supabase
+            .from('jarvis_knowledge')
+            .update(update)
+            .eq('id', params.knowledgeId);
+
+        return { success: true };
+    } catch {
+        return { success: false };
+    }
+}

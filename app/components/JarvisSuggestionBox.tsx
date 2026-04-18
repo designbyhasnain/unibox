@@ -1,38 +1,51 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Sparkles, RefreshCw, Copy } from 'lucide-react';
-import { suggestReplyAction } from '../../src/actions/jarvisActions';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Sparkles, RefreshCw, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { suggestReplyAction, logJarvisFeedbackAction } from '../../src/actions/jarvisActions';
 
 interface JarvisSuggestionBoxProps {
     threadId: string;
     onCopy: (suggestion: string) => void;
 }
 
-/**
- * Auto-generates a Jarvis reply suggestion the moment a thread is opened.
- * Refreshes whenever threadId changes. "Copy to Reply" lifts the text to
- * the parent, which seeds it into the InlineReply composer.
- */
+let lastJarvisSuggestion: { threadId: string; suggestion: string } | null = null;
+
+export function getLastJarvisSuggestion() {
+    return lastJarvisSuggestion;
+}
+
+export function logJarvisFeedback(threadId: string, actualReply: string, wasUsed: boolean) {
+    if (!lastJarvisSuggestion || lastJarvisSuggestion.threadId !== threadId) return;
+    logJarvisFeedbackAction({
+        threadId,
+        jarvisSuggestion: lastJarvisSuggestion.suggestion,
+        actualReply,
+        wasUsed,
+    }).catch(() => {});
+}
+
 export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggestionBoxProps) {
     const [suggestion, setSuggestion] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
+    const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
     const activeThreadRef = useRef<string | null>(null);
 
-    const load = async (tid: string) => {
+    const load = useCallback(async (tid: string) => {
         activeThreadRef.current = tid;
         setIsLoading(true);
         setError(null);
         setSuggestion(null);
         setCopied(false);
+        setFeedback(null);
         try {
             const res = await suggestReplyAction(tid);
-            // Ignore stale responses if the user moved to another thread.
             if (activeThreadRef.current !== tid) return;
             if (res.success) {
                 setSuggestion(res.suggestion);
+                lastJarvisSuggestion = { threadId: tid, suggestion: res.suggestion };
             } else {
                 setError(res.error || 'Jarvis could not generate a draft.');
             }
@@ -41,23 +54,39 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
         } finally {
             if (activeThreadRef.current === tid) setIsLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
         if (!threadId) return;
         load(threadId);
-        // We intentionally depend only on threadId — load() is stable for a given thread.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [threadId]);
+    }, [threadId, load]);
 
     const handleCopy = () => {
         if (!suggestion) return;
         onCopy(suggestion);
         setCopied(true);
+        setFeedback('up');
+        logJarvisFeedbackAction({
+            threadId,
+            jarvisSuggestion: suggestion,
+            actualReply: suggestion,
+            wasUsed: true,
+        }).catch(() => {});
         setTimeout(() => setCopied(false), 1600);
     };
 
-    // Keep the component invisible until we have anything worth showing.
+    const handleFeedback = (type: 'up' | 'down') => {
+        setFeedback(type);
+        if (suggestion) {
+            logJarvisFeedbackAction({
+                threadId,
+                jarvisSuggestion: suggestion,
+                actualReply: type === 'up' ? suggestion : '',
+                wasUsed: type === 'up',
+            }).catch(() => {});
+        }
+    };
+
     if (!threadId) return null;
 
     return (
@@ -78,6 +107,38 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
                     Jarvis suggests…
                 </span>
                 <span style={{ flex: 1 }} />
+
+                {suggestion && !isLoading && (
+                    <>
+                        <button
+                            onClick={() => handleFeedback('up')}
+                            title="Good suggestion"
+                            style={{
+                                display: 'inline-flex', alignItems: 'center',
+                                background: feedback === 'up' ? 'rgba(34,197,94,0.1)' : 'transparent',
+                                border: `1px solid ${feedback === 'up' ? '#22c55e' : 'var(--border-color, #e5e7eb)'}`,
+                                borderRadius: 6, padding: '3px 6px', cursor: 'pointer',
+                                color: feedback === 'up' ? '#22c55e' : 'var(--text-secondary, #64748b)',
+                            }}
+                        >
+                            <ThumbsUp size={11} />
+                        </button>
+                        <button
+                            onClick={() => handleFeedback('down')}
+                            title="Bad suggestion — I'll write my own"
+                            style={{
+                                display: 'inline-flex', alignItems: 'center',
+                                background: feedback === 'down' ? 'rgba(239,68,68,0.1)' : 'transparent',
+                                border: `1px solid ${feedback === 'down' ? '#ef4444' : 'var(--border-color, #e5e7eb)'}`,
+                                borderRadius: 6, padding: '3px 6px', cursor: 'pointer',
+                                color: feedback === 'down' ? '#ef4444' : 'var(--text-secondary, #64748b)',
+                            }}
+                        >
+                            <ThumbsDown size={11} />
+                        </button>
+                    </>
+                )}
+
                 <button
                     onClick={() => load(threadId)}
                     disabled={isLoading}
@@ -128,6 +189,12 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
                     }}
                 >
                     {suggestion}
+                </div>
+            )}
+
+            {feedback === 'down' && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#ef4444', fontStyle: 'italic' }}>
+                    Got it — Jarvis will learn from your reply when you send it.
                 </div>
             )}
 
