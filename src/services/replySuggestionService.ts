@@ -1,17 +1,5 @@
 import 'server-only';
 
-/**
- * Jarvis Suggested Replies
- *
- * Reads the last few messages in a thread + basic contact info and asks
- * Groq (Llama 3.1 8B Instant — free & fast) to draft a short, polite,
- * on-brand reply the user can paste into the composer.
- *
- * Keep output as plain text (no HTML, no signature). The composer lets the
- * user edit before sending — we optimise for something they can ship in
- * two keystrokes.
- */
-
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 export interface SuggestionMessage {
@@ -27,18 +15,65 @@ export interface SuggestionContact {
     email: string;
     company: string | null;
     pipelineStage: string | null;
+    region?: string | null;
+    totalEmails?: number;
+    totalProjects?: number;
+    totalRevenue?: number;
+    contactType?: string | null;
+    lastEmailDate?: string | null;
 }
 
-const SYSTEM_PROMPT = `You are Jarvis — a sales assistant for a wedding video production agency. You draft the NEXT reply the user should send.
+const SYSTEM_PROMPT = `You are Jarvis — the sales brain for Wedits (Films by Rafay), a premium wedding video editing & post-production agency based in Pakistan, serving videographers in the US, UK, Europe, and Australia.
 
-Rules:
-- Output the reply body ONLY. No "Here's a draft:", no markdown, no subject line, no signature.
-- Keep it short: 2–5 sentences. Match the warmth and length of the latest incoming email.
-- Mirror the sender's tone — casual if they were casual, formal if they were formal.
-- Move the conversation forward: answer open questions, propose a concrete next step, or acknowledge if nothing actionable is needed.
-- Do NOT invent prices, dates, deliverables, or commitments that weren't already discussed.
-- Never use "I hope this email finds you well" or any corporate filler. Write like a human.
-- Plain text only. Newlines between paragraphs are fine. No HTML, no emoji unless the prospect used them.`;
+## YOUR BUSINESS
+- 1,117+ projects completed, $367K+ revenue
+- You edit wedding films for videographers who are too busy to edit themselves
+- Your #1 closer: offer a FREE test film — no strings attached
+- Services: cinematic recaps (3-5 min), full-length films (20-45 min), social media clips, highlight reels, raw audio mixing
+- Turnaround: 15-20 business days standard, 7-10 rush (+rush fee)
+- Payment: Zelle, ACH, Stripe payment link
+- File transfer: Dropbox or Google Drive (client shares link)
+
+## PRICING GUIDE (approximate — adjust based on conversation context)
+- Cinematic recap (4 min): $200-350 (US), $150-250 (EU/UK), $150-200 (AUS)
+- Full-length documentary (20-45 min): $300-500
+- Recap + full-length combo: $400-700
+- Social media clips (3-5 clips): $100-150 add-on
+- Raw audio sync / sound design: included or $50-100 add-on
+- Destination / luxury wedding: +20-30% premium
+- Multi-day wedding: priced per day of footage
+- Rush delivery (7-10 days): +30-50%
+- Repeat client discount: 10-15% off
+
+## SALES PLAYBOOK
+1. New prospect → always offer a FREE test film first ("no strings attached")
+2. Lead with compliment about their work → builds rapport
+3. Show portfolio links that match their style
+4. Keep it casual — "Hey", "bro", "man" for friendly clients
+5. Never hard-sell — "I'd love to help" not "you need to buy"
+6. When asked about pricing → give a clear number, don't dodge
+7. When they say "too expensive" → offer smaller package or free test
+8. When they say "already have an editor" → "Happy to do a test, no commitment"
+9. When they ask "how do I send footage?" → "Dropbox or Google Drive, share the link with me"
+10. When they go quiet → soft follow-up in 3-5 days, not pushy
+
+## TONE
+- Casual but professional. Short sentences.
+- Mirror their formality — if they say "Hey dude" you say "Hey man"
+- If they're formal, be polite but warm
+- NEVER: "I hope this email finds you well", corporate filler, buzzwords
+- Use their first name
+- Sign off as "Rafay" or "Best, Rafay"
+
+## RULES
+- Output the reply body ONLY. No "Here's a draft:", no markdown, no subject line.
+- Keep it 2-6 sentences. Match the warmth and length of their latest email.
+- If they ask about pricing → give specific numbers from the pricing guide above.
+- If they're new → offer a free test film.
+- If they're a repeat client → be casual, reference past work if mentioned.
+- Move the conversation forward: answer their question, propose a next step.
+- Plain text only. Newlines between paragraphs are fine. No HTML.
+- No emoji unless the prospect used them.`;
 
 async function callGroq(messages: { role: 'system' | 'user'; content: string }[], signal?: AbortSignal): Promise<string | null> {
     if (!GROQ_API_KEY) return null;
@@ -51,10 +86,10 @@ async function callGroq(messages: { role: 'system' | 'user'; content: string }[]
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: 'llama-3.1-8b-instant',
+                model: 'llama-3.3-70b-versatile',
                 messages,
-                max_tokens: 350,
-                temperature: 0.6,
+                max_tokens: 600,
+                temperature: 0.4,
             }),
         });
         if (!res.ok) {
@@ -71,7 +106,6 @@ async function callGroq(messages: { role: 'system' | 'user'; content: string }[]
     }
 }
 
-/** Strip quoted/forwarded fluff so the model focuses on the actual message. */
 function cleanBody(input: string | null | undefined): string {
     if (!input) return '';
     let text = String(input)
@@ -90,7 +124,7 @@ function cleanBody(input: string | null | undefined): string {
         if (idx > 40) { text = text.slice(0, idx).trim(); break; }
     }
 
-    if (text.length > 1200) text = text.slice(0, 1200) + '…';
+    if (text.length > 1500) text = text.slice(0, 1500) + '…';
     return text;
 }
 
@@ -101,24 +135,28 @@ export async function generateReplySuggestion(
     if (!GROQ_API_KEY) return { suggestion: null, error: 'GROQ_API_KEY not configured' };
     if (!thread || thread.length === 0) return { suggestion: null, error: 'No thread context available' };
 
-    // Use last 6 messages for context. Oldest first so the model can follow the narrative.
-    const slice = thread.slice(-6);
+    const slice = thread.slice(-8);
     const formatted = slice.map((m, i) => {
         const who = m.direction === 'SENT' ? 'US' : 'THEM';
         const cleaned = cleanBody(m.body);
         return `[${i + 1}] ${who} (${m.sentAt?.slice(0, 10) || '?'}) — ${m.subject || '(no subject)'}\n${cleaned}`;
     }).join('\n\n---\n\n');
 
-    const header = [
+    const contactLines = [
         `Contact: ${contact.name || contact.email} <${contact.email}>`,
         contact.company ? `Company: ${contact.company}` : null,
-        contact.pipelineStage ? `Pipeline: ${contact.pipelineStage}` : null,
+        contact.pipelineStage ? `Pipeline stage: ${contact.pipelineStage}` : null,
+        contact.region ? `Region: ${contact.region}` : null,
+        contact.contactType ? `Type: ${contact.contactType}` : null,
+        contact.totalEmails ? `Total emails exchanged: ${contact.totalEmails}` : null,
+        contact.totalProjects && contact.totalProjects > 0 ? `Past projects: ${contact.totalProjects}` : null,
+        contact.totalRevenue && contact.totalRevenue > 0 ? `Lifetime revenue: $${contact.totalRevenue}` : null,
     ].filter(Boolean).join('\n');
 
-    const userPrompt = `${header}\n\nRecent thread (oldest first):\n\n${formatted}\n\nDraft the next reply from US, ready to paste into the composer.`;
+    const userPrompt = `## THIS CONTACT\n${contactLines}\n\n## RECENT THREAD (oldest first)\n\n${formatted}\n\nDraft the next reply from US.`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
+    const timeout = setTimeout(() => controller.abort(), 20_000);
     try {
         const out = await callGroq([
             { role: 'system', content: SYSTEM_PROMPT },
