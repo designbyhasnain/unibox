@@ -5,6 +5,7 @@ import { simpleParser } from 'mailparser';
 import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
 import { decrypt } from '../utils/encryption';
+import { prepareTrackedEmail } from './trackingService';
 
 /**
  * Test IMAP and SMTP connection with provided credentials
@@ -69,7 +70,10 @@ export async function sendManualEmail(params: {
     body: string;
     threadId?: string;
 }) {
-    const { accountId, to, cc, bcc, subject, body, threadId } = params;
+    const { accountId, to, cc, bcc, subject, threadId } = params;
+
+    const { body: trackedBody, trackingId } = prepareTrackedEmail(params.body, true);
+    const body = trackedBody;
 
     const { data: account, error: accError } = await supabase
         .from('gmail_accounts')
@@ -104,16 +108,29 @@ export async function sendManualEmail(params: {
 
     const finalThreadId = threadId || info.messageId.replace(/[<>]/g, '');
 
+    const cleanMsgId = info.messageId.replace(/[<>]/g, '');
+
     await handleEmailSent({
         gmailAccountId: account.id,
         threadId: finalThreadId,
-        messageId: info.messageId.replace(/[<>]/g, ''),
+        messageId: cleanMsgId,
         fromEmail: account.email,
         toEmail: to,
         subject,
         body,
         sentAt: new Date(),
     });
+
+    if (trackingId) {
+        await supabase
+            .from('email_messages')
+            .update({
+                is_tracked: true,
+                tracking_id: trackingId,
+                delivered_at: new Date().toISOString(),
+            })
+            .eq('id', cleanMsgId);
+    }
 
     return { success: true, messageId: info.messageId, threadId: finalThreadId };
 }

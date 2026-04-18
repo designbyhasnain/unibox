@@ -12,6 +12,8 @@ function getBaseUrl(): string {
     let url = '';
     if (process.env.NEXT_PUBLIC_APP_URL) {
         url = process.env.NEXT_PUBLIC_APP_URL;
+    } else if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+        url = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
     } else if (process.env.VERCEL_URL) {
         url = `https://${process.env.VERCEL_URL}`;
     } else {
@@ -22,7 +24,7 @@ function getBaseUrl(): string {
 
 function getTrackingPixelHtml(trackingId: string): string {
     const baseUrl = getBaseUrl();
-    return `<img src="${baseUrl}/api/track?t=${trackingId}" width="1" height="1" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" alt="" />`;
+    return `<div style="margin-top:0;border-top:1px solid #f0f0f0;padding-top:0;"><img src="${baseUrl}/api/track?t=${trackingId}" width="600" height="1" style="display:block;width:600px;height:1px;" alt="" /></div>`;
 }
 
 /**
@@ -61,13 +63,13 @@ export function prepareTrackedEmail(body: string, isTrackingEnabled: boolean = t
     // Rewrite links for click tracking
     let trackedBody = rewriteLinks(body, trackingId);
 
-    // Inject open tracking pixel
-    if (trackedBody.includes('</body>')) {
-        trackedBody = trackedBody.replace('</body>', pixelHtml + '</body>');
-    } else if (trackedBody.includes('</html>')) {
-        trackedBody = trackedBody.replace('</html>', pixelHtml + '</html>');
+    // Inject open tracking pixel at the top of the body so it loads immediately
+    if (trackedBody.includes('<body>')) {
+        trackedBody = trackedBody.replace('<body>', '<body>' + pixelHtml);
+    } else if (trackedBody.includes('<body ')) {
+        trackedBody = trackedBody.replace(/<body[^>]*>/, '$&' + pixelHtml);
     } else {
-        trackedBody += pixelHtml;
+        trackedBody = pixelHtml + trackedBody;
     }
 
     return { body: trackedBody, trackingId };

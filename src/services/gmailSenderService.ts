@@ -4,6 +4,7 @@ import { google } from 'googleapis';
 import { supabase } from '../lib/supabase';
 import { handleEmailSent } from './emailSyncLogic';
 import { refreshAccessToken } from './googleAuthService';
+import { prepareTrackedEmail } from './trackingService';
 
 /**
  * Sends an email via Gmail API and syncs it to the database.
@@ -21,7 +22,10 @@ export async function sendGmailEmail(params: {
     body: string;
     threadId?: string;
 }) {
-    const { accountId, to, cc, bcc, subject, body, threadId } = params;
+    const { accountId, to, cc, bcc, subject, threadId } = params;
+
+    const { body: trackedBody, trackingId } = prepareTrackedEmail(params.body, true);
+    const body = trackedBody;
 
     // 1. Get Account Details
     const { data: account, error: accError } = await supabase
@@ -97,6 +101,19 @@ export async function sendGmailEmail(params: {
             sentAt: new Date(),
         });
 
+        // 5. Save tracking data
+        if (trackingId && sentData.id) {
+            const cleanMsgId = sentData.id.replace(/[<>]/g, '');
+            await supabase
+                .from('email_messages')
+                .update({
+                    is_tracked: true,
+                    tracking_id: trackingId,
+                    delivered_at: new Date().toISOString(),
+                })
+                .eq('id', cleanMsgId);
+        }
+
         return { success: true, messageId: sentData.id, threadId: sentData.threadId };
     } catch (error: any) {
         // Requirement: Error Handling (handle expired token)
@@ -120,6 +137,18 @@ export async function sendGmailEmail(params: {
                     body: body,
                     sentAt: new Date(),
                 });
+
+                if (trackingId && sentData.id) {
+                    const cleanMsgId = sentData.id.replace(/[<>]/g, '');
+                    await supabase
+                        .from('email_messages')
+                        .update({
+                            is_tracked: true,
+                            tracking_id: trackingId,
+                            delivered_at: new Date().toISOString(),
+                        })
+                        .eq('id', cleanMsgId);
+                }
 
                 return { success: true, messageId: sentData.id, threadId: sentData.threadId };
             } catch (refreshError: any) {

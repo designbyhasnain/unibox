@@ -38,19 +38,18 @@ export async function GET(request: NextRequest) {
     const trackingId = request.nextUrl.searchParams.get('t');
 
     if (trackingId && /^[a-f0-9]{32}$/i.test(trackingId)) {
-        // Only set opened_at if:
-        // 1. Not already set (first real open wins)
-        // 2. At least MIN_OPEN_DELAY_SECONDS have passed since delivery
-        //    (filters out Gmail/Outlook/Yahoo image proxy pre-fetches)
         const cutoff = new Date(Date.now() - MIN_OPEN_DELAY_SECONDS * 1000).toISOString();
 
-        void supabase
-            .from('email_messages')
-            .update({ opened_at: new Date().toISOString() })
-            .eq('tracking_id', trackingId)
-            .is('opened_at', null)
-            .lt('delivered_at', cutoff)
-            .then(() => {});
+        try {
+            await supabase
+                .from('email_messages')
+                .update({ opened_at: new Date().toISOString() })
+                .eq('tracking_id', trackingId)
+                .is('opened_at', null)
+                .lt('delivered_at', cutoff);
+        } catch (e) {
+            console.error('[Track] Failed to update opened_at:', e);
+        }
     }
 
     return new NextResponse(PIXEL, { status: 200, headers: PIXEL_HEADERS });
