@@ -6511,6 +6511,41 @@ textarea:focus-visible {
    Notion / Apple / Gmail-level polish
    ═══════════════════════════════════════════════════════════════════ */
 
+/* ── Loading Text (Claude-style thinking messages) ───────────────── */
+.loading-text-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 28px;
+}
+
+.loading-text-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: loadingDotPulse 1.4s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes loadingDotPulse {
+    0%, 100% { transform: scale(0.8); opacity: 0.4; }
+    50% { transform: scale(1.1); opacity: 1; }
+}
+
+.loading-text-message {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    animation: loadingTextFade 0.35s ease-out;
+    letter-spacing: -0.01em;
+}
+
+@keyframes loadingTextFade {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 /* ── Staggered Skeleton Entrance ─────────────────────────────────── */
 .skeleton-row-stagger {
     opacity: 0;

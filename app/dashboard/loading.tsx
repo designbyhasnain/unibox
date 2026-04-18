@@ -1,10 +1,11 @@
 'use client';
-import { SkeletonStatCard, SkeletonChartCard } from '../components/LoadingStates';
+import { SkeletonStatCard, SkeletonChartCard, LoadingText } from '../components/LoadingStates';
 
 export default function Loading() {
     return (
         <div style={{ padding: '2rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+            <LoadingText context="dashboard" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginTop: '1rem', marginBottom: '2rem' }}>
                 {Array.from({ length: 4 }).map((_, i) => (
                     <SkeletonStatCard key={i} index={i} />
                 ))}
