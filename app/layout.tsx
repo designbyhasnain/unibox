@@ -11,7 +11,8 @@ export const metadata: Metadata = {
     description: 'Multi-account email CRM for Video Production',
 }
 
-const themeScript = `(function(){try{var t=localStorage.getItem('unibox_theme');if(t==='dark'||t==='light'){document.body.setAttribute('data-theme',t)}else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches){document.body.setAttribute('data-theme','dark')}}catch(e){}})()`;
+const themeScript = `(function(){try{var t=localStorage.getItem('unibox_theme');if(t==='light'){document.body.setAttribute('data-theme','light')}}catch(e){}})()`;
+
 
 export default function RootLayout({
     children,
