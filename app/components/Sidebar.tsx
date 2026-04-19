@@ -323,9 +323,26 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                     )}
                 </div>
 
-                {/* Bottom section: admin items + settings + logout + collapse toggle */}
+                {/* Bottom section: admin items + settings + theme + logout + collapse toggle */}
                 <div className="sb-footer">
                     {bottomItems.map(renderNavItem)}
+                    <button
+                        className="sb-nav-item"
+                        onClick={() => {
+                            const current = document.body.getAttribute('data-theme');
+                            const next = current === 'dark' ? 'light' : 'dark';
+                            document.body.setAttribute('data-theme', next);
+                            localStorage.setItem('unibox_theme', next);
+                        }}
+                        title="Toggle dark mode"
+                    >
+                        <span className="sb-nav-icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                            </svg>
+                        </span>
+                        {!collapsed && <span className="sb-nav-label">Theme</span>}
+                    </button>
                     <button
                         className="sb-nav-item"
                         onClick={() => setShowLogoutConfirm(true)}
@@ -351,12 +368,12 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     onClick={() => setShowLogoutConfirm(false)}
                 >
-                    <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 24, width: 340, boxShadow: '0 20px 60px rgba(0,0,0,.15)', textAlign: 'center' }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-surface)', borderRadius: 12, padding: 24, width: 340, boxShadow: 'var(--shadow-xl)', textAlign: 'center', border: '1px solid var(--border)' }}>
                         <div style={{ fontSize: 36, marginBottom: 12 }}>{'\uD83D\uDEAA'}</div>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>Log out?</div>
-                        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>Are you sure you want to log out of Unibox?</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Log out?</div>
+                        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>Are you sure you want to log out of Unibox?</div>
                         <div style={{ display: 'flex', gap: 8 }}>
-                            <button onClick={() => setShowLogoutConfirm(false)} style={{ flex: 1, padding: '10px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#64748b' }}>Cancel</button>
+                            <button onClick={() => setShowLogoutConfirm(false)} style={{ flex: 1, padding: '10px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
                             <button onClick={confirmLogout} style={{ flex: 1, padding: '10px 16px', background: '#dc2626', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#fff' }}>Log Out</button>
                         </div>
                     </div>
