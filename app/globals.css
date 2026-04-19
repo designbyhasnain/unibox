@@ -1739,12 +1739,12 @@ a {
     align-items: center;
     height: 40px !important;
     padding: 0 16px;
-    border-bottom: 1px solid #f1f3f4;
-    background: #ffffff;
+    border-bottom: 1px solid var(--hairline-soft);
+    background: color-mix(in oklab, var(--surface-2), transparent 20%);
     font-size: 11px !important;
-    font-weight: 600;
-    color: #5f6368;
-    letter-spacing: 0.05em;
+    font-weight: 500;
+    color: var(--ink-muted);
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     user-select: none;
     flex-shrink: 0;
@@ -1796,31 +1796,40 @@ a {
     min-height: 50px !important;
     padding: 0 16px;
     cursor: pointer;
-    border-bottom: 1px solid #f1f3f4;
-    transition: box-shadow var(--duration-fast);
-    font-size: 0.875rem !important;
-    /* 14px */
-    font-family: Roboto, Arial, sans-serif;
+    border-bottom: 1px solid var(--hairline-soft);
+    transition: background var(--dur-fast);
+    font-size: 13px !important;
+    font-family: var(--font-ui);
     position: relative;
-    background: #ffffff !important;
+    background: transparent !important;
 }
 
 .gmail-email-row.unread {
-    background: #ffffff !important;
+    background: transparent !important;
 }
 
 .gmail-email-row.read {
-    background: #f6f8fc !important;
+    background: transparent !important;
+    opacity: 0.75;
 }
 
 .gmail-email-row:hover {
-    box-shadow: 0 1px 3px rgba(60, 64, 67, 0.2), 0 1px 2px rgba(60, 64, 67, 0.1);
+    background: color-mix(in oklab, var(--surface), transparent 40%) !important;
     z-index: 1;
-    background: #eaf1fb !important;
 }
 
 .gmail-email-row.selected {
-    background: #d3e3fd !important;
+    background: var(--surface) !important;
+}
+.gmail-email-row.selected::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 10px;
+    bottom: 10px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--ink);
 }
 
 /* Sub-elements alignment with matching widths */
@@ -1850,18 +1859,17 @@ a {
     width: 220px;
     flex-shrink: 0;
     padding-right: 16px;
-    font-size: 0.875rem;
-    /* 14px */
+    font-size: 13px;
     font-weight: 500;
-    color: #202124;
+    color: var(--ink-2);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .gmail-email-row.unread .gmail-row-sender {
-    font-weight: 700;
-    color: #202124;
+    font-weight: 600;
+    color: var(--ink);
 }
 
 /* Body cell — subject + preview */
@@ -1876,10 +1884,9 @@ a {
 
 /* Subject */
 .gmail-row-subject {
-    font-size: 0.9375rem;
-    /* 15px */
-    font-weight: 400;
-    color: #202124;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink-2);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1888,23 +1895,23 @@ a {
 }
 
 .gmail-email-row.unread .gmail-row-subject {
-    font-weight: 700;
-    color: #202124;
+    font-weight: 600;
+    color: var(--ink);
 }
 
 /* Dash */
 .gmail-row-dash {
-    color: #6e7781;
-    font-size: 13px;
+    color: var(--ink-faint);
+    font-size: 12px;
     flex-shrink: 0;
     margin: 0 2px;
 }
 
 /* Preview */
 .gmail-row-preview {
-    font-size: 13px;
+    font-size: 11.5px;
     font-weight: 400;
-    color: #6e7781;
+    color: var(--ink-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1935,9 +1942,8 @@ a {
     width: 220px;
     flex-shrink: 0;
     padding: 0 12px;
-    font-size: 0.9375rem;
-    /* 15px */
-    color: #5f6368;
+    font-size: 11.5px;
+    color: var(--ink-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1947,27 +1953,24 @@ a {
 .gmail-row-manager {
     width: 100px;
     flex-shrink: 0;
-    font-size: 0.9375rem;
-    /* 15px */
-    color: #1a73e8;
+    font-size: 11.5px;
+    color: var(--accent-ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 /* Date cell */
-/* Date cell */
 .gmail-row-date {
     width: 100px;
     flex-shrink: 0;
     text-align: right;
-    font-size: 0.9375rem;
-    /* 15px */
-    color: #444746;
+    font-size: 11px;
+    color: var(--ink-faint);
     white-space: nowrap;
 }
 
-.gmail-email-row.unread .gmail-row-date {
+.gmail-email-row.unread .gmail-row-date, .gmail-email-row.unread .gmail-row-date {
     font-weight: 700;
     color: #202124;
 }

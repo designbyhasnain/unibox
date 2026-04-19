@@ -250,66 +250,65 @@ export default function InboxPage() {
     return (
         <>
             <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=DM+Mono:wght@400;500&display=swap');
-                .inbox-page { font-family: 'DM Sans', system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; flex: 1; min-height: 0; background: #FAFAFA; }
-                .inbox-header { padding: 24px 32px 0; display: flex; justify-content: space-between; align-items: center; }
-                .inbox-title { font-size: 24px; font-weight: 700; color: #0F172A; margin: 0; letter-spacing: -0.02em; }
-                .inbox-header-right { display: flex; align-items: center; gap: 12px; }
-                .inbox-status { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #64748B; padding: 5px 12px; border-radius: 20px; background: #F1F5F9; }
-                .inbox-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #94A3B8; }
-                .inbox-status-dot.live { background: #22C55E; box-shadow: 0 0 0 2px rgba(34,197,94,.2); }
-                .inbox-sync { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #E2E8F0; background: #fff; color: #94A3B8; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; }
-                .inbox-sync:hover { border-color: #CBD5E1; color: #64748b; }
+                .inbox-page { font-family: var(--font-ui); display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--shell); }
+                .inbox-header { padding: 12px 18px 0; display: flex; justify-content: space-between; align-items: center; }
+                .inbox-title { font-size: 14px; font-weight: 600; color: var(--ink); margin: 0; letter-spacing: -0.005em; }
+                .inbox-header-right { display: flex; align-items: center; gap: 10px; }
+                .inbox-status { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 500; color: var(--ink-muted); }
+                .inbox-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); }
+                .inbox-status-dot.live { background: var(--coach); box-shadow: 0 0 0 3px color-mix(in oklab, var(--coach), transparent 80%); }
+                .inbox-sync { width: 30px; height: 30px; border-radius: 8px; border: none; background: transparent; color: var(--ink-muted); cursor: pointer; display: grid; place-items: center; transition: all .15s; }
+                .inbox-sync:hover { background: var(--surface); color: var(--ink); }
                 .inbox-sync-spin { animation: inbox-spin .8s linear infinite; }
                 @keyframes inbox-spin { to { transform: rotate(360deg); } }
 
-                .inbox-tabs { display: flex; gap: 0; padding: 16px 32px 0; border-bottom: 1px solid #E2E8F0; }
-                .inbox-tab { padding: 10px 20px 12px; font-size: 13px; font-weight: 500; color: #64748B; cursor: pointer; border: none; background: none; display: flex; align-items: center; gap: 8px; position: relative; transition: color .15s; font-family: 'DM Sans', system-ui, sans-serif; }
-                .inbox-tab:hover { color: #0F172A; }
-                .inbox-tab-active { color: #0F172A; font-weight: 600; }
-                .inbox-tab-active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: #0F172A; border-radius: 2px 2px 0 0; }
-                .inbox-tab-count { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; background: #E2E8F0; color: #64748B; min-width: 18px; text-align: center; }
-                .inbox-tab-active .inbox-tab-count { background: #0F172A; color: #fff; }
+                .inbox-tabs { display: flex; gap: 2px; padding: 12px 16px; border-bottom: 1px solid var(--hairline-soft); }
+                .inbox-tab { padding: 4px 10px; font-size: 12px; font-weight: 500; color: var(--ink-muted); cursor: pointer; border: none; background: none; display: inline-flex; align-items: center; gap: 6px; position: relative; transition: background var(--dur-fast), color var(--dur-fast); font-family: var(--font-ui); border-radius: 6px; }
+                .inbox-tab:hover { color: var(--ink-2); }
+                .inbox-tab-active { background: var(--shell); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
+                .inbox-tab-active::after { display: none; }
+                .inbox-tab-count { font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: 999px; background: color-mix(in oklab, var(--ink), transparent 85%); min-width: 18px; text-align: center; }
+                .inbox-tab-active .inbox-tab-count { background: color-mix(in oklab, var(--accent-soft), transparent 10%); color: var(--accent-ink); }
 
-                .inbox-toolbar { display: flex; align-items: center; padding: 8px 32px; border-bottom: 1px solid #F1F5F9; gap: 8px; min-height: 44px; }
+                .inbox-toolbar { display: flex; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--hairline-soft); gap: 8px; min-height: 40px; }
                 .inbox-toolbar-left { display: flex; align-items: center; gap: 8px; }
-                .inbox-toolbar-right { margin-left: auto; font-size: 12px; color: #94A3B8; font-weight: 500; }
-                .inbox-check { width: 16px; height: 16px; border-radius: 3px; border: 1.5px solid #CBD5E1; cursor: pointer; appearance: none; -webkit-appearance: none; transition: all .15s; }
-                .inbox-check:checked { background: #0F172A; border-color: #0F172A; }
-                .inbox-check:checked::after { content: ''; display: block; width: 4px; height: 7px; border: solid #fff; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); margin: 1px 0 0 4px; }
-                .inbox-divider { width: 1px; height: 20px; background: #E2E8F0; }
-                .inbox-toolbar-btn { width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; color: #94A3B8; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; }
-                .inbox-toolbar-btn:hover { background: #F1F5F9; color: #64748B; }
+                .inbox-toolbar-right { margin-left: auto; font-size: 11.5px; color: var(--ink-muted); font-weight: 500; }
+                .inbox-check { width: 16px; height: 16px; border-radius: 3px; border: 1.5px solid var(--hairline); cursor: pointer; appearance: none; -webkit-appearance: none; transition: all .15s; background: transparent; }
+                .inbox-check:checked { background: var(--ink); border-color: var(--ink); }
+                .inbox-check:checked::after { content: ''; display: block; width: 4px; height: 7px; border: solid var(--canvas); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); margin: 1px 0 0 4px; }
+                .inbox-divider { width: 1px; height: 20px; background: var(--hairline-soft); }
+                .inbox-toolbar-btn { width: 30px; height: 30px; border-radius: 8px; border: none; background: transparent; color: var(--ink-muted); cursor: pointer; display: grid; place-items: center; transition: all var(--dur-fast); }
+                .inbox-toolbar-btn:hover { background: var(--surface); color: var(--ink); }
                 .inbox-toolbar-btn:disabled { opacity: .3; cursor: not-allowed; }
 
-                .inbox-bulk-bar { display: flex; align-items: center; gap: 10px; padding: 8px 32px; background: rgba(15,23,42,.03); border-bottom: 1px solid #E2E8F0; }
-                .inbox-bulk-count { font-size: 12px; font-weight: 600; color: #0F172A; }
-                .inbox-bulk-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid #E2E8F0; background: #fff; font-size: 11px; font-weight: 500; color: #64748B; cursor: pointer; transition: all .15s; font-family: 'DM Sans', system-ui, sans-serif; }
-                .inbox-bulk-btn:hover { border-color: #CBD5E1; color: #0F172A; }
-                .inbox-bulk-select { padding: 5px 12px; border-radius: 6px; border: 1px solid #E2E8F0; background: #fff; font-size: 11px; color: #64748B; cursor: pointer; font-family: 'DM Sans', system-ui, sans-serif; }
+                .inbox-bulk-bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--hairline-soft); }
+                .inbox-bulk-count { font-size: 12px; font-weight: 600; color: var(--ink); }
+                .inbox-bulk-btn { padding: 5px 10px; border-radius: 8px; border: 1px solid var(--hairline-soft); background: var(--surface-2); font-size: 11.5px; font-weight: 500; color: var(--ink-2); cursor: pointer; transition: all var(--dur-fast); font-family: var(--font-ui); }
+                .inbox-bulk-btn:hover { background: var(--surface-hover); color: var(--ink); }
+                .inbox-bulk-select { padding: 5px 10px; border-radius: 8px; border: 1px solid var(--hairline-soft); background: var(--surface-2); font-size: 11.5px; color: var(--ink-2); cursor: pointer; font-family: var(--font-ui); }
 
-                .inbox-list { flex: 1; overflow-y: auto; }
+                .inbox-list { flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--hairline) transparent; }
                 .inbox-empty { text-align: center; padding: 80px 20px; }
-                .inbox-empty-icon { width: 56px; height: 56px; border-radius: 50%; margin: 0 auto 16px; background: linear-gradient(135deg, #F1F5F9, #E2E8F0); display: flex; align-items: center; justify-content: center; }
-                .inbox-empty-title { font-size: 17px; font-weight: 600; color: #0F172A; margin-bottom: 4px; }
-                .inbox-empty-desc { font-size: 13px; color: #94A3B8; line-height: 1.5; }
-                .inbox-empty-btn { margin-top: 16px; padding: 8px 16px; border-radius: 8px; border: 1px solid #E2E8F0; background: #fff; font-size: 13px; font-weight: 500; color: #64748B; cursor: pointer; font-family: 'DM Sans', system-ui, sans-serif; transition: all .15s; }
-                .inbox-empty-btn:hover { border-color: #CBD5E1; color: #0F172A; }
+                .inbox-empty-icon { width: 56px; height: 56px; border-radius: 50%; margin: 0 auto 16px; background: var(--surface); display: flex; align-items: center; justify-content: center; }
+                .inbox-empty-title { font-size: 17px; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+                .inbox-empty-desc { font-size: 13px; color: var(--ink-muted); line-height: 1.5; }
+                .inbox-empty-btn { margin-top: 16px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--hairline); background: var(--surface); font-size: 13px; font-weight: 500; color: var(--ink-2); cursor: pointer; font-family: var(--font-ui); transition: all var(--dur-fast); }
+                .inbox-empty-btn:hover { background: var(--surface-hover); color: var(--ink); }
 
-                .inbox-idle-banner { display: flex; align-items: center; gap: 10px; padding: 10px 32px; background: #FFFBEB; border-bottom: 1px solid #FDE68A; color: #92400E; font-size: 13px; font-weight: 500; }
-                .inbox-idle-resume { margin-left: auto; padding: 5px 14px; background: #F59E0B; color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', system-ui, sans-serif; }
-                .inbox-idle-resume:hover { background: #D97706; }
+                .inbox-idle-banner { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: color-mix(in oklab, var(--warn-soft), transparent 50%); border-bottom: 1px solid color-mix(in oklab, var(--warn), transparent 60%); color: var(--warn); font-size: 13px; font-weight: 500; }
+                .inbox-idle-resume { margin-left: auto; padding: 5px 14px; background: var(--warn); color: var(--canvas); border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--font-ui); }
+                .inbox-idle-resume:hover { opacity: .9; }
 
-                .inbox-search-wrap { padding: 16px 32px 0; }
-                .inbox-search { display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 40px; border-radius: 10px; background: #F1F5F9; border: 1px solid transparent; transition: all .2s; }
-                .inbox-search:focus-within { background: #fff; border-color: #CBD5E1; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-                .inbox-search input { flex: 1; border: none; background: none; outline: none; font-size: 13px; font-family: 'DM Sans', system-ui, sans-serif; color: #0F172A; }
-                .inbox-search input::placeholder { color: #94A3B8; }
-                .inbox-search-icon { color: #94A3B8; flex-shrink: 0; }
-                .inbox-search-clear { width: 24px; height: 24px; border-radius: 50%; border: none; background: transparent; color: #94A3B8; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-                .inbox-search-clear:hover { background: #E2E8F0; color: #64748B; }
+                .inbox-search-wrap { padding: 12px 16px 0; }
+                .inbox-search { display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 36px; border-radius: 9px; background: color-mix(in oklab, var(--surface), transparent 40%); border: 1px solid var(--hairline-soft); transition: all var(--dur-fast); }
+                .inbox-search:focus-within { background: var(--shell); border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent), transparent 80%); }
+                .inbox-search input { flex: 1; border: none; background: none; outline: none; font-size: 13px; font-family: var(--font-ui); color: var(--ink); }
+                .inbox-search input::placeholder { color: var(--ink-faint); }
+                .inbox-search-icon { color: var(--ink-faint); flex-shrink: 0; }
+                .inbox-search-clear { width: 24px; height: 24px; border-radius: 50%; border: none; background: transparent; color: var(--ink-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+                .inbox-search-clear:hover { background: var(--surface); color: var(--ink); }
 
-                .inbox-sync-msg { font-size: 12px; color: #94A3B8; display: flex; align-items: center; gap: 6px; }
+                .inbox-sync-msg { font-size: 11.5px; color: var(--ink-muted); display: flex; align-items: center; gap: 6px; }
             `}</style>
 
             <div className="inbox-page">
