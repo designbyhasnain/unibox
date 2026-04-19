@@ -244,6 +244,71 @@
     border-bottom-color: #2a2b30;
 }
 
+/* Dark theme — topbar & search */
+[data-theme="dark"] .search-bar {
+    background: var(--bg-elevated);
+    border-color: var(--border);
+}
+[data-theme="dark"] .search-bar:focus-within {
+    background: var(--bg-surface);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(124, 106, 239, 0.15);
+}
+[data-theme="dark"] .search-bar input { color: var(--text-primary); }
+[data-theme="dark"] .search-bar input::placeholder { color: var(--text-muted); }
+[data-theme="dark"] .search-filter-btn { color: var(--text-muted); }
+[data-theme="dark"] .search-popup,
+[data-theme="dark"] .adv-search-popup {
+    background: var(--bg-surface);
+    border-color: var(--border);
+    box-shadow: var(--shadow-lg);
+}
+[data-theme="dark"] .search-chip {
+    background: var(--bg-elevated);
+    border-color: var(--border);
+    color: var(--text-secondary);
+}
+[data-theme="dark"] .search-item:hover { background: var(--bg-hover); }
+
+/* Dark theme — email rows */
+[data-theme="dark"] .gmail-email-row { border-bottom-color: var(--border); }
+[data-theme="dark"] .gmail-email-row:hover { background: var(--bg-hover) !important; }
+[data-theme="dark"] .gmail-email-row.selected-row { background: var(--bg-active) !important; }
+
+/* Dark theme — email detail */
+[data-theme="dark"] .thread-detail { background: var(--bg-surface); }
+[data-theme="dark"] .inline-reply-container { background: var(--bg-surface); border-color: var(--border); }
+[data-theme="dark"] .reply-editor { background: var(--bg-surface); color: var(--text-primary); }
+[data-theme="dark"] .reply-toolbar { background: var(--bg-elevated); border-color: var(--border); }
+
+/* Dark theme — cards & tables */
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .metric-card { background: var(--bg-surface); border-color: var(--border); }
+[data-theme="dark"] table th { background: var(--bg-elevated); color: var(--text-secondary); border-color: var(--border); }
+[data-theme="dark"] table td { border-color: var(--border); }
+
+/* Dark theme — modals */
+[data-theme="dark"] .compose-modal-container { background: var(--bg-surface); border: 1px solid var(--border); }
+[data-theme="dark"] .compose-header { background: var(--bg-surface); border-color: var(--border); }
+[data-theme="dark"] .compose-footer { background: var(--bg-base); border-color: var(--border); }
+[data-theme="dark"] .compose-body-input { background: var(--bg-surface); color: var(--text-primary); }
+
+/* Dark theme — badges */
+[data-theme="dark"] .sb-badge {
+    background: rgba(124, 106, 239, 0.2);
+    color: #a78bfa;
+}
+[data-theme="dark"] .pipeline-badge { border-color: var(--border); }
+
+/* Dark theme — Jarvis suggestion box */
+[data-theme="dark"] [style*="rgba(124, 58, 237, 0.04)"] {
+    border-color: var(--border) !important;
+}
+
+/* Dark theme — loading text */
+[data-theme="dark"] .loading-text-message { color: var(--text-muted); }
+[data-theme="dark"] .loading-text-dot { background: var(--accent); }
+
 /* ─── Reset ─────────────────────────────────────────────────────── */
 *,
 *::before,
@@ -504,6 +569,13 @@ a {
     white-space: nowrap;
 }
 .sb-compose:hover { background: #a8d8f7; }
+[data-theme="dark"] .sb-compose {
+    background: var(--text-primary);
+    color: var(--bg-base);
+    border-radius: 10px;
+    font-weight: 600;
+}
+[data-theme="dark"] .sb-compose:hover { background: var(--text-secondary); }
 .sidebar.collapsed .sb-compose { padding: 8px; border-radius: 50%; }
 
 /* ── Scrollable nav area ── */
@@ -556,13 +628,26 @@ a {
     text-align: left;
 }
 .sb-nav-item:hover {
-    background: #e8eaed;
+    background: var(--bg-hover);
     color: var(--text-primary);
 }
 .sb-nav-item.active {
     background: var(--bg-active);
     color: var(--text-primary);
     font-weight: 600;
+}
+[data-theme="dark"] .sb-nav-item.active {
+    box-shadow: inset 0 0 0 1px var(--border);
+}
+[data-theme="dark"] .sb-nav-item.active::before {
+    content: "";
+    position: absolute;
+    left: -2px;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--text-primary);
 }
 .sb-nav-item.active svg { color: var(--text-primary); }
 .sb-nav-icon {
