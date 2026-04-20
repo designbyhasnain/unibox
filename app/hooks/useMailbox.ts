@@ -23,6 +23,15 @@ import { doesEmailMatchTab } from '../constants/stages';
 
 const PAGE_SIZE = 50;
 
+const NOISE_DOMAINS = ['mailsuite.com', 'mailtrack.io', 'yesware.com', 'streak.com'];
+export function isNoiseEmail(m: any): boolean {
+    const from = (m.from_email || '').toLowerCase();
+    return NOISE_DOMAINS.some(d => from.includes(d));
+}
+function filterNoiseMessages(messages: any[]): any[] {
+    return messages.filter(m => !isNoiseEmail(m));
+}
+
 export type MailboxType = 'inbox' | 'sent' | 'client' | 'search';
 
 interface UseMailboxProps {
@@ -726,7 +735,7 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         const cached = globalThreadCache[email.thread_id];
         const cachedThread = cached && (Date.now() - cached.timestamp < THREAD_CACHE_TTL) ? cached.data : null;
         if (cachedThread) {
-            dispatch({ type: 'SELECT_EMAIL_AND_THREAD', selectedEmail: email, threadMessages: cachedThread });
+            dispatch({ type: 'SELECT_EMAIL_AND_THREAD', selectedEmail: email, threadMessages: filterNoiseMessages(cachedThread) });
         } else {
             dispatch({ type: 'SELECT_EMAIL_AND_THREAD', selectedEmail: email, threadMessages: [email] });
         }
@@ -742,14 +751,14 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         if (email.thread_id) {
             // If not cached, or to refresh the cache, fetch background
             if (!cachedThread) dispatch({ type: 'SET_THREAD_LOADING', isThreadLoading: true });
-            
+
             try {
                 // Use server action (service role) to bypass RLS and ensure body is returned
                 const enriched = await getThreadMessagesAction(email.thread_id);
 
                 // Update cache
                 globalThreadCache[email.thread_id] = { data: enriched, timestamp: Date.now() };
-                dispatch({ type: 'SET_THREAD', threadMessages: enriched, isThreadLoading: false });
+                dispatch({ type: 'SET_THREAD', threadMessages: filterNoiseMessages(enriched), isThreadLoading: false });
             } catch (err) {
                 console.error('Thread load failed', err);
                 dispatch({ type: 'SET_THREAD_LOADING', isThreadLoading: false });

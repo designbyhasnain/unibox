@@ -15,7 +15,7 @@ import {
     bulkMarkReadAction,
     bulkMarkUnreadAction,
 } from '../src/actions/emailActions';
-import { useMailbox } from './hooks/useMailbox';
+import { useMailbox, isNoiseEmail } from './hooks/useMailbox';
 import { useGlobalFilter } from './context/FilterContext';
 import { STAGE_OPTIONS } from './constants/stages';
 import { useHydrated } from './utils/useHydration';
@@ -414,7 +414,7 @@ export default function InboxPage() {
                                     )}
                                 </div>
                             ) : (
-                                emails.map((email: any) => {
+                                emails.filter((e: any) => !isNoiseEmail(e)).map((email: any) => {
                                     const isSelected = selectedEmail?.id === email.id;
                                     const isUnread = email.is_unread;
                                     let senderName = 'Unknown';
@@ -465,7 +465,7 @@ export default function InboxPage() {
                                                     {stage && (
                                                         <span className={`chip dot ${stageClass(stage)}`}>{stageLabel(stage)}</span>
                                                     )}
-                                                    <span style={{ marginLeft: 'auto', color: 'var(--ink-faint)' }}>
+                                                    <span style={{ marginLeft: 'auto', color: 'var(--ink-muted)' }}>
                                                         {accountEmail.split('@')[0]} {managerName ? `· ${managerName}` : ''}
                                                     </span>
                                                 </div>

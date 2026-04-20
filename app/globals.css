@@ -6995,12 +6995,12 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
 }
 .inbox-grid .email-row.unread .subject { color: var(--ink); }
 .inbox-grid .email-row .preview {
-    font-size: 11.5px; color: var(--ink-muted);
+    font-size: 11.5px; color: var(--ink);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .inbox-grid .email-row .meta {
     display: flex; align-items: center; gap: 6px; margin-top: 6px;
-    font-size: 10.5px; color: var(--ink-faint);
+    font-size: 10.5px; color: var(--ink-muted);
 }
 .inbox-grid .email-row .unread-dot {
     width: 6px; height: 6px; border-radius: 50%;
