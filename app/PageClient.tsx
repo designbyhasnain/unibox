@@ -119,6 +119,12 @@ export default function InboxPage() {
     const [jarvisMode, setJarvisMode] = useState<'reply' | 'coach'>('reply');
     const [replyMode, setReplyMode] = useState<'reply' | 'fwd'>('reply');
 
+    // Reset reply state whenever a different thread is opened
+    useEffect(() => {
+        setJarvisDraft('');
+        setIsReplyingInline(false);
+    }, [selectedEmail?.id]);
+
     const handleCopyJarvisDraft = useCallback((text: string) => {
         setJarvisDraft(text);
         setJarvisDraftVersion(v => v + 1);

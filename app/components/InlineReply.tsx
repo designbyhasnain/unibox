@@ -271,9 +271,9 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
     return (
         <div className="inline-reply-container" style={{
             margin: '8px 16px',
-            border: '1px solid #e0e0e0',
+            border: '1px solid var(--hairline)',
             borderRadius: '12px',
-            background: '#ffffff',
+            background: 'var(--canvas)',
             display: 'flex',
             flexDirection: 'column',
             position: 'relative',
@@ -282,16 +282,16 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
             {/* Header */}
             <div className="inline-reply-header" style={{
                 padding: '8px 16px',
-                borderBottom: '1px solid #e0e0e0',
+                borderBottom: '1px solid var(--hairline)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '12px',
-                background: '#f8f9fa',
+                background: 'var(--surface)',
                 borderTopLeftRadius: '11px',
                 borderTopRightRadius: '11px',
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                    <div className="avatar-sm" style={{ background: '#1a73e8', width: '24px', height: '24px', fontSize: '11px' }}>
+                    <div className="avatar-sm" style={{ background: 'var(--accent)', width: '24px', height: '24px', fontSize: '11px' }}>
                         <User size={14} />
                     </div>
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -301,7 +301,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                             style={{
                                 background: 'transparent',
                                 border: 'none',
-                                color: '#202124',
+                                color: 'var(--ink)',
                                 fontSize: '13px',
                                 fontWeight: 500,
                                 outline: 'none',
@@ -311,7 +311,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                             }}
                         >
                             {accounts.map(acc => (
-                                <option key={acc.id} value={acc.id} style={{ background: '#ffffff', color: '#202124' }}>
+                                <option key={acc.id} value={acc.id}>
                                     {acc.email}
                                 </option>
                             ))}
@@ -319,13 +319,13 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                                 <option value={selectedAccountId}>Current Account</option>
                             )}
                         </select>
-                        <ChevronDown size={12} style={{ position: 'absolute', right: 0, pointerEvents: 'none', color: '#5f6368' }} />
+                        <ChevronDown size={12} style={{ position: 'absolute', right: 0, pointerEvents: 'none', color: 'var(--ink-muted)' }} />
                     </div>
-                    <span style={{ fontSize: '13px', color: '#5f6368', marginLeft: '4px' }}>
-                        Replying to <span style={{ color: '#202124', fontWeight: 600 }}>{to}</span>
+                    <span style={{ fontSize: '13px', color: 'var(--ink-muted)', marginLeft: '4px' }}>
+                        Replying to <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{to}</span>
                     </span>
                 </div>
-                <span style={{ fontSize: '12px', color: '#80868b', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '12px', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
                     Ctrl+Enter to send
                 </span>
             </div>
@@ -419,10 +419,10 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                         minHeight: '150px',
                         padding: '16px',
                         outline: 'none',
-                        color: '#202124',
+                        color: 'var(--ink)',
                         fontSize: '14px',
-                        fontFamily: 'Google Sans, Roboto, Arial, sans-serif',
-                        background: '#ffffff',
+                        fontFamily: 'var(--font-ui)',
+                        background: 'var(--canvas)',
                     }}
                 />
 
@@ -448,8 +448,8 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                borderTop: '1px solid #e0e0e0',
-                background: '#f8f9fa',
+                borderTop: '1px solid var(--hairline)',
+                background: 'var(--surface)',
                 borderBottomLeftRadius: '11px',
                 borderBottomRightRadius: '11px',
             }}>
@@ -492,8 +492,8 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                                 bottom: 'calc(100% + 10px)',
                                 left: '0',
                                 zIndex: 1000,
-                                backgroundColor: '#ffffff',
-                                border: '1px solid #e0e0e0',
+                                backgroundColor: 'var(--canvas)',
+                                border: '1px solid var(--hairline)',
                                 borderRadius: '8px',
                                 boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
                                 width: '320px'
@@ -508,10 +508,10 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                                         style={{
                                             width: '100%',
                                             padding: '8px',
-                                            background: '#f1f3f4',
+                                            background: 'var(--surface)',
                                             border: 'none',
                                             borderRadius: '4px',
-                                            color: '#202124',
+                                            color: 'var(--ink)',
                                             fontSize: '13px'
                                         }}
                                     />
@@ -519,7 +519,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                                 <div className="emoji-picker-content" style={{ maxHeight: '300px', overflowY: 'auto', padding: '8px' }}>
                                     {filteredEmojiGroups.map((group) => (
                                         <div key={group.label} className="emoji-category">
-                                            <div className="emoji-category-title" style={{ fontSize: '11px', color: '#5f6368', padding: '4px 8px', textTransform: 'uppercase' }}>
+                                            <div className="emoji-category-title" style={{ fontSize: '11px', color: 'var(--ink-muted)', padding: '4px 8px', textTransform: 'uppercase' }}>
                                                 {group.label}
                                             </div>
                                             <div className="emoji-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '4px' }}>
