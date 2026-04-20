@@ -217,3 +217,116 @@ export async function incrementTemplateUsageAction(id: string) {
         // Non-critical — silently ignore
     }
 }
+
+// ─── Generate Template from Sent Email (AI) ─────────────────────────────
+
+export async function generateTemplateFromEmailAction(messageId: string) {
+    try {
+        await ensureAuthenticated();
+        const { extractTemplateFromEmail } = await import('../services/templateMiningService');
+
+        const { data: email, error } = await supabase
+            .from('email_messages')
+            .select('subject, body, email_type, from_email, to_email, contact_id')
+            .eq('id', messageId)
+            .eq('direction', 'SENT')
+            .single();
+
+        if (error || !email) return { success: false, error: 'Sent email not found' };
+
+        let contact = null;
+        if (email.contact_id) {
+            const { data: c } = await supabase
+                .from('contacts')
+                .select('name, email, company, location')
+                .eq('id', email.contact_id)
+                .single();
+            contact = c;
+        }
+
+        const suggestion = await extractTemplateFromEmail(
+            { subject: email.subject, body: email.body, email_type: email.email_type, to_email: email.to_email },
+            contact,
+        );
+
+        if (!suggestion) return { success: false, error: 'AI could not extract a template from this email' };
+
+        return { success: true, suggestion: { ...suggestion, sourceEmailId: messageId } };
+    } catch (e: any) {
+        console.error('[generateTemplateFromEmailAction]', e.message);
+        return { success: false, error: 'Failed to generate template' };
+    }
+}
+
+// ─── Bulk Mine Templates from Winning Emails (Admin) ────────────────────
+
+export async function bulkMineTemplatesAction() {
+    try {
+        const { role } = await ensureAuthenticated();
+        requireAdmin(role);
+        const { clusterAndExtractTemplates } = await import('../services/templateMiningService');
+
+        const { data: winners, error } = await supabase
+            .from('email_messages')
+            .select('id, subject, body, email_type, sent_at, from_email, to_email, contact_id, opened_at')
+            .eq('direction', 'SENT')
+            .not('body', 'is', null)
+            .not('subject', 'ilike', '%delivery status%')
+            .not('subject', 'ilike', '%undeliverable%')
+            .not('from_email', 'ilike', '%noreply%')
+            .order('sent_at', { ascending: false })
+            .limit(500);
+
+        if (error || !winners?.length) return { success: false, error: 'No sent emails found' };
+
+        const withMetrics = winners
+            .map((e: any) => ({
+                ...e,
+                reply_count: 0,
+                was_opened: !!e.opened_at,
+            }))
+            .filter((e: any) => {
+                const bodyLen = (e.body || '').replace(/<[^>]*>/g, '').trim().length;
+                return bodyLen > 50;
+            });
+
+        const topEmails = withMetrics.slice(0, 30);
+        if (topEmails.length === 0) return { success: false, error: 'No qualifying emails found' };
+
+        const suggestions = await clusterAndExtractTemplates(topEmails);
+        if (suggestions.length === 0) return { success: false, error: 'AI could not extract templates' };
+
+        const existing = await getTemplatesAction();
+        const existingNames = existing.map(t => t.name.toLowerCase());
+
+        let created = 0;
+        const results: Array<{ name: string; category: string }> = [];
+        for (const s of suggestions) {
+            if (existingNames.includes(s.name.toLowerCase())) continue;
+
+            const res = await createTemplateAction({
+                name: s.name,
+                subject: s.subject,
+                body: s.body,
+                category: s.category,
+                isShared: true,
+            });
+            if (res.success) {
+                created++;
+                results.push({ name: s.name, category: s.category });
+            }
+        }
+
+        revalidatePath('/templates');
+        return {
+            success: true,
+            analyzed: winners.length,
+            qualified: withMetrics.length,
+            created,
+            templates: results,
+        };
+    } catch (e: any) {
+        console.error('[bulkMineTemplatesAction]', e.message);
+        return { success: false, error: 'Failed to mine templates: ' + e.message };
+    }
+}

@@ -43,7 +43,15 @@
         },
         "app/api/cron/sync-imap/route.ts": {
             "maxDuration": 60
+        },
+        "app/api/mine-templates/route.ts": {
+            "maxDuration": 60
         }
     },
-    "crons": []
+    "crons": [
+        {
+            "path": "/api/mine-templates",
+            "schedule": "0 3 * * 1"
+        }
+    ]
 }
