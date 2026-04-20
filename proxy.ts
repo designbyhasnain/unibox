@@ -82,7 +82,7 @@ const PUBLIC_PATHS = [
     '/invite',
 ];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
     // ── Step 1: IP Whitelist Check ───────────────────────────────────────────
