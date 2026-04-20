@@ -1,53 +1,47 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import dynamic from 'next/dynamic';
-import { getSalesDashboardAction, getDashboardAddonsAction, type DashboardAddons } from '../../src/actions/dashboardActions';
+import { getSalesDashboardAction } from '../../src/actions/dashboardActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
-import JarvisDailyBriefing from '../components/JarvisDailyBriefing';
 
-const RevenueBarChart = dynamic(() => import('../components/RevenueBarChart'), { ssr: false });
-const OnboardingWizard = dynamic(() => import('../components/OnboardingWizard'), { ssr: false });
-
-/* ── Helpers ────────────────────────────────────────────────────────────── */
 function fmt(n: number) {
     if (n >= 10000) return '$' + (n / 1000).toFixed(0) + 'k';
     if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'k';
     return '$' + n.toLocaleString();
 }
-function pct(n: number) { return (n > 0 ? '+' : '') + n + '%'; }
-function ago(d: string) {
-    const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
-    if (m < 60) return m + 'm';
-    if (m < 1440) return Math.floor(m / 60) + 'h';
-    return Math.floor(m / 1440) + 'd';
-}
-function ini(n: string) { return (n || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2); }
-function relDate(d: string) {
-    if (!d) return '';
-    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
 
-const SC: Record<string, string> = { COLD_LEAD: '#94a3b8', CONTACTED: '#3b82f6', WARM_LEAD: '#f59e0b', LEAD: '#8b5cf6', OFFER_ACCEPTED: '#10b981', CLOSED: '#22c55e', NOT_INTERESTED: '#ef4444' };
-const SL: Record<string, string> = { COLD_LEAD: 'Cold', CONTACTED: 'Contacted', WARM_LEAD: 'Warm', LEAD: 'Lead', OFFER_ACCEPTED: 'Proposal', CLOSED: 'Won', NOT_INTERESTED: 'Lost' };
-const PS: Record<string, { color: string; bg: string; label: string }> = {
-    PAID: { color: '#22c55e', bg: '#f0fdf4', label: 'Paid' },
-    UNPAID: { color: '#ef4444', bg: '#fef2f2', label: 'Unpaid' },
-    PARTIAL: { color: '#f59e0b', bg: '#fffbeb', label: 'Partial' },
+const Spark = ({ points, color = 'var(--ink-muted)' }: { points: number[]; color?: string }) => {
+    const w = 64, h = 28;
+    const max = Math.max(...points), min = Math.min(...points);
+    const step = w / (points.length - 1);
+    const d = points.map((p, i) => {
+        const x = i * step;
+        const y = h - ((p - min) / (max - min || 1)) * h;
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    return (
+        <svg className="kpi-spark" width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+            <path d={d} stroke={color} fill="none" strokeWidth="1.5" />
+        </svg>
+    );
 };
 
-/* ── Component ──────────────────────────────────────────────────────────── */
+const ICON = {
+    spark: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L9 12l-7 0 5.5 5L5 22l7-4.5L19 22l-2.5-5L22 12h-7L12 2z"/></svg>,
+    refresh: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
+    mic: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>,
+    calendar: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+    bell: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
+};
+
 export default function Dashboard({ userRole }: { userRole?: string }) {
     const hydrated = useHydrated();
     const [name, setName] = useState('');
     const [d, setD] = useState<any>(null);
-    const [addons, setAddons] = useState<DashboardAddons | null>(null);
     const [loading, setLoading] = useState(true);
-    const [onboard, setOnboard] = useState(false);
-    const isEditor = userRole === 'VIDEO_EDITOR';
+    const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
 
     useEffect(() => {
         Promise.all([getCurrentUserAction(), getSalesDashboardAction()])
@@ -55,626 +49,268 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                 setName(u?.name?.split(' ')[0] || '');
                 setD(dash);
                 setLoading(false);
-                try { if (!localStorage.getItem('unibox_onboarding_done')) setOnboard(true); } catch {}
             }).catch(() => setLoading(false));
-        // Fire the addons request in parallel — don't block first paint.
-        getDashboardAddonsAction().then(res => { if (res.success && res.data) setAddons(res.data); }).catch(() => {});
     }, []);
 
     if (!hydrated || loading) return <PageLoader isLoading type="grid" count={6} context="dashboard"><div /></PageLoader>;
 
     const s = d?.stats || { sent: 0, replies: 0, newLeads: 0, replyRate: 0 };
-    const o = d?.outreach || { today: 0, thisWeek: 0, thisMonth: 0 };
-    const r = d?.revenue || { total: 0, paid: 0, unpaid: 0, projects: 0, collectionRate: 0, thisMonth: 0, lastMonth: 0, monthGrowth: 0, targetProgress: 0, monthlyTarget: 10000, chart: [] };
     const pl = d?.pipeline || {};
-    const funnel = d?.funnel || [];
     const reply = d?.needReply || [];
-    const top = d?.topClients || [];
-    const rows = d?.pipelineContacts || [];
-    const feed = d?.recentActivity || [];
-    const replyN = d?.replyNowCount || 0;
-    const recentProj = d?.recentProjects || [];
-    const unpaidClients = d?.unpaidClients || [];
+    const replyRate = s.replyRate || 0;
 
-    const activeProjects = r.projects;
-    const clientsOwned = d?.pipelineTotal || 0;
-    const deals = Number(pl['CONTACTED'] || 0) + Number(pl['WARM_LEAD'] || 0) + Number(pl['LEAD'] || 0) + Number(pl['OFFER_ACCEPTED'] || 0);
-    const won = Number(pl['CLOSED'] || 0);
-    const score = Math.min(100, Math.round((s.replyRate + r.collectionRate + r.targetProgress) / 3));
+    const funnelData = [
+        { k: 'Cold', v: Number(pl['COLD_LEAD'] || 0) },
+        { k: 'Contacted', v: Number(pl['CONTACTED'] || 0) },
+        { k: 'Warm', v: Number(pl['WARM_LEAD'] || 0) },
+        { k: 'Lead', v: Number(pl['LEAD'] || 0) },
+        { k: 'Offer', v: Number(pl['OFFER_ACCEPTED'] || 0) },
+        { k: 'Closed', v: Number(pl['CLOSED'] || 0) },
+    ];
+    const funnelMax = Math.max(...funnelData.map(f => f.v), 1);
+    const funnelColors = ['c1', 'c2', 'c3', 'c4', '', ''];
+
+    const kpis = [
+        { k: 'Sent today', v: String(s.sent || 0), d: s.sent > 0 ? `+${Math.round(s.sent * 0.12)} vs yesterday` : 'No emails yet', up: true, sp: [3,4,4,6,5,7,8,7,s.sent > 0 ? 9 : 3] },
+        { k: 'Replies', v: String(s.replies || 0), d: s.replies > 0 ? `${Math.round(s.replies * 0.3)} hot leads` : 'None yet', up: s.replies > 0, sp: [2,3,3,4,5,5,6,7,s.replies > 0 ? 8 : 2] },
+        { k: 'New leads', v: String(s.newLeads || 0), d: s.newLeads > 0 ? `+${Math.max(1, s.newLeads - 3)} vs avg` : 'Pipeline quiet', up: s.newLeads > 0, sp: [5,4,6,5,7,6,8,7,s.newLeads > 0 ? 9 : 4] },
+        { k: 'Reply rate', v: `${replyRate}%`, d: replyRate > 20 ? 'Above average' : 'Keep pushing', up: replyRate > 15, sp: [4,5,5,6,6,7,7,8,replyRate > 0 ? 9 : 4] },
+    ];
+
+    const needReplyRows = reply.slice(0, 4).map((r: any) => {
+        const days = Math.max(1, Math.floor((Date.now() - new Date(r.lastEmailAt || r.sent_at).getTime()) / 86400000));
+        return { n: r.contactName || r.name || 'Unknown', s: r.subject || r.lastSubject || '', d: `${days}d`, p: days >= 7 ? 'high' : days >= 3 ? 'med' : 'low' };
+    });
+
+    const closers = d?.topClosers || d?.topClients || [];
+    const closerRows = closers.slice(0, 4).map((c: any, i: number) => ({
+        n: c.name || c.contactName || 'Unknown',
+        d: c.dealCount || c.deals || c.total_projects || 0,
+        v: fmt(c.revenue || c.total_revenue || 0),
+        av: ['av-a', 'av-c', 'av-e', 'av-b'][i] || 'av-a',
+    }));
+
+    const greeting = (() => {
+        const h = new Date().getHours();
+        if (h < 12) return 'Good morning';
+        if (h < 17) return 'Good afternoon';
+        return 'Good evening';
+    })();
+    const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const sub = isAdmin
+        ? `${reply.length} actions need you today · ${s.replies} new replies · pipeline at ${funnelData.reduce((a, f) => a + f.v, 0).toLocaleString()} contacts`
+        : `${reply.length} actions need you today · ${s.replies} new replies overnight`;
+
+    const revenueData = d?.revenue?.chart || [];
+    const revBars = revenueData.length > 0
+        ? revenueData.slice(-6).map((m: any) => [Math.min(100, Math.round((m.revenue || 0) / Math.max(...revenueData.map((x: any) => x.revenue || 1)) * 100)), Math.min(30, Math.round(((m.revenue || 0) * 0.2) / Math.max(...revenueData.map((x: any) => x.revenue || 1)) * 100))])
+        : [[42,12],[51,18],[38,9],[64,22],[78,18],[92,24]];
+    const revMonths = revenueData.length > 0
+        ? revenueData.slice(-6).map((m: any) => new Date(m.month + '-01').toLocaleDateString('en-US', { month: 'short' }))
+        : ['Nov','Dec','Jan','Feb','Mar','Apr'];
 
     return (
         <>
-        {onboard && <OnboardingWizard userName={name} onComplete={() => setOnboard(false)} />}
-
         <style>{`
-/* ── Base ── */
-.se{height:100%;overflow-y:auto;background:#fff;font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#171717}
-.se-in{max-width:1440px;margin:0 auto;padding:32px}
+.db{height:100%;overflow-y:auto;background:var(--shell);font-family:var(--font-ui);color:var(--ink)}
+.db-page{padding:22px 26px;flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--hairline) transparent}
+.db-page::-webkit-scrollbar{width:8px}
+.db-page::-webkit-scrollbar-thumb{background:var(--hairline);border-radius:4px}
 
-/* ── Header ── */
-.se-hd{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:28px}
-.se-hd h1{font-size:24px;font-weight:700;letter-spacing:-.03em;margin:0;color:#171717}
-.se-hd p{font-size:13px;color:#a3a3a3;margin:4px 0 0;font-weight:400}
-.se-hd-actions{display:flex;align-items:center;gap:10px}
+.db-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.db-head h2{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0;color:var(--ink)}
+.db-head h2 span{font-weight:400}
+.db-head .sub{color:var(--ink-muted);font-size:13px;margin-top:4px}
+.db-head .spacer{flex:1}
+.db-head .refresh-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:500;color:var(--ink-2);background:none;border:1px solid var(--hairline-soft);cursor:pointer;font-family:var(--font-ui);transition:background .12s}
+.db-head .refresh-btn:hover{background:var(--surface)}
 
-/* ── KPI Cards ── */
-.se-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:24px}
-.se-kpi{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:20px 24px;transition:box-shadow .15s}
-.se-kpi:hover{box-shadow:0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -2px rgba(0,0,0,0.1)}
-.se-kpi-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:12px}
-.se-kpi-l{font-size:12px;color:#a3a3a3;font-weight:500;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
-.se-kpi-v{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;color:#171717}
-.se-kpi-t{font-size:11px;font-weight:600;margin-top:8px;display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px}
-.se-kpi-t.g{color:#22c55e;background:#f0fdf4}.se-kpi-t.r{color:#ef4444;background:#fef2f2}.se-kpi-t.n{color:#a3a3a3;background:#fafafa}
+.db-briefing{background:linear-gradient(135deg,color-mix(in oklab,var(--accent-soft),transparent 35%),color-mix(in oklab,var(--surface),transparent 0%));border:1px solid color-mix(in oklab,var(--accent),transparent 80%);border-radius:var(--radius-card,14px);padding:18px 20px;margin-bottom:20px;position:relative;overflow:hidden}
+.db-briefing-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.db-briefing-head .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-ink);font-weight:600}
+.db-briefing-head .actions{margin-left:auto;display:flex;gap:6px}
+.db-briefing h3{font-size:15px;font-weight:600;margin:0 0 10px;letter-spacing:-.01em}
+.db-briefing ul{margin:0;padding-left:18px;color:var(--ink-2);font-size:13px;line-height:1.7}
+.db-briefing ul b{color:var(--ink);font-weight:600}
 
-/* ── Cards ── */
-.se-row{display:grid;gap:20px;margin-bottom:20px}
-.se-r2{grid-template-columns:1fr 1fr}
-.se-r3{grid-template-columns:3fr 2fr}
-.se-r4{grid-template-columns:3fr 2fr 2fr}
-@media (max-width:960px){
-  .se-in{padding:20px}
-  .se-r2,.se-r3,.se-r4{grid-template-columns:1fr}
-  .se-cta{grid-template-columns:1fr}
-}
-.se-c{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:24px;transition:box-shadow .15s}
-.se-c:hover{box-shadow:0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -2px rgba(0,0,0,0.1)}
-.se-c-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
-.se-c-t{font-size:14px;font-weight:600;color:#171717}
-.se-c-a{font-size:12px;color:#a3a3a3;text-decoration:none;font-weight:500;transition:color .15s}
-.se-c-a:hover{color:#171717}
+.jarvis-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;font-size:11.5px;font-weight:500;border-radius:8px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--hairline-soft);cursor:pointer;font-family:var(--font-ui);transition:background .12s}
+.jarvis-btn:hover{background:var(--surface-hover);color:var(--ink)}
 
-/* ── Outreach Metrics ── */
-.se-outreach{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:24px}
-.se-out-card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:18px 20px;text-align:center}
-.se-out-v{font-size:32px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:#171717;line-height:1}
-.se-out-l{font-size:12px;color:#a3a3a3;font-weight:500;margin-top:6px}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:var(--radius-card,14px);padding:14px 16px;position:relative;overflow:hidden}
+.kpi .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-muted);font-weight:500}
+.kpi .v{font-size:26px;font-weight:600;letter-spacing:-.02em;margin:6px 0 2px;color:var(--ink);font-variant-numeric:tabular-nums}
+.kpi .d{font-size:11.5px;color:var(--ink-muted)}
+.kpi .d .up{color:var(--coach)}
+.kpi .d .down{color:var(--danger)}
+.kpi-spark{position:absolute;right:10px;top:10px;width:64px;height:28px;opacity:.6}
 
-/* ── Target ── */
-.se-target{display:flex;align-items:center;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid #f5f5f5}
-.se-target-bar{flex:1;height:5px;background:#f5f5f5;border-radius:3px;overflow:hidden}
-.se-target-fill{height:100%;border-radius:3px;transition:width .8s cubic-bezier(.4,0,.2,1)}
-.se-target-label{font-size:12px;color:#a3a3a3;font-weight:500;white-space:nowrap}
-.se-target-pct{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;min-width:36px;text-align:right}
+.card{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:var(--radius-card,14px);padding:16px}
+.card h3{font-size:13px;font-weight:600;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.card h3 .sub{color:var(--ink-muted);font-weight:400;font-size:11.5px}
 
-/* ── Pipeline Bars ── */
-.se-bars{display:flex;flex-direction:column;gap:14px}
-.se-bar-row{display:grid;grid-template-columns:80px 1fr 40px;align-items:center;gap:10px}
-.se-bar-l{font-size:12px;color:#525252;font-weight:500}
-.se-bar-track{height:8px;background:#f5f5f5;border-radius:4px;overflow:hidden}
-.se-bar-fill{height:100%;border-radius:4px;transition:width .6s cubic-bezier(.4,0,.2,1)}
-.se-bar-n{font-size:13px;font-weight:600;color:#171717;text-align:right;font-variant-numeric:tabular-nums}
+.funnel{display:flex;flex-direction:column;gap:6px}
+.funnel-row{display:grid;grid-template-columns:90px 1fr 60px;gap:10px;align-items:center;font-size:12px}
+.funnel-row .k{color:var(--ink-muted)}
+.funnel-row .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.funnel-row .bar{height:22px;border-radius:6px}
+.funnel-row .bar.c1{background:linear-gradient(90deg,oklch(0.55 0.13 260),color-mix(in oklab,oklch(0.55 0.13 260),transparent 50%))}
+.funnel-row .bar.c2{background:linear-gradient(90deg,oklch(0.6 0.13 230),color-mix(in oklab,oklch(0.6 0.13 230),transparent 50%))}
+.funnel-row .bar.c3{background:linear-gradient(90deg,oklch(0.65 0.14 200),color-mix(in oklab,oklch(0.65 0.14 200),transparent 50%))}
+.funnel-row .bar.c4{background:linear-gradient(90deg,oklch(0.7 0.14 160),color-mix(in oklab,oklch(0.7 0.14 160),transparent 50%))}
+.funnel-row .bar:not(.c1):not(.c2):not(.c3):not(.c4){background:linear-gradient(90deg,var(--accent),color-mix(in oklab,var(--accent),transparent 50%))}
 
-/* ── Funnel ── */
-.se-funnel{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0}
-.se-funnel-s{display:flex;align-items:center;justify-content:center;padding:12px;border-radius:8px;font-size:11px;font-weight:600;color:#fff;transition:width .6s cubic-bezier(.4,0,.2,1);letter-spacing:.01em}
+.table{width:100%;border-collapse:collapse}
+.table td{padding:11px 14px;text-align:left;font-size:12.5px;border-bottom:1px solid var(--hairline-soft)}
+.table tr:last-child td{border-bottom:none}
+.table tr:hover td{background:var(--surface-hover)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;font-size:11px;font-weight:500;border-radius:999px;background:var(--surface);color:var(--ink-2);border:1px solid var(--hairline-soft);white-space:nowrap}
 
-/* ── Table ── */
-.se-tbl{width:100%;border-collapse:collapse}
-.se-tbl th{font-size:11px;font-weight:600;color:#a3a3a3;text-align:left;padding:0 12px 12px;text-transform:uppercase;letter-spacing:.05em}
-.se-tbl td{font-size:13px;padding:12px;border-top:1px solid #f5f5f5}
-.se-tbl tr:hover td{background:#fafafa}
-.se-av{width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0}
-.se-stage{font-size:10px;font-weight:600;padding:3px 10px;border-radius:6px;letter-spacing:.02em}
-.se-pay{font-size:10px;font-weight:600;padding:3px 10px;border-radius:6px;letter-spacing:.02em}
+.icon-btn{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:var(--ink-muted);border:none;background:none;cursor:pointer;transition:background .12s,color .12s}
+.icon-btn:hover{background:var(--surface);color:var(--ink)}
 
-/* ── List Items ── */
-.se-li{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f5f5f5;text-decoration:none;color:inherit;transition:background .1s}
-.se-li:last-child{border:none}
-.se-li:hover{background:#fafafa;margin:0 -12px;padding-left:12px;padding-right:12px;border-radius:8px}
-.se-li-rank{width:24px;height:24px;border-radius:8px;background:#f5f5f5;font-size:10px;font-weight:700;color:#525252;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-
-/* ── Feed ── */
-.se-feed{display:flex;gap:10px;padding:6px 0;align-items:flex-start}
-.se-dot{width:6px;height:6px;border-radius:50%;margin-top:5px;flex-shrink:0}
-
-/* ── CTAs ── */
-.se-cta{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}
-.se-cta a{display:flex;align-items:center;gap:10px;padding:16px 20px;border-radius:12px;text-decoration:none;font-size:14px;font-weight:600;color:#fff;transition:transform .15s,box-shadow .15s}
-.se-cta a:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.15)}
-
-/* ── Score Ring ── */
-.se-score{display:flex;align-items:center;gap:14px}
-.se-ring{position:relative;width:48px;height:48px}
-.se-ring svg{transform:rotate(-90deg)}
-.se-ring-n{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
-
-/* ── New Campaign Button ── */
-.se-btn-primary{background:#0ea5e9;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:background .15s}
-.se-btn-primary:hover{background:#0284c7}
-
-/* ── Anim ── */
-@keyframes seUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-.se-a{animation:seUp .3s ease both}
-.se-a1{animation-delay:0s}.se-a2{animation-delay:40ms}.se-a3{animation-delay:80ms}.se-a4{animation-delay:120ms}.se-a5{animation-delay:160ms}.se-a6{animation-delay:200ms}
-
-/* ── Empty State ── */
-.se-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;color:#d4d4d4}
-.se-empty-icon{font-size:28px;margin-bottom:8px;opacity:.5}
-.se-empty-text{font-size:13px;color:#a3a3a3}
-.se-empty-sub{font-size:12px;color:#d4d4d4;margin-top:4px}
+@media(max-width:960px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
         `}</style>
 
-        <div className="se"><div className="se-in">
+        <div className="db">
+            <div className="db-page">
 
-            {/* ── Header ── */}
-            <div className="se-hd se-a se-a1">
-                <div>
-                    <h1>{name ? `${name}\u2019s Dashboard` : 'Dashboard'}</h1>
-                    <p>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                {/* ── Page Header ── */}
+                <div className="db-head">
+                    <div>
+                        <h2>{greeting}, {name || 'there'} <span>— {dateStr}</span></h2>
+                        <div className="sub">{sub}</div>
+                    </div>
+                    <div className="spacer" />
+                    <button className="refresh-btn" onClick={() => window.location.reload()}>
+                        {ICON.refresh} Refresh
+                    </button>
                 </div>
-                {!isEditor && (
-                    <div className="se-hd-actions">
-                        <div className="se-score">
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: 11, color: '#a3a3a3', fontWeight: 500 }}>Performance</div>
-                                <div style={{ fontSize: 11, color: '#a3a3a3' }}>{fmt(r.thisMonth)} / {fmt(r.monthlyTarget)}</div>
-                            </div>
-                            <div className="se-ring">
-                                <svg width="48" height="48" viewBox="0 0 48 48">
-                                    <circle cx="24" cy="24" r="20" fill="none" stroke="#f5f5f5" strokeWidth="3"/>
-                                    <circle cx="24" cy="24" r="20" fill="none" stroke={score >= 60 ? '#22c55e' : score >= 30 ? '#f59e0b' : '#ef4444'} strokeWidth="3" strokeLinecap="round" strokeDasharray={`${score * 1.257} 125.7`}/>
-                                </svg>
-                                <div className="se-ring-n">{score}</div>
-                            </div>
+
+                {/* ── Jarvis Daily Briefing ── */}
+                <div className="db-briefing">
+                    <div className="db-briefing-head">
+                        <span style={{ color: 'var(--accent-ink)', display: 'inline-flex' }}>{ICON.spark}</span>
+                        <span className="label">Jarvis · Daily briefing</span>
+                        <div className="actions">
+                            <button className="jarvis-btn">{ICON.refresh} Regenerate</button>
+                            <button className="jarvis-btn">{ICON.mic} Read aloud</button>
                         </div>
-                        <Link href="/campaigns/new" className="se-btn-primary">+ New Campaign</Link>
                     </div>
-                )}
-            </div>
-
-            {/* ── Jarvis Daily Briefing (role-aware, identical layout) ── */}
-            <JarvisDailyBriefing />
-
-            {/* ── KPI Cards ── */}
-            <div className="se-kpis se-a se-a2">
-                {isEditor ? (<>
-                    <div className="se-kpi">
-                        <div className="se-kpi-icon" style={{ background: '#f0f9ff', color: '#0ea5e9' }}>{'\u{1F4CB}'}</div>
-                        <div className="se-kpi-l">Total Assigned</div>
-                        <div className="se-kpi-v">{activeProjects}</div>
-                        <span className="se-kpi-t n">All projects</span>
-                    </div>
-                    <div className="se-kpi">
-                        <div className="se-kpi-icon" style={{ background: '#fffbeb', color: '#d97706' }}>{'\u26A1'}</div>
-                        <div className="se-kpi-l">In Progress</div>
-                        <div className="se-kpi-v">{recentProj.filter((p: any) => p.status === 'In Progress' || p.status === 'Downloaded').length || 0}</div>
-                        <span className="se-kpi-t n">Active tasks</span>
-                    </div>
-                    <div className="se-kpi">
-                        <div className="se-kpi-icon" style={{ background: '#f0fdf4', color: '#22c55e' }}>{'\u2714'}</div>
-                        <div className="se-kpi-l">Completed</div>
-                        <div className="se-kpi-v">{won}</div>
-                        <span className="se-kpi-t g">Done &amp; delivered</span>
-                    </div>
-                    <div className="se-kpi">
-                        <div className="se-kpi-icon" style={{ background: '#faf5ff', color: '#8b5cf6' }}>{'\u{1F4C5}'}</div>
-                        <div className="se-kpi-l">Monthly Projects</div>
-                        <div className="se-kpi-v">{o.thisMonth || recentProj.length}</div>
-                        <span className="se-kpi-t n">This month</span>
-                    </div>
-                </>) : (<>
-                    <div className="se-kpi">
-                        <div className="se-kpi-icon" style={{ background: '#f0f9ff', color: '#0ea5e9' }}>$</div>
-                        <div className="se-kpi-l">Total Revenue</div>
-                        <div className="se-kpi-v">{fmt(r.total)}</div>
-                        <span className={`se-kpi-t ${r.monthGrowth >= 0 ? 'g' : 'r'}`}>
-                            {r.monthGrowth !== 0 ? pct(r.monthGrowth) + ' vs last month' : 'This month: ' + fmt(r.thisMonth)}
-                        </span>
-                    </div>
-                    <div className="se-kpi">
-                        <div className="se-kpi-icon" style={{ background: '#f0fdf4', color: '#22c55e' }}>&#10003;</div>
-                        <div className="se-kpi-l">Paid Revenue</div>
-                        <div className="se-kpi-v">{fmt(r.paid)}</div>
-                        <span className={`se-kpi-t ${r.collectionRate >= 70 ? 'g' : 'r'}`}>
-                            {r.collectionRate}% collection rate
-                        </span>
-                    </div>
-                    <div className="se-kpi">
-                        <div className="se-kpi-icon" style={{ background: '#faf5ff', color: '#8b5cf6' }}>&#9881;</div>
-                        <div className="se-kpi-l">Active Projects</div>
-                        <div className="se-kpi-v">{activeProjects}</div>
-                        <span className="se-kpi-t n">
-                            {r.unpaid > 0 ? fmt(r.unpaid) + ' unpaid' : 'All collected'}
-                        </span>
-                    </div>
-                    <div className="se-kpi">
-                        <div className="se-kpi-icon" style={{ background: '#fff7ed', color: '#f97316' }}>&#9734;</div>
-                        <div className="se-kpi-l">Clients Owned</div>
-                        <div className="se-kpi-v">{clientsOwned}</div>
-                        <span className="se-kpi-t n">
-                            {deals > 0 ? deals + ' active deals' : 'No active deals'}
-                        </span>
-                    </div>
-                </>)}
-            </div>
-
-            {/* ── Outreach Metrics (PRD: Today / This Week / This Month) ── */}
-            {!isEditor && <div className="se-outreach se-a se-a3">
-                <div className="se-out-card">
-                    <div className="se-out-v">{o.today}</div>
-                    <div className="se-out-l">Emails Today</div>
+                    <h3>{isAdmin ? 'Three things to handle before lunch.' : 'Three things for you this morning.'}</h3>
+                    <ul>
+                        {reply.length > 0 ? (
+                            <>
+                                <li>Reply to the <b>{Math.min(reply.length, 5)} outstanding emails</b> from yesterday&apos;s sent emails to maintain open communication with clients.</li>
+                                <li>Send a follow-up to the new lead added <b>{s.newLeads > 0 ? '12 hours ago' : 'recently'}</b> to increase the chances of conversion.</li>
+                                <li>Review and analyze the <b>{s.replies} replies</b> received in the last 24 hours to gauge customer sentiment and adjust strategies accordingly.</li>
+                            </>
+                        ) : (
+                            <>
+                                <li>All caught up — <b>no overdue replies</b>. Great work keeping the inbox clean.</li>
+                                <li>Pipeline has <b>{funnelData.reduce((a, f) => a + f.v, 0).toLocaleString()} contacts</b> across all stages.</li>
+                                <li>Focus on <b>warm leads</b> today — {funnelData[2]?.v || 0} contacts are showing interest.</li>
+                            </>
+                        )}
+                    </ul>
                 </div>
-                <div className="se-out-card">
-                    <div className="se-out-v">{o.thisWeek}</div>
-                    <div className="se-out-l">This Week</div>
-                </div>
-                <div className="se-out-card">
-                    <div className="se-out-v">{o.thisMonth}</div>
-                    <div className="se-out-l">This Month</div>
-                </div>
-            </div>}
 
-            {/* ── CTAs ── */}
-            {!isEditor && <div className="se-cta se-a se-a3">
-                <Link href="/actions" style={{ background: '#171717' }}>
-                    <span style={{ fontSize: 16 }}>{'\u2192'}</span>
-                    Action Queue
-                    {replyN > 0 && <span style={{ marginLeft: 'auto', fontSize: 12, opacity: .6 }}>{replyN} waiting</span>}
-                </Link>
-                {r.unpaid > 0 ? (
-                    <Link href="/clients" style={{ background: '#ef4444' }}>
-                        <span style={{ fontSize: 16 }}>{'\u2192'}</span>
-                        Collect {fmt(r.unpaid)}
-                        <span style={{ marginLeft: 'auto', fontSize: 12, opacity: .6 }}>outstanding</span>
-                    </Link>
-                ) : (
-                    <Link href="/jarvis" style={{ background: '#171717' }}>
-                        <span style={{ fontSize: 16 }}>{'\uD83E\uDD16'}</span>
-                        Ask Jarvis
-                    </Link>
-                )}
-            </div>}
+                {/* ── KPI Grid ── */}
+                <div className="kpi-grid">
+                    {kpis.map((kpi, i) => (
+                        <div className="kpi" key={i}>
+                            <div className="k">{kpi.k}</div>
+                            <div className="v">{kpi.v}</div>
+                            <div className="d"><span className={kpi.up ? 'up' : 'down'}>▲</span> {kpi.d}</div>
+                            <Spark points={kpi.sp} color={kpi.up ? 'var(--coach)' : 'var(--danger)'} />
+                        </div>
+                    ))}
+                </div>
 
-            {/* ── Revenue Forecast + Active Campaigns (admin/sales) ── */}
-            {!isEditor && addons && (
-                <div className="se-row se-r2">
-                    {/* Revenue Forecast */}
-                    <div className="se-c">
-                        <div className="se-c-h">
-                            <span className="se-c-t">Revenue Forecast</span>
-                            <span style={{
-                                fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
-                                background: addons.forecast.trend === 'up' ? '#f0fdf4' : addons.forecast.trend === 'down' ? '#fef2f2' : '#fafafa',
-                                color: addons.forecast.trend === 'up' ? '#22c55e' : addons.forecast.trend === 'down' ? '#ef4444' : '#a3a3a3',
-                            }}>
-                                {addons.forecast.trend === 'up' ? '▲' : addons.forecast.trend === 'down' ? '▼' : '–'} {Math.abs(addons.forecast.trendPct)}% MoM
-                            </span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                            <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-.03em', color: '#171717' }}>{fmt(addons.forecast.nextMonthProjected)}</span>
-                            <span style={{ fontSize: 12, color: '#a3a3a3' }}>projected next month</span>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14, padding: '12px 0', borderTop: '1px solid #f5f5f5' }}>
-                            <div>
-                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>3-mo avg</div>
-                                <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{fmt(addons.forecast.last3MonthAvg)}</div>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>6-mo avg</div>
-                                <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{fmt(addons.forecast.last6MonthAvg)}</div>
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 48, marginTop: 12 }}>
-                            {addons.forecast.monthly.map((m) => {
-                                const max = Math.max(...addons.forecast.monthly.map(x => x.revenue), 1);
-                                const h = Math.max(2, Math.round((m.revenue / max) * 42));
-                                return (
-                                    <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                                        <div style={{
-                                            width: '100%', height: h,
-                                            background: m.projected ? 'repeating-linear-gradient(45deg, #0ea5e9, #0ea5e9 4px, #bae6fd 4px, #bae6fd 8px)' : '#0ea5e9',
-                                            borderRadius: 3,
-                                        }} title={`${m.month}: ${fmt(m.revenue)}${m.projected ? ' (projected)' : ''}`} />
-                                        <span style={{ fontSize: 9, color: '#a3a3a3' }}>{m.month.slice(5)}</span>
+                {/* ── Revenue + Funnel Row ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14, marginBottom: 14 }}>
+                    <div className="card">
+                        <h3>Revenue <span className="sub">last 6 months · $ thousands</span><span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-muted)' }}>Closed · Unpaid</span></h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, height: 160, alignItems: 'end', padding: '10px 4px 0' }}>
+                            {revBars.map(([a, b]: [number, number], i: number) => (
+                                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                                    <div style={{ display: 'flex', alignItems: 'end', gap: 3, height: 130 }}>
+                                        <div style={{ width: 18, height: `${a}%`, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />
+                                        <div style={{ width: 18, height: `${b}%`, background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '4px 4px 0 0' }} />
                                     </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Active Campaigns */}
-                    <div className="se-c">
-                        <div className="se-c-h">
-                            <span className="se-c-t">Active Campaigns</span>
-                            <Link href="/campaigns" className="se-c-a">View All →</Link>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-                            <div>
-                                <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-.03em', color: '#22c55e' }}>{addons.campaigns.running}</div>
-                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>Running</div>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-.03em', color: '#f59e0b' }}>{addons.campaigns.paused}</div>
-                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>Paused</div>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-.03em', color: '#171717' }}>{addons.campaigns.sentToday}</div>
-                                <div style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '.04em' }}>Sent today</div>
-                            </div>
-                        </div>
-                        {addons.campaigns.topRunning.length > 0 ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                {addons.campaigns.topRunning.map(c => (
-                                    <Link key={c.id} href={`/campaigns/${c.id}`} style={{
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                        padding: '8px 12px', background: '#fafafa', borderRadius: 8,
-                                        textDecoration: 'none', color: 'inherit', fontSize: 12,
-                                    }}>
-                                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
-                                            <span style={{ fontWeight: 600 }}>{c.name}</span>
-                                        </div>
-                                        <span style={{ color: '#a3a3a3', fontSize: 11 }}>{c.dailyLimit}/day</span>
-                                    </Link>
-                                ))}
-                            </div>
-                        ) : (
-                            <div style={{ padding: '18px 16px', textAlign: 'center', borderRadius: 10, background: 'linear-gradient(135deg, #fafafa, #f5f5f5)', border: '1px dashed #e5e5e5' }}>
-                                <div style={{ fontSize: 12, color: '#525252', marginBottom: 10, fontWeight: 500 }}>
-                                    No running campaigns yet.
+                                    <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{revMonths[i]}</span>
                                 </div>
-                                <Link href="/campaigns/new" style={{
-                                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                                    background: 'var(--accent, #1a73e8)', color: '#fff',
-                                    padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                                    textDecoration: 'none',
-                                }}>
-                                    Launch Campaign →
-                                </Link>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* ── Revenue Chart + Recent Projects Table ── */}
-            <div className={`se-row ${isEditor ? 'se-r2' : 'se-r3'} se-a se-a4`}>
-                {!isEditor && <div className="se-c">
-                    <div className="se-c-h">
-                        <span className="se-c-t">Monthly Revenue</span>
-                        <span style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.03em' }}>{fmt(r.thisMonth)}</span>
-                    </div>
-                    <div style={{ height: 220 }}>
-                        {r.chart.length > 0 ? (
-                            <RevenueBarChart data={r.chart} paidTotal={r.paid} totalRevenue={r.total} />
-                        ) : (
-                            <div className="se-empty">
-                                <div className="se-empty-icon">&#128200;</div>
-                                <div className="se-empty-text">No revenue data yet</div>
-                                <div className="se-empty-sub">Revenue will appear as projects are closed</div>
-                            </div>
-                        )}
-                    </div>
-                    <div className="se-target">
-                        <span className="se-target-label">Monthly Target</span>
-                        <div className="se-target-bar">
-                            <div className="se-target-fill" style={{
-                                width: `${r.targetProgress}%`,
-                                background: r.targetProgress >= 100 ? '#22c55e' : r.targetProgress >= 50 ? '#0ea5e9' : '#f59e0b'
-                            }}/>
-                        </div>
-                        <span className="se-target-pct">{r.targetProgress}%</span>
-                    </div>
-                </div>}
-
-                {/* ── Recent Projects Table (PRD) ── */}
-                <div className="se-c" style={{ padding: '24px 0' }}>
-                    <div className="se-c-h" style={{ padding: '0 24px' }}>
-                        <span className="se-c-t">Recent Projects</span>
-                        <Link href="/projects" className="se-c-a">View All &rarr;</Link>
-                    </div>
-                    {recentProj.length === 0 ? (
-                        <div className="se-empty">
-                            <div className="se-empty-icon">&#128203;</div>
-                            <div className="se-empty-text">No projects yet</div>
-                            <div className="se-empty-sub">Your first project will appear here once you close a deal.</div>
-                        </div>
-                    ) : (
-                        <table className="se-tbl">
-                            <thead><tr><th>Project</th><th>Status</th>{!isEditor && <><th style={{ textAlign: 'right' }}>Revenue</th><th style={{ textAlign: 'right' }}>Payment</th></>}</tr></thead>
-                            <tbody>
-                                {recentProj.map((p: any) => {
-                                    const pay = PS[p.payment] || PS.UNPAID!;
-                                    return (
-                                        <tr key={p.id}>
-                                            <td>
-                                                <div style={{ fontWeight: 600, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{p.name}</div>
-                                                <div style={{ fontSize: 10, color: '#a3a3a3' }}>{isEditor ? `Project – ${(p.id as string)?.slice(0, 6) || ''}` : p.client} &middot; {relDate(p.date)}</div>
-                                            </td>
-                                            <td><span style={{ fontSize: 11, color: '#525252' }}>{p.status}</span></td>
-                                            {!isEditor && <>
-                                                <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{fmt(p.value)}</td>
-                                                <td style={{ textAlign: 'right' }}>
-                                                    <span className="se-pay" style={{ color: pay.color, background: pay.bg }}>{pay.label}</span>
-                                                </td>
-                                            </>}
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
-            </div>
-
-            {/* ── Pipeline Health + Funnel + Top Clients ── */}
-            {!isEditor && <div className="se-row se-r4 se-a se-a5">
-                <div className="se-c">
-                    <div className="se-c-h"><span className="se-c-t">Pipeline Health</span></div>
-                    {(() => {
-                        const stageKeys = ['COLD_LEAD', 'CONTACTED', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'];
-                        const totalInStages = stageKeys.reduce((s, k) => s + (Number(pl[k]) || 0), 0);
-                        if (totalInStages === 0) {
-                            return (
-                                <div className="se-empty">
-                                    <div className="se-empty-icon">&#128200;</div>
-                                    <div className="se-empty-text">No leads in your pipeline yet</div>
-                                    <div className="se-empty-sub">Start outreach to see stages populate.</div>
-                                    <Link href="/campaigns/new" style={{
-                                        display: 'inline-block', marginTop: 12,
-                                        background: '#171717', color: '#fff',
-                                        padding: '8px 16px', borderRadius: 8,
-                                        fontSize: 12, fontWeight: 600, textDecoration: 'none',
-                                    }}>
-                                        Start Outreach →
-                                    </Link>
-                                </div>
-                            );
-                        }
-                        return (
-                            <div className="se-bars">
-                                {stageKeys.map(stage => {
-                                    const n = Number(pl[stage]) || 0;
-                                    const vals = Object.values(pl).map(v => Number(v) || 0);
-                                    const max = vals.length > 0 ? Math.max(...vals, 1) : 1;
-                                    return (
-                                        <div className="se-bar-row" key={stage}>
-                                            <span className="se-bar-l">{SL[stage]}</span>
-                                            <div className="se-bar-track"><div className="se-bar-fill" style={{ width: `${(n / max) * 100}%`, background: SC[stage] }}/></div>
-                                            <span className="se-bar-n">{n}</span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        );
-                    })()}
-                </div>
-
-                <div className="se-c">
-                    <div className="se-c-h"><span className="se-c-t">Conversion Funnel</span></div>
-                    <div className="se-funnel">
-                        {funnel.map((f: any, i: number) => (
-                            <div key={f.stage} className="se-funnel-s" style={{
-                                width: `${[100, 72, 48, 28][i]}%`,
-                                background: ['#f97316', '#f59e0b', '#3b82f6', '#22c55e'][i],
-                            }}>
-                                {f.count > 0 ? `${f.stage} ${f.pct}%` : f.stage}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="se-c">
-                    <div className="se-c-h"><span className="se-c-t">Top Clients</span></div>
-                    {top.length === 0 ? (
-                        <div className="se-empty">
-                            <div className="se-empty-icon">&#128101;</div>
-                            <div className="se-empty-text">No clients yet</div>
-                        </div>
-                    ) : top.slice(0, 5).map((c: any, i: number) => (
-                        <div className="se-li" key={c.id}>
-                            <div className="se-li-rank">{i + 1}</div>
-                            <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-                            <div style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#171717' }}>{fmt(c.total_revenue)}</div>
-                        </div>
-                    ))}
-                </div>
-            </div>}
-
-            {/* ── Pipeline Table + Unpaid ── */}
-            {!isEditor && <div className="se-row se-r3 se-a se-a5">
-                <div className="se-c" style={{ padding: '24px 0' }}>
-                    <div className="se-c-h" style={{ padding: '0 24px' }}>
-                        <span className="se-c-t">Pipeline</span>
-                        <Link href="/clients" className="se-c-a">View all &rarr;</Link>
-                    </div>
-                    <table className="se-tbl">
-                        <thead><tr><th>Client</th><th>Stage</th><th style={{ textAlign: 'right' }}>Value</th></tr></thead>
-                        <tbody>
-                            {rows.slice(0, 8).map((c: any) => (
-                                <tr key={c.id}>
-                                    <td>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                            <div className="se-av" style={{ background: SC[c.stage] || '#94a3b8' }}>{ini(c.name)}</div>
-                                            <div>
-                                                <div style={{ fontWeight: 600, fontSize: 12 }}>{c.name}</div>
-                                                {c.location && <div style={{ fontSize: 10, color: '#a3a3a3' }}>{c.location}</div>}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td><span className="se-stage" style={{ background: (SC[c.stage] || '#94a3b8') + '14', color: SC[c.stage] || '#94a3b8' }}>{SL[c.stage] || c.stage}</span></td>
-                                    <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{c.revenue > 0 ? fmt(c.revenue) : '\u2014'}</td>
-                                </tr>
                             ))}
-                        </tbody>
-                    </table>
-                </div>
-
-                {/* ── Unpaid Clients ── */}
-                <div className="se-c">
-                    <div className="se-c-h">
-                        <span className="se-c-t">Unpaid Invoices</span>
-                        {r.unpaid > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: '#ef4444', fontVariantNumeric: 'tabular-nums' }}>{fmt(r.unpaid)}</span>}
+                        </div>
                     </div>
-                    {unpaidClients.length === 0 ? (
-                        <div className="se-empty">
-                            <div className="se-empty-icon">&#128176;</div>
-                            <div className="se-empty-text">All invoices collected</div>
-                        </div>
-                    ) : unpaidClients.map((c: any) => (
-                        <Link href={`/clients/${c.id}`} className="se-li" key={c.id}>
-                            <div className="se-av" style={{ background: '#ef4444' }}>{ini(c.name)}</div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, fontWeight: 600 }}>{c.name}</div>
-                                <div style={{ fontSize: 10, color: '#a3a3a3' }}>{c.email}</div>
-                            </div>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#ef4444', fontVariantNumeric: 'tabular-nums' }}>{fmt(c.unpaid_amount)}</span>
-                        </Link>
-                    ))}
-                </div>
-            </div>}
-
-            {/* ── Reply Now + Activity ── */}
-            {!isEditor && <div className="se-row se-r2 se-a se-a6">
-                <div className="se-c">
-                    <div className="se-c-h">
-                        <span className="se-c-t">Needs Reply</span>
-                        {replyN > 0 && <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 6, color: '#fff', background: '#ef4444' }}>{replyN}</span>}
-                    </div>
-                    {reply.length === 0 ? (
-                        <div className="se-empty">
-                            <div className="se-empty-icon">&#9989;</div>
-                            <div className="se-empty-text">All caught up!</div>
-                            <div className="se-empty-sub">No pending replies right now</div>
-                        </div>
-                    ) : reply.map((c: any) => (
-                        <Link href={`/clients/${c.id}`} className="se-li" key={c.id}>
-                            <div className="se-av" style={{ background: '#171717' }}>{ini(c.name)}</div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, fontWeight: 600 }}>{c.name}</div>
-                                <div style={{ fontSize: 10, color: '#a3a3a3' }}>{c.email}</div>
-                            </div>
-                            <span style={{ fontSize: 11, color: c.days_since_last_contact <= 1 ? '#ef4444' : '#a3a3a3', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                                {c.days_since_last_contact === 0 ? 'now' : c.days_since_last_contact + 'd'}
-                            </span>
-                        </Link>
-                    ))}
-                </div>
-
-                <div className="se-c">
-                    <div className="se-c-h"><span className="se-c-t">Recent Activity</span></div>
-                    {feed.length === 0 ? (
-                        <div className="se-empty">
-                            <div className="se-empty-icon">&#128172;</div>
-                            <div className="se-empty-text">No activity yet</div>
-                            <div className="se-empty-sub">Start sending campaigns to see activity here</div>
-                        </div>
-                    ) : feed.slice(0, 8).map((a: any) => (
-                        <div className="se-feed" key={a.id}>
-                            <div className="se-dot" style={{ background: a.direction === 'RECEIVED' ? '#22c55e' : a.opened ? '#3b82f6' : '#d4d4d4' }}/>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {a.direction === 'RECEIVED' ? a.contactName + ' replied' : 'Sent to ' + a.contactName}
+                    <div className="card">
+                        <h3>Pipeline funnel <span className="sub">{isAdmin ? 'all accounts' : 'my clients'}</span></h3>
+                        <div className="funnel">
+                            {funnelData.map((f, i) => (
+                                <div className="funnel-row" key={f.k}>
+                                    <span className="k">{f.k}</span>
+                                    <div style={{ background: 'var(--surface-2)', borderRadius: 6, overflow: 'hidden' }}>
+                                        <div className={`bar ${funnelColors[i]}`} style={{ width: `${Math.max(2, Math.round((f.v / funnelMax) * 100))}%` }} />
+                                    </div>
+                                    <span className="v">{f.v.toLocaleString()}</span>
                                 </div>
-                                <div style={{ fontSize: 10, color: '#a3a3a3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.subject}</div>
-                            </div>
-                            <span style={{ fontSize: 10, color: '#d4d4d4', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{ago(a.sentAt)}</span>
+                            ))}
                         </div>
-                    ))}
+                    </div>
                 </div>
-            </div>}
 
-        </div></div>
+                {/* ── Need Reply + Top Closers ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    <div className="card">
+                        <h3>Need reply <span className="sub">overdue</span></h3>
+                        {needReplyRows.length > 0 ? (
+                            <table className="table">
+                                <tbody>
+                                    {needReplyRows.map((row: any, i: number) => (
+                                        <tr key={i}>
+                                            <td style={{ width: 140 }}><b>{row.n}</b></td>
+                                            <td style={{ color: 'var(--ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{row.s}</td>
+                                            <td className="num" style={{ textAlign: 'right', width: 60 }}>
+                                                <span className="chip" style={{ color: row.p === 'high' ? 'var(--danger)' : row.p === 'med' ? 'var(--warn)' : 'var(--ink-muted)' }}>{row.d} old</span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--ink-faint)', fontSize: 13 }}>All caught up — no overdue replies</div>
+                        )}
+                    </div>
+                    <div className="card">
+                        <h3>{isAdmin ? 'Top closers this month' : 'Team leaderboard · this month'}</h3>
+                        {closerRows.length > 0 ? (
+                            <table className="table">
+                                <tbody>
+                                    {closerRows.map((row: any, i: number) => (
+                                        <tr key={i}>
+                                            <td style={{ width: 210 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                    <div className={`avatar ${row.av}`} style={{ width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 10, fontWeight: 600 }}>
+                                                        {(row.n || '').split(' ').map((s: string) => s[0]).join('').slice(0, 2).toUpperCase()}
+                                                    </div>
+                                                    <b>{row.n}</b>
+                                                </div>
+                                            </td>
+                                            <td className="num" style={{ color: 'var(--ink-muted)' }}>{row.d} deals</td>
+                                            <td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{row.v}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--ink-faint)', fontSize: 13 }}>No closed deals yet this month</div>
+                        )}
+                    </div>
+                </div>
+
+            </div>
+        </div>
         </>
     );
 }

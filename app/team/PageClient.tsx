@@ -7,7 +7,6 @@ import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, up
 import { sendInviteAction, listInvitesAction, revokeInviteAction, resendInviteAction } from '../../src/actions/inviteActions';
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
-import Topbar from '../components/Topbar';
 import { PageLoader } from '../components/LoadingStates';
 
 // Cache for instant team page load
@@ -210,45 +209,69 @@ export default function TeamPage() {
         setActionLoading(null);
     };
 
+    const activeCount = users.filter(u => u.crm_status === 'ACTIVE').length;
+    const managerCount = users.filter(u => u.role === 'ADMIN' || u.role === 'ACCOUNT_MANAGER').length;
+    const editorCount = users.filter(u => u.role === 'VIDEO_EDITOR').length;
+
     if (isLoading) {
-        return (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                <Topbar searchTerm="" setSearchTerm={() => {}} onSearch={() => {}} onClearSearch={() => {}} leftContent={<h1 className="page-title">Team Management</h1>} />
-                <PageLoader isLoading={true} type="table" count={5} context="team"><div /></PageLoader>
-            </div>
-        );
+        return <PageLoader isLoading={true} type="table" count={5} context="team"><div /></PageLoader>;
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-            <Topbar searchTerm="" setSearchTerm={() => {}} onSearch={() => {}} onClearSearch={() => {}} leftContent={<h1 className="page-title">Team Management</h1>} />
-            <div className="team-scroll" style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
-                <div className="team-container" style={{ maxWidth: 960, margin: '0 auto' }}>
-                    {/* Header */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                        <div>
-                            <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Team Management</h1>
-                            <p style={{ fontSize: 13, color: 'var(--text-muted, #94a3b8)', marginTop: 4 }}>Manage your team members, roles and account access</p>
-                        </div>
-                        <button onClick={() => { setShowInviteModal(true); setInviteResult(null); setInviteForm({ name: '', email: '', role: 'SALES', assignedGmailAccountIds: [] }); }}
-                            style={{ background: 'var(--accent)', color: 'white', border: 'none', padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
-                            + Invite User
-                        </button>
+        <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
+            <div style={{ padding: '22px 26px' }}>
+                {/* Page head */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 18 }}>
+                    <div>
+                        <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>Team members <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 14 }}>· {activeCount} active, {invitations.filter(i => i.status === 'PENDING').length} pending invite</span></h2>
+                        <div style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 4 }}>Roles control account visibility · editors see only assigned edit jobs · managers see all clients on their accounts</div>
                     </div>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={() => { setShowInviteModal(true); setInviteResult(null); setInviteForm({ name: '', email: '', role: 'SALES', assignedGmailAccountIds: [] }); }}
+                        style={{ background: 'var(--ink)', color: 'var(--canvas)', border: 'none', padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-ui)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        + Invite member
+                    </button>
+                </div>
 
-                    {/* Tabs */}
-                    <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-color, #e0e0e0)', marginBottom: 20 }}>
-                        {(['members', 'invitations'] as const).map(tab => (
-                            <button key={tab} onClick={() => setActiveTab(tab)}
-                                style={{
-                                    padding: '10px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer', border: 'none', background: 'none',
-                                    color: activeTab === tab ? 'var(--accent)' : 'var(--text-secondary)',
-                                    borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
-                                }}>
-                                {tab === 'members' ? `Team Members (${users.length})` : `Invitations (${invitations.length})`}
-                            </button>
-                        ))}
+                {/* KPI grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--hairline-soft)', borderRadius: 14, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', fontWeight: 500 }}>Active</div>
+                        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{activeCount}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>of {users.length} seats</div>
                     </div>
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--hairline-soft)', borderRadius: 14, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', fontWeight: 500 }}>Managers</div>
+                        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', margin: '6px 0 2px' }}>{managerCount}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>across {allAccounts.length} accounts</div>
+                    </div>
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--hairline-soft)', borderRadius: 14, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', fontWeight: 500 }}>Editors</div>
+                        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', margin: '6px 0 2px' }}>{editorCount}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>handling edit jobs</div>
+                    </div>
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--hairline-soft)', borderRadius: 14, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', fontWeight: 500 }}>Plan</div>
+                        <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.02em', margin: '6px 0 2px' }}>Studio</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>{users.length} seats</div>
+                    </div>
+                </div>
+
+                {/* Tabs */}
+                <div style={{ display: 'flex', gap: 2, padding: 3, background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--hairline-soft)', width: 'fit-content', marginBottom: 14 }}>
+                    {(['members', 'invitations'] as const).map(tab => (
+                        <button key={tab} onClick={() => setActiveTab(tab)}
+                            style={{
+                                padding: '4px 10px', fontSize: 12, fontWeight: 500, cursor: 'pointer', border: 'none',
+                                borderRadius: 6, fontFamily: 'var(--font-ui)',
+                                background: activeTab === tab ? 'var(--shell)' : 'none',
+                                color: activeTab === tab ? 'var(--ink)' : 'var(--ink-muted)',
+                                boxShadow: activeTab === tab ? '0 1px 2px rgba(0,0,0,0.25)' : 'none',
+                            }}>
+                            {tab === 'members' ? `Members (${users.length})` : `Invites (${invitations.length})`}
+                        </button>
+                    ))}
+                </div>
 
                     {/* Members Tab */}
                     {activeTab === 'members' && (
@@ -256,7 +279,7 @@ export default function TeamPage() {
                             <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
                                 <thead>
-                                    <tr style={{ borderBottom: '1px solid var(--border-color, #e0e0e0)' }}>
+                                    <tr style={{ borderBottom: '1px solid var(--border-color, var(--hairline))' }}>
                                         <th style={thStyle}>User</th>
                                         <th style={thStyle}>Role</th>
                                         <th style={thStyle}>Status</th>
@@ -267,11 +290,11 @@ export default function TeamPage() {
                                 </thead>
                                 <tbody>
                                     {users.map((user, idx) => (
-                                        <tr key={user.id} style={{ borderBottom: '1px solid var(--border-color, #e0e0e0)', background: idx % 2 === 1 ? '#f9fafb' : '#fff' }}>
+                                        <tr key={user.id} style={{ borderBottom: '1px solid var(--border-color, var(--hairline))', background: idx % 2 === 1 ? 'var(--surface)' : '#fff' }}>
                                             <td style={tdRowStyle}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                                     <div style={{
-                                                        width: 40, height: 40, borderRadius: '50%', background: 'var(--accent-light, #e8f0fe)',
+                                                        width: 40, height: 40, borderRadius: '50%', background: 'var(--accent-light, var(--info-soft))',
                                                         color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                         fontSize: 15, fontWeight: 600, flexShrink: 0, overflow: 'hidden',
                                                     }}>
@@ -279,14 +302,14 @@ export default function TeamPage() {
                                                     </div>
                                                     <div>
                                                         <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>{user.name}</div>
-                                                        <div style={{ fontSize: 12, color: 'var(--text-muted, #94a3b8)' }}>{user.email}</div>
+                                                        <div style={{ fontSize: 12, color: 'var(--text-muted, var(--ink-faint))' }}>{user.email}</div>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td style={tdRowStyle}>
                                                 <select value={user.role} disabled={user.id === currentUser?.userId || actionLoading === user.id}
                                                     onChange={(e) => handleRoleChange(user.id, e.target.value as 'ADMIN' | 'SALES' | 'VIDEO_EDITOR')}
-                                                    style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border-color, #dadce0)', background: 'var(--bg-surface)', cursor: 'pointer' }}>
+                                                    style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border-color, var(--hairline))', background: 'var(--bg-surface)', cursor: 'pointer' }}>
                                                     <option value="ADMIN">Admin</option>
                                                     <option value="SALES">Sales</option>
                                                     <option value="VIDEO_EDITOR">Video Editor</option>
@@ -295,8 +318,8 @@ export default function TeamPage() {
                                             <td style={tdRowStyle}>
                                                 <span style={{
                                                     display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '4px 14px', borderRadius: 20, minWidth: 64, textAlign: 'center',
-                                                    background: user.crm_status === 'ACTIVE' ? '#e6f4ea' : '#f3f4f6',
-                                                    color: user.crm_status === 'ACTIVE' ? '#1e8e3e' : '#6b7280',
+                                                    background: user.crm_status === 'ACTIVE' ? 'var(--coach-soft)' : 'var(--surface-2)',
+                                                    color: user.crm_status === 'ACTIVE' ? 'var(--coach)' : 'var(--ink-muted)',
                                                 }}>
                                                     {user.crm_status === 'ACTIVE' ? 'Active' : 'Inactive'}
                                                 </span>
@@ -305,8 +328,8 @@ export default function TeamPage() {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                     <span style={{
                                                         display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, minWidth: 64, textAlign: 'center',
-                                                        background: user.password ? '#e6f4ea' : '#fef7e0',
-                                                        color: user.password ? '#1e8e3e' : '#d97706',
+                                                        background: user.password ? 'var(--coach-soft)' : 'var(--warn-soft)',
+                                                        color: user.password ? 'var(--coach)' : 'var(--warn)',
                                                     }}>
                                                         {user.password ? 'Set \u2713' : 'Not set'}
                                                     </span>
@@ -319,12 +342,12 @@ export default function TeamPage() {
                                             <td style={tdRowStyle}>
                                                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                                                     {user.assignedAccounts?.slice(0, 2).map((a: any) => (
-                                                        <span key={a.gmailAccountId} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 12, background: 'var(--bg-elevated, #f1f3f4)', color: 'var(--text-secondary)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+                                                        <span key={a.gmailAccountId} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 12, background: 'var(--bg-elevated, var(--surface-2))', color: 'var(--text-secondary)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
                                                             {a.email}
                                                         </span>
                                                     ))}
                                                     {user.assignedAccounts?.length > 2 && (
-                                                        <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 12, background: 'var(--bg-elevated, #f1f3f4)', color: 'var(--text-muted)' }}>+{user.assignedAccounts.length - 2}</span>
+                                                        <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 12, background: 'var(--bg-elevated, var(--surface-2))', color: 'var(--text-muted)' }}>+{user.assignedAccounts.length - 2}</span>
                                                     )}
                                                     {(!user.assignedAccounts || user.assignedAccounts.length === 0) && user.role === 'ADMIN' && (
                                                         <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>All (admin)</span>
@@ -339,12 +362,12 @@ export default function TeamPage() {
                                                 {user.id !== currentUser?.userId && (
                                                     user.crm_status === 'ACTIVE' ? (
                                                         <button onClick={() => handleDeactivate(user.id)} disabled={actionLoading === user.id}
-                                                            style={{ fontSize: 12, color: '#6b7280', background: 'none', border: '1px solid #d1d5db', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
+                                                            style={{ fontSize: 12, color: 'var(--ink-muted)', background: 'none', border: '1px solid var(--hairline)', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Deactivate
                                                         </button>
                                                     ) : (
                                                         <button onClick={() => handleReactivate(user.id)} disabled={actionLoading === user.id}
-                                                            style={{ fontSize: 12, color: '#fff', background: '#1e8e3e', border: 'none', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
+                                                            style={{ fontSize: 12, color: '#fff', background: 'var(--coach)', border: 'none', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Reactivate
                                                         </button>
                                                     )
@@ -369,7 +392,7 @@ export default function TeamPage() {
                             <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
                                 <thead>
-                                    <tr style={{ borderBottom: '1px solid var(--border-color, #e0e0e0)' }}>
+                                    <tr style={{ borderBottom: '1px solid var(--border-color, var(--hairline))' }}>
                                         <th style={thStyle}>Name</th>
                                         <th style={thStyle}>Email</th>
                                         <th style={thStyle}>Role</th>
@@ -380,21 +403,21 @@ export default function TeamPage() {
                                 </thead>
                                 <tbody>
                                     {invitations.map(inv => (
-                                        <tr key={inv.id} style={{ borderBottom: '1px solid var(--border-color, #e0e0e0)' }}>
+                                        <tr key={inv.id} style={{ borderBottom: '1px solid var(--border-color, var(--hairline))' }}>
                                             <td style={tdStyle}>{inv.name}</td>
                                             <td style={tdStyle}><span style={{ color: 'var(--text-secondary)' }}>{inv.email}</span></td>
                                             <td style={tdStyle}>
                                                 <span style={{
                                                     fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                                                    background: inv.role === 'ADMIN' ? '#e8f0fe' : inv.role === 'VIDEO_EDITOR' ? '#f5f3ff' : '#fef7e0',
-                                                    color: inv.role === 'ADMIN' ? '#1a73e8' : inv.role === 'VIDEO_EDITOR' ? '#7c3aed' : '#e37400',
+                                                    background: inv.role === 'ADMIN' ? 'var(--info-soft)' : inv.role === 'VIDEO_EDITOR' ? '#f5f3ff' : 'var(--warn-soft)',
+                                                    color: inv.role === 'ADMIN' ? 'var(--accent)' : inv.role === 'VIDEO_EDITOR' ? 'var(--accent)' : 'var(--warn)',
                                                 }}>{{ ADMIN: 'Admin', SALES: 'Sales', VIDEO_EDITOR: 'Video Editor' }[inv.role as string] || inv.role}</span>
                                             </td>
                                             <td style={tdStyle}>
                                                 <span style={{
                                                     fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                                                    background: inv.status === 'PENDING' ? '#fef7e0' : inv.status === 'ACCEPTED' ? '#e6f4ea' : '#fce8e6',
-                                                    color: inv.status === 'PENDING' ? '#e37400' : inv.status === 'ACCEPTED' ? '#1e8e3e' : '#d93025',
+                                                    background: inv.status === 'PENDING' ? 'var(--warn-soft)' : inv.status === 'ACCEPTED' ? 'var(--coach-soft)' : 'var(--danger-soft)',
+                                                    color: inv.status === 'PENDING' ? 'var(--warn)' : inv.status === 'ACCEPTED' ? 'var(--coach)' : 'var(--danger)',
                                                 }}>{inv.status}</span>
                                             </td>
                                             <td style={tdStyle}>
@@ -410,7 +433,7 @@ export default function TeamPage() {
                                                             Resend
                                                         </button>
                                                         <button onClick={() => handleRevokeInvite(inv.id)} disabled={actionLoading === inv.id}
-                                                            style={{ fontSize: 12, color: '#d93025', background: 'none', border: '1px solid #d93025', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
+                                                            style={{ fontSize: 12, color: 'var(--danger)', background: 'none', border: '1px solid var(--danger)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Revoke
                                                         </button>
                                                     </div>
@@ -422,7 +445,7 @@ export default function TeamPage() {
                                                             Resend
                                                         </button>
                                                         <button onClick={() => handleRevokeInvite(inv.id)} disabled={actionLoading === inv.id}
-                                                            style={{ fontSize: 12, color: '#6b7280', background: 'none', border: '1px solid #d1d5db', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
+                                                            style={{ fontSize: 12, color: 'var(--ink-muted)', background: 'none', border: '1px solid var(--hairline)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Remove
                                                         </button>
                                                     </div>
@@ -438,7 +461,6 @@ export default function TeamPage() {
                             )}
                         </div>
                     )}
-                </div>
             </div>
 
             {/* Invite Modal */}
@@ -449,18 +471,18 @@ export default function TeamPage() {
 
                         {inviteResult?.success ? (
                             <div>
-                                <div style={{ background: '#e6f4ea', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-                                    <p style={{ color: '#1e8e3e', fontWeight: 500, marginBottom: 8 }}>Invitation sent!</p>
+                                <div style={{ background: 'var(--coach-soft)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+                                    <p style={{ color: 'var(--coach)', fontWeight: 500, marginBottom: 8 }}>Invitation sent!</p>
                                     <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>Share this link if the email doesn't arrive:</p>
                                     <input type="text" readOnly value={inviteResult.inviteUrl || ''} onClick={(e) => { (e.target as HTMLInputElement).select(); navigator.clipboard.writeText(inviteResult.inviteUrl || ''); }}
-                                        style={{ width: '100%', fontSize: 11, padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border-color, #dadce0)', background: 'var(--bg-surface)', cursor: 'pointer' }} />
+                                        style={{ width: '100%', fontSize: 11, padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border-color, var(--hairline))', background: 'var(--bg-surface)', cursor: 'pointer' }} />
                                 </div>
                                 <button onClick={() => setShowInviteModal(false)} style={btnPrimary}>Done</button>
                             </div>
                         ) : (
                             <>
                                 {inviteResult?.error && (
-                                    <div style={{ background: '#fce8e6', borderRadius: 8, padding: 12, marginBottom: 16, color: '#d93025', fontSize: 13 }}>
+                                    <div style={{ background: 'var(--danger-soft)', borderRadius: 8, padding: 12, marginBottom: 16, color: 'var(--danger)', fontSize: 13 }}>
                                         {inviteResult.error}
                                     </div>
                                 )}
@@ -483,7 +505,7 @@ export default function TeamPage() {
                                 {inviteForm.role === 'ADMIN' && allAccounts.length > 0 && (
                                     <div style={{ marginBottom: 16 }}>
                                         <label style={labelStyle}>Assign Gmail Accounts</label>
-                                        <div style={{ maxHeight: 150, overflow: 'auto', border: '1px solid var(--border-color, #dadce0)', borderRadius: 8, padding: 8, background: '#f9fafb' }}>
+                                        <div style={{ maxHeight: 150, overflow: 'auto', border: '1px solid var(--border-color, var(--hairline))', borderRadius: 8, padding: 8, background: 'var(--surface)' }}>
                                             <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 6px 8px', fontStyle: 'italic' }}>
                                                 Admins automatically have access to all {allAccounts.length} accounts.
                                             </div>
@@ -499,7 +521,7 @@ export default function TeamPage() {
                                 {inviteForm.role === 'SALES' && allAccounts.length > 0 && (
                                     <div style={{ marginBottom: 16 }}>
                                         <label style={labelStyle}>Assign Gmail Accounts</label>
-                                        <div style={{ maxHeight: 150, overflow: 'auto', border: '1px solid var(--border-color, #dadce0)', borderRadius: 8, padding: 8 }}>
+                                        <div style={{ maxHeight: 150, overflow: 'auto', border: '1px solid var(--border-color, var(--hairline))', borderRadius: 8, padding: 8 }}>
                                             {allAccounts.map(acc => (
                                                 <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', cursor: 'pointer', fontSize: 13 }}>
                                                     <input type="checkbox" checked={inviteForm.assignedGmailAccountIds.includes(acc.id)}
@@ -537,13 +559,13 @@ export default function TeamPage() {
                         <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Set Password</h2>
                         <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>{passwordModal.name}</p>
                         {passwordSuccess ? (
-                            <div style={{ background: '#e6f4ea', borderRadius: 8, padding: 16, color: '#1e8e3e', fontWeight: 500, textAlign: 'center' }}>
+                            <div style={{ background: 'var(--coach-soft)', borderRadius: 8, padding: 16, color: 'var(--coach)', fontWeight: 500, textAlign: 'center' }}>
                                 {passwordSuccess}
                             </div>
                         ) : (
                             <>
                                 {passwordError && (
-                                    <div style={{ background: '#fce8e6', borderRadius: 8, padding: 12, marginBottom: 16, color: '#d93025', fontSize: 13 }}>
+                                    <div style={{ background: 'var(--danger-soft)', borderRadius: 8, padding: 12, marginBottom: 16, color: 'var(--danger)', fontSize: 13 }}>
                                         {passwordError}
                                     </div>
                                 )}
@@ -579,7 +601,7 @@ export default function TeamPage() {
                         </p>
 
                         {showManageAccountsModal.role === 'VIDEO_EDITOR' ? (
-                            <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, background: '#f9fafb', borderRadius: 8 }}>
+                            <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, background: 'var(--surface)', borderRadius: 8 }}>
                                 Video editors do not need Gmail account access.
                             </div>
                         ) : showManageAccountsModal.role === 'ADMIN' || showManageAccountsModal.role === 'ACCOUNT_MANAGER' ? (
@@ -589,7 +611,7 @@ export default function TeamPage() {
                                 </div>
                                 <div style={{ maxHeight: 300, overflow: 'auto' }}>
                                     {allAccounts.map(acc => (
-                                        <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', borderBottom: '1px solid var(--border-color, #f0f0f0)', opacity: 0.6 }}>
+                                        <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', borderBottom: '1px solid var(--border-color, var(--surface-2))', opacity: 0.6 }}>
                                             <input type="checkbox" checked disabled readOnly />
                                             <div>
                                                 <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{acc.email}</div>
@@ -604,7 +626,7 @@ export default function TeamPage() {
                                 {allAccounts.map(acc => {
                                     const isAssigned = showManageAccountsModal.assignedAccounts?.some((a: any) => a.gmailAccountId === acc.id);
                                     return (
-                                        <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', cursor: 'pointer', borderBottom: '1px solid var(--border-color, #f0f0f0)' }}>
+                                        <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', cursor: 'pointer', borderBottom: '1px solid var(--border-color, var(--surface-2))' }}>
                                             <input type="checkbox" checked={isAssigned}
                                                 onChange={() => handleToggleAccount(showManageAccountsModal.id, acc.id, isAssigned)} />
                                             <div>
@@ -629,12 +651,12 @@ export default function TeamPage() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const thStyle: React.CSSProperties = { textAlign: 'left', padding: '12px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.5px', background: '#f9fafb' };
+const thStyle: React.CSSProperties = { textAlign: 'left', padding: '12px 16px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted, var(--ink-faint))', textTransform: 'uppercase', letterSpacing: '0.5px', background: 'var(--surface)' };
 const tdStyle: React.CSSProperties = { padding: '12px 16px', verticalAlign: 'middle' };
 const tdRowStyle: React.CSSProperties = { padding: '12px 16px', verticalAlign: 'middle', height: 64 };
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
 const modalStyle: React.CSSProperties = { background: 'var(--bg-surface, white)', borderRadius: 16, padding: 28, width: 'calc(100% - 32px)', maxWidth: 480, maxHeight: '80vh', overflow: 'auto' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' };
-const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-color, #dadce0)', fontSize: 14, background: 'var(--bg-surface)', outline: 'none' };
-const btnPrimary: React.CSSProperties = { background: 'var(--accent, #1a73e8)', color: 'white', border: 'none', padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' };
-const btnSecondary: React.CSSProperties = { background: 'none', color: 'var(--text-secondary)', border: '1px solid var(--border-color, #dadce0)', padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' };
+const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-color, var(--hairline))', fontSize: 14, background: 'var(--bg-surface)', outline: 'none' };
+const btnPrimary: React.CSSProperties = { background: 'var(--accent, var(--accent))', color: 'white', border: 'none', padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' };
+const btnSecondary: React.CSSProperties = { background: 'none', color: 'var(--text-secondary)', border: '1px solid var(--border-color, var(--hairline))', padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' };

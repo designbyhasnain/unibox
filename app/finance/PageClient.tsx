@@ -11,7 +11,7 @@ import {
     PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine,
 } from 'recharts';
 
-const COLORS = ['#10B981', '#F59E0B', '#EF4444'];
+const COLORS = ['var(--coach)', 'var(--warn)', 'var(--danger)'];
 
 function formatCurrency(val: number) {
     return '$' + val.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -35,36 +35,31 @@ export default function FinancePage() {
     );
 
     return (
-        <div className="mailbox-wrapper">
-            <div className="mailbox-main">
-                <Topbar
-                    searchTerm="" setSearchTerm={() => {}}
-                    placeholder="Finance"
-                    onSearch={() => {}} onClearSearch={() => {}}
-                    leftContent={<h1 className="clients-page-title">Finance</h1>}
-                    rightContent={
-                        <div className="topbar-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-                                className="ncell-input" style={{ width: 140, height: 34 }} />
-                            <span style={{ color: 'var(--text-secondary)' }}>to</span>
-                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-                                className="ncell-input" style={{ width: 140, height: 34 }} />
-                        </div>
-                    }
-                />
+        <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
+            <div style={{ padding: '22px 26px' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 18 }}>
+                    <div>
+                        <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>Revenue &amp; invoices</h2>
+                        <div style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 4 }}>Financial overview · filter by date range</div>
+                    </div>
+                    <div style={{ flex: 1 }} />
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--hairline-soft)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12, fontFamily: 'var(--font-ui)' }} />
+                    <span style={{ color: 'var(--ink-muted)', fontSize: 12 }}>to</span>
+                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--hairline-soft)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 12, fontFamily: 'var(--font-ui)' }} />
+                </div>
 
-                <div className="content-split content-split-bg">
-                    <div className="list-panel list-panel-flex" style={{ padding: '1.5rem' }}>
-                        <PageLoader isLoading={!isHydrated || isLoading} type="list" count={6}>
+                <PageLoader isLoading={!isHydrated || isLoading} type="list" count={6}>
                             {data ? (
                                 <>
                                     {/* KPI Cards */}
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
                                         {[
-                                            { label: 'Total Revenue', value: formatCurrency(data.stats?.totalRevenue), color: '#1a73e8' },
-                                            { label: 'Paid', value: formatCurrency(data.stats?.paidRevenue), color: '#10B981' },
-                                            { label: 'Outstanding', value: formatCurrency(data.stats?.pipelineValue), color: '#F59E0B' },
-                                            { label: 'Avg Deal Size', value: formatCurrency(data.stats?.avgDealSize), color: '#8B5CF6' },
+                                            { label: 'Total Revenue', value: formatCurrency(data.stats?.totalRevenue), color: 'var(--accent)' },
+                                            { label: 'Paid', value: formatCurrency(data.stats?.paidRevenue), color: 'var(--coach)' },
+                                            { label: 'Outstanding', value: formatCurrency(data.stats?.pipelineValue), color: 'var(--warn)' },
+                                            { label: 'Avg Deal Size', value: formatCurrency(data.stats?.avgDealSize), color: 'var(--accent)' },
                                             { label: 'Collection Rate', value: data.stats?.collectionRate, color: '#06B6D4' },
                                             { label: 'Total Projects', value: data.stats?.totalProjects, color: '#6366F1' },
                                         ].map(kpi => (
@@ -102,7 +97,7 @@ export default function FinancePage() {
                                                     <span style={{
                                                         fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 6,
                                                         background: last.growth >= 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-                                                        color: last.growth >= 0 ? '#10B981' : '#EF4444',
+                                                        color: last.growth >= 0 ? 'var(--coach)' : 'var(--danger)',
                                                     }}>
                                                         {last.growth >= 0 ? '▲' : '▼'} {Math.abs(last.growth).toFixed(1)}%
                                                     </span>
@@ -113,8 +108,8 @@ export default function FinancePage() {
                                                         <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--text-tertiary)' }} />
                                                         <YAxis unit="%" tick={{ fontSize: 11, fill: 'var(--text-tertiary)' }} />
                                                         <Tooltip formatter={(v: any) => `${v}%`} />
-                                                        <ReferenceLine y={0} stroke="#94a3b8" />
-                                                        <Line type="monotone" dataKey="growth" stroke="#1a73e8" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                                        <ReferenceLine y={0} stroke="var(--ink-faint)" />
+                                                        <Line type="monotone" dataKey="growth" stroke="var(--accent)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                                                     </LineChart>
                                                 </ResponsiveContainer>
                                             </div>
@@ -132,8 +127,8 @@ export default function FinancePage() {
                                                     <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--text-tertiary)' }} />
                                                     <YAxis tick={{ fontSize: 11, fill: 'var(--text-tertiary)' }} />
                                                     <Tooltip />
-                                                    <Bar dataKey="revenue" name="Total" fill="#1a73e8" radius={[4, 4, 0, 0]} />
-                                                    <Bar dataKey="paid" name="Paid" fill="#10B981" radius={[4, 4, 0, 0]} />
+                                                    <Bar dataKey="revenue" name="Total" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                                                    <Bar dataKey="paid" name="Paid" fill="var(--coach)" radius={[4, 4, 0, 0]} />
                                                 </BarChart>
                                             </ResponsiveContainer>
                                         </div>
@@ -168,7 +163,7 @@ export default function FinancePage() {
                                                 {(data.revenueByAgent || []).map((agent: any) => (
                                                     <div key={agent.name} className="notion-row">
                                                         <div className="notion-cell" style={{ flex: 2 }}>{agent.name}</div>
-                                                        <div className="notion-cell" style={{ flex: 1, color: '#10B981', fontWeight: 600 }}>{formatCurrency(agent.revenue || 0)}</div>
+                                                        <div className="notion-cell" style={{ flex: 1, color: 'var(--coach)', fontWeight: 600 }}>{formatCurrency(agent.revenue || 0)}</div>
                                                         <div className="notion-cell" style={{ flex: 1 }}>{agent.projects}</div>
                                                     </div>
                                                 ))}
@@ -196,7 +191,7 @@ export default function FinancePage() {
                                                     <div key={i} className="notion-row">
                                                         <div className="notion-cell" style={{ flex: 2 }}>{item.projectName}</div>
                                                         <div className="notion-cell" style={{ flex: 2 }}>{item.clientName || 'Unknown'}</div>
-                                                        <div className="notion-cell" style={{ flex: 1, color: '#EF4444', fontWeight: 600 }}>{formatCurrency(item.value || 0)}</div>
+                                                        <div className="notion-cell" style={{ flex: 1, color: 'var(--danger)', fontWeight: 600 }}>{formatCurrency(item.value || 0)}</div>
                                                         <div className="notion-cell" style={{ flex: 1 }}>
                                                             <span className={`notion-badge ${item.daysOverdue > 30 ? 'badge-red' : item.daysOverdue > 7 ? 'badge-yellow' : 'badge-green'}`}>
                                                                 {item.daysOverdue > 0 ? `${item.daysOverdue}d` : 'Current'}
@@ -219,8 +214,6 @@ export default function FinancePage() {
                                 </div>
                             )}
                         </PageLoader>
-                    </div>
-                </div>
             </div>
         </div>
     );

@@ -392,7 +392,7 @@ export default function AccountsPage() {
     const removeModalTitleId = 'remove-modal-title';
 
     return (
-        <div className="mailbox-wrapper">
+        <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
             <div className="main-area">
                 <Topbar
                     searchTerm={searchQuery}
@@ -1080,12 +1080,12 @@ export default function AccountsPage() {
                 .acct-warning-red {
                     background: rgba(239,68,68,0.07);
                     border: 1px solid rgba(239,68,68,0.18);
-                    color: #dc2626;
+                    color: var(--danger);
                 }
                 .acct-warning-orange {
                     background: rgba(245,158,11,0.07);
                     border: 1px solid rgba(245,158,11,0.18);
-                    color: #d97706;
+                    color: var(--warn);
                 }
                 .acct-warning-yellow {
                     background: rgba(234,179,8,0.07);

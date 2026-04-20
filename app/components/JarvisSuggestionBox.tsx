@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Sparkles, RefreshCw, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { suggestReplyAction, logJarvisFeedbackAction } from '../../src/actions/jarvisActions';
 
 interface JarvisSuggestionBoxProps {
@@ -24,6 +23,14 @@ export function logJarvisFeedback(threadId: string, actualReply: string, wasUsed
         wasUsed,
     }).catch(() => {});
 }
+
+const ICON = {
+    spark: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L9 12l-7 0 5.5 5L5 22l7-4.5L19 22l-2.5-5L22 12h-7L12 2z"/></svg>,
+    copy: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
+    refresh: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
+    thumbUp: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>,
+    thumbDown: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10zM17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>,
+};
 
 export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggestionBoxProps) {
     const [suggestion, setSuggestion] = useState<string | null>(null);
@@ -93,125 +100,75 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
 
     if (!threadId) return null;
 
+    const isCoach = mode === 'coaching';
+
     return (
-        <div
-            style={{
-                border: '1px solid var(--border-color, #e5e7eb)',
-                borderRadius: 10,
-                background: mode === 'coaching'
-                    ? 'linear-gradient(135deg, rgba(5, 150, 105, 0.04), rgba(16, 185, 129, 0.04))'
-                    : 'linear-gradient(135deg, rgba(124, 58, 237, 0.04), rgba(59, 130, 246, 0.04))',
-                padding: '10px 14px',
-                margin: '8px 16px 4px',
-                fontSize: 13,
-                color: 'var(--text-primary)',
-            }}
-        >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: suggestion || isLoading || error ? 6 : 0 }}>
-                <Sparkles size={14} style={{ color: mode === 'coaching' ? '#059669' : '#7c3aed' }} />
-                <span style={{ fontWeight: 600, fontSize: 12, color: mode === 'coaching' ? '#059669' : '#7c3aed', letterSpacing: 0.2 }}>
-                    {mode === 'coaching' ? 'Jarvis coaching…' : 'Jarvis suggests…'}
+        <div className={`jarvis-card ${isCoach ? 'coach' : 'reply'}`}>
+            <div className="jarvis-head">
+                <span className="jarvis-spark">{ICON.spark}</span>
+                <span className="label">{isCoach ? 'Coaching feedback' : 'Suggested reply'}</span>
+                <span className="conf">
+                    {isLoading ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <span className="inbox-sync-spin" style={{ display: 'inline-flex' }}>{ICON.refresh}</span>
+                            Thinking…
+                        </span>
+                    ) : suggestion ? (
+                        <>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--coach)' }} />
+                            {isCoach ? 'High conf.' : '92% match'}
+                        </>
+                    ) : null}
                 </span>
-                <span style={{ flex: 1 }} />
-
-                {suggestion && !isLoading && mode === 'reply' && (
-                    <>
-                        <button
-                            onClick={() => handleFeedback('up')}
-                            title="Good suggestion"
-                            style={{
-                                display: 'inline-flex', alignItems: 'center',
-                                background: feedback === 'up' ? 'rgba(34,197,94,0.1)' : 'transparent',
-                                border: `1px solid ${feedback === 'up' ? '#22c55e' : 'var(--border-color, #e5e7eb)'}`,
-                                borderRadius: 6, padding: '3px 6px', cursor: 'pointer',
-                                color: feedback === 'up' ? '#22c55e' : 'var(--text-secondary, #64748b)',
-                            }}
-                        >
-                            <ThumbsUp size={11} />
-                        </button>
-                        <button
-                            onClick={() => handleFeedback('down')}
-                            title="Bad suggestion — I'll write my own"
-                            style={{
-                                display: 'inline-flex', alignItems: 'center',
-                                background: feedback === 'down' ? 'rgba(239,68,68,0.1)' : 'transparent',
-                                border: `1px solid ${feedback === 'down' ? '#ef4444' : 'var(--border-color, #e5e7eb)'}`,
-                                borderRadius: 6, padding: '3px 6px', cursor: 'pointer',
-                                color: feedback === 'down' ? '#ef4444' : 'var(--text-secondary, #64748b)',
-                            }}
-                        >
-                            <ThumbsDown size={11} />
-                        </button>
-                    </>
-                )}
-
-                <button
-                    onClick={() => load(threadId)}
-                    disabled={isLoading}
-                    title="Regenerate"
-                    style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        background: 'transparent', border: '1px solid var(--border-color, #e5e7eb)',
-                        borderRadius: 6, padding: '3px 8px', fontSize: 11, color: 'var(--text-secondary, #64748b)',
-                        cursor: isLoading ? 'wait' : 'pointer',
-                    }}
-                >
-                    <RefreshCw size={11} style={{ animation: isLoading ? 'jarvis-spin 1s linear infinite' : 'none' }} />
-                    {isLoading ? 'Thinking…' : 'Regenerate'}
-                </button>
-                {mode === 'reply' && (
-                    <button
-                        onClick={handleCopy}
-                        disabled={!suggestion || isLoading}
-                        style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            background: suggestion && !isLoading ? '#7c3aed' : '#d1d5db',
-                            color: '#fff', border: 'none', borderRadius: 6,
-                            padding: '3px 10px', fontSize: 11, fontWeight: 600,
-                            cursor: suggestion && !isLoading ? 'pointer' : 'not-allowed',
-                        }}
-                    >
-                        <Copy size={11} />
-                        {copied ? 'Copied!' : 'Copy to Reply'}
-                    </button>
-                )}
             </div>
 
-            {isLoading && (
-                <div style={{ color: 'var(--text-muted, #94a3b8)', fontSize: 12, fontStyle: 'italic' }}>
-                    Reading the thread and drafting a reply…
-                </div>
-            )}
-
-            {!isLoading && error && (
-                <div style={{ color: '#b45309', fontSize: 12 }}>
+            {error && (
+                <div style={{ fontSize: 12, color: 'var(--warn)', padding: '4px 0' }}>
                     {error}
                 </div>
             )}
 
             {!isLoading && !error && suggestion && (
-                <div
-                    style={{
-                        whiteSpace: 'pre-wrap', lineHeight: 1.5, color: 'var(--text-primary)',
-                        fontSize: 13, marginTop: 2,
-                    }}
-                >
-                    {suggestion}
+                <div className="jarvis-body">
+                    {suggestion.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}
                 </div>
             )}
 
-            {feedback === 'down' && (
-                <div style={{ marginTop: 6, fontSize: 11, color: '#ef4444', fontStyle: 'italic' }}>
-                    Got it — Jarvis will learn from your reply when you send it.
+            {isLoading && (
+                <div className="jarvis-body" style={{ color: 'var(--ink-muted)', fontStyle: 'italic' }}>
+                    <p>Reading the thread and drafting a reply…</p>
                 </div>
             )}
 
-            <style jsx>{`
-                @keyframes jarvis-spin {
-                    from { transform: rotate(0deg); }
-                    to { transform: rotate(360deg); }
-                }
-            `}</style>
+            {(suggestion || error) && !isLoading && (
+                <div className="jarvis-actions">
+                    {!isCoach && suggestion && (
+                        <button className="jarvis-btn primary" onClick={handleCopy}>
+                            {ICON.copy} {copied ? 'Copied!' : 'Copy to reply'}
+                        </button>
+                    )}
+                    <button className="jarvis-btn" onClick={() => load(threadId)}>
+                        {ICON.refresh} Regenerate
+                    </button>
+                    <div style={{ flex: 1 }} />
+                    <button
+                        className={`jarvis-btn icon`}
+                        title="Good"
+                        onClick={() => handleFeedback('up')}
+                        style={feedback === 'up' ? { background: 'color-mix(in oklab, var(--coach), transparent 85%)', borderColor: 'var(--coach)' } : undefined}
+                    >
+                        {ICON.thumbUp}
+                    </button>
+                    <button
+                        className={`jarvis-btn icon`}
+                        title="Not helpful"
+                        onClick={() => handleFeedback('down')}
+                        style={feedback === 'down' ? { background: 'color-mix(in oklab, var(--danger), transparent 85%)', borderColor: 'var(--danger)' } : undefined}
+                    >
+                        {ICON.thumbDown}
+                    </button>
+                </div>
+            )}
         </div>
     );
 }

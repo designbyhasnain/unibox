@@ -276,12 +276,12 @@ function EmailBodyFrame({ html }: { html: string }) {
                     html, body { height: auto !important; overflow: visible !important; }
                     body {
                         margin: 0;
-                        padding: 16px 24px;
-                        font-family: 'Google Sans', 'Segoe UI', Roboto, Arial, sans-serif;
-                        font-size: 14px;
+                        padding: 0;
+                        font-family: 'Inter', 'Google Sans', 'Segoe UI', Roboto, Arial, sans-serif;
+                        font-size: 13px;
                         line-height: 1.6;
-                        color: #202124;
-                        background: #fff;
+                        color: #ccc;
+                        background: transparent;
                         word-break: break-word;
                         -webkit-font-smoothing: antialiased;
                     }
@@ -291,7 +291,7 @@ function EmailBodyFrame({ html }: { html: string }) {
                         display: inline-block;
                     }
                     a {
-                        color: #1a73e8;
+                        color: oklch(0.82 0.14 295);
                         text-decoration: none;
                     }
                     a:hover { text-decoration: underline; }
@@ -300,18 +300,19 @@ function EmailBodyFrame({ html }: { html: string }) {
                     }
                     blockquote {
                         margin: 0 0 0 0.8ex;
-                        border-left: 1px solid #ccc;
+                        border-left: 1px solid #555;
                         padding-left: 1ex;
-                        color: #5f6368;
+                        color: #999;
                     }
                     pre, code {
-                        background: #f1f3f4;
+                        background: rgba(255,255,255,0.06);
                         padding: 2px 6px;
                         border-radius: 4px;
                         font-size: 13px;
+                        color: #ddd;
                     }
                     pre { padding: 12px; overflow-x: auto; }
-                    hr { border: none; border-top: 1px solid #e0e0e0; margin: 16px 0; }
+                    hr { border: none; border-top: 1px solid #444; margin: 16px 0; }
                 </style>
             </head>
             <body>
@@ -389,7 +390,7 @@ function EmailBodyFrame({ html }: { html: string }) {
         <iframe
             ref={iframeRef}
             className="email-body-iframe"
-            style={{ width: '100%', height: `${height}px`, border: 'none', background: '#fff' }}
+            style={{ width: '100%', height: `${height}px`, border: 'none', background: 'transparent' }}
             sandbox="allow-popups allow-same-origin allow-scripts"
             title="Email content"
         />
@@ -1170,5 +1171,160 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
                 </div>
             ))}
         </div>
+    );
+}
+
+
+// ─── ThreadMessages (lean message renderer for 3-col inbox) ───────────────────
+
+interface ThreadMessagesProps {
+    threadMessages: any[];
+    isThreadLoading: boolean;
+    emailId: string;
+}
+
+export function ThreadMessages({ threadMessages, isThreadLoading, emailId }: ThreadMessagesProps) {
+    const [showAllIntermediate, setShowAllIntermediate] = React.useState(false);
+    const [collapsedThreads, setCollapsedThreads] = React.useState<Set<string>>(new Set());
+    const [openDetailsId, setOpenDetailsId] = React.useState<string | null>(null);
+    const [openMoreId, setOpenMoreId] = React.useState<string | null>(null);
+
+    React.useEffect(() => {
+        const handleClickOutside = () => { setOpenDetailsId(null); setOpenMoreId(null); };
+        if (openDetailsId || openMoreId) window.addEventListener('click', handleClickOutside);
+        return () => window.removeEventListener('click', handleClickOutside);
+    }, [openDetailsId, openMoreId]);
+
+    React.useEffect(() => {
+        let hasUnreadIntermediate = false;
+        if (threadMessages.length > 1) {
+            const toCollapse = new Set<string>();
+            threadMessages.forEach((m, i) => {
+                const isLast = i === threadMessages.length - 1;
+                if (!isLast && !m.is_unread) toCollapse.add(m.id);
+                if (i > 0 && i < threadMessages.length - 1 && m.is_unread) hasUnreadIntermediate = true;
+            });
+            setCollapsedThreads(toCollapse);
+        } else {
+            setCollapsedThreads(new Set());
+        }
+        setShowAllIntermediate(hasUnreadIntermediate);
+    }, [emailId, threadMessages.length]);
+
+    const toggleCollapse = (id: string) => {
+        setCollapsedThreads(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    if (isThreadLoading && threadMessages.length <= 1) {
+        return <div style={{ textAlign: 'center', padding: '3rem 0' }}><div className="spinner" /></div>;
+    }
+
+    const avColors = ['av-a', 'av-b', 'av-c', 'av-d', 'av-e', 'av-f', 'av-g', 'av-h'];
+
+    return (
+        <>
+            {threadMessages.map((msg, idx) => {
+                const isLast = idx === threadMessages.length - 1;
+                const isIntermediate = idx > 0 && idx < threadMessages.length - 1;
+                const foldThreshold = 4;
+
+                if (threadMessages.length > foldThreshold && !showAllIntermediate && isIntermediate) {
+                    if (idx === 1) return (
+                        <div key="fold-badge" className="msg-fold" onClick={() => setShowAllIntermediate(true)}>
+                            <span>{threadMessages.length - 2} more messages</span>
+                        </div>
+                    );
+                    return null;
+                }
+
+                const isCollapsed = collapsedThreads.has(msg.id) && !isLast;
+                const isSent = msg.direction === 'SENT';
+                const senderName = extractSenderName(msg.from_email || '') || 'Unknown';
+                const senderEmail = extractEmail(msg.from_email || '');
+                const toText = isSent ? (msg.to_email ? extractSenderName(msg.to_email) || senderEmail : 'recipient') : 'me';
+                const initials = (senderName.charAt(0) || '?').toUpperCase();
+                const avClass = avColors[senderName.charCodeAt(0) % avColors.length];
+
+                return (
+                    <div key={msg.id} className={`msg ${isCollapsed ? 'collapsed' : ''}`}>
+                        <div
+                            className="msg-head"
+                            onClick={!isLast ? () => toggleCollapse(msg.id) : undefined}
+                            style={!isLast ? { cursor: 'pointer' } : undefined}
+                        >
+                            <div className={`avatar ${avClass}`}>{initials}</div>
+                            <div style={{ minWidth: 0 }}>
+                                <div className="from">
+                                    {senderName}
+                                    {isSent && (
+                                        <span style={{ marginLeft: 6, display: 'inline-flex', verticalAlign: 'middle' }}>
+                                            <CheckCheck size={13} color={msg.opened_at ? 'var(--accent)' : 'var(--ink-faint)'} strokeWidth={msg.opened_at ? 3 : 2} />
+                                        </span>
+                                    )}
+                                </div>
+                                {!isCollapsed && <div className="to">to {toText} · {senderEmail}</div>}
+                                {isCollapsed && (
+                                    <div className="to" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {cleanPreview(msg.snippet || msg.body || '')}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="when">
+                                {formatDate(msg.sent_at)}
+                                {!isCollapsed && (
+                                    <div style={{ fontSize: '10px', color: 'var(--ink-dim)', marginTop: 2 }}>
+                                        {formatFullDate(msg.sent_at)}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {!isCollapsed && (() => {
+                            const originalBody = msg.body || msg.snippet || '';
+                            const isHtml = isHtmlBody(msg.body || '');
+                            let cleanBody = stripOldEmailContent(originalBody, isHtml);
+                            const hasVisibleText = cleanBody.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim().length > 0;
+                            if (!hasVisibleText && msg.snippet) cleanBody = msg.snippet;
+
+                            return (
+                                <div className="msg-body">
+                                    {(isHtml && msg.body && cleanBody !== msg.snippet) ? (
+                                        <EmailBodyFrame
+                                            html={cleanBody
+                                                .replace(/<img[^>]*api\/track[^>]*>/gi, '')
+                                                .replace(/<img /gi, '<img referrerpolicy="no-referrer" ')
+                                                .replace(/data-src=/gi, 'src=')}
+                                        />
+                                    ) : (
+                                        <PlainTextBody text={cleanBody} />
+                                    )}
+                                    {msg.body?.includes('<!-- ATTACHMENTS:') && (
+                                        <div className="msg-attachments">
+                                            {(() => {
+                                                const match = msg.body.match(/<!-- ATTACHMENTS: ([\s\S]*?) -->/);
+                                                if (!match) return null;
+                                                try {
+                                                    return JSON.parse(match[1]).map((a: any) => (
+                                                        <div key={a.id} className="msg-attach-chip">
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
+                                                            <span>{a.filename || 'Attachment'}</span>
+                                                            <span style={{ color: 'var(--ink-faint)', fontSize: 10 }}>{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ''}</span>
+                                                        </div>
+                                                    ));
+                                                } catch { return null; }
+                                            })()}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+                    </div>
+                );
+            })}
+        </>
     );
 }

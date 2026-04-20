@@ -97,7 +97,7 @@ export default function SentPage() {
     // ─── Render ───────────────────────────────────────────────────────────────
 
     return (
-        <div className="mailbox-wrapper">
+        <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
 
             {/* Sent-item toasts (e.g. confirm a sent message appeared) */}
             <ToastStack
@@ -105,7 +105,7 @@ export default function SentPage() {
                 onDismiss={dismissToast}
             />
 
-            <div className="mailbox-main">
+            <div style={{ padding: '0' }}>
                 <Topbar
                     searchTerm={searchTerm}
                     setSearchTerm={setSearchTerm}

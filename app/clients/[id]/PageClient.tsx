@@ -60,8 +60,8 @@ export default function ContactDetailPage() {
 
     if (loading) {
         return (
-            <div className="mailbox-wrapper">
-                <div className="mailbox-main">
+            <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
+                <div style={{ padding: '0' }}>
                     <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading contact...</div>
                 </div>
             </div>
@@ -70,8 +70,8 @@ export default function ContactDetailPage() {
 
     if (!data?.contact) {
         return (
-            <div className="mailbox-wrapper">
-                <div className="mailbox-main">
+            <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
+                <div style={{ padding: '0' }}>
                     <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>Contact not found</div>
                 </div>
             </div>
@@ -84,8 +84,8 @@ export default function ContactDetailPage() {
     const fmt = (v: number) => '$' + (v || 0).toLocaleString();
 
     return (
-        <div className="mailbox-wrapper">
-            <div className="mailbox-main">
+        <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
+            <div style={{ padding: '0' }}>
                 <Topbar searchTerm="" setSearchTerm={() => {}} placeholder="Contact"
                     onSearch={() => {}} onClearSearch={() => {}}
                     leftContent={
@@ -130,8 +130,8 @@ export default function ContactDetailPage() {
                             )}
                             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                 {stageLabel && <span className={stageColor} style={{ fontSize: 11 }}>{stageLabel}</span>}
-                                {c.lead_score > 0 && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(139,92,246,0.1)', color: '#8B5CF6', fontWeight: 600 }}>Score: {c.lead_score}</span>}
-                                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: c.relationship_health === 'warm' ? 'rgba(16,185,129,0.1)' : c.relationship_health === 'cold' ? 'rgba(239,68,68,0.1)' : 'rgba(107,114,128,0.1)', color: c.relationship_health === 'warm' ? '#10B981' : c.relationship_health === 'cold' ? '#EF4444' : '#6B7280' }}>{c.relationship_health || 'neutral'}</span>
+                                {c.lead_score > 0 && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(139,92,246,0.1)', color: 'var(--accent)', fontWeight: 600 }}>Score: {c.lead_score}</span>}
+                                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: c.relationship_health === 'warm' ? 'rgba(16,185,129,0.1)' : c.relationship_health === 'cold' ? 'rgba(239,68,68,0.1)' : 'rgba(107,114,128,0.1)', color: c.relationship_health === 'warm' ? 'var(--coach)' : c.relationship_health === 'cold' ? 'var(--danger)' : 'var(--ink-muted)' }}>{c.relationship_health || 'neutral'}</span>
                             </div>
                         </div>
                     </div>
@@ -139,12 +139,12 @@ export default function ContactDetailPage() {
                     {/* KPI Cards */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 24 }}>
                         {[
-                            { label: 'Emails Sent', value: data.stats.sent, color: '#1a73e8' },
-                            { label: 'Emails Received', value: data.stats.received, color: '#10B981' },
-                            { label: 'Open Count', value: c.open_count || 0, color: '#F59E0B' },
-                            { label: 'Reply Speed', value: c.reply_speed_hours ? c.reply_speed_hours + 'h' : '—', color: '#8B5CF6' },
+                            { label: 'Emails Sent', value: data.stats.sent, color: 'var(--accent)' },
+                            { label: 'Emails Received', value: data.stats.received, color: 'var(--coach)' },
+                            { label: 'Open Count', value: c.open_count || 0, color: 'var(--warn)' },
+                            { label: 'Reply Speed', value: c.reply_speed_hours ? c.reply_speed_hours + 'h' : '—', color: 'var(--accent)' },
                             { label: 'Projects', value: data.projects.length, color: '#EC4899' },
-                            { label: 'Days Silent', value: c.days_since_last_contact || 0, color: c.days_since_last_contact > 14 ? '#EF4444' : '#6B7280' },
+                            { label: 'Days Silent', value: c.days_since_last_contact || 0, color: c.days_since_last_contact > 14 ? 'var(--danger)' : 'var(--ink-muted)' },
                         ].map(kpi => (
                             <div key={kpi.label} style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: 14, border: '1px solid var(--border-subtle)' }}>
                                 <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{kpi.label}</div>
@@ -157,7 +157,7 @@ export default function ContactDetailPage() {
                     {aiSummary && (
                         <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 16, border: '1px solid var(--border-subtle)', marginBottom: 24 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#8B5CF6' }}>AI Relationship Audit</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>AI Relationship Audit</div>
                                 <button onClick={() => setAiSummary(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: 12 }}>Close</button>
                             </div>
                             <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-primary)' }}>
@@ -180,7 +180,7 @@ export default function ContactDetailPage() {
                                 padding: '8px 20px', fontSize: 13, fontWeight: activeTab === tab ? 600 : 400,
                                 background: 'none', border: 'none', cursor: 'pointer',
                                 color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                                borderBottom: activeTab === tab ? '2px solid #1a73e8' : '2px solid transparent',
+                                borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
                             }}>
                                 {tab === 'emails' ? `Emails (${data.stats.total})` : tab === 'projects' ? `Projects (${data.projects.length})` : `Activity (${data.activity.length})`}
                             </button>
@@ -220,7 +220,7 @@ export default function ContactDetailPage() {
                                                                 <span style={{
                                                                     fontSize: 9, padding: '2px 6px', borderRadius: 3, fontWeight: 600,
                                                                     background: email.direction === 'SENT' ? 'rgba(26,115,232,0.1)' : 'rgba(16,185,129,0.1)',
-                                                                    color: email.direction === 'SENT' ? '#1a73e8' : '#10B981',
+                                                                    color: email.direction === 'SENT' ? 'var(--accent)' : 'var(--coach)',
                                                                 }}>{email.direction}</span>
                                                                 <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
                                                                     {email.direction === 'SENT' ? email.to_email?.split('<')[0]?.trim() : email.from_email?.split('<')[0]?.trim()}
@@ -270,11 +270,11 @@ export default function ContactDetailPage() {
                                             <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                                                 <td style={{ padding: '8px 12px', fontWeight: 600 }}>{p.project_name?.trim() || 'Unnamed'}</td>
                                                 <td style={{ padding: '8px 12px' }}>
-                                                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: p.status === 'Delivered' ? 'rgba(16,185,129,0.1)' : p.status === 'In Progress' ? 'rgba(59,130,246,0.1)' : 'rgba(107,114,128,0.1)', color: p.status === 'Delivered' ? '#10B981' : p.status === 'In Progress' ? '#3B82F6' : '#6B7280' }}>{p.status || 'Unknown'}</span>
+                                                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: p.status === 'Delivered' ? 'rgba(16,185,129,0.1)' : p.status === 'In Progress' ? 'rgba(59,130,246,0.1)' : 'rgba(107,114,128,0.1)', color: p.status === 'Delivered' ? 'var(--coach)' : p.status === 'In Progress' ? 'var(--info)' : 'var(--ink-muted)' }}>{p.status || 'Unknown'}</span>
                                                 </td>
-                                                <td style={{ padding: '8px 12px', textAlign: 'right', color: '#10B981', fontWeight: 600 }}>{fmt(p.project_value)}</td>
+                                                <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--coach)', fontWeight: 600 }}>{fmt(p.project_value)}</td>
                                                 <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                                                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: p.paid_status === 'PAID' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: p.paid_status === 'PAID' ? '#10B981' : '#EF4444' }}>{p.paid_status}</span>
+                                                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: p.paid_status === 'PAID' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: p.paid_status === 'PAID' ? 'var(--coach)' : 'var(--danger)' }}>{p.paid_status}</span>
                                                 </td>
                                                 <td style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-tertiary)' }}>{p.account_manager || '—'}</td>
                                             </tr>

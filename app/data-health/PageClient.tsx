@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { getDataHealthAction, getGmailSyncHealthAction, type DataHealthSnapshot, type GmailSyncHealth } from '../../src/actions/dataHealthActions';
 import { syncAllAccountsHealthAction } from '../../src/actions/accountActions';
-import Topbar from '../components/Topbar';
+
 import { AlertTriangle, CheckCircle2, Mail, Database, Users, Briefcase, Clock, Zap } from 'lucide-react';
 
 export default function DataHealthPage() {
@@ -40,26 +40,23 @@ export default function DataHealthPage() {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-            <Topbar searchTerm="" setSearchTerm={() => {}} onSearch={() => {}} onClearSearch={() => {}} leftContent={<h1 className="page-title">Data Health</h1>} />
-            <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
-                <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                        <div>
-                            <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>System Health</h1>
-                            <p style={{ fontSize: 13, color: 'var(--text-muted, #94a3b8)', marginTop: 4 }}>
-                                Gmail sync status, rate-limit monitor, and database integrity in one place.
-                            </p>
-                        </div>
-                        <button onClick={handleRunHealthCheck} disabled={running} className="btn btn-primary btn-sm"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <Zap size={14} />
-                            {running ? 'Running…' : 'Run Health Check'}
-                        </button>
+        <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
+            <div style={{ padding: '22px 26px', maxWidth: 1100 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 18 }}>
+                    <div>
+                        <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>Database hygiene</h2>
+                        <div style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 4 }}>Gmail sync status, rate-limit monitor, and database integrity</div>
                     </div>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={handleRunHealthCheck} disabled={running}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, color: 'var(--ink-2)', background: 'none', border: '1px solid var(--hairline-soft)', cursor: 'pointer', fontFamily: 'var(--font-ui)' }}>
+                        <Zap size={14} />
+                        {running ? 'Running…' : 'Re-scan'}
+                    </button>
+                </div>
 
                     {lastRun && (
-                        <div style={{ background: '#e6f4ea', border: '1px solid #a6d5b7', color: '#1e8e3e', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 13 }}>
+                        <div style={{ background: 'var(--coach-soft)', border: '1px solid #a6d5b7', color: 'var(--coach)', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 13 }}>
                             Last check: {lastRun}
                         </div>
                     )}
@@ -88,12 +85,12 @@ export default function DataHealthPage() {
                                                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                                                     Recent failures
                                                 </div>
-                                                <div style={{ background: 'var(--bg-surface, #fff)', borderRadius: 10, border: '1px solid var(--border-color, #e5e7eb)', overflow: 'hidden' }}>
+                                                <div style={{ background: 'var(--bg-surface, #fff)', borderRadius: 10, border: '1px solid var(--border-color, var(--hairline-soft))', overflow: 'hidden' }}>
                                                     {gmail.recentlyFailed.map((r, idx) => (
                                                         <div key={r.email} style={{
                                                             padding: '10px 14px',
                                                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                                            borderTop: idx === 0 ? 'none' : '1px solid var(--border-color, #f0f0f0)',
+                                                            borderTop: idx === 0 ? 'none' : '1px solid var(--border-color, var(--surface-2))',
                                                             fontSize: 13,
                                                         }}>
                                                             <div>
@@ -132,7 +129,6 @@ export default function DataHealthPage() {
                             </Section>
                         </>
                     )}
-                </div>
             </div>
         </div>
     );
@@ -140,10 +136,10 @@ export default function DataHealthPage() {
 
 function Section({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
     return (
-        <section style={{ background: 'var(--bg-surface, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <section style={{ background: 'var(--bg-surface, #fff)', border: '1px solid var(--border-color, var(--hairline-soft))', borderRadius: 12, padding: 20, marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                <span style={{ color: 'var(--accent, #1a73e8)', display: 'inline-flex' }}>{icon}</span>
-                <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-muted, #64748b)' }}>{title}</h2>
+                <span style={{ color: 'var(--accent, var(--accent))', display: 'inline-flex' }}>{icon}</span>
+                <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-muted, var(--ink-muted))' }}>{title}</h2>
             </div>
             {children}
         </section>
@@ -160,15 +156,15 @@ function Kpis({ children }: { children: React.ReactNode }) {
 
 function Kpi({ label, value, tone, icon }: { label: string; value: string | number; tone?: 'green' | 'red' | 'amber' | 'blue' | 'neutral'; icon?: React.ReactNode }) {
     const colors: Record<string, string> = {
-        green: '#1e8e3e', red: '#d93025', amber: '#b45309', blue: '#1a73e8', neutral: 'var(--text-primary)',
+        green: 'var(--coach)', red: 'var(--danger)', amber: 'var(--warn)', blue: 'var(--accent)', neutral: 'var(--text-primary)',
     };
     const color = colors[tone || 'neutral'];
     return (
         <div style={{
-            border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 10, padding: '12px 14px',
+            border: '1px solid var(--border-color, var(--hairline-soft))', borderRadius: 10, padding: '12px 14px',
             display: 'flex', flexDirection: 'column', gap: 4, minHeight: 70,
         }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', letterSpacing: 0.4, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted, var(--ink-faint))', textTransform: 'uppercase', letterSpacing: 0.4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 {icon}{label}
             </div>
             <div style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1.1 }}>{value}</div>
@@ -179,9 +175,9 @@ function Kpi({ label, value, tone, icon }: { label: string; value: string | numb
 function EmptyNote({ children, ok }: { children: React.ReactNode; ok?: boolean }) {
     return (
         <div style={{
-            background: ok ? '#e6f4ea' : '#f9fafb',
-            color: ok ? '#1e8e3e' : 'var(--text-muted)',
-            border: `1px solid ${ok ? '#a6d5b7' : 'var(--border-color, #e5e7eb)'}`,
+            background: ok ? 'var(--coach-soft)' : 'var(--surface)',
+            color: ok ? 'var(--coach)' : 'var(--text-muted)',
+            border: `1px solid ${ok ? '#a6d5b7' : 'var(--border-color, var(--hairline-soft))'}`,
             borderRadius: 10, padding: '14px 18px', fontSize: 13, marginTop: 12,
             display: 'flex', alignItems: 'center', gap: 8,
         }}>

@@ -1073,3 +1073,15 @@ export async function bulkMarkUnreadAction(messageIds: string[]) {
     if (error) throw new Error(error.message);
     return { updated: messageIds.length };
 }
+
+export async function searchContactsForComposeAction(query: string) {
+    await ensureAuthenticated();
+    if (!query || query.trim().length < 1) return [];
+    const q = query.trim().replace(/[%_\\]/g, '\\$&');
+    const { data } = await supabase
+        .from('contacts')
+        .select('id, name, email, company')
+        .or(`name.ilike.%${q}%,email.ilike.%${q}%,company.ilike.%${q}%`)
+        .limit(8);
+    return data || [];
+}

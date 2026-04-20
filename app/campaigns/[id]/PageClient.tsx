@@ -51,12 +51,12 @@ type CampaignDetail = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-    DRAFT: { label: 'Draft', color: '#6B7280', bg: '#f1f3f4' },
-    SCHEDULED: { label: 'Scheduled', color: '#1a73e8', bg: '#e8f0fe' },
-    RUNNING: { label: 'Running', color: '#137333', bg: '#e6f4ea' },
-    PAUSED: { label: 'Paused', color: '#b06000', bg: '#fef7e0' },
+    DRAFT: { label: 'Draft', color: 'var(--ink-muted)', bg: 'var(--surface-2)' },
+    SCHEDULED: { label: 'Scheduled', color: 'var(--accent)', bg: 'var(--info-soft)' },
+    RUNNING: { label: 'Running', color: '#137333', bg: 'var(--coach-soft)' },
+    PAUSED: { label: 'Paused', color: 'var(--warn)', bg: 'var(--warn-soft)' },
     COMPLETED: { label: 'Completed', color: '#8430ce', bg: '#f3e8fd' },
-    ARCHIVED: { label: 'Archived', color: '#c5221f', bg: '#fce8e6' },
+    ARCHIVED: { label: 'Archived', color: 'var(--danger)', bg: 'var(--danger-soft)' },
 };
 
 const CONTACT_STATUS_CONFIG: Record<string, { label: string; badgeClass: string }> = {
@@ -200,9 +200,9 @@ export default function CampaignDetailPage() {
     }
 
     if (!isHydrated) return null;
-    if (isLoading) return <div className="mailbox-wrapper"><PageLoader isLoading={true}><div /></PageLoader></div>;
+    if (isLoading) return <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}><PageLoader isLoading={true}><div /></PageLoader></div>;
     if (!campaign) return (
-        <div className="mailbox-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
                 <p>Campaign not found</p>
                 <button onClick={() => router.push('/campaigns')} style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer' }}>
@@ -212,14 +212,14 @@ export default function CampaignDetailPage() {
         </div>
     );
 
-    const statusConfig = STATUS_CONFIG[campaign.status] || { label: 'Draft', color: '#6B7280', bg: '#f1f3f4' };
+    const statusConfig = STATUS_CONFIG[campaign.status] || { label: 'Draft', color: 'var(--ink-muted)', bg: 'var(--surface-2)' };
     const hasABVariants = campaign.steps.some((s: any) => s.variants && s.variants.length > 1);
     const filteredContacts = contactFilter === 'ALL'
         ? campaign.contacts
         : campaign.contacts.filter((c: any) => c.status === contactFilter);
 
     return (
-        <div className="mailbox-wrapper" style={{ background: 'var(--bg-base)' }}>
+        <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
             {/* Header */}
             <div style={{
                 padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)',
@@ -399,8 +399,8 @@ export default function CampaignDetailPage() {
                                             <span style={{
                                                 fontWeight: 700, fontSize: 'var(--text-xs)',
                                                 padding: '0.125rem 0.5rem', borderRadius: 'var(--radius-full)',
-                                                background: step.is_subsequence ? '#fef7e0' : 'var(--accent-light)',
-                                                color: step.is_subsequence ? '#b06000' : 'var(--accent)',
+                                                background: step.is_subsequence ? 'var(--warn-soft)' : 'var(--accent-light)',
+                                                color: step.is_subsequence ? 'var(--warn)' : 'var(--accent)',
                                             }}>
                                                 Step {step.step_number}
                                             </span>

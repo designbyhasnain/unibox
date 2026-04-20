@@ -329,68 +329,68 @@ export default function JarvisPage() {
             <style>{`
 .jv{height:100%;display:flex;flex-direction:column;background:#09090b;font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 .jv-hd{padding:16px 24px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:12px;flex-shrink:0}
-.jv-logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#0ea5e9,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:20px;position:relative}
+.jv-logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent));display:flex;align-items:center;justify-content:center;font-size:20px;position:relative}
 .jv-pulse{position:absolute;inset:-3px;border-radius:14px;border:2px solid transparent;animation:jvPulse 2s ease infinite}
 .jv-pulse.active{border-color:rgba(14,165,233,.4)}
 @keyframes jvPulse{0%,100%{opacity:.3;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
-.jv-title{font-size:18px;font-weight:800;color:#fafafa;letter-spacing:-.02em}
-.jv-sub{font-size:11px;color:#52525b;font-weight:500}
+.jv-title{font-size:18px;font-weight:800;color:var(--shell);letter-spacing:-.02em}
+.jv-sub{font-size:11px;color:var(--ink-2);font-weight:500}
 .jv-status{display:flex;align-items:center;gap:6px;margin-left:auto}
 .jv-status-dot{width:8px;height:8px;border-radius:50%}
 .jv-status-text{font-size:11px;font-weight:600}
 
 /* Voice Controls */
 .jv-voice{display:flex;align-items:center;gap:8px;margin-left:12px}
-.jv-voice-btn{width:36px;height:36px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);color:#a1a1aa;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;font-size:16px}
-.jv-voice-btn:hover{border-color:#0ea5e9;color:#0ea5e9;background:rgba(14,165,233,.08)}
-.jv-voice-btn.active{border-color:#0ea5e9;color:#0ea5e9;background:rgba(14,165,233,.15)}
-.jv-voice-btn.listening{border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,.15);animation:jvPulse 1s ease infinite}
-.jv-voice-btn.speaking{border-color:#22c55e;color:#22c55e;background:rgba(34,197,94,.15)}
+.jv-voice-btn{width:36px;height:36px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);color:var(--ink-faint);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;font-size:16px}
+.jv-voice-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(14,165,233,.08)}
+.jv-voice-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(14,165,233,.15)}
+.jv-voice-btn.listening{border-color:var(--danger);color:var(--danger);background:rgba(239,68,68,.15);animation:jvPulse 1s ease infinite}
+.jv-voice-btn.speaking{border-color:var(--coach);color:var(--coach);background:rgba(34,197,94,.15)}
 
 /* Waveform */
 .jv-waveform{display:flex;align-items:center;gap:2px;height:24px;padding:0 8px}
-.jv-wave-bar{width:3px;border-radius:2px;background:#0ea5e9;transition:height .1s ease}
+.jv-wave-bar{width:3px;border-radius:2px;background:var(--accent);transition:height .1s ease}
 
 /* Messages */
 .jv-msgs{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px}
 .jv-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px}
-.jv-empty-title{font-size:28px;font-weight:800;color:#fafafa;letter-spacing:-.03em}
-.jv-empty-sub{font-size:13px;color:#52525b;max-width:420px;text-align:center;line-height:1.6}
+.jv-empty-title{font-size:28px;font-weight:800;color:var(--shell);letter-spacing:-.03em}
+.jv-empty-sub{font-size:13px;color:var(--ink-2);max-width:420px;text-align:center;line-height:1.6}
 .jv-chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:640px}
-.jv-chip{padding:7px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:#a1a1aa;font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
-.jv-chip:hover{border-color:#0ea5e9;color:#0ea5e9;background:rgba(14,165,233,.08)}
+.jv-chip{padding:7px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:var(--ink-faint);font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.jv-chip:hover{border-color:var(--accent);color:var(--accent);background:rgba(14,165,233,.08)}
 .msg{max-width:85%;padding:14px 18px;border-radius:14px;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
-.msg-user{align-self:flex-end;background:#0ea5e9;color:#fff;border-bottom-right-radius:4px}
+.msg-user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
 .msg-assistant{align-self:flex-start;background:#18181b;color:#e4e4e7;border:1px solid rgba(255,255,255,.06);border-bottom-left-radius:4px}
 .msg-tools{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
 .msg-tool{font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(14,165,233,.15);color:#38bdf8;font-weight:600;letter-spacing:.03em}
-.msg-time{font-size:9px;color:#3f3f46;margin-top:4px}
-.msg-speak{margin-top:6px;background:none;border:1px solid rgba(255,255,255,.1);color:#71717a;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;transition:all .15s}
-.msg-speak:hover{border-color:#0ea5e9;color:#0ea5e9}
+.msg-time{font-size:9px;color:var(--surface-2);margin-top:4px}
+.msg-speak{margin-top:6px;background:none;border:1px solid rgba(255,255,255,.1);color:var(--ink-muted);padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;transition:all .15s}
+.msg-speak:hover{border-color:var(--accent);color:var(--accent)}
 
 /* Input */
 .jv-input-wrap{padding:12px 24px 16px;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0}
 .jv-input-box{display:flex;align-items:flex-end;gap:8px;background:#18181b;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:8px 12px;transition:border-color .15s}
-.jv-input-box:focus-within{border-color:#0ea5e9}
-.jv-textarea{flex:1;background:none;border:none;color:#fafafa;font-size:14px;font-family:inherit;resize:none;outline:none;max-height:120px;line-height:1.5}
-.jv-textarea::placeholder{color:#3f3f46}
-.jv-mode-btn{background:#27272a;border:none;border-radius:6px;padding:6px 10px;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;letter-spacing:.04em;transition:all .15s}
-.jv-send{width:36px;height:36px;border-radius:8px;border:none;background:#0ea5e9;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s}
+.jv-input-box:focus-within{border-color:var(--accent)}
+.jv-textarea{flex:1;background:none;border:none;color:var(--shell);font-size:14px;font-family:inherit;resize:none;outline:none;max-height:120px;line-height:1.5}
+.jv-textarea::placeholder{color:var(--surface-2)}
+.jv-mode-btn{background:var(--surface);border:none;border-radius:6px;padding:6px 10px;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;letter-spacing:.04em;transition:all .15s}
+.jv-send{width:36px;height:36px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s}
 .jv-send:hover{background:#0284c7}
-.jv-send:disabled{background:#27272a;color:#52525b;cursor:not-allowed}
-.jv-mic{width:36px;height:36px;border-radius:8px;border:none;background:#27272a;color:#71717a;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;font-size:16px}
-.jv-mic:hover{background:#2563eb;color:#fff}
-.jv-mic.listening{background:#ef4444;color:#fff;animation:jvPulse 1s ease infinite}
+.jv-send:disabled{background:var(--surface);color:var(--ink-2);cursor:not-allowed}
+.jv-mic{width:36px;height:36px;border-radius:8px;border:none;background:var(--surface);color:var(--ink-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;font-size:16px}
+.jv-mic:hover{background:var(--info);color:#fff}
+.jv-mic.listening{background:var(--danger);color:#fff;animation:jvPulse 1s ease infinite}
 
 /* Loading */
 .jv-loading{display:flex;gap:4px;padding:14px 18px}
-.jv-ldot{width:6px;height:6px;border-radius:50%;background:#0ea5e9;animation:jvBounce 1.2s infinite}
+.jv-ldot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:jvBounce 1.2s infinite}
 .jv-ldot:nth-child(2){animation-delay:.15s}
 .jv-ldot:nth-child(3){animation-delay:.3s}
 @keyframes jvBounce{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1.2)}}
 
 .jv-footer{padding:0 24px 8px;text-align:center}
-.jv-footer-text{font-size:10px;color:#27272a}
+.jv-footer-text{font-size:10px;color:var(--surface)}
             `}</style>
 
             <div className="jv">
@@ -442,13 +442,13 @@ export default function JarvisPage() {
 
                     <div className="jv-status">
                         {agentRunning && (
-                            <span style={{ fontSize: 10, color: '#f59e0b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', animation: 'jvBounce 1s infinite' }} />
+                            <span style={{ fontSize: 10, color: 'var(--warn)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--warn)', animation: 'jvBounce 1s infinite' }} />
                                 EXECUTING
                             </span>
                         )}
-                        <div className="jv-status-dot" style={{ background: isListening ? '#ef4444' : isSpeaking ? '#0ea5e9' : agentRunning ? '#f59e0b' : '#22c55e' }} />
-                        <span className="jv-status-text" style={{ color: isListening ? '#ef4444' : isSpeaking ? '#0ea5e9' : agentRunning ? '#f59e0b' : '#22c55e' }}>
+                        <div className="jv-status-dot" style={{ background: isListening ? 'var(--danger)' : isSpeaking ? 'var(--accent)' : agentRunning ? 'var(--warn)' : 'var(--coach)' }} />
+                        <span className="jv-status-text" style={{ color: isListening ? 'var(--danger)' : isSpeaking ? 'var(--accent)' : agentRunning ? 'var(--warn)' : 'var(--coach)' }}>
                             {isListening ? 'Listening...' : isSpeaking ? 'Speaking...' : agentRunning ? 'Working...' : 'Online'}
                         </span>
                     </div>
@@ -511,7 +511,7 @@ export default function JarvisPage() {
                         <button
                             className="jv-mode-btn"
                             onClick={() => setMode(m => m === 'chat' ? 'agent' : 'chat')}
-                            style={{ background: mode === 'agent' ? '#7c3aed' : '#27272a', color: mode === 'agent' ? '#fff' : '#71717a' }}
+                            style={{ background: mode === 'agent' ? 'var(--accent)' : 'var(--surface)', color: mode === 'agent' ? '#fff' : 'var(--ink-muted)' }}
                             title={mode === 'agent' ? 'Agent Mode' : 'Chat Mode'}
                         >
                             {mode === 'agent' ? '\u{1F916} AGENT' : '\u{1F4AC} CHAT'}

@@ -117,98 +117,98 @@ export default function LinkProjectsPage() {
     return (
         <>
         <style>{`
-.lp{height:100%;overflow-y:auto;background:#fff;font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#171717}
+.lp{height:100%;overflow-y:auto;background:var(--surface);font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:var(--ink)}
 .lp-in{max-width:960px;margin:0 auto;padding:32px}
 .lp-hd{margin-bottom:24px}
 .lp-hd h1{font-size:24px;font-weight:700;letter-spacing:-.03em;margin:0}
-.lp-hd p{font-size:13px;color:#a3a3a3;margin:4px 0 0}
+.lp-hd p{font-size:13px;color:var(--ink-muted);margin:4px 0 0}
 
 /* Tabs */
-.lp-tabs{display:flex;gap:2px;background:#f5f5f5;border-radius:10px;padding:3px;margin-bottom:24px;width:fit-content}
+.lp-tabs{display:flex;gap:2px;background:var(--surface-2);border-radius:10px;padding:3px;margin-bottom:24px;width:fit-content}
 .lp-tab{padding:8px 20px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;color:#737373;background:none;border:none;transition:all .15s}
-.lp-tab.active{background:#fff;color:#171717;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.lp-tab.active{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 
 /* Progress */
-.lp-progress{background:#fafafa;border:1px solid #e5e5e5;border-radius:12px;padding:18px 24px;margin-bottom:20px;display:flex;align-items:center;gap:20px}
+.lp-progress{background:var(--shell);border:1px solid var(--hairline-soft);border-radius:12px;padding:18px 24px;margin-bottom:20px;display:flex;align-items:center;gap:20px}
 .lp-progress-info{flex:1}
 .lp-progress-title{font-size:13px;font-weight:600}
-.lp-progress-sub{font-size:11px;color:#a3a3a3;margin-top:2px}
-.lp-progress-bar{flex:2;height:6px;background:#e5e5e5;border-radius:3px;overflow:hidden}
+.lp-progress-sub{font-size:11px;color:var(--ink-muted);margin-top:2px}
+.lp-progress-bar{flex:2;height:6px;background:var(--hairline-soft);border-radius:3px;overflow:hidden}
 .lp-progress-fill{height:100%;border-radius:3px;transition:width .5s ease}
 .lp-progress-pct{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
 
 /* Stats */
 .lp-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px}
-.lp-stat{background:#fafafa;border:1px solid #e5e5e5;border-radius:10px;padding:14px;text-align:center}
+.lp-stat{background:var(--shell);border:1px solid var(--hairline-soft);border-radius:10px;padding:14px;text-align:center}
 .lp-stat-v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
-.lp-stat-l{font-size:10px;color:#a3a3a3;font-weight:500;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.lp-stat-l{font-size:10px;color:var(--ink-muted);font-weight:500;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
 
 /* Project card */
-.lp-card{border:1px solid #e5e5e5;border-radius:12px;margin-bottom:10px;overflow:hidden;transition:all .3s}
-.lp-card.active{border-color:#171717;box-shadow:0 4px 16px rgba(0,0,0,.08)}
+.lp-card{border:1px solid var(--hairline-soft);border-radius:12px;margin-bottom:10px;overflow:hidden;transition:all .3s}
+.lp-card.active{border-color:var(--ink);box-shadow:0 4px 16px rgba(0,0,0,.08)}
 .lp-card-main{display:flex;align-items:center;gap:14px;padding:14px 18px;cursor:pointer;transition:background .1s}
-.lp-card-main:hover{background:#fafafa}
-.lp-card-idx{width:26px;height:26px;border-radius:7px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#525252;flex-shrink:0}
+.lp-card-main:hover{background:var(--shell)}
+.lp-card-idx{width:26px;height:26px;border-radius:7px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--ink-2);flex-shrink:0}
 .lp-card-body{flex:1;min-width:0}
 .lp-card-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lp-card-meta{font-size:11px;color:#a3a3a3;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap}
+.lp-card-meta{font-size:11px;color:var(--ink-muted);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap}
 .lp-card-right{display:flex;gap:10px;align-items:center;flex-shrink:0}
 .lp-card-val{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
 .lp-badge{font-size:9px;font-weight:600;padding:3px 8px;border-radius:5px}
 
 /* Search panel */
-.lp-panel{background:#fafafa;border-top:1px solid #f0f0f0;padding:16px 18px}
-.lp-panel-title{font-size:12px;font-weight:600;color:#525252;margin-bottom:6px}
-.lp-panel-context{font-size:11px;color:#a3a3a3;margin-bottom:12px;line-height:1.5}
+.lp-panel{background:var(--shell);border-top:1px solid var(--surface-2);padding:16px 18px}
+.lp-panel-title{font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
+.lp-panel-context{font-size:11px;color:var(--ink-muted);margin-bottom:12px;line-height:1.5}
 
 /* Suggestions */
 .lp-suggest{margin-bottom:12px}
-.lp-suggest-title{font-size:11px;font-weight:600;color:#0ea5e9;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em}
+.lp-suggest-title{font-size:11px;font-weight:600;color:var(--accent);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em}
 .lp-suggest-list{display:flex;flex-direction:column;gap:4px}
 
 /* Contact item */
 .lp-contact{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;transition:background .1s;border:1px solid transparent}
-.lp-contact:hover{background:#e5e5e5;border-color:#d4d4d4}
+.lp-contact:hover{background:var(--hairline-soft);border-color:#d4d4d4}
 .lp-contact-av{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0}
 .lp-contact-info{flex:1;min-width:0}
 .lp-contact-name{font-size:12px;font-weight:600}
-.lp-contact-email{font-size:10px;color:#a3a3a3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lp-contact-email{font-size:10px;color:var(--ink-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lp-contact-stats{text-align:right;flex-shrink:0}
-.lp-contact-rev{font-size:11px;font-weight:600;color:#22c55e}
-.lp-contact-count{font-size:9px;color:#a3a3a3}
+.lp-contact-rev{font-size:11px;font-weight:600;color:var(--coach)}
+.lp-contact-count{font-size:9px;color:var(--ink-muted)}
 
 /* Search input */
-.lp-search{width:100%;border:1px solid #e5e5e5;border-radius:8px;padding:9px 12px;font-size:12px;outline:none;background:#fff;transition:border .15s}
-.lp-search:focus{border-color:#171717}
-.lp-search-empty{padding:12px;text-align:center;color:#a3a3a3;font-size:11px}
+.lp-search{width:100%;border:1px solid var(--hairline-soft);border-radius:8px;padding:9px 12px;font-size:12px;outline:none;background:var(--surface);transition:border .15s}
+.lp-search:focus{border-color:var(--ink)}
+.lp-search-empty{padding:12px;text-align:center;color:var(--ink-muted);font-size:11px}
 .lp-panel-actions{display:flex;gap:6px;margin-top:10px}
-.lp-btn{padding:7px 14px;border-radius:7px;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid #e5e5e5;background:#fff;color:#525252}
-.lp-btn:hover{background:#f5f5f5;color:#171717}
+.lp-btn{padding:7px 14px;border-radius:7px;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--hairline-soft);background:var(--surface);color:var(--ink-2)}
+.lp-btn:hover{background:var(--surface-2);color:var(--ink)}
 
 /* Suspicious tab */
-.lp-suspect{border:1px solid #fecaca;border-radius:12px;padding:16px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px}
+.lp-suspect{border:1px solid var(--danger-soft);border-radius:12px;padding:16px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px}
 .lp-suspect-info{flex:1}
 .lp-suspect-name{font-size:13px;font-weight:600}
-.lp-suspect-meta{font-size:11px;color:#a3a3a3;margin-top:2px}
+.lp-suspect-meta{font-size:11px;color:var(--ink-muted);margin-top:2px}
 .lp-suspect-stats{display:flex;gap:16px;font-size:12px;margin-top:6px}
 .lp-suspect-stat{display:flex;flex-direction:column;align-items:center}
 .lp-suspect-stat-v{font-weight:700;font-variant-numeric:tabular-nums}
-.lp-suspect-stat-l{font-size:9px;color:#a3a3a3;text-transform:uppercase}
+.lp-suspect-stat-l{font-size:9px;color:var(--ink-muted);text-transform:uppercase}
 .lp-suspect-action{flex-shrink:0}
-.lp-btn-danger{background:#fef2f2;color:#ef4444;border-color:#fecaca}
-.lp-btn-danger:hover{background:#fee2e2;color:#dc2626}
+.lp-btn-danger{background:var(--danger-soft);color:var(--danger);border-color:var(--danger-soft)}
+.lp-btn-danger:hover{background:#fee2e2;color:var(--danger)}
 
 /* Pagination */
 .lp-pag{display:flex;align-items:center;justify-content:space-between;margin-top:16px}
-.lp-pag-info{font-size:11px;color:#a3a3a3}
+.lp-pag-info{font-size:11px;color:var(--ink-muted)}
 .lp-pag-btns{display:flex;gap:4px}
-.lp-pag-btn{width:30px;height:30px;border:1px solid #e5e5e5;border-radius:6px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;color:#525252}
-.lp-pag-btn:hover{background:#f5f5f5}
+.lp-pag-btn{width:30px;height:30px;border:1px solid var(--hairline-soft);border-radius:6px;background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;color:var(--ink-2)}
+.lp-pag-btn:hover{background:var(--surface-2)}
 .lp-pag-btn:disabled{opacity:.3;cursor:not-allowed}
 
-.lp-done{text-align:center;padding:32px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px}
+.lp-done{text-align:center;padding:32px;background:var(--coach-soft);border:1px solid #bbf7d0;border-radius:12px}
 .lp-done-icon{font-size:40px;margin-bottom:6px}
-.lp-done-text{font-size:15px;font-weight:600;color:#22c55e}
+.lp-done-text{font-size:15px;font-weight:600;color:var(--coach)}
 .lp-done-sub{font-size:12px;color:#86efac;margin-top:4px}
         `}</style>
 
@@ -237,14 +237,14 @@ export default function LinkProjectsPage() {
                         <div className="lp-progress-sub">{todayLinked}/{DAILY_TARGET} linked</div>
                     </div>
                     <div className="lp-progress-bar">
-                        <div className="lp-progress-fill" style={{ width: `${progress}%`, background: progress >= 100 ? '#22c55e' : '#171717' }} />
+                        <div className="lp-progress-fill" style={{ width: `${progress}%`, background: progress >= 100 ? 'var(--coach)' : 'var(--ink)' }} />
                     </div>
-                    <div className="lp-progress-pct" style={{ color: progress >= 100 ? '#22c55e' : '#171717' }}>{progress}%</div>
+                    <div className="lp-progress-pct" style={{ color: progress >= 100 ? 'var(--coach)' : 'var(--ink)' }}>{progress}%</div>
                 </div>
 
                 <div className="lp-stats">
                     <div className="lp-stat"><div className="lp-stat-v">{total}</div><div className="lp-stat-l">Remaining</div></div>
-                    <div className="lp-stat"><div className="lp-stat-v" style={{ color: '#22c55e' }}>{todayLinked}</div><div className="lp-stat-l">Linked Today</div></div>
+                    <div className="lp-stat"><div className="lp-stat-v" style={{ color: 'var(--coach)' }}>{todayLinked}</div><div className="lp-stat-l">Linked Today</div></div>
                     <div className="lp-stat"><div className="lp-stat-v">{Math.ceil(total / DAILY_TARGET)}</div><div className="lp-stat-l">Days Left</div></div>
                 </div>
 
@@ -256,7 +256,7 @@ export default function LinkProjectsPage() {
                     <>
                     {projects.map((p, idx) => {
                         const isActive = activeProject === p.id;
-                        const pay = p.paid_status === 'PAID' ? { color: '#22c55e', bg: '#f0fdf4', label: 'Paid' } : { color: '#ef4444', bg: '#fef2f2', label: 'Unpaid' };
+                        const pay = p.paid_status === 'PAID' ? { color: 'var(--coach)', bg: 'var(--coach-soft)', label: 'Paid' } : { color: 'var(--danger)', bg: 'var(--danger-soft)', label: 'Unpaid' };
                         const projectSuggestions = suggestions[p.id] || [];
 
                         return (
@@ -292,7 +292,7 @@ export default function LinkProjectsPage() {
                                                 <div className="lp-suggest-list">
                                                     {projectSuggestions.map((c: any) => (
                                                         <div key={c.id} className="lp-contact" onClick={() => handleLink(p.id, c.id)}>
-                                                            <div className="lp-contact-av" style={{ background: '#0ea5e9' }}>{ini(c.name)}</div>
+                                                            <div className="lp-contact-av" style={{ background: 'var(--accent)' }}>{ini(c.name)}</div>
                                                             <div className="lp-contact-info">
                                                                 <div className="lp-contact-name">{c.name}</div>
                                                                 <div className="lp-contact-email">{c.email}</div>
@@ -365,7 +365,7 @@ export default function LinkProjectsPage() {
             {/* ── SUSPICIOUS LINKS TAB ── */}
             {tab === 'suspicious' && (
                 <>
-                <div style={{ fontSize: 13, color: '#737373', marginBottom: 16, lineHeight: 1.6 }}>
+                <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 16, lineHeight: 1.6 }}>
                     These contacts have many projects linked but very few emails. This usually means projects were auto-matched by name
                     (e.g., a filmmaker named &ldquo;Nick&rdquo; gets all projects with &ldquo;Nick&rdquo; in the couple name).
                     Click &ldquo;Unlink All&rdquo; to put their projects back in the orphaned queue for manual review.
@@ -395,7 +395,7 @@ export default function LinkProjectsPage() {
                                         <span className="lp-suspect-stat-l">Revenue</span>
                                     </div>
                                     <div className="lp-suspect-stat">
-                                        <span className="lp-suspect-stat-v" style={{ color: '#ef4444' }}>{s.ratio.toFixed(1)}</span>
+                                        <span className="lp-suspect-stat-v" style={{ color: 'var(--danger)' }}>{s.ratio.toFixed(1)}</span>
                                         <span className="lp-suspect-stat-l">Email/Proj</span>
                                     </div>
                                 </div>

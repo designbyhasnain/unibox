@@ -1,292 +1,149 @@
 'use client';
 
-import React, { useState } from 'react';
-import DOMPurify from 'dompurify';
-import Topbar from '../components/Topbar';
-import { getRevenueOpportunitiesAction, getPipelineVisualizationAction, type PipelineStageSummary } from '../../src/actions/revenueActions';
-import { generateAISummaryAction } from '../../src/actions/summaryActions';
+import { useState, useEffect } from 'react';
+import { getPipelineVisualizationAction, type PipelineStageSummary } from '../../src/actions/revenueActions';
+import { getClientsAction } from '../../src/actions/clientActions';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
-import { useUI } from '../context/UIContext';
-import { avatarColor, initials } from '../utils/helpers';
-import { useSWRData } from '../utils/staleWhileRevalidate';
+import { useGlobalFilter } from '../context/FilterContext';
+
+const pipelineCols = [
+    { key: 'COLD_LEAD', label: 'Cold Lead', color: 'oklch(0.6 0.13 230)' },
+    { key: 'CONTACTED', label: 'Contacted', color: 'oklch(0.65 0.008 260)' },
+    { key: 'WARM_LEAD', label: 'Warm Lead', color: 'oklch(0.72 0.14 75)' },
+    { key: 'LEAD', label: 'Lead', color: 'oklch(0.62 0.18 295)' },
+    { key: 'OFFER_ACCEPTED', label: 'Offer', color: 'oklch(0.66 0.15 25)' },
+    { key: 'CLOSED', label: 'Closed', color: 'oklch(0.68 0.14 160)' },
+];
+
+function ini(n: string) { return (n || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2); }
+function fmt(n: number) { return n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'k' : '$' + n.toLocaleString(); }
+function fmtDate(d: string) {
+    if (!d) return '';
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+const Spark = ({ points, color = 'var(--ink-muted)' }: { points: number[]; color?: string }) => {
+    const w = 64, h = 28;
+    const max = Math.max(...points), min = Math.min(...points);
+    const step = w / (points.length - 1);
+    const d = points.map((p, i) => {
+        const x = i * step;
+        const y = h - ((p - min) / (max - min || 1)) * h;
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    return <svg className="kpi-spark" width={w} height={h} viewBox={`0 0 ${w} ${h}`}><path d={d} stroke={color} fill="none" strokeWidth="1.5" /></svg>;
+};
 
 export default function OpportunitiesPage() {
-    const isHydrated = useHydrated();
-    const { setComposeOpen, setComposeDefaultTo } = useUI();
-    const [activeTab, setActiveTab] = useState<'waiting' | 'winback' | 'stale'>('waiting');
-    const [aiSummary, setAiSummary] = useState<string | null>(null);
-    const [aiLoading, setAiLoading] = useState<string | null>(null);
-    const [selectedContact, setSelectedContact] = useState<string | null>(null);
-
-    const { data, isLoading, refresh: loadData } = useSWRData(
-        'opportunities',
-        () => getRevenueOpportunitiesAction()
-    );
-
+    const hydrated = useHydrated();
+    const { selectedAccountId } = useGlobalFilter();
     const [pipeline, setPipeline] = useState<{ stages: PipelineStageSummary[]; totalValue: number; totalDeals: number } | null>(null);
-    React.useEffect(() => {
-        getPipelineVisualizationAction().then(r => {
-            if (r.success) setPipeline({ stages: r.stages, totalValue: r.totalValue, totalDeals: r.totalDeals });
-        });
-    }, []);
+    const [clients, setClients] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const handleAIAudit = async (contactId: string) => {
-        setAiLoading(contactId);
-        setSelectedContact(contactId);
-        setAiSummary(null);
-        try {
-            const result = await generateAISummaryAction(contactId);
-            setAiSummary(result);
-        } catch {
-            setAiSummary('Failed to generate AI summary. Please try again.');
-        } finally {
-            setAiLoading(null);
-        }
-    };
+    useEffect(() => {
+        Promise.all([
+            getPipelineVisualizationAction(),
+            getClientsAction(selectedAccountId, 1, 200),
+        ]).then(([p, c]) => {
+            if (p.success) setPipeline({ stages: p.stages, totalValue: p.totalValue, totalDeals: p.totalDeals });
+            setClients(c.clients || []);
+        }).catch(console.error).finally(() => setLoading(false));
+    }, [selectedAccountId]);
 
-    const handleReply = (email: string) => {
-        setComposeDefaultTo(email);
-        setComposeOpen(true);
-    };
+    if (!hydrated || loading) return <PageLoader isLoading type="grid" count={6} context="clients"><div /></PageLoader>;
 
-    const urgencyColors: Record<string, string> = { hot: '#EF4444', warm: '#F59E0B', cooling: '#3B82F6', cold: '#6B7280' };
-    const urgencyLabels: Record<string, string> = { hot: 'TODAY', warm: '1-3 DAYS', cooling: '3-7 DAYS', cold: '7+ DAYS' };
+    const avColors = ['av-a', 'av-b', 'av-c', 'av-d', 'av-e', 'av-f', 'av-g', 'av-h'];
+    const byStage: Record<string, any[]> = {};
+    pipelineCols.forEach(col => { byStage[col.key] = clients.filter(c => c.pipeline_stage === col.key); });
 
-    const renderContactRow = (contact: any, showUrgency = false) => (
-        <div key={contact.id} style={{
-            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
-            borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer',
-            background: selectedContact === contact.id ? 'rgba(26,115,232,0.05)' : 'transparent',
-        }} onClick={() => handleAIAudit(contact.id)}>
-            <div className="avatar avatar-sm" style={{ background: avatarColor(contact.email || 'x'), flexShrink: 0 }}>
-                {initials(contact.name || contact.email || '?')}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {contact.name || contact.email}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{contact.email}</div>
-            </div>
-            {showUrgency && contact.urgency && (
-                <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                    background: urgencyColors[contact.urgency], color: '#fff',
-                }}>{urgencyLabels[contact.urgency]}</span>
-            )}
-            {!showUrgency && (
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                    {contact.total_emails_received || 0} replies · {contact.days_since_last_contact || 0}d ago
-                </span>
-            )}
-            <button className="btn btn-primary sm" style={{ height: 28, padding: '0 10px', fontSize: 11, flexShrink: 0 }}
-                onClick={(e) => { e.stopPropagation(); handleReply(contact.email); }}>
-                Reply
-            </button>
-        </div>
-    );
-
-    const tabs = [
-        { key: 'waiting', label: 'Reply ASAP', count: data?.waitingCount || 0, color: '#EF4444' },
-        { key: 'winback', label: 'Win Back', count: data?.winBackCount || 0, color: '#F59E0B' },
-        { key: 'stale', label: 'Follow Up', count: data?.staleCount || 0, color: '#3B82F6' },
-    ];
-
-    const activeList = activeTab === 'waiting' ? data?.waitingForReply :
-                       activeTab === 'winback' ? data?.winBackCandidates : data?.staleFollowUps;
+    const openStages = ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED'];
+    const openValue = openStages.reduce((s, k) => s + (byStage[k] || []).reduce((ss: number, c: any) => ss + (c.estimated_value || 0), 0), 0);
+    const openCount = openStages.reduce((s, k) => s + (byStage[k] || []).length, 0);
+    const closedValue = (byStage['CLOSED'] || []).reduce((s: number, c: any) => s + (c.estimated_value || 0), 0);
+    const stageProb: Record<string, number> = { COLD_LEAD: 0.05, CONTACTED: 0.15, WARM_LEAD: 0.35, LEAD: 0.5, OFFER_ACCEPTED: 0.75 };
+    const forecast = openStages.reduce((s, k) => s + (byStage[k] || []).reduce((ss: number, c: any) => ss + (c.estimated_value || 0) * (stageProb[k] || 0.1), 0), 0);
+    const winRate = pipeline ? Math.round((pipeline.stages.find(s => s.stage === 'CLOSED')?.count || 0) / Math.max(pipeline.totalDeals, 1) * 100) : 0;
 
     return (
-        <div className="mailbox-wrapper">
-            <div className="mailbox-main">
-                <Topbar searchTerm="" setSearchTerm={() => {}} placeholder="Opportunities"
-                    onSearch={() => {}} onClearSearch={() => {}}
-                    leftContent={<h1 className="clients-page-title">Revenue Opportunities</h1>}
-                    rightContent={
-                        <button className="btn btn-secondary sm" onClick={loadData}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>
-                            Refresh
-                        </button>
-                    }
-                />
-
-                <div className="content-split content-split-bg">
-                    <div className="list-panel list-panel-flex" style={{ maxWidth: '100%' }}>
-                        <PageLoader isLoading={!isHydrated || isLoading} type="list" count={8} context="opportunities">
-                            {data && (
-                                <>
-                                    {/* Visual Pipeline — stage-by-stage funnel with deal values */}
-                                    {pipeline && pipeline.totalDeals > 0 && (
-                                        <div style={{ padding: '16px 16px 8px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                                                <h2 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-muted, #64748b)', margin: 0 }}>
-                                                    Pipeline
-                                                </h2>
-                                                <div style={{ fontSize: 12, color: 'var(--text-muted, #64748b)' }}>
-                                                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{pipeline.totalDeals.toLocaleString()}</span> deals · <span style={{ fontWeight: 600, color: '#10B981' }}>${pipeline.totalValue.toLocaleString()}</span> estimated
-                                                </div>
-                                            </div>
-                                            <div style={{
-                                                display: 'grid',
-                                                gridTemplateColumns: `repeat(${pipeline.stages.length}, minmax(0, 1fr))`,
-                                                gap: 8,
-                                            }}>
-                                                {pipeline.stages.map(s => {
-                                                    const pctOfMax = pipeline.stages.reduce((m, x) => Math.max(m, x.count), 1);
-                                                    const barHeight = Math.max(14, Math.round((s.count / pctOfMax) * 72));
-                                                    return (
-                                                        <div key={s.stage} style={{
-                                                            border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 10,
-                                                            background: 'var(--bg-surface, #fff)',
-                                                            display: 'flex', flexDirection: 'column', gap: 6,
-                                                            minHeight: 150,
-                                                        }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
-                                                                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{s.label}</span>
-                                                            </div>
-                                                            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{s.count}</div>
-                                                            <div style={{ fontSize: 11, color: '#10B981', fontWeight: 600 }}>${s.estimatedValue.toLocaleString()}</div>
-                                                            <div style={{
-                                                                marginTop: 2, width: '100%',
-                                                                height: barHeight, background: s.color, opacity: 0.18, borderRadius: 4,
-                                                            }} />
-                                                            {s.samples.length > 0 && (
-                                                                <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                                                    {s.samples.slice(0, 3).map(d => (
-                                                                        <div key={d.id} style={{ fontSize: 10, color: 'var(--text-muted, #64748b)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                            {(d.company || d.name).slice(0, 22)} · ${d.estimatedValue}
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Revenue Estimate Cards */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, padding: '16px 16px 0' }}>
-                                        {[
-                                            { label: 'Waiting for Reply', value: data.waitingCount, revenue: data.estimatedRevenue.waiting, color: '#EF4444', desc: 'Reply = instant deal' },
-                                            { label: 'Win-Back Targets', value: data.winBackCount, revenue: data.estimatedRevenue.winBack, color: '#F59E0B', desc: '10% will convert' },
-                                            { label: 'Need Follow-Up', value: data.staleCount, revenue: data.estimatedRevenue.stale, color: '#3B82F6', desc: '5% will convert' },
-                                        ].map(card => (
-                                            <div key={card.label} style={{
-                                                background: 'var(--bg-secondary)', borderRadius: 12, padding: '16px',
-                                                border: '1px solid var(--border-subtle)',
-                                            }}>
-                                                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>{card.label}</div>
-                                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                                                    <span style={{ fontSize: 28, fontWeight: 700, color: card.color }}>{card.value}</span>
-                                                    <span style={{ fontSize: 13, color: '#10B981', fontWeight: 600 }}>${card.revenue.toLocaleString()}</span>
-                                                </div>
-                                                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>{card.desc}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    {/* Total */}
-                                    <div style={{ padding: '12px 16px', textAlign: 'center' }}>
-                                        <span style={{ fontSize: 14, fontWeight: 700, color: '#10B981' }}>
-                                            Estimated Revenue Opportunity: ${(data.estimatedRevenue.waiting + data.estimatedRevenue.winBack + data.estimatedRevenue.stale).toLocaleString()}
-                                        </span>
-                                    </div>
-
-                                    {/* Tabs */}
-                                    <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', padding: '0 16px' }}>
-                                        {tabs.map(tab => (
-                                            <button key={tab.key}
-                                                onClick={() => { setActiveTab(tab.key as any); setAiSummary(null); setSelectedContact(null); }}
-                                                style={{
-                                                    padding: '10px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                                    border: 'none', background: 'transparent',
-                                                    color: activeTab === tab.key ? tab.color : 'var(--text-tertiary)',
-                                                    borderBottom: activeTab === tab.key ? `2px solid ${tab.color}` : '2px solid transparent',
-                                                }}>
-                                                {tab.label} <span style={{ fontSize: 11, opacity: 0.7 }}>({tab.count})</span>
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    {/* Split: List + AI Panel */}
-                                    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-                                        {/* Contact List */}
-                                        <div style={{ flex: 1, overflowY: 'auto', borderRight: aiSummary || aiLoading ? '1px solid var(--border-subtle)' : 'none' }}>
-                                            {(activeList || []).length === 0 ? (
-                                                <div style={{ padding: '3.5rem 2rem', textAlign: 'center' }}>
-                                                    <div style={{
-                                                        width: 56, height: 56, borderRadius: '50%',
-                                                        margin: '0 auto 14px',
-                                                        background: 'linear-gradient(135deg, rgba(16,185,129,0.1), rgba(59,130,246,0.06))',
-                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        fontSize: 24,
-                                                    }}>
-                                                        {activeTab === 'waiting' ? '\u23F0' : activeTab === 'winback' ? '\uD83D\uDC4B' : '\uD83D\uDCE8'}
-                                                    </div>
-                                                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-                                                        {activeTab === 'waiting' ? 'No replies waiting' : activeTab === 'winback' ? 'No win-back targets' : 'No stale follow-ups'}
-                                                    </div>
-                                                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5, marginBottom: 14, maxWidth: 320, margin: '0 auto 14px' }}>
-                                                        {activeTab === 'waiting'
-                                                            ? 'When a lead replies and is waiting for your response, they will appear here.'
-                                                            : activeTab === 'winback'
-                                                            ? 'Contacts who were engaged then went silent for 30+ days will surface here.'
-                                                            : 'Outreach that got no reply after a few days will queue up here for a gentle nudge.'}
-                                                    </div>
-                                                    <button
-                                                        onClick={() => { setComposeOpen(true); }}
-                                                        style={{
-                                                            background: 'var(--accent, #1a73e8)', color: '#fff',
-                                                            border: 'none', padding: '8px 18px', borderRadius: 8,
-                                                            fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                                        }}
-                                                    >
-                                                        {activeTab === 'waiting' ? 'Add your first deal \u2192' : 'Start outreach \u2192'}
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                (activeList || []).map((c: any) => renderContactRow(c, activeTab === 'waiting'))
-                                            )}
-                                        </div>
-
-                                        {/* AI Summary Panel */}
-                                        {(aiSummary || aiLoading) && (
-                                            <div style={{ flex: 1, overflowY: 'auto', padding: '16px', maxHeight: 'calc(100vh - 300px)' }}>
-                                                {aiLoading ? (
-                                                    <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-tertiary)' }}>
-                                                        <div style={{ fontSize: 14, marginBottom: 8 }}>AI analyzing relationship...</div>
-                                                        <div style={{ fontSize: 12 }}>Reading emails and generating insights</div>
-                                                    </div>
-                                                ) : aiSummary ? (
-                                                    <div style={{ fontSize: 13, lineHeight: 1.8, color: 'var(--text-primary)' }}>
-                                                        {aiSummary.split('\n').map((line, i) => {
-                                                            const t = line.trim();
-                                                            if (!t) return <div key={i} style={{ height: 8 }} />;
-                                                            if (t.startsWith('## ')) return <h3 key={i} style={{ fontSize: 16, fontWeight: 700, margin: '20px 0 8px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 }}>{t.slice(3)}</h3>;
-                                                            if (t.startsWith('### ')) return <h4 key={i} style={{ fontSize: 14, fontWeight: 700, margin: '16px 0 6px', color: '#1a73e8' }}>{t.slice(4)}</h4>;
-                                                            if (t.startsWith('- ') || t.startsWith('* ')) {
-                                                                const text = DOMPurify.sanitize(t.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>'), { ALLOWED_TAGS: ['strong', 'em'] });
-                                                                return <div key={i} style={{ paddingLeft: 16, margin: '4px 0', position: 'relative' }}><span style={{ position: 'absolute', left: 4 }}>•</span><span dangerouslySetInnerHTML={{ __html: text }} /></div>;
-                                                            }
-                                                            if (t.startsWith('Subject:') || t.startsWith('Dear ') || t.startsWith('Hi ') || t.startsWith('Hey ')) {
-                                                                return <div key={i} style={{ padding: '4px 12px', background: 'rgba(26,115,232,0.04)', borderLeft: '2px solid #1a73e8', margin: '2px 0', fontStyle: 'italic' }}>{t}</div>;
-                                                            }
-                                                            const html = DOMPurify.sanitize(t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/"([^"]+)"/g, '<span style="color:#1a73e8">"$1"</span>'), { ALLOWED_TAGS: ['strong', 'em', 'span'], ALLOWED_ATTR: ['style'] });
-                                                            return <p key={i} style={{ margin: '4px 0' }} dangerouslySetInnerHTML={{ __html: html }} />;
-                                                        })}
-                                                    </div>
-                                                ) : null}
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </PageLoader>
+        <div className="op-page">
+            <div className="op-content">
+                <div className="page-head">
+                    <div>
+                        <h2>Pipeline board</h2>
+                        <div className="sub">{openCount} open · {fmt(openValue)} in flight · drag cards between stages</div>
                     </div>
                 </div>
+
+                <div className="kpi-grid" style={{ marginBottom: 16 }}>
+                    <div className="kpi"><div className="k">Open pipeline</div><div className="v">{fmt(openValue)}</div><div className="d" style={{ color: 'var(--ink-muted)' }}>{openCount} active deals</div><Spark points={[3,4,5,6,5,7,8]} color="var(--coach)" /></div>
+                    <div className="kpi"><div className="k">Weighted forecast</div><div className="v">{fmt(Math.round(forecast))}</div><div className="d" style={{ color: 'var(--ink-muted)' }}>next 30 days</div><Spark points={[2,3,4,5,5,6,7]} color="var(--coach)" /></div>
+                    <div className="kpi"><div className="k">Closed this month</div><div className="v">{fmt(closedValue)}</div><div className="d"><span className="up">▲</span> {(byStage['CLOSED'] || []).length} deals won</div><Spark points={[1,2,2,3,3,4,5]} color="var(--coach)" /></div>
+                    <div className="kpi"><div className="k">Win rate</div><div className="v">{winRate}%</div><div className="d" style={{ color: 'var(--ink-muted)' }}>all time</div><Spark points={[4,5,5,6,6,7,8]} color="var(--coach)" /></div>
+                </div>
+
+                <div className="kanban">
+                    {pipelineCols.map(col => (
+                        <div className="kcol" key={col.key}>
+                            <div className="kcol-head">
+                                <span className="dot" style={{ background: col.color }} />
+                                <span className="title">{col.label}</span>
+                                <span className="count">{(byStage[col.key] || []).length}</span>
+                            </div>
+                            {(byStage[col.key] || []).map((c, i) => {
+                                const av = avColors[(c.name || '').charCodeAt(0) % avColors.length];
+                                return (
+                                    <div className="kcard" key={c.id || i}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                            <div className={`avatar ${av}`} style={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 9, fontWeight: 600 }}>{ini(c.name)}</div>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                <div className="name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || c.email}</div>
+                                                <div className="co" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.company || ''}</div>
+                                            </div>
+                                        </div>
+                                        <div className="foot">
+                                            <span className="val">{c.estimated_value ? fmt(c.estimated_value) : '—'}</span>
+                                            <span className="dates">{fmtDate(c.last_email_at)}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {(byStage[col.key] || []).length === 0 && (
+                                <div style={{ padding: '10px 8px', fontSize: 11.5, color: 'var(--ink-muted)', textAlign: 'center', fontStyle: 'italic' }}>No deals here</div>
+                            )}
+                        </div>
+                    ))}
+                </div>
             </div>
+
+            <style>{`
+.op-page{height:100%;overflow-y:auto;background:var(--shell);font-family:var(--font-ui);color:var(--ink)}
+.op-content{padding:22px 26px}
+.op-page .page-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.op-page .page-head h2{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0}
+.op-page .page-head .sub{color:var(--ink-muted);font-size:13px;margin-top:4px}
+.op-page .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.op-page .kpi{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;padding:14px 16px;position:relative;overflow:hidden}
+.op-page .kpi .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-muted);font-weight:500}
+.op-page .kpi .v{font-size:26px;font-weight:600;letter-spacing:-.02em;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.op-page .kpi .d{font-size:11.5px;color:var(--ink-muted)}
+.op-page .kpi .d .up{color:var(--coach)}
+.op-page .kpi-spark{position:absolute;right:10px;top:10px;width:64px;height:28px;opacity:.6}
+.op-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:start;overflow-x:auto}
+.op-page .kcol{background:var(--shell);border:1px solid var(--hairline-soft);border-radius:14px;padding:10px;min-height:300px}
+.op-page .kcol-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:2px 4px}
+.op-page .kcol-head .dot{width:7px;height:7px;border-radius:50%}
+.op-page .kcol-head .title{font-size:12px;font-weight:600}
+.op-page .kcol-head .count{font-size:11px;color:var(--ink-muted);margin-left:auto}
+.op-page .kcard{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:10px;padding:10px;margin-bottom:8px;cursor:grab;transition:border-color .12s,transform .12s}
+.op-page .kcard:hover{border-color:var(--hairline);transform:translateY(-1px)}
+.op-page .kcard .name{font-size:12.5px;font-weight:600;margin-bottom:2px}
+.op-page .kcard .co{font-size:11.5px;color:var(--ink-muted)}
+.op-page .kcard .foot{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-muted)}
+.op-page .kcard .val{color:var(--ink);font-weight:600}
+.op-page .kcard .dates{margin-left:auto;font-size:10.5px;color:var(--ink-faint)}
+            `}</style>
         </div>
     );
 }

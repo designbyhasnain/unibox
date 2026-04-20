@@ -46,7 +46,7 @@ export default function JarvisDailyBriefing() {
         <div style={{
             padding: 2,
             borderRadius: 14,
-            background: 'linear-gradient(135deg, #7c3aed 0%, #3b82f6 50%, #06b6d4 100%)',
+            background: 'linear-gradient(135deg, var(--accent) 0%, var(--info) 50%, var(--info) 100%)',
             marginBottom: 20,
         }}>
             <div style={{
@@ -56,13 +56,13 @@ export default function JarvisDailyBriefing() {
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Sparkles size={16} style={{ color: '#7c3aed' }} />
-                        <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, letterSpacing: 0.6, color: '#7c3aed' }}>
+                        <Sparkles size={16} style={{ color: 'var(--accent)' }} />
+                        <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, letterSpacing: 0.6, color: 'var(--accent)' }}>
                             JARVIS DAILY BRIEFING
                             {briefing?.role && (
                                 <span style={{
                                     fontSize: 10, fontWeight: 700, marginLeft: 8, padding: '2px 8px',
-                                    borderRadius: 10, background: 'rgba(124,58,237,0.08)', color: '#7c3aed',
+                                    borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--accent)',
                                     letterSpacing: 0.3,
                                 }}>{briefing.role.replace('_', ' ')}</span>
                             )}
@@ -75,7 +75,7 @@ export default function JarvisDailyBriefing() {
                             display: 'inline-flex', alignItems: 'center', gap: 4,
                             background: 'transparent', border: '1px solid rgba(124, 58, 237, 0.25)',
                             borderRadius: 6, padding: '3px 10px', fontSize: 11,
-                            color: '#7c3aed', fontWeight: 600, cursor: loading ? 'wait' : 'pointer',
+                            color: 'var(--accent)', fontWeight: 600, cursor: loading ? 'wait' : 'pointer',
                         }}
                     >
                         <RefreshCw size={11} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
@@ -85,7 +85,7 @@ export default function JarvisDailyBriefing() {
 
                 {/* Bullet summary */}
                 {loading && !briefing ? (
-                    <p style={{ fontSize: 13, color: 'var(--text-muted, #94a3b8)', fontStyle: 'italic', margin: '0 0 12px' }}>
+                    <p style={{ fontSize: 13, color: 'var(--ink-muted)', fontStyle: 'italic', margin: '0 0 12px' }}>
                         Reading your last 24 hours and drafting a briefing…
                     </p>
                 ) : bullets.length > 0 ? (
@@ -93,15 +93,15 @@ export default function JarvisDailyBriefing() {
                         {bullets.slice(0, 5).map((b, i) => (
                             <li key={i} style={{
                                 display: 'flex', gap: 8, fontSize: 14, lineHeight: 1.5,
-                                color: 'var(--text-primary, #0f172a)',
+                                color: 'var(--ink)',
                             }}>
-                                <span style={{ color: '#7c3aed', fontWeight: 700 }}>•</span>
+                                <span style={{ color: 'var(--accent)', fontWeight: 700 }}>•</span>
                                 <span>{b}</span>
                             </li>
                         ))}
                     </ul>
                 ) : (
-                    <p style={{ fontSize: 13, color: 'var(--text-muted, #94a3b8)', margin: '0 0 12px' }}>
+                    <p style={{ fontSize: 13, color: 'var(--ink-muted)', margin: '0 0 12px' }}>
                         {error || 'No briefing available.'}
                     </p>
                 )}
@@ -127,15 +127,15 @@ function Stat({ label, value }: { label: string; value: string | number }) {
     return (
         <div style={{
             background: 'var(--bg-surface, #fff)',
-            border: '1px solid var(--border-color, #e5e7eb)',
+            border: '1px solid var(--hairline-soft)',
             borderRadius: 8,
             padding: '6px 10px',
         }}>
             <div style={{
-                fontSize: 10, fontWeight: 600, color: 'var(--text-muted, #94a3b8)',
+                fontSize: 10, fontWeight: 600, color: 'var(--ink-muted)',
                 textTransform: 'uppercase', letterSpacing: 0.4,
             }}>{label}</div>
-            <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2, color: 'var(--text-primary, #0f172a)' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2, color: 'var(--ink)' }}>
                 {value}
             </div>
         </div>

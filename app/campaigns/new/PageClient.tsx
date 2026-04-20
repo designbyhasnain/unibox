@@ -334,7 +334,7 @@ export default function CampaignBuilderPage() {
     // ─── Render ──────────────────────────────────────────────────────────────
 
     return (
-        <div className="mailbox-wrapper" style={{ background: 'var(--bg-base)' }}>
+        <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
             {/* Top Navigation */}
             <div style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -388,7 +388,7 @@ export default function CampaignBuilderPage() {
 
             {error && (
                 <div style={{
-                    background: '#fce8e6', color: '#c5221f', padding: '0.75rem 1.5rem',
+                    background: 'var(--danger-soft)', color: 'var(--danger)', padding: '0.75rem 1.5rem',
                     fontSize: 'var(--text-sm)', borderBottom: '1px solid #f5c6cb',
                 }}>
                     {error}
@@ -632,7 +632,7 @@ export default function CampaignBuilderPage() {
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                             <span style={{
-                                                background: step.isSubsequence ? 'var(--warning-light, #fef7e0)' : 'var(--accent-light)',
+                                                background: step.isSubsequence ? 'var(--warning-light, var(--warn-soft))' : 'var(--accent-light)',
                                                 color: step.isSubsequence ? 'var(--warning)' : 'var(--accent)',
                                                 fontWeight: 700, fontSize: 'var(--text-xs)',
                                                 padding: '0.25rem 0.625rem', borderRadius: 'var(--radius-full)',

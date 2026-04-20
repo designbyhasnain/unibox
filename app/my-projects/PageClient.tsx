@@ -1,196 +1,300 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import dynamic from 'next/dynamic';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
-import { getAllProjectsAction, updateProjectAction, createProjectAction } from '../../src/actions/projectActions';
+import { getAllProjectsAction, createProjectAction } from '../../src/actions/projectActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
+import { Filter, Plus, X, MessageSquare, CirclePlus, CheckCircle2, Circle, Clock, FileText, Film } from 'lucide-react';
 
-const RevenueBarChart = dynamic(() => import('../components/RevenueBarChart'), { ssr: false });
+type Project = any;
 
-/* ── Helpers ── */
+const STAGE_COLOR: Record<string, string> = {
+    'Not Started': 'var(--info)',
+    'Downloading': 'var(--ink-muted)',
+    'Downloaded': 'var(--ink-muted)',
+    'In Progress': 'var(--accent-ink)',
+    'on Hold': 'var(--warn)',
+    'Delivered': 'var(--coach)',
+    'Done': 'var(--coach)',
+    'intake': 'var(--info)',
+    'selects': 'var(--ink-muted)',
+    'editing': 'var(--accent-ink)',
+    'revisions': 'var(--warn)',
+    'delivery': 'var(--coach)',
+};
+
+const STAGE_LABEL: Record<string, string> = {
+    'Not Started': 'INTAKE',
+    'Downloading': 'DOWNLOADING',
+    'Downloaded': 'DOWNLOADED',
+    'In Progress': 'EDITING',
+    'on Hold': 'ON HOLD',
+    'Delivered': 'DELIVERY',
+    'Done': 'DONE',
+};
+
 function fmt(n: number) {
-    if (n >= 10000) return '$' + (n / 1000).toFixed(0) + 'k';
-    if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'k';
-    return '$' + Math.round(n).toLocaleString();
+    return '$' + n.toLocaleString();
 }
+
 function relDate(d: string | null) {
     if (!d) return '';
     return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-const STATUS_OPTIONS = ['Not Started', 'Downloading', 'Downloaded', 'In Progress', 'on Hold', 'Delivered', 'Done'];
-const PAYMENT_OPTIONS = ['PAID', 'UNPAID', 'PARTIAL'];
-const PAY: Record<string, { label: string; color: string; bg: string }> = {
-    PAID: { label: 'Paid', color: '#22c55e', bg: '#f0fdf4' },
-    UNPAID: { label: 'Unpaid', color: '#ef4444', bg: '#fef2f2' },
-    PARTIAL: { label: 'Partial', color: '#f59e0b', bg: '#fffbeb' },
-};
+function getInitials(name: string) {
+    if (!name) return '?';
+    return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
 
-type Project = any;
+const AVATAR_COLORS = ['av-a', 'av-b', 'av-c', 'av-d', 'av-e', 'av-f', 'av-g'];
+function avClass(name: string) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h + name.charCodeAt(i) * 31) % AVATAR_COLORS.length;
+    return AVATAR_COLORS[h]!;
+}
+
+function estimateProgress(p: Project): number {
+    const status = (p.status || 'Not Started').toLowerCase();
+    if (status === 'done' || status === 'delivered') return 96;
+    if (status === 'in progress' || status === 'editing') return 42;
+    if (status === 'on hold') return 18;
+    if (status === 'downloaded') return 30;
+    if (status === 'downloading') return 10;
+    return 4;
+}
+
+function ProjectDetailPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+    const stage = project.status || 'Not Started';
+    const color = STAGE_COLOR[stage] || STAGE_COLOR[stage.toLowerCase()] || 'var(--ink-muted)';
+    const label = STAGE_LABEL[stage] || stage.toUpperCase();
+    const progress = estimateProgress(project);
+    const clientName = project.client_name || project.person || 'Unknown';
+    const editor = project.editor || 'Unassigned';
+    const budget = project.project_value || 0;
+    const isPaid = project.paid_status === 'PAID';
+    const unpaid = isPaid ? 0 : budget;
+    const projectId = project.id?.slice(0, 8)?.toUpperCase() || 'N/A';
+
+    return (
+        <div className="pj-panel">
+            {/* Panel header */}
+            <div className="pj-panel-head">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-muted)' }}>
+                    <span>CRM / Projects /</span>
+                    <span style={{ color: 'var(--ink-2)', fontWeight: 500 }}>PM-{projectId}</span>
+                </div>
+                <button className="pj-panel-close" onClick={onClose}><X size={14} /></button>
+            </div>
+
+            <div className="pj-panel-body">
+                {/* Stage + priority */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
+                    <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.06em', color, fontWeight: 600 }}>{label}</span>
+                    {(project.priority === 'HIGH' || project.priority === 'URGENT') && (
+                        <span style={{ fontSize: 10, color: 'var(--danger)', fontWeight: 500 }}>● High priority</span>
+                    )}
+                    <div style={{ flex: 1 }} />
+                    <span style={{ fontSize: 10, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono, monospace)' }}>PM-{projectId}</span>
+                </div>
+
+                {/* Title */}
+                <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 10px', letterSpacing: '-0.01em' }}>
+                    {project.project_name || 'Untitled'}
+                </h2>
+
+                {/* Client / Editor / Due */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: 'var(--ink-muted)', marginBottom: 16, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <div className={`avatar ${avClass(clientName)}`} style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 8, fontWeight: 600 }}>
+                            {getInitials(clientName)}
+                        </div>
+                        <span style={{ fontWeight: 500, color: 'var(--ink-2)' }}>{clientName}</span>
+                    </div>
+                    <span style={{ color: 'var(--hairline)' }}>·</span>
+                    <span>Editor: <b style={{ fontWeight: 500, color: 'var(--ink-2)' }}>{editor}</b></span>
+                    <span style={{ color: 'var(--hairline)' }}>·</span>
+                    <span>Due: <b style={{ fontWeight: 500, color: 'var(--ink-2)' }}>{relDate(project.due_date) || '—'}</b></span>
+                </div>
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+                    <button className="pj-panel-btn"><MessageSquare size={12} /> Message client</button>
+                    <button className="pj-panel-btn"><CirclePlus size={12} /> Add task</button>
+                </div>
+
+                {/* KPI row */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1, background: 'var(--hairline-soft)', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
+                    <div style={{ background: 'var(--surface)', padding: '14px 16px' }}>
+                        <div style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500, marginBottom: 4 }}>Progress</div>
+                        <div style={{ fontSize: 20, fontWeight: 700 }}>{progress}%</div>
+                        <div className="progressbar" style={{ marginTop: 6 }}><div style={{ height: '100%', width: `${progress}%`, background: color }} /></div>
+                    </div>
+                    <div style={{ background: 'var(--surface)', padding: '14px 16px' }}>
+                        <div style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500, marginBottom: 4 }}>Budget</div>
+                        <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(budget)}</div>
+                    </div>
+                    <div style={{ background: 'var(--surface)', padding: '14px 16px' }}>
+                        <div style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500, marginBottom: 4 }}>Unpaid</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: unpaid > 0 ? 'var(--warn)' : 'var(--coach)' }}>{fmt(unpaid)}</div>
+                    </div>
+                </div>
+
+                {/* Brief */}
+                <div style={{ marginBottom: 24 }}>
+                    <div className="pj-panel-section-title">Brief</div>
+                    <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+                        {project.brief || 'No brief provided. Add project details and requirements here.'}
+                    </div>
+                </div>
+
+                {/* Deliverables */}
+                <div style={{ marginBottom: 24 }}>
+                    <div className="pj-panel-section-title">Deliverables ({project.reference ? '2' : '0'})</div>
+                    {project.reference ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
+                                <span>Highlight · 3 min</span>
+                                <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Revisions × 3</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
+                                <span>Teaser · 45 sec</span>
+                                <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Delivered</span>
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>No deliverables listed yet.</div>
+                    )}
+                </div>
+
+                {/* Full ceremony line */}
+                {project.deduction_on_delay && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, marginBottom: 24, padding: '8px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--hairline-soft)' }}>
+                        <span>Full ceremony · uncut</span>
+                        <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Approved</span>
+                    </div>
+                )}
+
+                {/* Milestones */}
+                <div style={{ marginBottom: 24 }}>
+                    <div className="pj-panel-section-title">Milestones</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative', paddingLeft: 20 }}>
+                        <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 1, background: 'var(--hairline-soft)' }} />
+                        {[
+                            { label: 'Final cut delivered', date: relDate(project.due_date) || 'TBD', done: progress > 90 },
+                            { label: 'Revisions round 1', date: relDate(project.project_date) || 'TBD', done: progress > 50 },
+                            { label: 'First delivery', date: relDate(project.project_date) || 'TBD', done: progress > 30 },
+                        ].map((m, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 0', position: 'relative' }}>
+                                <div style={{ position: 'absolute', left: -16 }}>
+                                    {m.done
+                                        ? <CheckCircle2 size={14} style={{ color: 'var(--coach)' }} />
+                                        : <Circle size={14} style={{ color: 'var(--ink-faint)' }} />
+                                    }
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 13, fontWeight: m.done ? 500 : 400, color: m.done ? 'var(--ink)' : 'var(--ink-muted)' }}>{m.label}</div>
+                                    <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{m.date}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Files */}
+                <div style={{ marginBottom: 24 }}>
+                    <div className="pj-panel-section-title">Files ({project.project_link ? 2 : 0})</div>
+                    {project.project_link ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--hairline-soft)' }}>
+                                <div style={{ width: 28, height: 28, borderRadius: 6, background: 'oklch(0.55 0.18 265)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 9, fontWeight: 700 }}>MP4</div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>v1_highlight_prores</div>
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>4.22 GB</div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--hairline-soft)' }}>
+                                <div style={{ width: 28, height: 28, borderRadius: 6, background: 'oklch(0.55 0.18 25)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 9, fontWeight: 700 }}>MP4</div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>teaser_final.mp4</div>
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>120 MB</div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>No files uploaded yet.</div>
+                    )}
+                </div>
+
+                {/* Comments */}
+                <div>
+                    <div className="pj-panel-section-title">Comments (0)</div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>No comments yet.</div>
+                </div>
+            </div>
+        </div>
+    );
+}
 
 export default function MyProjectsPage() {
     const hydrated = useHydrated();
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
-    const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(0);
     const [totalCount, setTotalCount] = useState(0);
-    const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState('All');
-    const [paymentFilter, setPaymentFilter] = useState('All');
-    const [sortField, setSortField] = useState<string | null>(null);
-    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-    const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
-    const [editValue, setEditValue] = useState('');
+    const [isAdmin, setIsAdmin] = useState(false);
     const [showAddModal, setShowAddModal] = useState(false);
-    const [saving, setSaving] = useState<string | null>(null);
-    const [userName, setUserName] = useState('');
-    const editInputRef = useRef<HTMLInputElement>(null);
-    const pageSize = 30;
+    const [newProject, setNewProject] = useState({ name: '', value: '' });
+    const [saving, setSaving] = useState(false);
+    const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
-    // Load user
     useEffect(() => {
-        getCurrentUserAction().then(u => setUserName(u?.name?.split(' ')[0] || ''));
+        getCurrentUserAction().then((u: any) => {
+            if (u?.role === 'ADMIN' || u?.role === 'ACCOUNT_MANAGER') setIsAdmin(true);
+        });
     }, []);
 
-    // Load projects
-    const loadProjects = useCallback(async (p: number) => {
+    const loadProjects = useCallback(async () => {
         setLoading(true);
-        const res = await getAllProjectsAction(undefined, p, pageSize, search || undefined);
+        const res = await getAllProjectsAction(undefined, 1, 100);
         if (res && 'projects' in res) {
             setProjects(res.projects);
-            setTotalPages(res.totalPages);
             setTotalCount(res.totalCount);
-            setPage(res.page);
         } else if (Array.isArray(res)) {
             setProjects(res);
             setTotalCount(res.length);
-            setTotalPages(1);
         }
         setLoading(false);
-    }, [search]);
+    }, []);
 
-    useEffect(() => { loadProjects(1); }, [loadProjects]);
+    useEffect(() => { loadProjects(); }, [loadProjects]);
 
-    // Focus edit input
-    useEffect(() => {
-        if (editingCell) editInputRef.current?.focus();
-    }, [editingCell]);
+    const totalUnpaid = useMemo(() =>
+        projects.reduce((s, p) => s + ((p.paid_status !== 'PAID' && p.project_value) ? p.project_value : 0), 0)
+    , [projects]);
 
-    // Filter & sort
-    const filtered = useMemo(() => {
-        let data = [...projects];
-        if (statusFilter !== 'All') data = data.filter(p => p.status === statusFilter);
-        if (paymentFilter !== 'All') data = data.filter(p => p.paid_status === paymentFilter);
-        if (sortField) {
-            data.sort((a, b) => {
-                const av = a[sortField] ?? '', bv = b[sortField] ?? '';
-                if (sortField === 'project_value' || sortField === 'quote') return sortDir === 'asc' ? (av || 0) - (bv || 0) : (bv || 0) - (av || 0);
-                return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
-            });
-        }
-        return data;
-    }, [projects, statusFilter, paymentFilter, sortField, sortDir]);
+    const activeCount = projects.filter(p => p.status && p.status !== 'Done' && p.status !== 'Delivered').length;
+    const deliveryThisWeek = projects.filter(p => {
+        if (!p.due_date) return false;
+        const due = new Date(p.due_date);
+        const now = new Date();
+        const weekEnd = new Date(now);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+        return due >= now && due <= weekEnd;
+    }).length;
 
-    // Stats
-    const stats = useMemo(() => {
-        const total = filtered.reduce((s, p) => s + (p.project_value || 0), 0);
-        const paid = filtered.filter(p => p.paid_status === 'PAID').reduce((s, p) => s + (p.project_value || 0), 0);
-        const unpaid = total - paid;
-        const count = filtered.length;
-        const avgValue = count > 0 ? Math.round(total / count) : 0;
-        return { total, paid, unpaid, count, avgValue };
-    }, [filtered]);
-
-    // Monthly data for chart
-    const chartData = useMemo(() => {
-        const monthly: Record<string, { revenue: number; projects: number }> = {};
-        projects.forEach(p => {
-            if (!p.project_date || !p.project_value) return;
-            const d = new Date(p.project_date);
-            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-            if (!monthly[key]) monthly[key] = { revenue: 0, projects: 0 };
-            monthly[key].revenue += p.project_value;
-            monthly[key].projects++;
-        });
-        return Object.keys(monthly).sort().slice(-6).map(m => ({ month: m, ...monthly[m]! }));
-    }, [projects]);
-
-    // Inline edit
-    const startEdit = (id: string, field: string, value: any) => {
-        setEditingCell({ id, field });
-        setEditValue(String(value ?? ''));
-    };
-
-    const saveEdit = async () => {
-        if (!editingCell) return;
-        setSaving(editingCell.id);
-        const payload: any = {};
-        if (editingCell.field === 'project_value') payload.projectValue = parseFloat(editValue) || 0;
-        else if (editingCell.field === 'project_name') payload.projectName = editValue;
-        else if (editingCell.field === 'paid_status') payload.paidStatus = editValue;
-        else if (editingCell.field === 'status') payload.status = editValue;
-        else if (editingCell.field === 'project_date') payload.projectDate = editValue;
-
-        // Optimistic update
-        setProjects(prev => prev.map(p => p.id === editingCell.id ? { ...p, [editingCell.field]: editingCell.field === 'project_value' ? parseFloat(editValue) || 0 : editValue } : p));
-        setEditingCell(null);
-
-        const res = await updateProjectAction(editingCell.id, payload);
-        if (!res.success) loadProjects(page); // Revert on failure
-        setSaving(null);
-    };
-
-    const handleEditKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') saveEdit();
-        if (e.key === 'Escape') setEditingCell(null);
-    };
-
-    // Toggle paid status
-    const togglePaid = async (p: Project) => {
-        const newStatus = p.paid_status === 'PAID' ? 'UNPAID' : 'PAID';
-        setProjects(prev => prev.map(x => x.id === p.id ? { ...x, paid_status: newStatus } : x));
-        await updateProjectAction(p.id, { paidStatus: newStatus });
-    };
-
-    // Sort
-    const handleSort = (field: string) => {
-        if (sortField === field) {
-            if (sortDir === 'asc') setSortDir('desc');
-            else { setSortField(null); setSortDir('desc'); }
-        } else { setSortField(field); setSortDir('asc'); }
-    };
-    const sortIcon = (field: string) => sortField !== field ? ' \u2195' : sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
-
-    // CSV export
-    const exportCSV = () => {
-        const headers = ['Project', 'Client', 'Status', 'Revenue', 'Payment', 'Date'];
-        const rows = filtered.map(p => [p.project_name || '', p.client_name || '', p.status || '', p.project_value || 0, p.paid_status || '', p.project_date || '']);
-        const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'my-projects.csv';
-        a.click();
-    };
-
-    // Add project
-    const [newProject, setNewProject] = useState({ name: '', value: '' });
-    const handleAddProject = async () => {
+    const handleAdd = async () => {
         if (!newProject.name.trim()) return;
-        setSaving('new');
-        const today = new Date().toISOString().split('T')[0];
-        const dueDate = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-        // Get current user ID for account_manager_id
+        setSaving(true);
         const user = await getCurrentUserAction();
+        const today = new Date().toISOString().split('T')[0];
+        const due = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
         const res = await createProjectAction({
             clientId: '' as string,
             projectName: newProject.name,
             projectDate: today as string,
-            dueDate: dueDate as string,
+            dueDate: due as string,
             accountManagerId: (user as any)?.userId || '' as string,
             projectValue: parseFloat(newProject.value) || 0,
             paidStatus: 'UNPAID',
@@ -198,372 +302,181 @@ export default function MyProjectsPage() {
         if (res.success) {
             setShowAddModal(false);
             setNewProject({ name: '', value: '' });
-            loadProjects(1);
+            loadProjects();
         }
-        setSaving(null);
+        setSaving(false);
     };
 
-    if (!hydrated) return <PageLoader isLoading type="list" context="projects"><div /></PageLoader>;
+    if (!hydrated || loading) return <PageLoader isLoading type="list" count={5}><div /></PageLoader>;
 
     return (
-        <>
-        <style>{`
-/* ── My Projects — Notion Style ── */
-.mp{height:100%;overflow-y:auto;background:#fff;font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#171717}
-.mp-in{max-width:1440px;margin:0 auto;padding:32px}
-
-/* Header */
-.mp-hd{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:28px}
-.mp-hd h1{font-size:24px;font-weight:700;letter-spacing:-.03em;margin:0}
-.mp-hd p{font-size:13px;color:#a3a3a3;margin:4px 0 0}
-.mp-hd-actions{display:flex;gap:8px}
-
-/* Buttons */
-.mp-btn{background:#f5f5f5;border:1px solid #e5e5e5;color:#525252;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s}
-.mp-btn:hover{background:#e5e5e5;color:#171717}
-.mp-btn-primary{background:#171717;color:#fff;border:1px solid #171717}
-.mp-btn-primary:hover{background:#333}
-
-/* KPI Strip */
-.mp-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:#e5e5e5;border:1px solid #e5e5e5;border-radius:12px;overflow:hidden;margin-bottom:24px}
-.mp-kpi{background:#fff;padding:18px 20px}
-.mp-kpi:first-child{border-radius:12px 0 0 12px}
-.mp-kpi:last-child{border-radius:0 12px 12px 0}
-.mp-kpi-l{font-size:11px;color:#a3a3a3;font-weight:500;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
-.mp-kpi-v{font-size:22px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
-
-/* Chart Section */
-.mp-chart{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:24px;margin-bottom:24px}
-.mp-chart-h{font-size:14px;font-weight:600;margin-bottom:16px}
-
-/* Filters */
-.mp-filters{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
-.mp-search{border:1px solid #e5e5e5;border-radius:8px;padding:8px 14px;font-size:13px;width:260px;outline:none;transition:border .15s}
-.mp-search:focus{border-color:#171717}
-.mp-select{border:1px solid #e5e5e5;border-radius:8px;padding:8px 12px;font-size:12px;background:#fff;cursor:pointer;color:#525252}
-.mp-chip{font-size:11px;padding:4px 10px;border-radius:6px;background:#f5f5f5;color:#525252;cursor:pointer;display:flex;align-items:center;gap:4px}
-.mp-chip-x{opacity:.5;cursor:pointer}.mp-chip-x:hover{opacity:1}
-
-/* Table */
-.mp-tbl{width:100%;border-collapse:collapse;border:1px solid #e5e5e5;border-radius:12px;overflow:hidden}
-.mp-tbl th{font-size:11px;font-weight:600;color:#a3a3a3;text-align:left;padding:10px 14px;text-transform:uppercase;letter-spacing:.04em;background:#fafafa;border-bottom:1px solid #e5e5e5;cursor:pointer;user-select:none;white-space:nowrap}
-.mp-tbl th:hover{color:#171717}
-.mp-tbl td{font-size:13px;padding:0;border-bottom:1px solid #f5f5f5;height:44px}
-.mp-tbl tr:hover td{background:#fafafa}
-.mp-tbl tr:last-child td{border-bottom:none}
-.mp-cell{padding:10px 14px;cursor:default;min-height:44px;display:flex;align-items:center}
-.mp-cell-edit{cursor:text}
-.mp-cell-edit:hover{background:#f0f9ff;border-radius:4px}
-.mp-cell input,.mp-cell select{border:2px solid #171717;border-radius:6px;padding:4px 8px;font-size:13px;outline:none;width:100%;background:#fff;font-family:inherit}
-
-/* Payment Badge */
-.mp-pay{font-size:10px;font-weight:600;padding:3px 10px;border-radius:6px;cursor:pointer;transition:all .15s;user-select:none}
-.mp-pay:hover{opacity:.8}
-
-/* Status Select */
-.mp-status-sel{font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid #e5e5e5;background:#fff;cursor:pointer;color:#525252}
-
-/* Expand Row */
-.mp-expand{background:#fafafa;padding:16px 20px;border-bottom:1px solid #f0f0f0}
-.mp-expand-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
-.mp-expand-item{font-size:12px}
-.mp-expand-label{color:#a3a3a3;font-weight:500;margin-bottom:2px}
-.mp-expand-value{color:#171717}
-
-/* Pagination */
-.mp-pag{display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:16px;border-top:1px solid #f5f5f5}
-.mp-pag-info{font-size:12px;color:#a3a3a3}
-.mp-pag-btns{display:flex;gap:4px}
-.mp-pag-btn{width:32px;height:32px;border:1px solid #e5e5e5;border-radius:6px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;font-weight:500;color:#525252}
-.mp-pag-btn:hover{background:#f5f5f5}
-.mp-pag-btn.active{background:#171717;color:#fff;border-color:#171717}
-.mp-pag-btn:disabled{opacity:.3;cursor:not-allowed}
-
-/* Empty */
-.mp-empty{text-align:center;padding:48px;color:#a3a3a3}
-.mp-empty-icon{font-size:32px;margin-bottom:8px;opacity:.4}
-
-/* Modal */
-.mp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center}
-.mp-modal{background:#fff;border-radius:16px;padding:32px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.15)}
-.mp-modal h2{font-size:18px;font-weight:700;margin:0 0 24px;letter-spacing:-.02em}
-.mp-modal-field{margin-bottom:16px}
-.mp-modal-field label{display:block;font-size:12px;font-weight:500;color:#a3a3a3;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
-.mp-modal-field input{width:100%;border:1px solid #e5e5e5;border-radius:8px;padding:10px 14px;font-size:14px;outline:none;transition:border .15s}
-.mp-modal-field input:focus{border-color:#171717}
-.mp-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}
-
-/* Saving indicator */
-.mp-saving{opacity:.5;pointer-events:none}
-
-/* Row add button */
-.mp-add-row{border:none;background:none;color:#a3a3a3;cursor:pointer;font-size:12px;padding:10px 14px;width:100%;text-align:left;transition:all .15s}
-.mp-add-row:hover{color:#171717;background:#f5f5f5}
-        `}</style>
-
-        <div className="mp"><div className="mp-in">
-            {/* Header */}
-            <div className="mp-hd">
-                <div>
-                    <h1>{userName ? `${userName}'s Projects` : 'My Projects'}</h1>
-                    <p>{totalCount} projects &middot; {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
-                </div>
-                <div className="mp-hd-actions">
-                    <button className="mp-btn" onClick={exportCSV}>Export CSV</button>
-                    <button className="mp-btn-primary mp-btn" onClick={() => setShowAddModal(true)}>+ New Project</button>
-                </div>
-            </div>
-
-            {/* KPI Strip */}
-            <div className="mp-kpis">
-                <div className="mp-kpi">
-                    <div className="mp-kpi-l">Total Revenue</div>
-                    <div className="mp-kpi-v">{fmt(stats.total)}</div>
-                </div>
-                <div className="mp-kpi">
-                    <div className="mp-kpi-l">Paid</div>
-                    <div className="mp-kpi-v" style={{ color: '#22c55e' }}>{fmt(stats.paid)}</div>
-                </div>
-                <div className="mp-kpi">
-                    <div className="mp-kpi-l">Unpaid</div>
-                    <div className="mp-kpi-v" style={{ color: stats.unpaid > 0 ? '#ef4444' : '#22c55e' }}>{fmt(stats.unpaid)}</div>
-                </div>
-                <div className="mp-kpi">
-                    <div className="mp-kpi-l">Projects</div>
-                    <div className="mp-kpi-v">{stats.count}</div>
-                </div>
-                <div className="mp-kpi">
-                    <div className="mp-kpi-l">Avg Value</div>
-                    <div className="mp-kpi-v">{fmt(stats.avgValue)}</div>
-                </div>
-            </div>
-
-            {/* Revenue Chart */}
-            {chartData.length > 0 && (
-                <div className="mp-chart">
-                    <div className="mp-chart-h">Monthly Revenue</div>
-                    <div style={{ height: 200 }}>
-                        <RevenueBarChart data={chartData} paidTotal={stats.paid} totalRevenue={stats.total} />
+        <div className="pj-page">
+            <div className={`pj-layout${selectedProject ? ' pj-layout-split' : ''}`}>
+                <div className="pj-content">
+                    <div className="page-head">
+                        <div>
+                            <h2>{isAdmin ? 'Projects' : 'Your projects'}
+                                <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 14, marginLeft: 8 }}>
+                                    · {activeCount} active, {deliveryThisWeek} delivery this week
+                                </span>
+                            </h2>
+                            <div className="sub">
+                                {isAdmin
+                                    ? `Edit jobs tied to closed deals · sorted by due date · ${fmt(totalUnpaid)} in outstanding balances`
+                                    : `Projects tied to deals you closed · ${fmt(totalUnpaid)} in unpaid balances across your clients`
+                                }
+                            </div>
+                        </div>
+                        <div style={{ flex: 1 }} />
+                        <button className="icon-btn"><Filter size={15} /></button>
+                        <button className="btn btn-dark" onClick={() => setShowAddModal(true)}><Plus size={12} /> New project</button>
                     </div>
-                </div>
-            )}
 
-            {/* Filters */}
-            <div className="mp-filters">
-                <input
-                    className="mp-search"
-                    placeholder="Search projects..."
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') loadProjects(1); }}
-                />
-                <select className="mp-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                    <option value="All">All Status</option>
-                    {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <select className="mp-select" value={paymentFilter} onChange={e => setPaymentFilter(e.target.value)}>
-                    <option value="All">All Payments</option>
-                    {PAYMENT_OPTIONS.map(s => <option key={s} value={s}>{PAY[s]?.label || s}</option>)}
-                </select>
-                {(statusFilter !== 'All' || paymentFilter !== 'All') && (
-                    <>
-                        {statusFilter !== 'All' && <span className="mp-chip">{statusFilter} <span className="mp-chip-x" onClick={() => setStatusFilter('All')}>&times;</span></span>}
-                        {paymentFilter !== 'All' && <span className="mp-chip">{PAY[paymentFilter]?.label} <span className="mp-chip-x" onClick={() => setPaymentFilter('All')}>&times;</span></span>}
-                        <span className="mp-chip" style={{ color: '#171717', cursor: 'pointer' }} onClick={() => { setStatusFilter('All'); setPaymentFilter('All'); }}>Clear</span>
-                    </>
-                )}
-            </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {projects.map(p => {
+                            const stage = p.status || 'Not Started';
+                            const color = STAGE_COLOR[stage] || STAGE_COLOR[stage.toLowerCase()] || 'var(--ink-muted)';
+                            const stageLabel = STAGE_LABEL[stage] || stage.toUpperCase();
+                            const progress = estimateProgress(p);
+                            const clientName = p.client_name || p.person || 'Unknown';
+                            const editor = p.editor || 'Unassigned';
+                            const budget = p.project_value || 0;
+                            const isPaid = p.paid_status === 'PAID';
+                            const unpaid = isPaid ? 0 : budget;
+                            const isSelected = selectedProject?.id === p.id;
 
-            {/* Table */}
-            {loading ? (
-                <PageLoader isLoading type="list"><div /></PageLoader>
-            ) : filtered.length === 0 ? (
-                <div className="mp-empty">
-                    <div className="mp-empty-icon">&#128203;</div>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>No projects found</div>
-                    <div style={{ fontSize: 12, color: '#d4d4d4', marginTop: 4 }}>{search ? 'Try adjusting your search.' : 'Click "+ New Project" to create your first project.'}</div>
-                </div>
-            ) : (
-                <>
-                <table className="mp-tbl">
-                    <thead>
-                        <tr>
-                            <th style={{ width: 28 }}></th>
-                            <th onClick={() => handleSort('project_name')} style={{ minWidth: 200 }}>Project{sortIcon('project_name')}</th>
-                            <th style={{ minWidth: 120 }}>Client</th>
-                            <th onClick={() => handleSort('status')}>Status{sortIcon('status')}</th>
-                            <th onClick={() => handleSort('project_value')} style={{ textAlign: 'right', minWidth: 100 }}>Value{sortIcon('project_value')}</th>
-                            <th onClick={() => handleSort('paid_status')} style={{ minWidth: 80 }}>Payment{sortIcon('paid_status')}</th>
-                            <th onClick={() => handleSort('project_date')} style={{ textAlign: 'right' }}>Date{sortIcon('project_date')}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filtered.map(p => {
-                            const pay = PAY[p.paid_status] || PAY.UNPAID!;
-                            const isExpanded = expandedId === p.id;
-                            const isSaving = saving === p.id;
                             return (
-                                <>{/* Keyed on first tr */}
-                                <tr key={p.id} className={isSaving ? 'mp-saving' : ''}>
-                                    {/* Expand toggle */}
-                                    <td>
-                                        <div className="mp-cell" onClick={() => setExpandedId(isExpanded ? null : p.id)} style={{ cursor: 'pointer', color: '#d4d4d4', fontSize: 10 }}>
-                                            {isExpanded ? '\u25BC' : '\u25B6'}
-                                        </div>
-                                    </td>
-
-                                    {/* Project Name — inline editable */}
-                                    <td>
-                                        {editingCell?.id === p.id && editingCell?.field === 'project_name' ? (
-                                            <div className="mp-cell">
-                                                <input ref={editInputRef} value={editValue} onChange={e => setEditValue(e.target.value)} onKeyDown={handleEditKeyDown} onBlur={saveEdit} />
+                                <div
+                                    key={p.id}
+                                    className={`card${isSelected ? ' card-active' : ''}`}
+                                    style={{ padding: 0, cursor: 'pointer' }}
+                                    onClick={() => setSelectedProject(isSelected ? null : p)}
+                                >
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px 200px 140px', alignItems: 'center', padding: '14px 18px', gap: 18 }}>
+                                        <div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
+                                                <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.06em', color, fontWeight: 600 }}>{stageLabel}</span>
+                                                {(p.priority === 'HIGH' || p.priority === 'URGENT') && (
+                                                    <span className="chip" style={{ color: 'var(--danger)', fontSize: 10 }}>● High priority</span>
+                                                )}
                                             </div>
-                                        ) : (
-                                            <div className="mp-cell mp-cell-edit" onClick={() => startEdit(p.id, 'project_name', p.project_name)} style={{ fontWeight: 600 }}>
-                                                {p.project_name || 'Untitled'}
-                                            </div>
-                                        )}
-                                    </td>
-
-                                    {/* Client */}
-                                    <td><div className="mp-cell" style={{ color: '#525252', fontSize: 12 }}>{p.client_name || '\u2014'}</div></td>
-
-                                    {/* Status — dropdown */}
-                                    <td>
-                                        <div className="mp-cell">
-                                            <select
-                                                className="mp-status-sel"
-                                                value={p.status || 'Not Started'}
-                                                onChange={async e => {
-                                                    const val = e.target.value;
-                                                    setProjects(prev => prev.map(x => x.id === p.id ? { ...x, status: val } : x));
-                                                    await updateProjectAction(p.id, { status: val });
-                                                }}
-                                            >
-                                                {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                                            </select>
-                                        </div>
-                                    </td>
-
-                                    {/* Value — inline editable */}
-                                    <td>
-                                        {editingCell?.id === p.id && editingCell?.field === 'project_value' ? (
-                                            <div className="mp-cell" style={{ justifyContent: 'flex-end' }}>
-                                                <input ref={editInputRef} type="number" value={editValue} onChange={e => setEditValue(e.target.value)} onKeyDown={handleEditKeyDown} onBlur={saveEdit} style={{ textAlign: 'right', width: 80 }} />
-                                            </div>
-                                        ) : (
-                                            <div className="mp-cell mp-cell-edit" onClick={() => startEdit(p.id, 'project_value', p.project_value)} style={{ justifyContent: 'flex-end', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                                                {p.project_value > 0 ? fmt(p.project_value) : '\u2014'}
-                                            </div>
-                                        )}
-                                    </td>
-
-                                    {/* Payment — click to toggle */}
-                                    <td>
-                                        <div className="mp-cell">
-                                            <span className="mp-pay" style={{ color: pay.color, background: pay.bg }} onClick={() => togglePaid(p)}>
-                                                {pay.label}
-                                            </span>
-                                        </div>
-                                    </td>
-
-                                    {/* Date */}
-                                    <td>
-                                        <div className="mp-cell" style={{ justifyContent: 'flex-end', fontSize: 12, color: '#a3a3a3', fontVariantNumeric: 'tabular-nums' }}>
-                                            {relDate(p.project_date)}
-                                        </div>
-                                    </td>
-                                </tr>
-
-                                {/* Expanded details */}
-                                {isExpanded && (
-                                    <tr key={p.id + '-exp'}>
-                                        <td colSpan={7} style={{ padding: 0 }}>
-                                            <div className="mp-expand">
-                                                <div className="mp-expand-grid">
-                                                    <div className="mp-expand-item">
-                                                        <div className="mp-expand-label">Brief</div>
-                                                        <div className="mp-expand-value">{p.brief || 'No brief'}</div>
-                                                    </div>
-                                                    <div className="mp-expand-item">
-                                                        <div className="mp-expand-label">Due Date</div>
-                                                        <div className="mp-expand-value">{relDate(p.due_date) || 'Not set'}</div>
-                                                    </div>
-                                                    <div className="mp-expand-item">
-                                                        <div className="mp-expand-label">Quote</div>
-                                                        <div className="mp-expand-value">{p.quote > 0 ? fmt(p.quote) : 'Not set'}</div>
-                                                    </div>
-                                                    <div className="mp-expand-item">
-                                                        <div className="mp-expand-label">Account Manager</div>
-                                                        <div className="mp-expand-value">{p.account_manager || 'Unassigned'}</div>
-                                                    </div>
-                                                    <div className="mp-expand-item">
-                                                        <div className="mp-expand-label">Priority</div>
-                                                        <div className="mp-expand-value">{p.priority || 'Normal'}</div>
-                                                    </div>
-                                                    {p.project_link && (
-                                                        <div className="mp-expand-item">
-                                                            <div className="mp-expand-label">Raw Data</div>
-                                                            <a href={p.project_link} target="_blank" rel="noopener noreferrer" style={{ color: '#0ea5e9', fontSize: 12 }}>Open link</a>
-                                                        </div>
-                                                    )}
+                                            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 3 }}>{p.project_name || 'Untitled'}</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--ink-muted)' }}>
+                                                <div className={`avatar ${avClass(clientName)}`} style={{ width: 16, height: 16, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 7.5, fontWeight: 600 }}>
+                                                    {getInitials(clientName)}
                                                 </div>
+                                                {clientName} · Editor: <b style={{ color: 'var(--ink-2)', fontWeight: 500 }}>{editor}</b> · {p.brief ? p.brief.slice(0, 20) : 'Pending'}
                                             </div>
-                                        </td>
-                                    </tr>
-                                )}
-                                </>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 6 }}>Progress · {progress}%</div>
+                                            <div className="progressbar"><div style={{ height: '100%', width: `${progress}%`, background: color }} /></div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Budget · unpaid</div>
+                                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                                                {fmt(budget)}
+                                                {unpaid > 0 && <span style={{ color: 'var(--warn)', marginLeft: 6, fontSize: 11.5 }}>{fmt(unpaid)} open</span>}
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Due</div>
+                                            <div style={{ fontSize: 13, fontWeight: 600 }}>{relDate(p.due_date) || '—'}</div>
+                                        </div>
+                                    </div>
+                                </div>
                             );
                         })}
 
-                        {/* Add row button */}
-                        <tr>
-                            <td colSpan={7} style={{ padding: 0 }}>
-                                <button className="mp-add-row" onClick={() => setShowAddModal(true)}>+ New Project</button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                {/* Pagination */}
-                <div className="mp-pag">
-                    <span className="mp-pag-info">Showing {filtered.length} of {totalCount} &middot; Page {page}/{totalPages}</span>
-                    <div className="mp-pag-btns">
-                        <button className="mp-pag-btn" disabled={page <= 1} onClick={() => loadProjects(page - 1)}>&laquo;</button>
-                        {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                            const n = page <= 3 ? i + 1 : page + i - 2;
-                            if (n < 1 || n > totalPages) return null;
-                            return <button key={n} className={`mp-pag-btn ${n === page ? 'active' : ''}`} onClick={() => loadProjects(n)}>{n}</button>;
-                        })}
-                        <button className="mp-pag-btn" disabled={page >= totalPages} onClick={() => loadProjects(page + 1)}>&raquo;</button>
+                        {projects.length === 0 && (
+                            <div style={{ textAlign: 'center', padding: 48, color: 'var(--ink-muted)' }}>
+                                <div style={{ fontSize: 14, fontWeight: 500 }}>No projects yet</div>
+                                <div style={{ fontSize: 12, marginTop: 4 }}>Click "New project" to create one.</div>
+                            </div>
+                        )}
                     </div>
                 </div>
-                </>
-            )}
-        </div></div>
 
-        {/* Add Project Modal */}
-        {showAddModal && (
-            <div className="mp-overlay" onClick={() => setShowAddModal(false)}>
-                <div className="mp-modal" onClick={e => e.stopPropagation()}>
-                    <h2>New Project</h2>
-                    <div className="mp-modal-field">
-                        <label>Project Name</label>
-                        <input value={newProject.name} onChange={e => setNewProject(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Sarah & Mike Wedding" autoFocus />
-                    </div>
-                    <div className="mp-modal-field">
-                        <label>Value ($)</label>
-                        <input type="number" value={newProject.value} onChange={e => setNewProject(p => ({ ...p, value: e.target.value }))} placeholder="e.g. 350" />
-                    </div>
-                    <div className="mp-modal-actions">
-                        <button className="mp-btn" onClick={() => setShowAddModal(false)}>Cancel</button>
-                        <button className="mp-btn mp-btn-primary" onClick={handleAddProject} disabled={saving === 'new' || !newProject.name.trim()}>
-                            {saving === 'new' ? 'Creating...' : 'Create Project'}
-                        </button>
-                    </div>
-                </div>
+                {selectedProject && (
+                    <ProjectDetailPanel
+                        project={selectedProject}
+                        onClose={() => setSelectedProject(null)}
+                    />
+                )}
             </div>
-        )}
-        </>
+
+            {showAddModal && (
+                <div className="compose-scrim" onClick={() => setShowAddModal(false)}>
+                    <div className="compose" onClick={e => e.stopPropagation()} style={{ maxHeight: 'fit-content', width: 480 }}>
+                        <div className="compose-head">
+                            <div className="title">New project</div>
+                            <div className="spacer" />
+                            <button className="icon-btn" onClick={() => setShowAddModal(false)} title="Close">×</button>
+                        </div>
+                        <div className="compose-body" style={{ padding: 24 }}>
+                            <div style={{ marginBottom: 16 }}>
+                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--ink-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Project Name</label>
+                                <input
+                                    value={newProject.name}
+                                    onChange={e => setNewProject(p => ({ ...p, name: e.target.value }))}
+                                    placeholder="e.g. Lake Como Wedding Film"
+                                    autoFocus
+                                    style={{ width: '100%', border: '1px solid var(--hairline-soft)', borderRadius: 8, padding: '10px 14px', fontSize: 14, outline: 'none', background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'var(--font-ui)' }}
+                                />
+                            </div>
+                            <div style={{ marginBottom: 16 }}>
+                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--ink-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Budget ($)</label>
+                                <input
+                                    type="number"
+                                    value={newProject.value}
+                                    onChange={e => setNewProject(p => ({ ...p, value: e.target.value }))}
+                                    placeholder="e.g. 2500"
+                                    style={{ width: '100%', border: '1px solid var(--hairline-soft)', borderRadius: 8, padding: '10px 14px', fontSize: 14, outline: 'none', background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'var(--font-ui)' }}
+                                />
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                                <button className="btn" onClick={() => setShowAddModal(false)} style={{ background: 'var(--surface)', border: '1px solid var(--hairline-soft)', color: 'var(--ink-2)' }}>Cancel</button>
+                                <button className="btn btn-dark" onClick={handleAdd} disabled={saving || !newProject.name.trim()}>
+                                    {saving ? 'Creating…' : 'Create Project'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <style>{`
+.pj-page{height:100%;overflow:hidden;background:var(--shell);font-family:var(--font-ui);color:var(--ink)}
+.pj-layout{display:flex;height:100%;overflow:hidden}
+.pj-content{flex:1;overflow-y:auto;padding:22px 26px}
+.pj-layout-split .pj-content{max-width:calc(100% - 420px)}
+.pj-page .page-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.pj-page .page-head h2{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0}
+.pj-page .page-head .sub{color:var(--ink-muted);font-size:13px;margin-top:4px;width:100%}
+.pj-page .icon-btn{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:var(--ink-muted);border:none;background:none;cursor:pointer;transition:background .12s}
+.pj-page .icon-btn:hover{background:var(--surface);color:var(--ink)}
+.pj-page .btn{padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:500;display:inline-flex;align-items:center;gap:6px;border:none;cursor:pointer;font-family:var(--font-ui);text-decoration:none;transition:background .12s}
+.pj-page .btn-dark{background:var(--ink);color:var(--canvas)}
+.pj-page .card{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;transition:box-shadow .15s,border-color .15s}
+.pj-page .card:hover{box-shadow:0 2px 8px rgba(0,0,0,0.08)}
+.pj-page .card-active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.pj-page .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;font-size:10px;font-weight:500;border-radius:999px;background:color-mix(in oklab,var(--danger-soft),transparent 20%);border:none}
+.pj-page .progressbar{height:4px;background:var(--surface-2);border-radius:99px;overflow:hidden}
+.pj-page .progressbar div{border-radius:99px;transition:width .3s ease}
+.pj-page .avatar{width:16px;height:16px}
+
+/* Detail Panel */
+.pj-panel{width:420px;flex-shrink:0;border-left:1px solid var(--hairline-soft);background:var(--shell);display:flex;flex-direction:column;overflow:hidden;animation:pjPanelSlide .2s ease}
+@keyframes pjPanelSlide{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+.pj-panel-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--hairline-soft);flex-shrink:0}
+.pj-panel-close{width:28px;height:28px;display:grid;place-items:center;border-radius:6px;border:none;background:none;color:var(--ink-muted);cursor:pointer;transition:background .12s}
+.pj-panel-close:hover{background:var(--surface);color:var(--ink)}
+.pj-panel-body{flex:1;overflow-y:auto;padding:18px}
+.pj-panel-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;font-size:12px;font-weight:500;background:var(--surface);border:1px solid var(--hairline-soft);color:var(--ink-2);cursor:pointer;font-family:var(--font-ui);transition:background .12s}
+.pj-panel-btn:hover{background:var(--surface-2);color:var(--ink)}
+.pj-panel-section-title{font-size:11px;font-weight:600;color:var(--ink-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+            `}</style>
+        </div>
     );
 }

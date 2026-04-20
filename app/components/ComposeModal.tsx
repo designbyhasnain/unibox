@@ -1,12 +1,10 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { sendEmailAction } from '../../src/actions/emailActions';
+import React, { useState, useRef, useEffect } from 'react';
+import { sendEmailAction, searchContactsForComposeAction } from '../../src/actions/emailActions';
 import { useGlobalFilter } from '../context/FilterContext';
-import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Shield } from 'lucide-react';
+import { ChevronDown, Paperclip, Clock, LayoutTemplate, UserPlus, Sparkles, Send, X, Maximize2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
-import { EMOJI_CATEGORIES } from '../constants/emojis';
-import { DEFAULT_USER_ID } from '../constants/config';
 import TemplatePickerModal from './TemplatePickerModal';
 
 interface ComposeModalProps {
@@ -17,8 +15,38 @@ interface ComposeModalProps {
     threadId?: string;
 }
 
+type ContactSuggestion = { id: string; name: string | null; email: string; company: string | null };
+
+const AVATAR_COLORS = [
+    'oklch(0.65 0.19 25)',
+    'oklch(0.62 0.17 145)',
+    'oklch(0.58 0.19 265)',
+    'oklch(0.65 0.17 330)',
+    'oklch(0.68 0.14 55)',
+    'oklch(0.55 0.18 295)',
+];
+
+function getInitials(str: string) {
+    if (str.includes('@')) {
+        const local = str.split('@')[0] || '';
+        const parts = local.split(/[._-]/);
+        if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
+        return local.slice(0, 2).toUpperCase();
+    }
+    const words = str.trim().split(/\s+/);
+    if (words.length >= 2) return (words[0]![0]! + words[1]![0]!).toUpperCase();
+    return str.slice(0, 2).toUpperCase();
+}
+
+function avatarColor(str: string) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h + str.charCodeAt(i) * 31) % AVATAR_COLORS.length;
+    return AVATAR_COLORS[h]!;
+}
+
 export default function ComposeModal({ onClose, defaultTo = '', defaultSubject = '', defaultBody = '', threadId = '' }: ComposeModalProps) {
-    const [to, setTo] = useState(defaultTo);
+    const [recipients, setRecipients] = useState<string[]>(defaultTo ? defaultTo.split(',').map(e => e.trim()).filter(Boolean) : []);
+    const [toInput, setToInput] = useState('');
     const [subject, setSubject] = useState(defaultSubject);
     const [body, setBody] = useState(defaultBody);
     const [fromAccount, setFromAccount] = useState('');
@@ -26,49 +54,23 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const [accounts, setAccounts] = useState<any[]>(ctxAccounts);
     const [isSending, setIsSending] = useState(false);
     const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
-    const [isMinimized, setIsMinimized] = useState(false);
-    const [isMaximized, setIsMaximized] = useState(false);
 
     const [showCc, setShowCc] = useState(false);
     const [showBcc, setShowBcc] = useState(false);
     const [cc, setCc] = useState('');
     const [bcc, setBcc] = useState('');
-
-    const [showFormatting, setShowFormatting] = useState(false);
-    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-    const [fontFamily, setFontFamily] = useState('Sans Serif');
-    const [fontSize, setFontSize] = useState('Normal');
-    const [showMoreOptions, setShowMoreOptions] = useState(false);
     const [showFromDropdown, setShowFromDropdown] = useState(false);
-
-    const editorRef = useRef<HTMLDivElement>(null);
-    const moreOptionsRef = useRef<HTMLDivElement>(null);
-    const fromDropdownRef = useRef<HTMLDivElement>(null);
-    const emojiPickerRef = useRef<HTMLDivElement>(null);
-    const savedSelection = useRef<Range | null>(null);
-    const [emojiSearch, setEmojiSearch] = useState('');
-    const [activeEmojiCategory, setActiveEmojiCategory] = useState('Faces');
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
-    // Ref to track dropdown/picker state for the click-outside handler (avoids listener leak)
-    const dropdownStateRef = useRef({ showEmojiPicker, showMoreOptions, showFromDropdown });
-    dropdownStateRef.current = { showEmojiPicker, showMoreOptions, showFromDropdown };
+    const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [highlightIdx, setHighlightIdx] = useState(-1);
+    const searchTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+    const toFieldRef = useRef<HTMLDivElement>(null);
+    const toInputRef = useRef<HTMLInputElement>(null);
 
-    const saveSelection = () => {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-            savedSelection.current = sel.getRangeAt(0);
-        }
-    };
-
-    const restoreSelection = () => {
-        if (!savedSelection.current) return;
-        const sel = window.getSelection();
-        if (sel) {
-            sel.removeAllRanges();
-            sel.addRange(savedSelection.current);
-        }
-    };
+    const editorRef = useRef<HTMLDivElement>(null);
+    const fromDropdownRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (ctxAccounts.length > 0) {
@@ -76,12 +78,6 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             if (!fromAccount) setFromAccount(ctxAccounts[0].id);
         }
     }, [ctxAccounts]);
-
-    useEffect(() => {
-        if (!isMinimized && editorRef.current) {
-            editorRef.current.focus();
-        }
-    }, [isMinimized]);
 
     useEffect(() => {
         if (editorRef.current) {
@@ -92,38 +88,82 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         }
     }, [body]);
 
-    // Register click-outside listener once on mount; read state from ref to avoid leak
     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            const s = dropdownStateRef.current;
-            if (!s.showEmojiPicker && !s.showMoreOptions && !s.showFromDropdown) return;
-
-            if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
-                setShowEmojiPicker(false);
-            }
-            if (moreOptionsRef.current && !moreOptionsRef.current.contains(event.target as Node)) {
-                setShowMoreOptions(false);
-            }
-            if (fromDropdownRef.current && !fromDropdownRef.current.contains(event.target as Node)) {
+        const handler = (e: MouseEvent) => {
+            if (fromDropdownRef.current && !fromDropdownRef.current.contains(e.target as Node)) {
                 setShowFromDropdown(false);
             }
+            if (toFieldRef.current && !toFieldRef.current.contains(e.target as Node)) {
+                setShowSuggestions(false);
+            }
         };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
 
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, []); // Empty deps — register once, no leak
+    useEffect(() => {
+        if (!toInput.trim()) {
+            setSuggestions([]);
+            setShowSuggestions(false);
+            return;
+        }
+        clearTimeout(searchTimeout.current);
+        searchTimeout.current = setTimeout(async () => {
+            const results = await searchContactsForComposeAction(toInput.trim());
+            const filtered = results.filter(c => !recipients.includes(c.email));
+            setSuggestions(filtered);
+            setShowSuggestions(filtered.length > 0);
+            setHighlightIdx(-1);
+        }, 200);
+        return () => clearTimeout(searchTimeout.current);
+    }, [toInput, recipients]);
 
-    const sendingRef = React.useRef(false);
+    const addRecipient = (email: string) => {
+        const e = email.trim().toLowerCase();
+        if (e && !recipients.includes(e)) {
+            setRecipients(prev => [...prev, e]);
+        }
+        setToInput('');
+        setSuggestions([]);
+        setShowSuggestions(false);
+        toInputRef.current?.focus();
+    };
+
+    const removeRecipient = (email: string) => {
+        setRecipients(prev => prev.filter(r => r !== email));
+    };
+
+    const handleToKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',') {
+            e.preventDefault();
+            if (highlightIdx >= 0 && highlightIdx < suggestions.length) {
+                addRecipient(suggestions[highlightIdx]!.email);
+            } else if (toInput.trim()) {
+                addRecipient(toInput);
+            }
+        } else if (e.key === 'Backspace' && !toInput && recipients.length > 0) {
+            removeRecipient(recipients[recipients.length - 1]!);
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setHighlightIdx(prev => Math.min(prev + 1, suggestions.length - 1));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlightIdx(prev => Math.max(prev - 1, 0));
+        } else if (e.key === 'Escape') {
+            setShowSuggestions(false);
+        }
+    };
+
+    const sendingRef = useRef(false);
     const handleSend = async () => {
-        if (!to.trim() || !fromAccount || isSending || sendingRef.current) return;
+        const toStr = recipients.join(', ');
+        if (!toStr || !fromAccount || isSending || sendingRef.current) return;
         sendingRef.current = true;
         setIsSending(true);
         setSendResult(null);
         try {
-            const payload = { to, subject, body, accountId: fromAccount, isTracked: true, ...(threadId ? { threadId } : {}) };
-            const result = await sendEmailAction(payload) as { success: boolean, error?: string, messageId?: string };
+            const payload = { to: toStr, subject, body, accountId: fromAccount, isTracked: true, ...(threadId ? { threadId } : {}) };
+            const result = await sendEmailAction(payload) as { success: boolean; error?: string; messageId?: string };
             if (result.success) {
                 setSendResult({ success: true, message: 'Message sent.' });
                 setTimeout(() => onClose(), 2000);
@@ -139,563 +179,190 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         }
     };
 
-
-
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSend(); }
         if (e.key === 'Escape') onClose();
-    };
-
-    const execCommand = (command: string, value: any = null) => {
-        restoreSelection();
-        if (command === 'insertText' && editorRef.current) {
-            // Use Range API instead of deprecated execCommand('insertText')
-            const sel = window.getSelection();
-            if (sel && sel.rangeCount > 0) {
-                const range = sel.getRangeAt(0);
-                range.deleteContents();
-                const textNode = document.createTextNode(value);
-                range.insertNode(textNode);
-                range.setStartAfter(textNode);
-                range.setEndAfter(textNode);
-                sel.removeAllRanges();
-                sel.addRange(range);
-            }
-        } else {
-            document.execCommand(command, false, value);
-        }
-        if (editorRef.current) {
-            setBody(editorRef.current.innerHTML);
-        }
-        saveSelection();
     };
 
     const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
         setBody(e.currentTarget.innerHTML);
     };
 
-    const handleAttachmentClick = () => {
-        // Attachments are not yet wired to the send action (FE-020)
-        alert('Attachments are coming soon. This feature is not yet available.');
-    };
-
-    const handleInsertLink = () => {
-        const url = prompt('Enter URL:');
-        if (url) {
-            execCommand('createLink', url);
-        }
-    };
-
-    const handleInsertSignature = () => {
-        const signature = '<br><br>--<br>Best regards,<br>User';
-        if (editorRef.current) {
-            editorRef.current.innerHTML += DOMPurify.sanitize(signature);
-            setBody(editorRef.current.innerHTML);
-        }
-    };
-
-    const fontFamilies = ['Arial', 'Verdana', 'Georgia', 'Times New Roman', 'Courier New', 'Comic Sans MS', 'Impact', 'Tahoma', 'Trebuchet MS'];
-    const fontSizes = ['Small', 'Normal', 'Large', 'Huge'];
-
-    const filteredEmojiGroups = emojiSearch.trim() === ''
-        ? EMOJI_CATEGORIES
-        : [{
-            label: 'Search Results',
-            emojis: EMOJI_CATEGORIES.flatMap(g => g.emojis).filter(e =>
-                e.keywords.toLowerCase().includes(emojiSearch.toLowerCase())
-            )
-        }];
-    // Fallback as we don't have descriptions, but usually emojis are searched by keywords.
-
-    const modalClass = `compose-modal${isMinimized ? ' minimized' : ''}${isMaximized ? ' maximized' : ''}`;
+    const selectedAccount = accounts.find(a => a.id === fromAccount);
+    const selectedEmail = selectedAccount?.email || 'Select account';
 
     return (
-        <div className={modalClass} onKeyDown={handleKeyDown} role="dialog" aria-modal="true" aria-label="Compose new message">
-            {/* Header */}
-            <div
-                className="compose-header"
-                onClick={() => setIsMinimized(!isMinimized)}
-            >
-                <span className="compose-title">
-                    {isMinimized ? (subject ? subject : 'New Message') : 'New Message'}
-                </span>
-                <div className="compose-controls">
-                    <button
-                        className="compose-control-btn"
-                        onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); setIsMaximized(false); }}
-                        title="Minimize"
-                    >
-                        <svg viewBox="0 0 24 24" width="12" height="12"><path d="M19 13H5v-2h14v2z" fill="currentColor" /></svg>
-                    </button>
-                    {!isMinimized && (
-                        <button
-                            className="compose-control-btn"
-                            onClick={(e) => { e.stopPropagation(); setIsMaximized(!isMaximized); }}
-                            title={isMaximized ? 'Exit full screen' : 'Full screen'}
-                        >
-                            <svg viewBox="0 0 24 24" width="13" height="13"><path d={isMaximized ? "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" : "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"} fill="currentColor" /></svg>
-                        </button>
+        <>
+            <div className="compose-scrim" onClick={onClose} />
+            <div className="compose" onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown} role="dialog" aria-modal="true">
+                <div className="compose-head">
+                    <div className="title">New email</div>
+                    <div className="spacer" />
+                    <button className="icon-btn" title="Pop out"><Maximize2 size={13} /></button>
+                    <button className="icon-btn" onClick={onClose} title="Close"><X size={14} /></button>
+                </div>
+
+                <div className="compose-body">
+                    {/* From */}
+                    <div className="compose-field" ref={fromDropdownRef}>
+                        <span className="k">From</span>
+                        <span className="pill" onClick={() => setShowFromDropdown(!showFromDropdown)} style={{ cursor: 'pointer' }}>
+                            <span className="dot" style={{ background: avatarColor(selectedEmail) }}>{getInitials(selectedEmail)}</span>
+                            {selectedEmail}
+                            <ChevronDown size={12} style={{ color: 'var(--ink-muted)' }} />
+                        </span>
+                        {showFromDropdown && (
+                            <div className="compose-from-dropdown">
+                                {accounts.map(acc => (
+                                    <div
+                                        key={acc.id}
+                                        className={`compose-from-option${acc.id === fromAccount ? ' active' : ''}`}
+                                        onClick={() => { setFromAccount(acc.id); setShowFromDropdown(false); }}
+                                    >
+                                        <span className="dot" style={{ background: avatarColor(acc.email), width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 9, fontWeight: 600 }}>
+                                            {getInitials(acc.email)}
+                                        </span>
+                                        {acc.email}{acc.manager_name ? ` (${acc.manager_name})` : ''}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, fontSize: 12 }}>
+                            <span className="chip" style={{ color: 'var(--coach)', borderColor: 'transparent', background: 'color-mix(in oklab, var(--coach-soft), transparent 20%)' }}>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                Tracking on
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* To with autocomplete */}
+                    <div className="compose-field" ref={toFieldRef} style={{ position: 'relative' }}>
+                        <span className="k">To</span>
+                        {recipients.map((email, i) => (
+                            <span key={i} className="pill" style={{ cursor: 'default' }}>
+                                <span className="dot" style={{ background: avatarColor(email) }}>{getInitials(email)}</span>
+                                {email}
+                                <button
+                                    onClick={() => removeRecipient(email)}
+                                    style={{ background: 'none', border: 'none', color: 'var(--ink-muted)', cursor: 'pointer', padding: 0, marginLeft: 2, fontSize: 12, lineHeight: 1, display: 'flex', alignItems: 'center' }}
+                                >
+                                    <X size={10} />
+                                </button>
+                            </span>
+                        ))}
+                        <input
+                            ref={toInputRef}
+                            type="text"
+                            value={toInput}
+                            onChange={e => setToInput(e.target.value)}
+                            onKeyDown={handleToKeyDown}
+                            onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+                            placeholder={recipients.length === 0 ? 'Search contacts...' : ''}
+                            autoFocus
+                        />
+                        <div className="actions">
+                            {!showCc && <button onClick={() => setShowCc(true)}>Cc</button>}
+                            {!showBcc && <button onClick={() => setShowBcc(true)}>Bcc</button>}
+                        </div>
+
+                        {showSuggestions && suggestions.length > 0 && (
+                            <div className="compose-suggestions">
+                                {suggestions.map((s, i) => (
+                                    <div
+                                        key={s.id}
+                                        className={`compose-suggestion${i === highlightIdx ? ' active' : ''}`}
+                                        onClick={() => addRecipient(s.email)}
+                                        onMouseEnter={() => setHighlightIdx(i)}
+                                    >
+                                        <span className="dot" style={{ background: avatarColor(s.email), width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>
+                                            {getInitials(s.name || s.email)}
+                                        </span>
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                            <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {s.name || s.email.split('@')[0]}
+                                            </div>
+                                            <div style={{ fontSize: 11, color: 'var(--ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {s.email}{s.company ? ` · ${s.company}` : ''}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {showCc && (
+                        <div className="compose-field">
+                            <span className="k">Cc</span>
+                            <input type="email" value={cc} onChange={e => setCc(e.target.value)} />
+                        </div>
                     )}
-                    <button className="compose-control-btn close-btn" onClick={(e) => { e.stopPropagation(); onClose(); }} title="Save & close">
-                        <svg viewBox="0 0 24 24" width="14" height="14"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z" fill="currentColor" /></svg>
+                    {showBcc && (
+                        <div className="compose-field">
+                            <span className="k">Bcc</span>
+                            <input type="email" value={bcc} onChange={e => setBcc(e.target.value)} />
+                        </div>
+                    )}
+
+                    <div className="compose-subject">
+                        <input
+                            type="text"
+                            placeholder="Subject"
+                            value={subject}
+                            onChange={e => setSubject(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="compose-editor">
+                        <div
+                            ref={editorRef}
+                            contentEditable="true"
+                            onInput={handleInput}
+                            onKeyDown={handleKeyDown}
+                            data-placeholder="Write your message..."
+                            style={{ minHeight: 200, outline: 'none', fontSize: '13.5px', lineHeight: 1.6, color: 'var(--ink-2)' }}
+                        />
+                    </div>
+                </div>
+
+                {sendResult && (
+                    <div style={{
+                        padding: '8px 14px', margin: '0 20px 8px', borderRadius: 8, fontSize: 13, fontWeight: 500, textAlign: 'center',
+                        background: sendResult.success ? 'color-mix(in oklab, var(--coach-soft), transparent 20%)' : 'color-mix(in oklab, var(--danger-soft), transparent 20%)',
+                        color: sendResult.success ? 'var(--coach)' : 'var(--danger)',
+                        border: `1px solid ${sendResult.success ? 'var(--coach)' : 'var(--danger)'}`,
+                    }}>
+                        {sendResult.message}
+                    </div>
+                )}
+
+                <div className="compose-foot">
+                    <button className="icon-btn" title="Attach files"><Paperclip size={15} /></button>
+                    <button className="icon-btn" title="Schedule send"><Clock size={15} /></button>
+                    <button className="icon-btn" title="Templates" onClick={() => setShowTemplatePicker(true)}><LayoutTemplate size={15} /></button>
+                    <button className="icon-btn" title="Add people"><UserPlus size={15} /></button>
+                    <div className="spacer" />
+                    <button className="ask-ai"><Sparkles size={12} />Ask AI</button>
+                    <button className="send" onClick={handleSend} disabled={isSending || recipients.length === 0}>
+                        <Send size={12} />
+                        {isSending ? 'Sending…' : 'Send'}
                     </button>
                 </div>
             </div>
 
-            {!isMinimized && (
-                <>
-                    <div className="compose-body-container">
-                        <div className="compose-row">
-                            <span className="compose-inline-label">From</span>
-                            <div ref={fromDropdownRef} style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                <div
-                                    onClick={() => setShowFromDropdown(!showFromDropdown)}
-                                    style={{
-                                        flex: 1,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        cursor: 'pointer',
-                                        padding: '4px 0',
-                                        fontSize: '14px',
-                                        color: '#202124'
-                                    }}
-                                >
-                                    <span>
-                                        {accounts.find(a => a.id === fromAccount)
-                                            ? `${accounts.find(a => a.id === fromAccount)!.email}${accounts.find(a => a.id === fromAccount)!.manager_name ? ` (${accounts.find(a => a.id === fromAccount)!.manager_name})` : ''}`
-                                            : 'Select account'}
-                                    </span>
-                                    <ChevronDown size={14} style={{ color: '#5f6368', flexShrink: 0 }} />
-                                </div>
-                                {showFromDropdown && (
-                                    <div style={{
-                                        position: 'absolute',
-                                        top: 'calc(100% + 4px)',
-                                        left: '-16px',
-                                        right: '-24px',
-                                        background: '#ffffff',
-                                        border: '1px solid #e0e0e0',
-                                        borderRadius: '4px',
-                                        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                                        zIndex: 2000,
-                                        maxHeight: '240px',
-                                        overflowY: 'auto'
-                                    }}>
-                                        {accounts.map(acc => (
-                                            <div
-                                                key={acc.id}
-                                                onClick={() => { setFromAccount(acc.id); setShowFromDropdown(false); }}
-                                                style={{
-                                                    padding: '10px 16px',
-                                                    fontSize: '14px',
-                                                    color: '#202124',
-                                                    cursor: 'pointer',
-                                                    background: acc.id === fromAccount ? '#e8f0fe' : '#ffffff',
-                                                    fontWeight: acc.id === fromAccount ? 500 : 400
-                                                }}
-                                                onMouseEnter={e => (e.currentTarget.style.background = acc.id === fromAccount ? '#e8f0fe' : '#f1f3f4')}
-                                                onMouseLeave={e => (e.currentTarget.style.background = acc.id === fromAccount ? '#e8f0fe' : '#ffffff')}
-                                            >
-                                                {acc.email} {acc.manager_name ? `(${acc.manager_name})` : ''}
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="compose-row">
-                            <input
-                                className="compose-input"
-                                type="email"
-                                placeholder="To"
-                                value={to}
-                                onChange={(e) => setTo(e.target.value)}
-                                autoFocus
-                                aria-label="To"
-                            />
-                            <div className="compose-cc-bcc-actions">
-                                {!showCc && <span onClick={() => setShowCc(true)}>Cc</span>}
-                                {!showBcc && <span onClick={() => setShowBcc(true)}>Bcc</span>}
-                            </div>
-                        </div>
-
-                        {showCc && (
-                            <div className="compose-row">
-                                <span className="compose-inline-label">Cc</span>
-                                <input
-                                    className="compose-input"
-                                    type="email"
-                                    value={cc}
-                                    onChange={(e) => setCc(e.target.value)}
-                                    aria-label="CC"
-                                />
-                            </div>
-                        )}
-
-                        {showBcc && (
-                            <div className="compose-row">
-                                <span className="compose-inline-label">Bcc</span>
-                                <input
-                                    className="compose-input"
-                                    type="email"
-                                    value={bcc}
-                                    onChange={(e) => setBcc(e.target.value)}
-                                    aria-label="BCC"
-                                />
-                            </div>
-                        )}
-
-                        <div className="compose-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <input
-                                className="compose-input"
-                                type="text"
-                                placeholder="Subject"
-                                value={subject}
-                                onChange={(e) => setSubject(e.target.value)}
-                                aria-label="Subject"
-                                style={{ flex: 1 }}
-                            />
-                            <button
-                                onClick={() => setShowTemplatePicker(true)}
-                                style={{
-                                    padding: '0.25rem 0.625rem', borderRadius: 'var(--radius-full)',
-                                    border: '1px solid var(--border)', background: 'transparent',
-                                    cursor: 'pointer', fontSize: '10px', fontWeight: 500,
-                                    color: 'var(--text-secondary)', whiteSpace: 'nowrap',
-                                    flexShrink: 0,
-                                }}
-                                title="Use Template"
-                                type="button"
-                            >
-                                Use Template
-                            </button>
-                        </div>
-
-                        <TemplatePickerModal
-                            isOpen={showTemplatePicker}
-                            onClose={() => setShowTemplatePicker(false)}
-                            onSelect={(tmpl) => {
-                                const hasContent = subject.trim() || body.trim();
-                                if (hasContent && !confirm('Replace current content with template?')) return;
-                                setSubject(tmpl.subject);
-                                setBody(tmpl.body);
-                                if (editorRef.current) {
-                                    editorRef.current.innerHTML = tmpl.body;
-                                }
-                            }}
-                        />
-
-                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                            <div
-                                ref={editorRef}
-                                className="compose-editor"
-                                contentEditable="true"
-                                onInput={handleInput}
-                                onKeyDown={handleKeyDown}
-                                onMouseUp={saveSelection}
-                                onKeyUp={saveSelection}
-                                data-placeholder="Write your message..."
-                            />
-
-                            {/* Attachment preview removed - feature coming soon (FE-020) */}
-                            {showFormatting && (
-                                <div className="formatting-toolbar" style={{ borderBottom: '1px solid #e0e0e0', position: 'relative', background: '#f8f9fa' }}>
-                                    <div className="format-group">
-                                        <select
-                                            className="format-select font-family-select"
-                                            value={fontFamily}
-                                            onFocus={saveSelection}
-                                            onChange={(e) => {
-                                                const val = e.target.value;
-                                                setFontFamily(val);
-                                                execCommand('fontName', val);
-                                            }}
-                                        >
-                                            {fontFamilies.map(f => <option key={f} value={f}>{f}</option>)}
-                                        </select>
-                                        <select
-                                            className="format-select font-size-select"
-                                            value={fontSize}
-                                            onFocus={saveSelection}
-                                            onChange={(e) => {
-                                                const val = e.target.value;
-                                                setFontSize(val);
-                                                const sizeMap: any = {
-                                                    'Small': '13px',
-                                                    'Normal': '16px',
-                                                    'Large': '20px',
-                                                    'Huge': '24px'
-                                                };
-                                                if (editorRef.current) {
-                                                    editorRef.current.focus();
-                                                    restoreSelection();
-                                                    const selection = window.getSelection();
-                                                    if (selection && selection.rangeCount > 0) {
-                                                        const range = selection.getRangeAt(0);
-                                                        const span = document.createElement('span');
-                                                        span.style.fontSize = sizeMap[val];
-                                                        span.appendChild(range.extractContents());
-                                                        range.insertNode(span);
-                                                        setBody(editorRef.current.innerHTML);
-                                                    }
-                                                    saveSelection();
-                                                }
-                                            }}
-                                        >
-                                            {fontSizes.map(s => <option key={s} value={s}>{s}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div className="format-separator" />
-
-                                    <div className="format-group">
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('bold'); }} title="Bold" aria-label="Bold">
-                                            <Bold size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('italic'); }} title="Italic" aria-label="Italic">
-                                            <Italic size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('underline'); }} title="Underline" aria-label="Underline">
-                                            <Underline size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('foreColor', '#f28b82'); }} title="Text color" aria-label="Text color">
-                                            <Highlighter size={18} />
-                                        </button>
-                                    </div>
-
-                                    <div className="format-separator" />
-
-                                    <div className="format-group">
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('justifyLeft'); }} title="Align left" aria-label="Align left">
-                                            <AlignLeft size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('justifyCenter'); }} title="Align center" aria-label="Align center">
-                                            <AlignCenter size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('justifyRight'); }} title="Align right" aria-label="Align right">
-                                            <AlignRight size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('insertUnorderedList'); }} title="Bullet list" aria-label="Bullet list">
-                                            <List size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('insertOrderedList'); }} title="Numbered list" aria-label="Numbered list">
-                                            <ListOrdered size={18} />
-                                        </button>
-                                    </div>
-
-                                    <div className="format-separator" />
-
-                                    <div className="format-group">
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('indent'); }} title="Indent more" aria-label="Indent more">
-                                            <Indent size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('outdent'); }} title="Indent less" aria-label="Indent less">
-                                            <Outdent size={18} />
-                                        </button>
-                                    </div>
-
-                                    <div className="format-separator" />
-
-                                    <div className="format-group">
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('strikeThrough'); }} title="Strikethrough" aria-label="Strikethrough">
-                                            <Strikethrough size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('formatBlock', 'blockquote'); }} title="Quote" aria-label="Quote">
-                                            <Quote size={18} />
-                                        </button>
-                                        <button className="format-btn" onMouseDown={(e) => { e.preventDefault(); execCommand('removeFormat'); }} title="Remove formatting" aria-label="Remove formatting">
-                                            <Eraser size={18} />
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="compose-footer" style={{ borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', padding: '8px 16px', display: 'flex', flexDirection: 'column', borderTop: '1px solid #e0e0e0', position: 'relative', gap: '6px' }}>
-                        {sendResult && (
-                            <div style={{
-                                width: '100%',
-                                padding: '8px 12px',
-                                borderRadius: '4px',
-                                fontSize: '13px',
-                                fontWeight: 500,
-                                textAlign: 'center',
-                                background: sendResult.success ? '#e6f4ea' : '#fce8e6',
-                                color: sendResult.success ? '#137333' : '#c5221f',
-                                border: `1px solid ${sendResult.success ? '#ceead6' : '#f5c6cb'}`,
-                                boxSizing: 'border-box'
-                            }}>
-                                {sendResult.message}
-                            </div>
-                        )}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', minWidth: 0 }}>
-                            <div className="compose-footer-left" style={{ display: 'flex', alignItems: 'center', gap: '2px', flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
-                                <div className="compose-send-group" style={{ marginRight: '8px' }}>
-                                    <button
-                                        className="compose-send-btn"
-                                        onClick={handleSend}
-                                        disabled={isSending || !to.trim()}
-                                    >
-                                        {isSending ? 'Sending...' : 'Send'}
-                                    </button>
-                                    <button className="compose-send-caret" disabled={isSending || !to.trim()}>
-                                        <ChevronDown size={14} />
-                                    </button>
-                                </div>
-
-                                <button
-                                    className={`compose-icon-btn formatting-toggle ${showFormatting ? 'active' : ''}`}
-                                    title="Formatting options"
-                                    onClick={() => setShowFormatting(!showFormatting)}
-                                >
-                                    <Type size={18} />
-                                </button>
-
-                                <button className="compose-icon-btn" title="Attach files" onClick={handleAttachmentClick}>
-                                    <Paperclip size={18} />
-                                </button>
-
-                                <button className="compose-icon-btn" title="Insert link" onClick={handleInsertLink}>
-                                    <Link size={18} />
-                                </button>
-
-                                <div style={{ position: 'relative' }}>
-                                    <button
-                                        className={`compose-icon-btn ${showEmojiPicker ? 'active' : ''}`}
-                                        title="Insert emoji"
-                                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                                    >
-                                        <Smile size={18} />
-                                    </button>
-
-                                    {showEmojiPicker && (
-                                        <div className="emoji-picker-container emoji-picker-advanced" ref={emojiPickerRef} style={{
-                                            position: 'absolute',
-                                            bottom: 'calc(100% + 10px)',
-                                            left: '0',
-                                            zIndex: 1000,
-                                            backgroundColor: '#ffffff',
-                                            border: '1px solid #e0e0e0',
-                                            borderRadius: '8px',
-                                            boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                                            width: '320px'
-                                        }}>
-                                            <div className="emoji-picker-header" style={{ padding: '8px' }}>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Search emojis..."
-                                                    value={emojiSearch}
-                                                    onChange={(e) => setEmojiSearch(e.target.value)}
-                                                    autoFocus
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '8px',
-                                                        background: '#f1f3f4',
-                                                        border: '1px solid #e0e0e0',
-                                                        borderRadius: '4px',
-                                                        color: '#202124',
-                                                        fontSize: '13px',
-                                                        outline: 'none'
-                                                    }}
-                                                />
-                                            </div>
-                                            <div className="emoji-picker-content" style={{ maxHeight: '250px', overflowY: 'auto', padding: '8px' }}>
-                                                {filteredEmojiGroups.map((group) => (
-                                                    <div key={group.label} className="emoji-category">
-                                                        <div className="emoji-category-title" style={{ fontSize: '11px', color: '#5f6368', padding: '4px 8px', textTransform: 'uppercase', fontWeight: 600 }}>
-                                                            {group.label}
-                                                        </div>
-                                                        <div className="emoji-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '4px' }}>
-                                                            {group.emojis.map((emojiObj, idx) => (
-                                                                <button
-                                                                    key={`${emojiObj.char}-${idx}`}
-                                                                    className="emoji-btn"
-                                                                    onClick={() => {
-                                                                        execCommand('insertText', emojiObj.char);
-                                                                        setShowEmojiPicker(false);
-                                                                    }}
-                                                                    type="button"
-                                                                    style={{
-                                                                        fontSize: '20px',
-                                                                        padding: '4px',
-                                                                        background: 'none',
-                                                                        border: 'none',
-                                                                        cursor: 'pointer',
-                                                                        borderRadius: '4px'
-                                                                    }}
-                                                                >
-                                                                    {emojiObj.char}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                                {filteredEmojiGroups?.[0]?.emojis?.length === 0 && (
-                                                    <div className="no-emojis" style={{ textAlign: 'center', color: '#5f6368', padding: '16px' }}>No emojis found</div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <button className="compose-icon-btn" title="Insert files using Drive">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.34 10.5l-4-7h-6.7l4 7h6.7zM14 11.5l-4 7h6.7l4-7H14zM12 11.1L8.3 4.5H1.6l4 7H12zM12.7 12.5H6l-4 7h6.7l4-7z" /></svg>
-                                </button>
-
-                                <button className="compose-icon-btn" title="Insert photo" onClick={handleAttachmentClick}>
-                                    <Image size={18} />
-                                </button>
-
-                                <button className="compose-icon-btn" title="Toggle confidential mode">
-                                    <Shield size={18} />
-                                </button>
-
-                                <button className="compose-icon-btn" title="Insert signature" onClick={handleInsertSignature}>
-                                    <Highlighter size={18} />
-                                </button>
-                            </div>
-
-                            <div className="compose-footer-right" style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                                <div style={{ position: 'relative' }}>
-                                    <button
-                                        className={`compose-icon-btn compose-more-options ${showMoreOptions ? 'active' : ''}`}
-                                        title="More options"
-                                        onClick={() => setShowMoreOptions(!showMoreOptions)}
-                                    >
-                                        <MoreVertical size={18} />
-                                    </button>
-                                    {showMoreOptions && (
-                                        <div className="gmail-msg-popover more-options" ref={moreOptionsRef} style={{ bottom: 'calc(100% + 10px)', top: 'auto', right: 0, left: 'auto', width: '180px', padding: '6px 0', background: 'var(--bg-elevated)', border: '1px solid var(--border-strong)' }}>
-                                            <div className="popover-action-item" onClick={() => { window.print(); setShowMoreOptions(false); }}>
-                                                Print
-                                            </div>
-                                            <div className="popover-action-item" onClick={() => { alert('Check spelling coming soon...'); setShowMoreOptions(false); }}>
-                                                Check spelling
-                                            </div>
-                                            <div className="popover-separator" />
-                                            <div className="popover-action-item" onClick={() => { setShowMoreOptions(false); }}>
-                                                Plain text mode
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                                <button className="compose-icon-btn delete-btn" onClick={onClose} title="Discard draft">
-                                    <Trash2 size={18} />
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </>
-            )}
-
-            <style jsx>{`
-                .compose-modal {
-                    max-width: min(500px, calc(100vw - 32px));
-                }
-            `}</style>
-        </div>
+            <TemplatePickerModal
+                isOpen={showTemplatePicker}
+                onClose={() => setShowTemplatePicker(false)}
+                onSelect={(tmpl) => {
+                    const hasContent = subject.trim() || body.trim();
+                    if (hasContent && !confirm('Replace current content with template?')) return;
+                    setSubject(tmpl.subject);
+                    setBody(tmpl.body);
+                    if (editorRef.current) {
+                        editorRef.current.innerHTML = tmpl.body;
+                    }
+                }}
+            />
+        </>
     );
 }
