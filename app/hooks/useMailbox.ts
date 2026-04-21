@@ -8,6 +8,7 @@ import {
     getSentEmailsAction,
     getClientEmailsAction,
     getThreadMessagesAction,
+    batchGetThreadsAction,
     markEmailAsReadAction,
     markEmailAsUnreadAction,
     deleteEmailAction,
@@ -472,6 +473,21 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
                 // Also persist to localStorage for ultra-persistent caching, skipped for search to avoid bloat
                 if (type !== 'search') {
                     saveToLocalCache(`mailbox_${currentCacheKey}`, newCacheEntry);
+                }
+
+                // AGGRESSIVE PREFETCH: batch-load ALL visible threads in one call
+                // This makes thread clicks instant (0ms) since data is already cached
+                const uncachedThreadIds = (result.emails || [])
+                    .map((e: any) => e.thread_id)
+                    .filter((tid: string) => tid && !globalThreadCache[tid]);
+                if (uncachedThreadIds.length > 0) {
+                    batchGetThreadsAction([...new Set(uncachedThreadIds)] as string[]).then(threadMap => {
+                        for (const [tid, msgs] of Object.entries(threadMap)) {
+                            if (msgs && (msgs as any[]).length > 0) {
+                                globalThreadCache[tid] = { data: msgs as any[], timestamp: Date.now() };
+                            }
+                        }
+                    }).catch(() => {}); // Silent — prefetch failure is not critical
                 }
             }
         } catch (err) {

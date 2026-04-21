@@ -842,6 +842,76 @@ export async function getThreadMessagesAction(threadId: string) {
     });
 }
 
+// ─── Batch Thread Prefetch (loads ALL threads in one round trip) ──────────────
+
+export async function batchGetThreadsAction(threadIds: string[]) {
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    if (!threadIds?.length) return {};
+
+    // Limit to 50 threads per batch
+    const ids = threadIds.slice(0, 50);
+
+    const [accessible, messagesResult] = await Promise.all([
+        getAccessibleGmailAccountIds(userId, role),
+        supabase
+            .from('email_messages')
+            .select('id, thread_id, from_email, to_email, subject, snippet, body, direction, sent_at, is_unread, pipeline_stage, gmail_account_id, is_tracked, delivered_at, opened_at, contact_id')
+            .in('thread_id', ids)
+            .order('sent_at', { ascending: true })
+            .limit(500),
+    ]);
+
+    if (Array.isArray(accessible) && accessible.length === 0) return {};
+
+    let messages = messagesResult.data || [];
+    if (messagesResult.error) return {};
+
+    if (accessible !== 'ALL') {
+        const accessSet = new Set(accessible);
+        messages = messages.filter((m: any) => accessSet.has(m.gmail_account_id));
+    }
+
+    // Fetch account info
+    const accountIds = [...new Set(messages.map((m: any) => m.gmail_account_id).filter(Boolean))];
+    const accountMap: Record<string, { email: string; name: string }> = {};
+    if (accountIds.length > 0) {
+        const { data: accs } = await supabase
+            .from('gmail_accounts')
+            .select('id, email, users ( name )')
+            .in('id', accountIds);
+        (accs || []).forEach((a: any) => {
+            const user = Array.isArray(a.users) ? a.users[0] : a.users;
+            accountMap[a.id] = { email: a.email, name: user?.name || 'System' };
+        });
+    }
+
+    // Group by thread_id and deduplicate
+    const result: Record<string, any[]> = {};
+    for (const threadId of ids) {
+        const threadMsgs = messages.filter((m: any) => m.thread_id === threadId);
+        const seen = new Set<string>();
+        const unique = threadMsgs.filter((m: any) => {
+            const key = `${m.from_email}|${m.sent_at}|${(m.subject || '').slice(0, 50)}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        const hasReply = unique.some((m: any) => m.direction === 'RECEIVED');
+        result[threadId] = unique.map((m: any) => {
+            const acc = accountMap[m.gmail_account_id];
+            return {
+                ...m,
+                has_reply: hasReply,
+                account_email: acc?.email,
+                manager_name: acc?.name || 'System',
+                gmail_accounts: { email: acc?.email, user: { name: acc?.name || 'System' } },
+            };
+        });
+    }
+    return result;
+}
+
 // ─── Delete Email ─────────────────────────────────────────────────────────────
 
 export async function deleteEmailAction(messageId: string) {
