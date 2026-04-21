@@ -6,13 +6,53 @@ import { getAccessibleGmailAccountIds, blockEditorAccess } from '../utils/access
 import { generateReplySuggestion } from '../services/replySuggestionService';
 import { generateDailyBriefing, type DailyBriefing } from '../services/dailyBriefingService';
 
-export async function getDailyBriefingAction(): Promise<{ success: boolean; briefing?: DailyBriefing; error?: string }> {
+// ── Daily-briefing cache ─────────────────────────────────────────────────────
+// Jarvis briefing is an expensive Groq call (~5-8s) that summarises a 24h
+// window — it's fine to compute it once per user per day. This in-memory map
+// is per-server-instance: warm Vercel lambdas hit the cache, cold starts
+// recompute (fine). Key is userId:YYYY-MM-DD so it rolls over naturally.
+type CachedBriefing = { briefing: DailyBriefing; key: string };
+const briefingCache = new Map<string, CachedBriefing>();
+const MAX_CACHE_ENTRIES = 200;
+
+function todayKey(userId: string): string {
+    return `${userId}:${new Date().toISOString().slice(0, 10)}`;
+}
+
+function evictIfFull() {
+    if (briefingCache.size <= MAX_CACHE_ENTRIES) return;
+    // Drop the oldest entry (Map iteration is insertion order).
+    const firstKey = briefingCache.keys().next().value;
+    if (firstKey) briefingCache.delete(firstKey);
+}
+
+export async function getDailyBriefingAction(): Promise<{ success: boolean; briefing?: DailyBriefing; error?: string; cached?: boolean }> {
+    try {
+        const { userId, role } = await ensureAuthenticated();
+        const key = todayKey(userId);
+        const hit = briefingCache.get(key);
+        if (hit) return { success: true, briefing: hit.briefing, cached: true };
+
+        const briefing = await generateDailyBriefing(userId, role);
+        briefingCache.set(key, { briefing, key });
+        evictIfFull();
+        return { success: true, briefing, cached: false };
+    } catch (e: any) {
+        return { success: false, error: e?.message || 'Failed to generate briefing' };
+    }
+}
+
+// Force-refresh path for the "Regenerate" button — bypasses cache and
+// overwrites today's entry with a fresh result.
+export async function regenerateDailyBriefingAction(): Promise<{ success: boolean; briefing?: DailyBriefing; error?: string }> {
     try {
         const { userId, role } = await ensureAuthenticated();
         const briefing = await generateDailyBriefing(userId, role);
+        briefingCache.set(todayKey(userId), { briefing, key: todayKey(userId) });
+        evictIfFull();
         return { success: true, briefing };
     } catch (e: any) {
-        return { success: false, error: e?.message || 'Failed to generate briefing' };
+        return { success: false, error: e?.message || 'Failed to regenerate briefing' };
     }
 }
 

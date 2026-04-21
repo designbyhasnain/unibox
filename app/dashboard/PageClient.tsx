@@ -236,8 +236,8 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                             {revBars.map(([a, b]: [number, number], i: number) => (
                                 <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                                     <div style={{ display: 'flex', alignItems: 'end', gap: 3, height: 130 }}>
-                                        <div style={{ width: 18, height: `${a}%`, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />
-                                        <div style={{ width: 18, height: `${b}%`, background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '4px 4px 0 0' }} />
+                                        <div style={{ width: 18, height: `${a}%`, background: 'var(--accent)', borderRadius: '4px 4px 0 0' }} title="Closed revenue" />
+                                        <div style={{ width: 18, height: `${b}%`, background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '4px 4px 0 0' }} title="Unpaid" />
                                     </div>
                                     <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{revMonths[i]}</span>
                                 </div>

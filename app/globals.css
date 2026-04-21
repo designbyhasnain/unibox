@@ -1387,8 +1387,8 @@ a {
     display: flex;
     align-items: center;
     padding: 0 1.5rem;
-    background: var(--bg-surface);
-    border-bottom: 1px solid var(--border);
+    background: var(--shell);
+    border-bottom: 1px solid var(--hairline-soft);
     height: 56px;
     gap: 2rem;
     flex-shrink: 0;
@@ -1520,23 +1520,9 @@ a {
 }
 
 
-.list-toolbar {
-    height: 48px;
-    padding: 0 2.75rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 2px solid var(--border);
-    background: var(--bg-base);
-    flex-shrink: 0;
-}
-
-.list-toolbar-left,
-.list-toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-}
+/* .list-toolbar + .list-toolbar-left/right — canonical definition lives
+ * ~5400 lines below (search: "List toolbar"). This older duplicate was
+ * removed 2026-04-21 to stop selector-order surprises. */
 
 .count-label {
     font-size: 0.75rem;
@@ -3685,7 +3671,7 @@ select.form-input option {
     font-weight: 700;
     letter-spacing: -0.025em;
     margin-bottom: 0.2rem;
-    color: var(--text-primary);
+    color: var(--ink);
 }
 
 .page-subtitle {
