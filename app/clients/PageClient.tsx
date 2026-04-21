@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { getClientsAction } from '../../src/actions/clientActions';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { getClientsAction, removeClientsAction } from '../../src/actions/clientActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { useGlobalFilter } from '../context/FilterContext';
 import { useUI } from '../context/UIContext';
@@ -54,6 +54,9 @@ export default function ClientsPage() {
     const [totalCount, setTotalCount] = useState(0);
     const [isAdmin, setIsAdmin] = useState(false);
     const [isAddOpen, setIsAddOpen] = useState(false);
+    const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+    const menuWrapRef = useRef<HTMLDivElement | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -70,10 +73,38 @@ export default function ClientsPage() {
 
     useEffect(() => { load(); }, [load]);
     useEffect(() => {
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelected(null); };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setSelected(null); setOpenMenuId(null); } };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, []);
+
+    // Click-outside closes the row menu.
+    useEffect(() => {
+        if (!openMenuId) return;
+        const onDocClick = (e: MouseEvent) => {
+            if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) setOpenMenuId(null);
+        };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, [openMenuId]);
+
+    const handleDelete = async (contactId: string, name: string) => {
+        if (!confirm(`Delete contact "${name}"? Email history will be preserved but the contact will be removed from the list.`)) {
+            setOpenMenuId(null);
+            return;
+        }
+        setDeletingId(contactId);
+        setOpenMenuId(null);
+        const res = await removeClientsAction([contactId]);
+        setDeletingId(null);
+        if (!res.success) {
+            alert(res.error || 'Failed to delete contact');
+            return;
+        }
+        setClients(prev => prev.filter(c => c.id !== contactId));
+        setTotalCount(t => Math.max(0, t - 1));
+        if (selected?.id === contactId) setSelected(null);
+    };
 
     if (!hydrated || loading) return <PageLoader isLoading type="list" count={10} context="clients"><div /></PageLoader>;
 
@@ -132,7 +163,38 @@ export default function ClientsPage() {
                                         <td className="num" style={{ color: 'var(--ink-muted)' }}>{c.total_revenue ? fmt(c.total_revenue) : '—'}</td>
                                         <td style={{ color: 'var(--ink-muted)' }}>{fmtDate(c.last_email_at)}</td>
                                         <td style={{ color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{c.account_email?.split('@')[0] || '—'}</td>
-                                        <td><button className="icon-btn" onClick={e => e.stopPropagation()}>{ICON.more}</button></td>
+                                        <td>
+                                            <div
+                                                className="row-menu-wrap"
+                                                ref={openMenuId === c.id ? menuWrapRef : null}
+                                                onClick={e => e.stopPropagation()}
+                                            >
+                                                <button
+                                                    className="icon-btn"
+                                                    aria-label="Row actions"
+                                                    aria-haspopup="menu"
+                                                    aria-expanded={openMenuId === c.id}
+                                                    onClick={() => setOpenMenuId(openMenuId === c.id ? null : c.id)}
+                                                >
+                                                    {ICON.more}
+                                                </button>
+                                                {openMenuId === c.id && (
+                                                    <div className="row-menu" role="menu">
+                                                        <button className="row-menu-item" role="menuitem" onClick={() => { setOpenMenuId(null); setSelected(c); }}>
+                                                            Open
+                                                        </button>
+                                                        <button
+                                                            className="row-menu-item danger"
+                                                            role="menuitem"
+                                                            disabled={deletingId === c.id}
+                                                            onClick={() => handleDelete(c.id, c.name || c.email || 'contact')}
+                                                        >
+                                                            {deletingId === c.id ? 'Deleting…' : 'Delete'}
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </td>
                                     </tr>
                                 );
                             })}
@@ -303,6 +365,13 @@ export default function ClientsPage() {
 .cl-page .chip.warm{background:color-mix(in oklab,var(--warn-soft),transparent 20%);color:var(--warn);border-color:transparent}
 .cl-page .chip.closed{background:color-mix(in oklab,var(--coach-soft),transparent 20%);color:var(--coach);border-color:transparent}
 .cl-page .chip.dead{background:color-mix(in oklab,var(--danger-soft),transparent 20%);color:var(--danger);border-color:transparent}
+.cl-page .row-menu-wrap{position:relative;display:inline-block}
+.cl-page .row-menu{position:absolute;right:0;top:calc(100% + 4px);min-width:160px;background:var(--surface);border:1px solid var(--hairline-soft);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;z-index:50;display:flex;flex-direction:column}
+.cl-page .row-menu-item{background:none;border:none;color:var(--ink);font-family:var(--font-ui);font-size:13px;text-align:left;padding:8px 12px;border-radius:6px;cursor:pointer;transition:background .12s}
+.cl-page .row-menu-item:hover{background:var(--surface-hover)}
+.cl-page .row-menu-item:disabled{opacity:.5;cursor:default}
+.cl-page .row-menu-item.danger{color:var(--danger)}
+.cl-page .row-menu-item.danger:hover{background:color-mix(in oklab,var(--danger-soft),transparent 60%)}
 .cl-page .card{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;transition:border-color .12s}
 .cl-page .card:hover{border-color:var(--hairline)}
 .cl-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:start;overflow-x:auto}

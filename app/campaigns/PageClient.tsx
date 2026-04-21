@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
-import { getCampaignsAction } from '../../src/actions/campaignActions';
+import { getCampaignsAction, deleteCampaignAction } from '../../src/actions/campaignActions';
 
 const ICON = {
     filter: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
@@ -40,6 +40,9 @@ export default function CampaignsPage() {
     const router = useRouter();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [loading, setLoading] = useState(true);
+    const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+    const menuWrapRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         getCampaignsAction()
@@ -47,6 +50,34 @@ export default function CampaignsPage() {
             .catch(console.error)
             .finally(() => setLoading(false));
     }, []);
+
+    // Click-outside to close the row menu.
+    useEffect(() => {
+        if (!openMenuId) return;
+        const onDocClick = (e: MouseEvent) => {
+            if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
+                setOpenMenuId(null);
+            }
+        };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, [openMenuId]);
+
+    const handleDelete = async (campaignId: string, name: string) => {
+        if (!confirm(`Delete campaign "${name}"? It will be archived and removed from the active list. This cannot be undone from the UI.`)) {
+            setOpenMenuId(null);
+            return;
+        }
+        setDeletingId(campaignId);
+        setOpenMenuId(null);
+        const res = await deleteCampaignAction(campaignId);
+        setDeletingId(null);
+        if (!res.success) {
+            alert(res.error || 'Failed to delete campaign');
+            return;
+        }
+        setCampaigns(prev => prev.filter(c => c.id !== campaignId));
+    };
 
     if (!hydrated || loading) return <PageLoader isLoading type="list" count={6} context="inbox"><div /></PageLoader>;
 
@@ -111,7 +142,42 @@ export default function CampaignsPage() {
                                     <td className="num">{replied}</td>
                                     <td className="num" style={{ fontWeight: 600 }}>{rr === '—' ? '—' : rr + '%'}</td>
                                     <td style={{ color: 'var(--ink-muted)' }}>{c.createdBy?.name || '—'}</td>
-                                    <td><button className="icon-btn" onClick={e => e.stopPropagation()}>{ICON.more}</button></td>
+                                    <td>
+                                        <div
+                                            className="row-menu-wrap"
+                                            ref={openMenuId === c.id ? menuWrapRef : null}
+                                            onClick={e => e.stopPropagation()}
+                                        >
+                                            <button
+                                                className="icon-btn"
+                                                aria-label="Row actions"
+                                                aria-haspopup="menu"
+                                                aria-expanded={openMenuId === c.id}
+                                                onClick={() => setOpenMenuId(openMenuId === c.id ? null : c.id)}
+                                            >
+                                                {ICON.more}
+                                            </button>
+                                            {openMenuId === c.id && (
+                                                <div className="row-menu" role="menu">
+                                                    <button
+                                                        className="row-menu-item"
+                                                        role="menuitem"
+                                                        onClick={() => { setOpenMenuId(null); router.push(`/campaigns/${c.id}`); }}
+                                                    >
+                                                        Open
+                                                    </button>
+                                                    <button
+                                                        className="row-menu-item danger"
+                                                        role="menuitem"
+                                                        disabled={deletingId === c.id}
+                                                        onClick={() => handleDelete(c.id, c.name)}
+                                                    >
+                                                        {deletingId === c.id ? 'Deleting…' : 'Delete'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </td>
                                 </tr>
                             );
                         })}
@@ -151,6 +217,13 @@ export default function CampaignsPage() {
 .cp-page .chip.lead{background:color-mix(in oklab,var(--accent-soft),transparent 15%);color:var(--accent-ink);border-color:transparent}
 .cp-page .chip.contacted{background:var(--surface-2);color:var(--ink-2)}
 .cp-page .chip.dead{background:color-mix(in oklab,var(--danger-soft),transparent 20%);color:var(--danger);border-color:transparent}
+.cp-page .row-menu-wrap{position:relative;display:inline-block}
+.cp-page .row-menu{position:absolute;right:0;top:calc(100% + 4px);min-width:160px;background:var(--surface);border:1px solid var(--hairline-soft);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;z-index:50;display:flex;flex-direction:column}
+.cp-page .row-menu-item{background:none;border:none;color:var(--ink);font-family:var(--font-ui);font-size:13px;text-align:left;padding:8px 12px;border-radius:6px;cursor:pointer;transition:background .12s}
+.cp-page .row-menu-item:hover{background:var(--surface-hover)}
+.cp-page .row-menu-item:disabled{opacity:.5;cursor:default}
+.cp-page .row-menu-item.danger{color:var(--danger)}
+.cp-page .row-menu-item.danger:hover{background:color-mix(in oklab,var(--danger-soft),transparent 60%)}
             `}</style>
         </div>
     );
