@@ -238,12 +238,19 @@ export async function getInboxEmailsAction(
 
     if (!rawRows || rawRows.length === 0) return empty;
 
-    // Dedup copies of the same email across multiple accounts.
-    const seen = new Set<string>();
+    // Dedup: show only the latest message per thread, and dedup cross-account copies.
+    const seenThreads = new Set<string>();
+    const seenExact = new Set<string>();
     const rows = rawRows.filter((r: any) => {
-        const key = `${r.from_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
+        // Cross-account dedup (same email synced to multiple accounts)
+        const exactKey = `${r.from_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
+        if (seenExact.has(exactKey)) return false;
+        seenExact.add(exactKey);
+        // Thread-level dedup: keep only the latest message per thread
+        if (r.thread_id) {
+            if (seenThreads.has(r.thread_id)) return false;
+            seenThreads.add(r.thread_id);
+        }
         return true;
     }).slice(0, clampedPageSize);
 
@@ -353,12 +360,17 @@ export async function getInboxWithCountsAction(
         counts[k] = Number(v);
     }
 
-    // Dedup copies of the same email across accounts
-    const seenInbox = new Set<string>();
+    // Dedup: show only the latest message per thread, and dedup cross-account copies.
+    const seenThreads2 = new Set<string>();
+    const seenExact2 = new Set<string>();
     const rows = rawRows.filter((r: any) => {
-        const key = `${r.from_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
-        if (seenInbox.has(key)) return false;
-        seenInbox.add(key);
+        const exactKey = `${r.from_email}|${r.sent_at}|${(r.subject || '').slice(0, 50)}`;
+        if (seenExact2.has(exactKey)) return false;
+        seenExact2.add(exactKey);
+        if (r.thread_id) {
+            if (seenThreads2.has(r.thread_id)) return false;
+            seenThreads2.add(r.thread_id);
+        }
         return true;
     }).slice(0, clampedPageSize);
 

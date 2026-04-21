@@ -210,7 +210,7 @@ interface EmailDetailProps {
 function EmailBodyFrame({ html }: { html: string }) {
     const iframeRef = React.useRef<HTMLIFrameElement>(null);
     const observerRef = React.useRef<MutationObserver | null>(null);
-    const [height, setHeight] = React.useState(200);
+    const [height, setHeight] = React.useState(60);
 
     React.useEffect(() => {
         const iframe = iframeRef.current;
@@ -265,6 +265,16 @@ function EmailBodyFrame({ html }: { html: string }) {
         // Block tracking pixel from loading inside the iframe by replacing src with empty
         const pixelSafe = sanitized.replace(/src=["'][^"']*api\/track[^"']*["']/gi, 'src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"');
 
+        // Dark mode is default; light mode is data-theme="light"
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+
+        const textColor = isLight ? '#1a1a1a' : '#e8eaed';
+        const textMuted = isLight ? '#666' : '#999';
+        const borderColor = isLight ? '#ddd' : '#444';
+        const codeBg = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)';
+        const codeColor = isLight ? '#333' : '#ddd';
+        const linkColor = isLight ? '#1a73e8' : 'oklch(0.82 0.14 295)';
+
         const doc = `
             <!DOCTYPE html>
             <html>
@@ -280,7 +290,7 @@ function EmailBodyFrame({ html }: { html: string }) {
                         font-family: 'Inter', 'Google Sans', 'Segoe UI', Roboto, Arial, sans-serif;
                         font-size: 13px;
                         line-height: 1.6;
-                        color: #ccc;
+                        color: ${textColor};
                         background: transparent;
                         word-break: break-word;
                         -webkit-font-smoothing: antialiased;
@@ -291,7 +301,7 @@ function EmailBodyFrame({ html }: { html: string }) {
                         display: inline-block;
                     }
                     a {
-                        color: oklch(0.82 0.14 295);
+                        color: ${linkColor};
                         text-decoration: none;
                     }
                     a:hover { text-decoration: underline; }
@@ -300,19 +310,19 @@ function EmailBodyFrame({ html }: { html: string }) {
                     }
                     blockquote {
                         margin: 0 0 0 0.8ex;
-                        border-left: 1px solid #555;
+                        border-left: 1px solid ${borderColor};
                         padding-left: 1ex;
-                        color: #999;
+                        color: ${textMuted};
                     }
                     pre, code {
-                        background: rgba(255,255,255,0.06);
+                        background: ${codeBg};
                         padding: 2px 6px;
                         border-radius: 4px;
                         font-size: 13px;
-                        color: #ddd;
+                        color: ${codeColor};
                     }
                     pre { padding: 12px; overflow-x: auto; }
-                    hr { border: none; border-top: 1px solid #444; margin: 16px 0; }
+                    hr { border: none; border-top: 1px solid ${borderColor}; margin: 16px 0; }
                 </style>
             </head>
             <body>
@@ -329,7 +339,7 @@ function EmailBodyFrame({ html }: { html: string }) {
             if (e.data?.type === 'iframe-resize' && typeof e.data.height === 'number') {
                 // Only update if this message came from our iframe
                 if (e.source === iframe.contentWindow) {
-                    setHeight(Math.max(e.data.height + 16, 100));
+                    setHeight(Math.max(e.data.height + 4, 40));
                 }
             }
         };
@@ -341,8 +351,8 @@ function EmailBodyFrame({ html }: { html: string }) {
                 const body = iframe.contentDocument?.body;
                 const docEl = iframe.contentDocument?.documentElement;
                 if (body && docEl) {
-                    const h = Math.max(body.scrollHeight, body.offsetHeight, docEl.scrollHeight, docEl.offsetHeight, 100);
-                    setHeight(h + 16);
+                    const h = Math.max(body.scrollHeight, body.offsetHeight, docEl.scrollHeight, docEl.offsetHeight, 40);
+                    setHeight(h + 4);
                 }
             } catch { }
         };
@@ -467,6 +477,40 @@ function isHtmlBody(body: string): boolean {
     return /<(html|div|p|table|span|br|img|a|style|head|body|td|tr)\b/i.test(body);
 }
 
+/** Convert HTML to clean plain text — strips scripts, styles, tags, and decodes entities */
+function htmlToPlainText(html: string): string {
+    return html
+        // Remove script/style blocks entirely (content + tags)
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        // Convert line-break elements
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<\/tr>/gi, '\n')
+        .replace(/<\/h[1-6]>/gi, '\n\n')
+        // Strip remaining tags
+        .replace(/<[^>]*>/g, '')
+        // Decode HTML entities
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&rsquo;/gi, '\u2019')
+        .replace(/&lsquo;/gi, '\u2018')
+        .replace(/&rdquo;/gi, '\u201D')
+        .replace(/&ldquo;/gi, '\u201C')
+        .replace(/&mdash;/gi, '\u2014')
+        .replace(/&ndash;/gi, '\u2013')
+        .replace(/&#\d+;/gi, '')
+        // Clean up whitespace
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 export function stripOldEmailContent(body: string, isHtml: boolean): string {
     if (!body) return '';
     
@@ -537,11 +581,45 @@ export function stripOldEmailContent(body: string, isHtml: boolean): string {
         }
     }
 
+    // Strip email signatures: common patterns
+    if (isHtml) {
+        // Remove signature dividers and everything after
+        const sigPatterns = [
+            /(<br\s*\/?>[\s\n]*){2,}<(div|p|span)[^>]*>[\s\S]*?(regards|cheers|best|thanks|sent from|get outlook|—|--|___)/i,
+            /<div[^>]*class="[^"]*signature[^"]*"[^>]*>[\s\S]*/i,
+            /<div[^>]*id="[^"]*signature[^"]*"[^>]*>[\s\S]*/i,
+            /(<br\s*\/?>[\s\n]*){1,}--[\s\n]*<br/i,
+        ];
+        for (const pattern of sigPatterns) {
+            const sigMatch = cleaned.match(pattern);
+            if (sigMatch?.index !== undefined && sigMatch.index > 50) {
+                cleaned = cleaned.substring(0, sigMatch.index);
+            }
+        }
+        // Remove all img tags (signature logos, banners, social icons)
+        cleaned = cleaned.replace(/<img[^>]*>/gi, '');
+        // Remove empty links (social icon links with no text)
+        cleaned = cleaned.replace(/<a[^>]*>\s*<\/a>/gi, '');
+        // Remove phone/address blocks often in sigs
+        cleaned = cleaned.replace(/<(div|p|span)[^>]*>[\s\n]*<a[^>]*>[\s\n]*<\/a>[\s\n]*<\/(div|p|span)>/gi, '');
+        // Remove trailing empty divs/paragraphs
+        cleaned = cleaned.replace(/(<(div|p|br|span)[^>]*>\s*<\/(div|p|span)>\s*)*$/gi, '');
+        cleaned = cleaned.replace(/(<br\s*\/?\s*>\s*)+$/gi, '');
+    } else {
+        // Plain text: cut at signature delimiter
+        const sigDelimiters = [/\n--\s*\n/,  /\n_{5,}\n/, /\nSent from my /i, /\nGet Outlook/i];
+        for (const delim of sigDelimiters) {
+            const sigMatch = cleaned.match(delim);
+            if (sigMatch?.index !== undefined && sigMatch.index > 20) {
+                cleaned = cleaned.substring(0, sigMatch.index);
+            }
+        }
+    }
+
     const result = cleaned.trim();
-    
-    // Safety Fallback: if stripping removed EVERYTHING or nearly everything but we had content, 
+
+    // Safety Fallback: if stripping removed EVERYTHING or nearly everything but we had content,
     // it likely means the regex was too aggressive or the email is only a quote.
-    // In that case, showing the full content is better than showing nothing.
     // We also check if the result is just empty HTML noise.
     const hasVisibleText = result.replace(/<[^>]*>/g, '').trim().length > 0;
 
@@ -985,9 +1063,14 @@ export function EmailDetail({
                                             cleanBody = msg.snippet;
                                         }
 
+                                        // For simple HTML (no tables, no complex layout), extract plain text for cleaner rendering
+                                        const isComplexHtml = isHtmlLocal && /<(table|style|center|td)\b/i.test(cleanBody);
+                                        const useIframe = isHtmlLocal && msg.body && cleanBody !== msg.snippet && isComplexHtml;
+                                        const plainFromHtml = (isHtmlLocal && !isComplexHtml) ? htmlToPlainText(cleanBody) : '';
+
                                         return (
                                             <div className="gmail-msg-body">
-                                                {(isHtmlLocal && msg.body && cleanBody !== msg.snippet) ? (
+                                                {useIframe ? (
                                                     <EmailBodyFrame
                                                         html={cleanBody
                                                             .replace(/<img[^>]*api\/track[^>]*>/gi, '')
@@ -995,24 +1078,37 @@ export function EmailDetail({
                                                             .replace(/data-src=/gi, 'src=')}
                                                     />
                                                 ) : (
-                                                    <PlainTextBody text={cleanBody} />
+                                                    <PlainTextBody text={plainFromHtml || cleanBody} />
                                                 )}
 
                                                 {/* Attachments */}
                                                 {msg.body?.includes('<!-- ATTACHMENTS:') && (
-                                                    <div className="gmail-attachments">
+                                                    <div className="att-cards">
                                                         {(() => {
                                                             const match = msg.body.match(/<!-- ATTACHMENTS: ([\s\S]*?) -->/);
                                                             if (!match) return null;
                                                             try {
                                                                 const atts = JSON.parse(match[1]);
-                                                                return atts.map((a: any) => (
-                                                                    <div key={a.id} className="gmail-attachment-chip">
-                                                                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
-                                                                        <span>{a.filename || 'Attachment'}</span>
-                                                                        <span className="gmail-att-size">{a.size ? `${(a.size / 1024).toFixed(0)} KB` : ''}</span>
-                                                                    </div>
-                                                                ));
+                                                                return atts.map((a: any) => {
+                                                                    const name = a.filename || 'Attachment';
+                                                                    const ext = name.split('.').pop()?.toLowerCase() || '';
+                                                                    const sizeKb = a.size ? (a.size / 1024) : 0;
+                                                                    const sizeStr = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb.toFixed(0)} KB`;
+                                                                    const colors: Record<string, string> = { pdf: '#E53935', doc: '#1565C0', docx: '#1565C0', xls: '#2E7D32', xlsx: '#2E7D32', csv: '#2E7D32', ppt: '#D84315', pptx: '#D84315', fig: '#7C3AED', sketch: '#F59E0B', png: '#0891B2', jpg: '#0891B2', jpeg: '#0891B2', gif: '#0891B2', svg: '#0891B2', mp4: '#7C3AED', mov: '#7C3AED', zip: '#6B7280', rar: '#6B7280' };
+                                                                    const color = colors[ext] || '#6B7280';
+                                                                    return (
+                                                                        <div key={a.id} className="att-card">
+                                                                            <div className="att-card-badge" style={{ background: color }}>{ext.toUpperCase() || 'FILE'}</div>
+                                                                            <div className="att-card-info">
+                                                                                <span className="att-card-name">{name}</span>
+                                                                                <span className="att-card-size">{sizeStr}</span>
+                                                                            </div>
+                                                                            <button className="att-card-more" aria-label="More options">
+                                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="6" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/></svg>
+                                                                            </button>
+                                                                        </div>
+                                                                    );
+                                                                });
                                                             } catch { return null; }
                                                         })()}
                                                     </div>
@@ -1290,9 +1386,13 @@ export function ThreadMessages({ threadMessages, isThreadLoading, emailId }: Thr
                             const hasVisibleText = cleanBody.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim().length > 0;
                             if (!hasVisibleText && msg.snippet) cleanBody = msg.snippet;
 
+                            const isComplex = isHtml && /<(table|style|center|td)\b/i.test(cleanBody);
+                            const useIframe = isHtml && msg.body && cleanBody !== msg.snippet && isComplex;
+                            const plainText = (isHtml && !isComplex) ? htmlToPlainText(cleanBody) : '';
+
                             return (
                                 <div className="msg-body">
-                                    {(isHtml && msg.body && cleanBody !== msg.snippet) ? (
+                                    {useIframe ? (
                                         <EmailBodyFrame
                                             html={cleanBody
                                                 .replace(/<img[^>]*api\/track[^>]*>/gi, '')
@@ -1300,7 +1400,7 @@ export function ThreadMessages({ threadMessages, isThreadLoading, emailId }: Thr
                                                 .replace(/data-src=/gi, 'src=')}
                                         />
                                     ) : (
-                                        <PlainTextBody text={cleanBody} />
+                                        <PlainTextBody text={plainText || cleanBody} />
                                     )}
                                     {msg.body?.includes('<!-- ATTACHMENTS:') && (
                                         <div className="msg-attachments">

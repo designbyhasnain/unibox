@@ -2612,7 +2612,7 @@ a {
     gap: 0.75rem;
     flex-shrink: 0;
     border-bottom: 1px solid var(--border);
-    background: #ffffff;
+    background: var(--canvas);
 }
 
 .gmail-subject {
@@ -2630,7 +2630,7 @@ a {
 .gmail-thread-body {
     flex: 1;
     overflow-y: auto;
-    background: #ffffff;
+    background: var(--canvas);
 }
 
 .gmail-thread-list {
@@ -2828,8 +2828,8 @@ a {
 
 /* ── Message Body ── */
 .gmail-msg-body {
-    padding: 0 1rem 1.5rem 1rem;
-    color: #3c4043;
+    padding: 0 1rem 0.75rem 1rem;
+    color: var(--ink) !important;
     line-height: 1.5;
 }
 
@@ -2840,9 +2840,9 @@ a {
 }
 
 .plain-text-body {
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
     line-height: 1.7;
-    color: var(--text-primary);
+    color: var(--ink) !important;
     white-space: pre-wrap;
     word-break: break-word;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -2920,11 +2920,75 @@ a {
     margin-left: 0.25rem;
 }
 
+/* ── Attachment Cards (file-type colored) ── */
+.att-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 4px 0;
+}
+.att-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    min-width: 180px;
+    max-width: 260px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.att-card:hover { border-color: var(--accent); }
+.att-card-badge {
+    display: grid;
+    place-items: center;
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: white;
+    flex-shrink: 0;
+}
+.att-card-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 1px;
+}
+.att-card-name {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.att-card-size {
+    font-size: 11px;
+    color: var(--ink-muted);
+}
+.att-card-more {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--ink-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: grid;
+    place-items: center;
+}
+.att-card-more:hover { background: var(--hairline); }
+
 /* ── Reply Footer ── */
 .gmail-reply-footer {
     padding: 1rem 1.5rem;
     border-top: 1px solid var(--border);
-    background: #ffffff;
+    background: var(--canvas);
     flex-shrink: 0;
 }
 
@@ -3286,7 +3350,7 @@ select.form-input option {
 
 .compose-editor {
     padding: 8px 0 14px; min-height: 200px;
-    font-size: 13.5px; color: var(--ink-2); line-height: 1.6;
+    font-size: 13.5px; color: var(--ink); line-height: 1.6;
 }
 .compose-editor [contenteditable]:empty:before {
     content: attr(data-placeholder);
@@ -7177,7 +7241,7 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
 
 .inbox-grid .msg-body {
     padding: 16px 16px 16px 54px;
-    font-size: 13px; color: var(--ink-2); line-height: 1.6;
+    font-size: 13px; color: var(--ink); line-height: 1.6;
 }
 .inbox-grid .msg-body p { margin: 0 0 10px; }
 .inbox-grid .msg-body p:last-child { margin-bottom: 0; }

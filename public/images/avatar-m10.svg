@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<!-- Person with bowl cut, closed/squinting happy eyes -->
+<circle cx="50" cy="56" r="30" fill="#fff" stroke="#222" stroke-width="2.5"/>
+<path d="M20 50c0-18 13-34 30-34s30 16 30 34" fill="#222"/>
+<path d="M20 50h60" stroke="#222" stroke-width="2"/>
+<!-- Closed happy eyes -->
+<path d="M34 56c2-3 6-3 8 0" stroke="#222" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+<path d="M58 56c2-3 6-3 8 0" stroke="#222" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+<path d="M47 65c1 2 5 2 6 0" stroke="#222" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+<path d="M42 73c3 3 13 3 16 0" stroke="#222" stroke-width="2" fill="none" stroke-linecap="round"/>
+</svg>

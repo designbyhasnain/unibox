@@ -67,6 +67,18 @@ function guessRegion(email: string, company: string | null): string | null {
 }
 
 export async function suggestReplyAction(threadId: string) {
+    // Global timeout: if entire action takes > 25s, bail out with error
+    const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Jarvis timed out after 25s')), 25_000)
+    );
+    try {
+        return await Promise.race([_suggestReplyImpl(threadId), timeoutPromise]);
+    } catch (e: any) {
+        return { success: false as const, error: e?.message || 'Jarvis timed out' };
+    }
+}
+
+async function _suggestReplyImpl(threadId: string) {
     const { userId, role } = await ensureAuthenticated();
     blockEditorAccess(role);
     if (!threadId) return { success: false as const, error: 'threadId is required' };

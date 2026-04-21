@@ -77,35 +77,69 @@ const SYSTEM_PROMPT = `You are Jarvis — the sales brain for Wedits (Films by R
 - Plain text only. Newlines between paragraphs are fine. No HTML.
 - No emoji unless the prospect used them.`;
 
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
 async function callGroq(messages: { role: 'system' | 'user'; content: string }[], signal?: AbortSignal): Promise<string | null> {
-    if (!GROQ_API_KEY) return null;
-    try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            signal,
-            headers: {
-                'Authorization': `Bearer ${GROQ_API_KEY}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
-                messages,
-                max_tokens: 600,
-                temperature: 0.4,
-            }),
-        });
-        if (!res.ok) {
-            console.error('[replySuggestion] Groq error', res.status, await res.text());
-            return null;
+    // Try Groq first
+    if (GROQ_API_KEY) {
+        try {
+            const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                signal,
+                headers: {
+                    'Authorization': `Bearer ${GROQ_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: 'llama-3.3-70b-versatile',
+                    messages,
+                    max_tokens: 600,
+                    temperature: 0.4,
+                }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const content: string | undefined = data?.choices?.[0]?.message?.content;
+                const result = (content || '').trim();
+                if (result) return result;
+            } else {
+                console.error('[replySuggestion] Groq error', res.status, await res.text());
+            }
+        } catch (e: any) {
+            if (e?.name === 'AbortError') return null;
+            console.error('[replySuggestion] Groq failed, trying Gemini:', e?.message);
         }
-        const data = await res.json();
-        const content: string | undefined = data?.choices?.[0]?.message?.content;
-        return (content || '').trim() || null;
-    } catch (e: any) {
-        if (e?.name === 'AbortError') return null;
-        console.error('[replySuggestion] Groq call failed:', e?.message || e);
-        return null;
     }
+
+    // Fallback to Gemini
+    if (GEMINI_API_KEY) {
+        try {
+            const systemMsg = messages.find(m => m.role === 'system')?.content || '';
+            const userMsg = messages.find(m => m.role === 'user')?.content || '';
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                method: 'POST',
+                signal,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    systemInstruction: { parts: [{ text: systemMsg }] },
+                    contents: [{ parts: [{ text: userMsg }] }],
+                    generationConfig: { maxOutputTokens: 600, temperature: 0.4 },
+                }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const content = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                return (content || '').trim() || null;
+            } else {
+                console.error('[replySuggestion] Gemini error', res.status, await res.text());
+            }
+        } catch (e: any) {
+            if (e?.name === 'AbortError') return null;
+            console.error('[replySuggestion] Gemini failed:', e?.message);
+        }
+    }
+
+    return null;
 }
 
 function cleanBody(input: string | null | undefined): string {
@@ -238,7 +272,7 @@ export async function generateReplySuggestion(
                 { role: 'system', content: COACHING_PROMPT },
                 { role: 'user', content: userPrompt },
             ], controller.signal);
-            if (!out) return { suggestion: null, mode: 'coaching' };
+            if (!out) return { suggestion: null, mode: 'coaching', error: 'Could not generate coaching feedback' };
             return { suggestion: out, mode: 'coaching' };
         } finally {
             clearTimeout(timeout);
@@ -258,7 +292,7 @@ export async function generateReplySuggestion(
             { role: 'system', content: SYSTEM_PROMPT },
             { role: 'user', content: userPrompt },
         ], controller.signal);
-        if (!out) return { suggestion: null, error: 'Jarvis returned no draft' };
+        if (!out) return { suggestion: null, error: 'Both Groq and Gemini failed to generate a draft. Check API keys and rate limits.' };
         return { suggestion: out, mode: 'reply' };
     } finally {
         clearTimeout(timeout);

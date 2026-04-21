@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<!-- Girl with wavy pigtails -->
+<circle cx="50" cy="50" r="30" fill="#fff" stroke="#222" stroke-width="2.5"/>
+<path d="M20 44c0-18 13-30 30-30s30 12 30 30" fill="#222"/>
+<path d="M20 44c-4 4-6 14-4 24-2 6 0 14 4 16" stroke="#222" stroke-width="4" fill="#222" stroke-linecap="round"/>
+<path d="M80 44c4 4 6 14 4 24 2 6 0 14-4 16" stroke="#222" stroke-width="4" fill="#222" stroke-linecap="round"/>
+<path d="M34 44c3-2 7-2 10 0" stroke="#222" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+<path d="M56 44c3-2 7-2 10 0" stroke="#222" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+<circle cx="38" cy="50" r="2.5" fill="#222"/>
+<circle cx="62" cy="50" r="2.5" fill="#222"/>
+<path d="M47 58c1 2 5 2 6 0" stroke="#222" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+<path d="M40 65c4 4 16 4 20 0" stroke="#222" stroke-width="2" fill="none" stroke-linecap="round"/>
+</svg>

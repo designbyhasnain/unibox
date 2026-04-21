@@ -327,7 +327,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
 
             <div className="reply-content-area" style={{ position: 'relative' }}>
                 {showFormatting && (
-                    <div className="formatting-toolbar" style={{ borderBottom: '1px solid #3c4043', position: 'relative', bottom: 'auto' }}>
+                    <div className="formatting-toolbar" style={{ borderBottom: '1px solid var(--hairline)', position: 'relative', bottom: 'auto' }}>
                         <div className="format-group">
                             <select
                                 className="format-select font-family-select"
@@ -537,7 +537,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                                         </div>
                                     ))}
                                     {filteredEmojiGroups?.[0]?.emojis?.length === 0 && (
-                                        <div className="no-emojis" style={{ textAlign: 'center', color: '#9aa0a6', padding: '16px' }}>No emojis found</div>
+                                        <div className="no-emojis" style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '16px' }}>No emojis found</div>
                                     )}
                                 </div>
                             </div>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<!-- Boy with thick curly/afro hair, serious face -->
+<circle cx="50" cy="56" r="29" fill="#fff" stroke="#222" stroke-width="2.5"/>
+<path d="M21 46c-2-20 12-34 29-34s31 14 29 34" fill="#222"/>
+<path d="M18 46c-2-4 0-10 4-12M82 46c2-4 0-10-4-12" stroke="#222" stroke-width="3" fill="#222" stroke-linecap="round"/>
+<path d="M24 20c4-6 12-10 18-10M58 10c6 0 14 4 18 10M30 10c6-4 14-6 20-6s14 2 20 6" fill="#222" stroke="#222" stroke-width="2"/>
+<ellipse cx="21" cy="58" rx="5" ry="6" fill="#fff" stroke="#222" stroke-width="2"/>
+<ellipse cx="79" cy="58" rx="5" ry="6" fill="#fff" stroke="#222" stroke-width="2"/>
+<path d="M34 50c2-2 6-3 9-1" stroke="#222" stroke-width="2" fill="none" stroke-linecap="round"/>
+<path d="M57 49c3-2 7-1 9 1" stroke="#222" stroke-width="2" fill="none" stroke-linecap="round"/>
+<circle cx="39" cy="56" r="2.5" fill="#222"/>
+<circle cx="61" cy="56" r="2.5" fill="#222"/>
+<path d="M47 65c1 2 5 2 6 0" stroke="#222" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+<path d="M40 74h20" stroke="#222" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+</svg>

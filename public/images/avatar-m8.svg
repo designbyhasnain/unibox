@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<!-- Guy with goatee, curly sides, small top knot, serious -->
+<ellipse cx="50" cy="54" rx="30" ry="33" fill="#fff" stroke="#222" stroke-width="2.5"/>
+<path d="M24 40c4-4 6-8 6-8" fill="#222" stroke="#222" stroke-width="3" stroke-linecap="round"/>
+<path d="M70 32c2 2 4 6 6 8" fill="#222" stroke="#222" stroke-width="3" stroke-linecap="round"/>
+<!-- Top knot -->
+<ellipse cx="50" cy="18" rx="5" ry="6" fill="#222"/>
+<path d="M45 24c2-2 8-2 10 0" fill="#222"/>
+<path d="M34 50c3-2 7-2 10 0" stroke="#222" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+<path d="M56 50c3-2 7-2 10 0" stroke="#222" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+<circle cx="39" cy="54" r="2" fill="#222"/>
+<circle cx="61" cy="54" r="2" fill="#222"/>
+<path d="M47 62l3 6 3-6" stroke="#222" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M42 74h16" stroke="#222" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+<!-- Goatee -->
+<path d="M46 78c1 5 3 7 4 7s3-2 4-7" fill="#222" stroke="#222" stroke-width="1.5"/>
+</svg>

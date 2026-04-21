@@ -20,6 +20,7 @@ import { useGlobalFilter } from './context/FilterContext';
 import { STAGE_OPTIONS } from './constants/stages';
 import { useHydrated } from './utils/useHydration';
 import { formatDate, cleanPreview } from './utils/helpers';
+import { getAvatarSrc, getAvatarBg } from './utils/avatars';
 import { RefreshCw, Mail, Send, Trash2, Eye, EyeOff, CheckCheck } from 'lucide-react';
 
 const PAGE_SIZE = 50;
@@ -454,8 +455,6 @@ export default function InboxPage() {
                                     const managerName = email.gmail_accounts?.user?.name || '';
                                     const dateStr = formatDate(email.sent_at);
                                     const initials = senderName.charAt(0).toUpperCase();
-                                    const avColors = ['av-a', 'av-b', 'av-c', 'av-d', 'av-e', 'av-f', 'av-g', 'av-h'];
-                                    const avClass = avColors[senderName.charCodeAt(0) % avColors.length];
 
                                     return (
                                         <div
@@ -464,7 +463,9 @@ export default function InboxPage() {
                                             onClick={() => handleSelectEmail(email)}
                                             onMouseEnter={() => prefetchThread?.(email.thread_id)}
                                         >
-                                            <div className={`avatar ${avClass}`}>{initials}</div>
+                                            <div className="avatar" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: getAvatarBg(senderName) }}>
+                                                <img src={getAvatarSrc(senderName)} alt={initials} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            </div>
                                             <div className="body">
                                                 <div className="top">
                                                     {isUnread && <span className="unread-dot" />}
