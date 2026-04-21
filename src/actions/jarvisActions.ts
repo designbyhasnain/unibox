@@ -168,8 +168,9 @@ export async function logJarvisFeedbackAction(params: {
         });
 
         return { success: true };
-    } catch {
-        return { success: false };
+    } catch (err: any) {
+        console.error('[jarvisActions] logJarvisFeedbackAction error:', err);
+        return { success: false, error: err?.message || 'Failed to log Jarvis feedback' };
     }
 }
 
@@ -205,13 +206,19 @@ export async function verifyKnowledgeAction(params: {
         if (params.correctPrice !== undefined) update.price_mentioned = params.correctPrice;
         if (params.verified) update.success_score = 1.0;
 
-        await supabase
+        const { error } = await supabase
             .from('jarvis_knowledge')
             .update(update)
             .eq('id', params.knowledgeId);
 
+        if (error) {
+            console.error('[jarvisActions] verifyKnowledgeAction update error:', error);
+            return { success: false, error: error.message || 'Failed to update knowledge entry' };
+        }
+
         return { success: true };
-    } catch {
-        return { success: false };
+    } catch (err: any) {
+        console.error('[jarvisActions] verifyKnowledgeAction error:', err);
+        return { success: false, error: err?.message || 'Failed to verify knowledge entry' };
     }
 }

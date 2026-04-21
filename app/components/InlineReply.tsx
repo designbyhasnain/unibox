@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction } from '../../src/actions/emailActions';
 import { useGlobalFilter } from '../context/FilterContext';
-import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Paperclip, Link, Image, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Send, User } from 'lucide-react';
+import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Link, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Send, User } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
 import { DEFAULT_USER_ID } from '../constants/config';
@@ -164,11 +164,6 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
             editorRef.current.innerHTML += DOMPurify.sanitize(signature);
             setBody(editorRef.current.innerHTML);
         }
-    };
-
-    const handleAttachmentClick = () => {
-        // Attachments are not yet wired to the send action (FE-020)
-        alert('Attachments are coming soon. This feature is not yet available.');
     };
 
     const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
@@ -470,9 +465,6 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                     >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.5 19h19v2h-19v-2zm1.14-4.22h3.58l.84 2.22h1.86L6 5h-1.33L1.2 17h1.6l.84-2.22zM5.38 8.01L7.26 13h-3.8l1.92-4.99z" /></svg>
                     </button>
-                    <button className="compose-icon-btn" title="Attach files" onClick={handleAttachmentClick}>
-                        <Paperclip size={20} />
-                    </button>
                     <button className="compose-icon-btn" title="Insert link" onClick={handleInsertLink}>
                         <Link size={20} />
                     </button>
@@ -554,9 +546,6 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                     <button className="compose-icon-btn" title="Insert files using Drive">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.34 10.5l-4-7h-6.7l4 7h6.7zM14 11.5l-4 7h6.7l4-7H14zM12 11.1L8.3 4.5H1.6l4 7H12zM12.7 12.5H6l-4 7h6.7l4-7z" /></svg>
                     </button>
-                    <button className="compose-icon-btn" title="Insert photo" onClick={handleAttachmentClick}>
-                        <Image size={20} />
-                    </button>
                     <button className="compose-icon-btn" title="Toggle confidential mode">
                         <Shield size={20} />
                     </button>
@@ -579,13 +568,6 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                             <div className="gmail-msg-popover more-options" ref={moreOptionsRef} style={{ bottom: 'calc(100% + 10px)', top: 'auto', right: 0, left: 'auto', width: '180px', padding: '6px 0' }}>
                                 <div className="popover-action-item" onClick={() => { window.print(); setShowMoreOptions(false); }}>
                                     Print
-                                </div>
-                                <div className="popover-action-item" onClick={() => { alert('Check spelling coming soon...'); setShowMoreOptions(false); }}>
-                                    Check spelling
-                                </div>
-                                <div className="popover-separator" />
-                                <div className="popover-action-item" onClick={() => { setShowMoreOptions(false); }}>
-                                    Plain text mode
                                 </div>
                             </div>
                         )}

@@ -16,7 +16,7 @@ export default function ViewSwitcher({ activeView, onChangeView }: {
           <span className="ep-view-tab-icon">{tab.icon}</span> {tab.label}
         </button>
       ))}
-      <button className="ep-view-tab ep-view-tab-more">··· 27 more...</button>
+      <span className="ep-view-tab ep-view-tab-more">··· 27 more</span>
     </div>
   );
 }

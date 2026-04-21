@@ -197,10 +197,26 @@ export async function reSyncAccountAction(accountId: string, connectionMethod: '
             deepGapFillSync(accountId, 30).catch(err => {
                 console.error('[reSyncAccountAction] deep sync error:', err?.message || err);
             });
-        } else {
-            syncManualEmails(accountId).catch(console.error);
+            return { success: true };
         }
-        return { success: true };
+
+        // MANUAL (IMAP/SMTP): await so the user sees a real pass/fail.
+        try {
+            await syncManualEmails(accountId);
+            return { success: true };
+        } catch (syncErr: any) {
+            const msg = syncErr?.message || 'IMAP sync failed';
+            console.error('[reSyncAccountAction] manual sync error:', msg);
+            // Surface the reason in the accounts panel (yellow badge + Re-test CTA).
+            await supabase
+                .from('gmail_accounts')
+                .update({
+                    last_error_message: `Manual re-sync: ${msg}`.slice(0, 500),
+                    last_error_at: new Date().toISOString(),
+                })
+                .eq('id', accountId);
+            return { success: false, error: msg };
+        }
     } catch (error: any) {
         console.error('[accountActions] reSyncAccountAction error:', error);
         return { success: false, error: 'An error occurred while processing your request' };
