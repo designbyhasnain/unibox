@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getSalesDashboardAction } from '../../src/actions/dashboardActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
+import { getDailyBriefingAction, regenerateDailyBriefingAction } from '../../src/actions/jarvisActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 
@@ -41,6 +42,10 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     const [name, setName] = useState('');
     const [d, setD] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [briefingSummary, setBriefingSummary] = useState<string | null>(null);
+    const [regenerating, setRegenerating] = useState(false);
+    const [speaking, setSpeaking] = useState(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
     const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
 
     useEffect(() => {
@@ -50,6 +55,82 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                 setD(dash);
                 setLoading(false);
             }).catch(() => setLoading(false));
+    }, []);
+
+    // Load briefing in parallel — cached per-day so warm lambdas return instantly.
+    useEffect(() => {
+        getDailyBriefingAction()
+            .then(r => { if (r.success && r.briefing?.summary) setBriefingSummary(r.briefing.summary); })
+            .catch(() => { /* keep fallback bullets */ });
+    }, []);
+
+    const handleRegenerate = async () => {
+        if (regenerating) return;
+        setRegenerating(true);
+        const res = await regenerateDailyBriefingAction();
+        setRegenerating(false);
+        if (res.success && res.briefing?.summary) setBriefingSummary(res.briefing.summary);
+        else alert(res.error || 'Failed to regenerate briefing');
+    };
+
+    // Build the text we'll speak from the live briefing (if loaded) or the
+    // hardcoded fallback bullets — same copy the user sees on screen.
+    const getSpeakText = () => {
+        if (briefingSummary) return briefingSummary;
+        const s2 = d?.stats || {};
+        const replyCount = (d?.needReply || []).length;
+        if (replyCount > 0) {
+            return `Three things to handle before lunch. Reply to the ${Math.min(replyCount, 5)} outstanding emails from yesterday. Send a follow-up to the new lead. Review and analyse the ${s2.replies || 0} replies received in the last twenty-four hours.`;
+        }
+        return `All caught up — no overdue replies. Great work keeping the inbox clean.`;
+    };
+
+    const handleReadAloud = async () => {
+        // Stop any in-flight playback first.
+        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+        try { window.speechSynthesis?.cancel(); } catch {}
+
+        if (speaking) { setSpeaking(false); return; }
+        const text = getSpeakText();
+        if (!text) return;
+        setSpeaking(true);
+
+        try {
+            const res = await fetch('/api/jarvis/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text }),
+            });
+            if (res.ok) {
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                audioRef.current = audio;
+                audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); };
+                audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(url); };
+                await audio.play();
+                return;
+            }
+            // 501 (not configured) or any other error → browser fallback.
+        } catch {
+            // network-level failure → browser fallback too
+        }
+
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            const utter = new SpeechSynthesisUtterance(text);
+            utter.rate = 1.0;
+            utter.onend = () => setSpeaking(false);
+            utter.onerror = () => setSpeaking(false);
+            window.speechSynthesis.speak(utter);
+        } else {
+            setSpeaking(false);
+        }
+    };
+
+    // Stop audio if the component unmounts mid-playback.
+    useEffect(() => () => {
+        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+        try { window.speechSynthesis?.cancel(); } catch {}
     }, []);
 
     if (!hydrated || loading) return <PageLoader isLoading type="grid" count={6} context="dashboard"><div /></PageLoader>;
@@ -135,6 +216,14 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
 
 .jarvis-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;font-size:11.5px;font-weight:500;border-radius:8px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--hairline-soft);cursor:pointer;font-family:var(--font-ui);transition:background .12s}
 .jarvis-btn:hover{background:var(--surface-hover);color:var(--ink)}
+.jarvis-btn:disabled{opacity:.6;cursor:default}
+.jarvis-btn[aria-pressed="true"]{background:color-mix(in oklab,var(--accent-soft),transparent 40%);color:var(--accent-ink);border-color:var(--accent-soft)}
+.jarvis-spin{display:inline-flex;animation:jarvis-spin .9s linear infinite}
+@keyframes jarvis-spin{to{transform:rotate(360deg)}}
+.db-briefing-body{color:var(--ink-2);font-size:13px;line-height:1.7}
+.db-briefing-body p{margin:0 0 8px;color:var(--ink-2)}
+.db-briefing-body p:last-child{margin-bottom:0}
+.db-briefing-body p b{color:var(--ink);font-weight:600}
 
 .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
 .kpi{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:var(--radius-card,14px);padding:14px 16px;position:relative;overflow:hidden}
@@ -194,26 +283,53 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                         <span style={{ color: 'var(--accent-ink)', display: 'inline-flex' }}>{ICON.spark}</span>
                         <span className="label">Jarvis · Daily briefing</span>
                         <div className="actions">
-                            <button className="jarvis-btn">{ICON.refresh} Regenerate</button>
-                            <button className="jarvis-btn">{ICON.mic} Read aloud</button>
+                            <button
+                                className="jarvis-btn"
+                                onClick={handleRegenerate}
+                                disabled={regenerating}
+                                aria-busy={regenerating}
+                                title="Re-run Jarvis against today's data"
+                            >
+                                <span className={regenerating ? 'jarvis-spin' : ''}>{ICON.refresh}</span>
+                                {regenerating ? 'Thinking…' : 'Regenerate'}
+                            </button>
+                            <button
+                                className="jarvis-btn"
+                                onClick={handleReadAloud}
+                                aria-pressed={speaking}
+                                title={speaking ? 'Stop' : 'Read the briefing aloud'}
+                            >
+                                {ICON.mic}
+                                {speaking ? 'Stop' : 'Read aloud'}
+                            </button>
                         </div>
                     </div>
-                    <h3>{isAdmin ? 'Three things to handle before lunch.' : 'Three things for you this morning.'}</h3>
-                    <ul>
-                        {reply.length > 0 ? (
-                            <>
-                                <li>Reply to the <b>{Math.min(reply.length, 5)} outstanding emails</b> from yesterday&apos;s sent emails to maintain open communication with clients.</li>
-                                <li>Send a follow-up to the new lead added <b>{s.newLeads > 0 ? '12 hours ago' : 'recently'}</b> to increase the chances of conversion.</li>
-                                <li>Review and analyze the <b>{s.replies} replies</b> received in the last 24 hours to gauge customer sentiment and adjust strategies accordingly.</li>
-                            </>
-                        ) : (
-                            <>
-                                <li>All caught up — <b>no overdue replies</b>. Great work keeping the inbox clean.</li>
-                                <li>Pipeline has <b>{funnelData.reduce((a, f) => a + f.v, 0).toLocaleString()} contacts</b> across all stages.</li>
-                                <li>Focus on <b>warm leads</b> today — {funnelData[2]?.v || 0} contacts are showing interest.</li>
-                            </>
-                        )}
-                    </ul>
+                    {briefingSummary ? (
+                        <div className="db-briefing-body">
+                            {briefingSummary.split(/\n+/).map((line, i) => (
+                                <p key={i}>{line}</p>
+                            ))}
+                        </div>
+                    ) : (
+                        <>
+                            <h3>{isAdmin ? 'Three things to handle before lunch.' : 'Three things for you this morning.'}</h3>
+                            <ul>
+                                {reply.length > 0 ? (
+                                    <>
+                                        <li>Reply to the <b>{Math.min(reply.length, 5)} outstanding emails</b> from yesterday&apos;s sent emails to maintain open communication with clients.</li>
+                                        <li>Send a follow-up to the new lead added <b>{s.newLeads > 0 ? '12 hours ago' : 'recently'}</b> to increase the chances of conversion.</li>
+                                        <li>Review and analyze the <b>{s.replies} replies</b> received in the last 24 hours to gauge customer sentiment and adjust strategies accordingly.</li>
+                                    </>
+                                ) : (
+                                    <>
+                                        <li>All caught up — <b>no overdue replies</b>. Great work keeping the inbox clean.</li>
+                                        <li>Pipeline has <b>{funnelData.reduce((a, f) => a + f.v, 0).toLocaleString()} contacts</b> across all stages.</li>
+                                        <li>Focus on <b>warm leads</b> today — {funnelData[2]?.v || 0} contacts are showing interest.</li>
+                                    </>
+                                )}
+                            </ul>
+                        </>
+                    )}
                 </div>
 
                 {/* ── KPI Grid ── */}
