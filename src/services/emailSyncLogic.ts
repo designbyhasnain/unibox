@@ -332,9 +332,24 @@ export async function handleEmailReceived(data: {
         newEmailStage = existingStage;
     }
 
-    // If the contact is NOT_INTERESTED, never promote them to LEAD automatically
+    // If the contact is NOT_INTERESTED but is replying to our outreach, they're re-engaging
     if (contact?.pipeline_stage === 'NOT_INTERESTED') {
-        newEmailStage = existingStage || 'NOT_INTERESTED';
+        if (hasOutgoing) {
+            // Re-engagement: they replied after being marked dead — revive them
+            newEmailStage = 'LEAD';
+            if (contact.id) {
+                await supabase.from('contacts').update({ pipeline_stage: 'LEAD' }).eq('id', contact.id);
+                // Remove from ignored_senders so future emails sync
+                await supabase.from('ignored_senders').delete().eq('email', cleanFromEmail);
+                await supabase.from('activity_logs').insert({
+                    action: 'Re-engagement: Contact replied after being marked Not Interested. Auto-promoted back to Lead.',
+                    performed_by: 'System',
+                    contact_id: contact.id,
+                });
+            }
+        } else {
+            newEmailStage = existingStage || 'NOT_INTERESTED';
+        }
     }
 
     // 3. Keyword detection for possible offer acceptance (Activity log only)
@@ -360,7 +375,7 @@ export async function handleEmailReceived(data: {
     }
 
     // 5. Auto-Update Status for Contact & Backfill Thread if it's a genuine lead
-    if (newEmailStage === 'LEAD' && contact && ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD'].includes(contact.pipeline_stage || '')) {
+    if (newEmailStage === 'LEAD' && contact && ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'NOT_INTERESTED'].includes(contact.pipeline_stage || '')) {
         await supabase
             .from('contacts')
             .update({ pipeline_stage: 'LEAD' })
