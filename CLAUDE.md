@@ -6,12 +6,12 @@ You are the sole developer on this project. Never ask the user where to push, de
 
 ### Deploy Steps (run in this exact order):
 
-1. npx tsc --noEmit → fix any TypeScript errors first
-2. npm run lint → fix any lint errors
-3. npm run build → fix any build errors
-4. git add .
-5. git commit -m "describe what changed"
-6. git push origin main
+1. `npx tsc --noEmit` → fix any TypeScript errors first
+2. `npm run lint` → fix any lint errors (currently broken under Next.js 16 — see Roadmap)
+3. `npm run build` → fix any build errors
+4. `git add .`
+5. `git commit -m "describe what changed"`
+6. `git push origin main`
 7. Vercel auto-deploys automatically
 8. Tell user: "Live ho gaya → https://txb-unibox.vercel.app"
 
@@ -28,9 +28,40 @@ You are the sole developer on this project. Never ask the user where to push, de
 
 ---
 
-# UNIBOX — Project Memory
+## Self-Updating Rule (MANDATORY)
 
-Unibox is a **multi-account email CRM** built for video production companies. It manages Gmail and manual IMAP/SMTP accounts, syncs emails in real-time, tracks leads through a sales pipeline, runs automated email campaigns with A/B testing, and provides open/click analytics.
+**This file is the Ultimate Source of Truth. Keep it current.**
+
+Every time I (Claude) do any of the following, I MUST update the relevant section of this file in the same commit:
+
+| Trigger | Section to update |
+|---------|-------------------|
+| Add a new page under `app/` | **File Structure → Pages** |
+| Add a new API route | **File Structure → API Routes** |
+| Add a new server action file | **File Structure → Server Actions** |
+| Add a new service file | **File Structure → Services** |
+| Add/rename/remove a Prisma model or enum | **Database → Models / Enums** |
+| Add a new cron job or QStash schedule | **Background Jobs** |
+| Add a new npm dependency or bump major version | **Tech Stack** |
+| Add a new role or change RBAC rules | **RBAC & Roles** |
+| Add a new AI model / external service (Groq, ElevenLabs, etc.) | **External Integrations** |
+| Change `proxy.ts`, `auth.ts`, `roleGate.ts`, or `accessControl.ts` | **Auth & Security** |
+| Change sidebar navigation groups | **Core Modules → Sidebar Groups** |
+| Move/rename a critical file | **Critical Files (Do Not Break)** |
+| Discover a surprising pattern or hidden feature | **Non-Obvious Patterns** |
+
+**If I discover that this file is out of date during a task, I fix it before continuing — not after.**
+
+When I update this file, I also update the "Last audited" date at the bottom.
+
+---
+
+# UNIBOX (TXB-UNIBOX) — Master Memory File
+
+> **Ultimate Source of Truth.** Rewritten from scratch on 2026-04-20 via full ground-up codebase audit.
+> Covers every route, component, service, DB model, role, cron, and integration currently in the app.
+
+Unibox is a **high-performance, AI-driven, multi-account email CRM + outreach platform** built for Wedits (a wedding-video editing agency based in Pakistan). It unifies 77+ Gmail and manual IMAP/SMTP accounts into a single inbox, tracks leads through a visual sales pipeline, runs automated cold-outreach campaigns with A/B testing, and layers an AI assistant ("**Jarvis**") that speaks, drafts replies, plans campaigns, and briefs the team every morning.
 
 ---
 
@@ -38,684 +69,658 @@ Unibox is a **multi-account email CRM** built for video production companies. It
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| Framework | Next.js (App Router, Turbopack) | 16.1.6 |
+| Framework | **Next.js 16** (App Router, Turbopack by default) | 16.1.1 |
 | Language | TypeScript (strict mode) | 5.9.3 |
 | UI Library | React | 19.2.4 |
-| Database | PostgreSQL via Supabase | — |
+| Database | PostgreSQL via Supabase (shared DB, local = prod) | — |
 | ORM | Prisma | 6.19.2 |
 | Hosting | Vercel (IAD1 region) | — |
-| Styling | Vanilla CSS (`app/globals.css`, ~58KB) | — |
-| Icons | Lucide React | 0.575.0 |
+| Styling | **Vanilla CSS only** (`app/globals.css`, ~58 KB) — no Tailwind | — |
+| Icons | lucide-react + inline 15×15 SVGs in Sidebar | 0.575.0 |
 | Charts | Recharts | 3.8.0 |
 | Drag & Drop | @dnd-kit/core + sortable | 6.3.1 / 10.0.0 |
-| Email (Gmail) | googleapis (Gmail API + OAuth2) | 171.4.0 |
+| Virtualization | @tanstack/react-virtual | 3.13.23 |
+| File Upload | react-dropzone | 15.0.0 |
+| Email (Gmail) | googleapis (Gmail API + OAuth2 + Pub/Sub) | 171.4.0 |
 | Email (IMAP) | imapflow | 1.2.10 |
 | Email (SMTP) | nodemailer | 8.0.1 |
 | Email (Transactional) | Resend (invitations only) | 6.10.0 |
 | Task Queue | Upstash QStash | 2.10.1 |
-| Auth Encryption | AES-256-CBC (custom, `src/lib/auth.ts`) | — |
-| Token Encryption | AES-256-GCM (`src/utils/encryption.ts`) | — |
-| Password Hashing | bcryptjs (12 rounds) | 3.0.3 |
+| Web Scraping | cheerio | 1.2.0 |
 | CSV Parsing | PapaParse | 5.5.3 |
 | Email Parsing | mailparser | 3.9.3 |
 | HTML Sanitization | DOMPurify | 3.3.3 |
 | ZIP Archives | archiver | 7.0.1 |
-| Virtual Scrolling | @tanstack/react-virtual (installed, not yet used) | 3.13.23 |
-| File Upload | react-dropzone | 15.0.0 |
 | Date Utilities | date-fns | 4.1.0 |
-| Linting | ESLint + eslint-config-next | 9.27.0 |
+| Session Encryption | AES-256-CBC (custom, `src/lib/auth.ts`) | — |
+| OAuth Token Encryption | AES-256-GCM (`src/utils/encryption.ts`) | — |
+| Password Hashing | bcryptjs (12 rounds) | 3.0.3 |
+| Linting | ESLint + eslint-config-next (**currently broken on Next 16**) | 9.27.0 |
 | Formatting | Prettier | 3.8.1 |
-
-**No Tailwind CSS** — all styling is vanilla CSS in `app/globals.css`.
 
 ---
 
 ## Commands
 
 ```bash
-npm run dev              # Start dev server (Next.js 16 + Turbopack)
+npm run dev              # Next.js dev server (Turbopack)
 npm run build            # Production build
-npm run start            # Start production server
-npm run lint             # ESLint via next lint
-npm run format           # Prettier format all files
-npm run format:check     # Check formatting without writing
+npm run start            # Start built app
+npm run lint             # next lint — BROKEN on Next 16, needs migration
+npm run format           # Prettier write
+npm run format:check     # Prettier check
+npx tsc --noEmit         # Type-check (RUN BEFORE EVERY COMMIT)
 npx prisma generate      # Regenerate Prisma client (also runs on postinstall)
-npx prisma migrate dev --name <name>  # Create and apply a migration
-npx prisma db push       # Push schema changes without migration (dev only)
-npx tsc --noEmit         # Type-check without emitting (RUN BEFORE EVERY COMMIT)
+npx prisma migrate dev --name <name>  # Create + apply migration
+npx prisma db push       # Push schema without migration (dev only)
 ```
 
 ---
 
-## Architecture
+## Core Modules (as of April 2026)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        VERCEL (IAD1)                        │
-│                                                             │
-│  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐  │
-│  │  App Router   │   │  API Routes  │   │  Cron Routes   │  │
-│  │  (pages)      │   │  /api/*      │   │  /api/cron/*   │  │
-│  │  Client-side  │   │  Server-side │   │  QStash/Vercel │  │
-│  └──────┬───────┘   └──────┬───────┘   └───────┬────────┘  │
-│         │                  │                    │           │
-│  ┌──────▼──────────────────▼────────────────────▼────────┐  │
-│  │              Server Actions (src/actions/)             │  │
-│  │         All DB mutations go through here               │  │
-│  └──────────────────────┬───────────────────────────────┘  │
-│                         │                                   │
-│  ┌──────────────────────▼───────────────────────────────┐  │
-│  │              Services (src/services/)                  │  │
-│  │    Gmail sync, sending, campaigns, tracking, auth     │  │
-│  └──────────────────────┬───────────────────────────────┘  │
-│                         │                                   │
-│  ┌──────────────────────▼───────────────────────────────┐  │
-│  │           Supabase Client (src/lib/)                   │  │
-│  │    supabase.ts (server/service-role)                   │  │
-│  │    supabase-client.ts (browser/anon-key)               │  │
-│  └──────────────────────┬───────────────────────────────┘  │
-└─────────────────────────┼───────────────────────────────────┘
-                          │
-              ┌───────────▼───────────┐
-              │   Supabase PostgreSQL  │
-              │   (PgBouncer pooling)  │
-              └───────────────────────┘
-```
+### 1. AI Engine — Jarvis
+The marquee feature. A multi-surface AI executive layer built on **Groq** (Llama 3.3 70B + 3.1 8B) with **ElevenLabs** TTS.
 
-### Key Layers
+| Surface | File | What it does |
+|---------|------|--------------|
+| **Dashboard Daily Briefing** | `app/components/JarvisDailyBriefing.tsx` → `src/services/dailyBriefingService.ts` | Role-aware 3-4 bullet summary of the last 24h. Three separate code paths (ADMIN, SALES, VIDEO_EDITOR). Regenerate + 5 snapshot stats. |
+| **Voice Orb** | `app/components/JarvisVoiceOrb.tsx` | Floating orb with 4 phases (idle/listening/thinking/speaking). Browser SpeechRecognition → `/api/jarvis` → ElevenLabs TTS (voice: Sarah). |
+| **In-thread Reply Suggestions** | `app/components/JarvisSuggestionBox.tsx` → `src/actions/jarvisActions.ts#suggestReplyAction` → `src/services/replySuggestionService.ts` | Drafts a reply in thread based on conversation history + contact profile. |
+| **Jarvis Page (Chat)** | `app/jarvis/page.tsx` | Full-page chat interface. Tool-calling (18 tools in `JARVIS_TOOLS`). |
+| **Jarvis Agent (Autonomous)** | `app/api/jarvis/agent/route.ts` → `src/services/jarvisAgentService.ts` | Goal-driven autonomous agent: plans → executes → evaluates → reports. Max 10 steps per plan. |
+| **TTS** | `app/api/jarvis/tts/route.ts` | ElevenLabs `eleven_multilingual_v2`. Falls back to browser TTS if `ELEVENLABS_API_KEY` missing. |
+| **Feedback Loop** | `jarvisActions.ts#logJarvisFeedbackAction` → `jarvis_feedback` table | Logs when agent sends a different reply than Jarvis suggested, with similarity score. |
+| **Knowledge Base** | `jarvis_knowledge` table + `scripts/mine-jarvis-knowledge.ts` | Q&A mined from historical emails. Admin verifies/corrects via `verifyKnowledgeAction`. |
 
-- **`app/`** — Next.js App Router. Pages (`page.tsx`), API routes (`app/api/`), components, hooks, context, constants.
-- **`src/actions/`** — 19 server action files. ALL database mutations flow through here. Each uses `'use server'` and `ensureAuthenticated()`.
-- **`src/services/`** — 18 service files. Business logic: Gmail sync, email sending, campaign processing, tracking, auth, health monitoring, AI summaries.
-- **`src/lib/`** — Supabase clients, auth session management, config, safe-action helpers.
-- **`src/utils/`** — 13 utility files: encryption, access control, CSV parsing, email normalization, spintax, placeholders, pagination.
-- **`prisma/schema.prisma`** — 22 models, 13 enums. All models use `@@map()` for snake_case table/column names.
+Jarvis tools (in `src/services/jarvisService.ts`, exposed to the LLM):
+`search_contacts`, `get_contact_detail`, `get_pipeline_stats`, `get_revenue_analytics`, `get_region_breakdown`, `get_top_clients`, `get_unpaid_clients`, `get_contacts_by_stage`, `get_contacts_by_region`, `get_am_performance`, `get_email_accounts`, `draft_email`, `create_campaign`, `launch_campaign`, `get_campaign_stats`, `get_financial_health`, `get_resource_utilization`, `get_morning_briefing`, `assess_project_decision`.
+
+### 2. CRM & Sales Pipeline
+Visual pipeline with 7 stages. Auto-transitions on email events.
+
+- **Pages:** `app/clients/page.tsx`, `app/clients/[id]/page.tsx`, `app/opportunities/page.tsx`, `app/dashboard/page.tsx`.
+- **Stages:** `app/constants/stages.ts` — `COLD_LEAD → CONTACTED → WARM_LEAD → LEAD → OFFER_ACCEPTED → CLOSED` (+ `NOT_INTERESTED` terminal).
+- **Auto-transitions:** `src/services/pipelineLogic.ts`, `src/services/emailSyncLogic.ts`.
+
+### 3. Unified Inbox
+77+ connected accounts in a single view.
+
+- **Main inbox:** `app/page.tsx` + `app/hooks/useMailbox.ts` (useReducer, 2-tier cache memory + localStorage).
+- **Real-time:** `app/hooks/useMailbox.ts` subscribes to Supabase changes.
+- **Threaded UI:** `app/components/InboxComponents.tsx` (EmailRow, EmailDetail, PaginationControls, ToastStack).
+- **Compose/Reply:** `app/components/ComposeModal.tsx`, `app/components/InlineReply.tsx`.
+- **Sent view:** `app/sent/page.tsx`.
+- **Gmail sync:** push (Pub/Sub) → `/api/webhooks/gmail` → `webhook_events` → 2-min cron processor. Also partial (historyId) and full sync modes in `src/services/gmailSyncService.ts`.
+- **IMAP sync:** every 15 min via QStash → `/api/cron/sync-imap` → `src/services/manualEmailService.ts`. Max 5 accounts per run.
+
+### 4. Marketing & Outreach
+- **Campaigns:** `app/campaigns/page.tsx`, `app/campaigns/new/page.tsx`, `app/campaigns/[id]/page.tsx`. 3-phase processor (enqueue → send → subsequence). A/B variants. Account rotation with warmup mode. Placeholder + spintax support.
+- **Lead Scraper (ADMIN only):** `app/scraper/page.tsx` → `src/actions/scraperActions.ts` → `src/services/leadScraperService.ts`. cheerio-based. Extracts name/email/phone/social, scores leads `Hot / Warm / Lukewarm / Cold` (0-100) via keyword matching.
+- **Templates:** `app/templates/page.tsx`. Mined automatically every Monday 3 AM via `/api/mine-templates` (Groq Llama 3.3 70B).
+- **Unsubscribe:** `/api/unsubscribe` → `unsubscribes` table.
+
+### 5. Work / Productivity
+- **Actions Queue:** `app/actions/page.tsx` → `src/actions/actionQueueActions.ts`. Prioritized action list across 5 types: `REPLY_NOW`, `FOLLOW_UP`, `WIN_BACK`, `NEW_LEAD`, `STALE`. Counts surfaced as sidebar badge on `/actions` (polls every 60 s).
+- **Edit Projects (Notion-style):** `app/projects/page.tsx` → `projectActions.ts`. Full editorial tracking — progress, due dates, editors, AM review, comments.
+- **My Projects:** `app/my-projects/page.tsx` — user-scoped project view.
+- **Link Projects:** `app/link-projects/page.tsx` — link contacts to projects.
+
+### 6. Administration
+- **Team:** `app/team/page.tsx` → invite/revoke/assign/role-change/deactivate via `inviteActions.ts` + `userManagementActions.ts`.
+- **Intelligence:** `app/intelligence/page.tsx` — Jarvis audit card UI (rewritten April 2026).
+- **Finance:** `app/finance/page.tsx` → `financeActions.ts` + `revenueActions.ts`.
+- **Data Health:** `app/data-health/page.tsx` → `dataHealthActions.ts`. Admin-only data integrity checks.
+- **Accounts:** `app/accounts/page.tsx` — Gmail/IMAP account management.
+- **Settings:** `app/settings/page.tsx`.
+- **Analytics:** `app/analytics/page.tsx` — charts, campaign A/B, revenue trends.
+
+### Sidebar Groups (`app/components/Sidebar.tsx`)
+
+The sidebar is **role-aware** and splits navigation into logical groups. Badges come from live action-queue counts.
+
+| Group | Items | Visible to |
+|-------|-------|------------|
+| **CRM** | Actions, Inbox, Dashboard, Clients (`/My Clients` for SALES), My Projects, Accounts (admin-only), Opportunities (`/My Pipeline` for SALES) | ADMIN + SALES |
+| **Marketing** | Campaigns, Scraper (admin-only), Templates, Analytics | ADMIN + SALES |
+| **Work** (ADMIN) / **Assistant** (SALES) | Edit Projects (admin-only), Link Projects (admin-only), Jarvis AI | ADMIN + SALES |
+| **Admin** | Intelligence, Finance, Data Health, Team | ADMIN / ACCOUNT_MANAGER only |
+| **My Work** | Dashboard, My Projects | VIDEO_EDITOR only |
 
 ---
 
-## Auth System
+## Auth & Security
 
-**WARNING: NEVER break the existing auth system. It is production-critical.**
+### Session Management (`src/lib/auth.ts`)
+- Cookie: `unibox_session` (httpOnly, secure, sameSite: lax, 7-day expiry).
+- Encryption: AES-256-CBC with random 16-byte IV. Token format: `{ivHex}:{ciphertextHex}`.
+- Payload: `{ userId, email, name, role, exp }`.
+- API: `createSession()`, `getSession()`, `clearSession()`.
 
-### Session Management
+### `proxy.ts` (replaces `middleware.ts` — Next.js 16 convention)
+Two-layer guard on every request:
+1. **IP whitelist** — hardcoded (no env dependency). Includes exact IPs + broad prefixes for PK ISPs (PTCL `111.88.`, `182.189.`, Jazz 4G/5G `39.32.`–`39.61.`, Nayatel `175.107.`, Telenor `119.160.`, Zong `119.73.`) plus IPv6 ranges and `192.168.` LAN. Non-matching IPs get a styled 403 HTML page.
+2. **Session check** — validates cookie format (IV = 32 hex, ciphertext ≥ 16 hex). Malformed → redirect to `/login?callbackUrl=…`.
+3. **Public paths** (no session needed): `/login`, `/invite`. The `matcher` excludes `_next/*`, `favicon.ico`, `/api/*`, and static files — API routes protect themselves via `getSession()`.
 
-- **Cookie:** `unibox_session` (httpOnly, secure, sameSite: lax, 7-day expiry)
-- **Encryption:** AES-256-CBC with random IV, stored as `iv:ciphertext`
-- **Payload:** `{ userId, email, name, role, exp }`
-- **File:** `src/lib/auth.ts` — `createSession()`, `getSession()`, `clearSession()`
+### `src/lib/roleGate.ts` — fresh-DB role check
+Used by server components (`page.tsx` wrappers) that need a non-stale role straight from the DB rather than the signed cookie.
+- `getFreshSession()` — session + latest role from `users` table.
+- `blockEditorAccess(redirectTo)` — throws VIDEO_EDITOR users back to `/dashboard`.
+- `requireAdminAccess(redirectTo)` — gates ADMIN-only pages (Data Health, Scraper, etc.).
+
+### `src/lib/safe-action.ts` — cookie-role gate for server actions
+- `ensureAuthenticated()` — reads role from cookie (fast, no DB hit). Every server action calls this first.
+
+### `src/utils/accessControl.ts` — identity-based data scoping
+- `isAdmin(role)` — ADMIN or ACCOUNT_MANAGER.
+- `isSales(role)`, `isEditor(role)`.
+- `getAccessibleGmailAccountIds(userId, role)` — `'ALL'` for admins, `[]` for editors, assigned IDs for SALES. **Cached per request via React `cache()`**.
+- `canAccessGmailAccount()`, `getOwnerFilter()`, `requireAdmin()`, `blockEditorAccess()`.
 
 ### Login Methods
+1. **Google OAuth** — `/api/auth/crm/google` → Google consent → `/api/auth/crm/google/callback` → CSRF state check (timing-safe) → user must exist OR have a pending invitation → create session.
+2. **Email + Password** — `POST /api/auth/login` → bcrypt verify → session.
+3. **Invitation Acceptance** — `/invite/accept?token=…` → 7-day token → creates user with invited role → auto-assigns Gmail accounts.
 
-1. **Google OAuth (Primary):** `/api/auth/crm/google` → Google consent → `/api/auth/crm/google/callback` → validates CSRF state (timing-safe) → checks user exists or has pending invitation → creates session
-2. **Email + Password:** POST `/api/auth/login` → bcrypt password verification → session creation
-3. **Invitation Acceptance:** `/invite/accept?token={token}` → validates 7-day token → creates user with invitation role → assigns Gmail accounts → session creation
-
-### Middleware (`middleware.ts`)
-
-Two-layer protection on every request:
-1. **IP Whitelist** — hardcoded allowed IP ranges (see SEC-005 in Known Issues)
-2. **Session Validation** — decrypts cookie, validates format and expiry
-3. **Public paths** (no session required): `/login`, `/invite`, `/api/track`, `/api/webhooks`, `/api/unsubscribe`, `/api/ext`, `/api/ping`
-
-### Security Features
-
-- CSRF protection via OAuth state parameter (timing-safe comparison)
-- bcryptjs (12 rounds) for password hashing
-- crypto.randomBytes(32) for invitation tokens (64-char hex)
-- Self-protection: users cannot change their own role or deactivate themselves
-- Invitation expiry: 7 days (extendable on resend)
+### Token Encryption (`src/utils/encryption.ts`)
+AES-256-GCM with `ENCRYPTION_KEY` (64-char hex) for Gmail OAuth tokens and IMAP app-passwords at rest.
 
 ---
 
-## RBAC Rules
+## RBAC & Roles
 
-### Roles
+### Roles (3 distinct + 1 legacy)
 
-| Role | Access Level |
-|------|-------------|
-| **ADMIN** | Full access to everything |
-| **ACCOUNT_MANAGER** | Same as ADMIN (legacy role, treated identically) |
-| **SALES** | Limited to assigned Gmail accounts only |
+| Role | DB-level | Access |
+|------|----------|--------|
+| **ADMIN** | Prisma enum | Full access to everything |
+| **ACCOUNT_MANAGER** | Legacy (stored as string, treated identically to ADMIN) | Full access |
+| **SALES** | Prisma enum | Only assigned Gmail accounts + own contacts/projects/campaigns |
+| **VIDEO_EDITOR** | Stored as string (not in Prisma enum yet) | Only their `edit_projects` rows. No Gmail, Contact, or Campaign access. |
 
-### ADMIN / ACCOUNT_MANAGER Can:
-
-- View/send emails from ALL Gmail accounts
-- Create/edit campaigns using any account
-- View ALL clients, leads, projects
-- Access Team page (`/team`) — invite users, assign accounts, change roles, set passwords, deactivate users
-- Access Intelligence page (`/intelligence`)
-- Access Finance page (`/finance`)
-- View full analytics dashboard
-- Connect/disconnect Gmail accounts
-- Manage account sync (pause/resume)
-
-### SALES Users Can:
-
-- View/send emails ONLY from assigned Gmail accounts (via `user_gmail_assignments` table)
-- Create campaigns ONLY using assigned accounts
-- View ONLY their own clients (where `account_manager_id = userId`)
-- View their own projects and campaigns
-- Access Dashboard page (`/dashboard`) — personal sales metrics
-- View analytics (limited to their accounts)
-
-### SALES Users CANNOT:
-
-- Access `/team`, `/intelligence`, `/finance` pages
-- See other users' campaigns, clients, or emails
-- Manage Gmail accounts or sync settings
-- Invite users or change roles
+> ⚠ The Prisma `Role` enum currently has only `ADMIN` and `SALES`. `ACCOUNT_MANAGER` and `VIDEO_EDITOR` are DB strings the app code recognizes but are not enforced at the schema level. If you add migrations, be careful not to break these legacy values.
 
 ### Enforcement Points
+1. `proxy.ts` — IP + session cookie validation on every request.
+2. `ensureAuthenticated()` — called by every server action.
+3. `blockEditorAccess()` / `requireAdminAccess()` — server-component page gates.
+4. `getAccessibleGmailAccountIds()` — RBAC-filtered data queries.
+5. `Sidebar.tsx` — hides admin-only + editor-only items client-side.
 
-1. **Middleware** — session + IP validation on every request
-2. **`ensureAuthenticated()`** (`src/lib/safe-action.ts`) — called by every server action
-3. **`requireAdmin()`** — throws error if not ADMIN/ACCOUNT_MANAGER
-4. **`getAccessibleGmailAccountIds()`** (`src/utils/accessControl.ts`) — returns `'ALL'` for admins, specific IDs for SALES
-5. **Frontend Sidebar** — hides admin-only navigation items for SALES users
+### VIDEO_EDITOR Allowed Paths
+`/dashboard`, `/projects` — everything else redirects back to `/dashboard` via `blockEditorAccess()`.
 
 ---
 
 ## Database
 
-PostgreSQL via Supabase with two connection strings:
-- `DATABASE_URL` — Pooled (PgBouncer) for runtime queries
-- `DIRECT_URL` — Direct connection for Prisma migrations
+PostgreSQL via Supabase. Two connection strings:
+- `DATABASE_URL` — pooled (PgBouncer) for runtime.
+- `DIRECT_URL` — direct connection for Prisma migrations.
 
-### All Prisma Models (22)
+### Prisma Models (22)
 
-| Model | Purpose |
-|-------|---------|
-| **User** | Core user with role (ADMIN/SALES/ACCOUNT_MANAGER), status (ACTIVE/REVOKED), password hash, avatar |
-| **Contact** | Lead/client with pipeline stage, lead score, follow-up tracking, contact type (LEAD/CLIENT) |
-| **GmailAccount** | Gmail/IMAP account with OAuth tokens, sync state, health score, warmup tracking, daily limits |
-| **Invitation** | Team invitations with 7-day expiry token, assigned Gmail account IDs |
-| **UserGmailAssignment** | Links SALES users to specific Gmail accounts (RBAC pivot table) |
-| **EmailThread** | Gmail thread grouping with metadata |
-| **EmailMessage** | Full email messages with tracking (opened_at, clicked_at, delivered_at, tracking_id) |
-| **Project** | Project management with client, status, revenue tracking, paid status |
-| **ActivityLog** | Audit log for contacts and projects (stage changes, emails, notes) |
-| **IgnoredSender** | Blocked email senders (filtered during sync) |
-| **Campaign** | Email campaign with goals, scheduling, daily limits, account rotation |
-| **CampaignStep** | Sequential steps in campaign with delay_days and subsequence triggers |
-| **CampaignVariant** | A/B testing variants per step (subject + body) |
-| **CampaignContact** | Enrollment of contacts in campaigns with status tracking |
-| **CampaignEmail** | Individual emails sent in campaigns (links email_message to step/variant) |
-| **Unsubscribe** | Unsubscribe tracking per email/campaign |
-| **CampaignAnalytics** | Daily aggregated campaign metrics |
-| **WebhookEvent** | Gmail Pub/Sub webhook events with retry tracking |
-| **CampaignSendQueue** | Rate-limited sending queue with stagger delays and retry logic |
-| **EmailTemplate** | Reusable email templates with categories |
-| **EditProject** | Notion-style editorial project tracking (video/design editing) |
-| **ProjectComment** | Comments on edit projects |
+| Model | Table | Purpose |
+|-------|-------|---------|
+| **User** | `users` | Auth + role + avatar |
+| **Contact** | `contacts` | Lead/client with pipeline stage, lead score, follow-up state |
+| **GmailAccount** | `gmail_accounts` | Gmail/IMAP account: OAuth tokens, sync state, health, warmup, daily limits |
+| **Invitation** | `invitations` | Team invites (7-day token, assigned Gmail IDs) |
+| **UserGmailAssignment** | `user_gmail_assignments` | SALES → GmailAccount pivot |
+| **EmailThread** | `email_threads` | Gmail thread grouping |
+| **EmailMessage** | `email_messages` | Individual messages (open/click tracking) |
+| **Project** | `projects` | Sales projects — revenue, paid status |
+| **ActivityLog** | `activity_logs` | Audit trail for contacts/projects |
+| **IgnoredSender** | `ignored_senders` | Sync block-list |
+| **Campaign** | `campaigns` | Outreach campaigns |
+| **CampaignStep** | `campaign_steps` | Sequential steps with delay_days + subsequence triggers |
+| **CampaignVariant** | `campaign_variants` | A/B testing (subject + body) |
+| **CampaignContact** | `campaign_contacts` | Enrollment + status |
+| **CampaignEmail** | `campaign_emails` | Individual sends within campaigns |
+| **Unsubscribe** | `unsubscribes` | Unsubscribe tracking |
+| **CampaignAnalytics** | `campaign_analytics` | Daily aggregates |
+| **WebhookEvent** | `webhook_events` | Gmail Pub/Sub events with retry state |
+| **CampaignSendQueue** | `campaign_send_queue` | Rate-limited send queue with stagger |
+| **EmailTemplate** | `email_templates` | Mined + hand-written templates |
+| **EditProject** | `edit_projects` | Notion-style video editing project tracker |
+| **ProjectComment** | `project_comments` | Comments on edit projects |
 
-### Key Enums
+### Enums
+`Role`, `InvitationStatus`, `UserStatus`, `GmailAccountStatus`, `ConnectionMethod`, `WatchStatus`, `PipelineStage`, `EmailDirection`, `EmailType`, `PaidStatus`, `FinalReviewStatus`, `Priority`, `ContactType`, `CampaignGoal`, `CampaignStatus`, `CampaignContactStatus`, `CampaignStoppedReason`, `SubsequenceTrigger`, `WebhookEventStatus`, `SendQueueStatus`, `TemplateCategory`, `ProjectProgress`, `ProjectPriority`, `AMReview`.
 
-- **Role:** ADMIN, SALES, ACCOUNT_MANAGER
-- **PipelineStage:** COLD_LEAD, CONTACTED, WARM_LEAD, LEAD, OFFER_ACCEPTED, CLOSED, NOT_INTERESTED
-- **EmailDirection:** SENT, RECEIVED
-- **EmailType:** OUTREACH_FIRST, FOLLOW_UP, CONVERSATIONAL, FIRST_REPLY, CONTINUED_REPLY
-- **ConnectionMethod:** OAUTH, MANUAL
-- **GmailAccountStatus:** ACTIVE, ERROR, DISCONNECTED, SYNCING, PAUSED
-- **ContactType:** LEAD, CLIENT
-- **Priority:** LOW, MEDIUM, HIGH, URGENT
+### Non-Prisma (raw) Tables
+These are queried directly via Supabase but not yet modeled in Prisma:
+- **`jarvis_feedback`** — logs Jarvis suggestion vs actual agent reply, with similarity score.
+- **`jarvis_knowledge`** — mined Q&A from historical emails with `agent_verified`, `success_score`, `price_mentioned`.
+
+> When adding fields to these tables, document them here and consider adding Prisma models to make the schema authoritative.
 
 ### Key Indexes
-
-- `(gmailAccountId, direction, sentAt DESC)` — inbox queries
-- `(threadId)` — thread lookups
-- Missing: `(campaignId, status, nextSendAt)` on CampaignContact (see SCHEMA-003 in Known Issues)
+- `email_messages(gmail_account_id, direction, sent_at DESC)` — inbox queries.
+- `email_messages(thread_id)` — thread lookups.
+- `contacts(account_manager_id)`, `contacts(is_lead)`, `contacts(is_client)`, `contacts(last_email_at)`.
+- `edit_projects(user_id)`, `edit_projects(progress)`, `edit_projects(created_at)`.
 
 ---
 
 ## File Structure
 
-### Pages (app/)
+### Pages (`app/`) — 25 routes
 
 ```
 app/
-├── page.tsx                    # Inbox (main email interface with stage tabs)
-├── layout.tsx                  # Root layout with context providers
-├── login/page.tsx              # Login page (Google OAuth + email/password)
-├── invite/accept/page.tsx      # Invitation acceptance page
-├── dashboard/page.tsx          # Sales rep dashboard (SALES role)
-├── clients/page.tsx            # Client/lead management
-├── clients/[id]/page.tsx       # Individual client detail
-├── accounts/page.tsx           # Gmail account management
-├── campaigns/page.tsx          # Campaign list
-├── campaigns/new/page.tsx      # Create new campaign
-├── campaigns/[id]/page.tsx     # Campaign detail + analytics
-├── projects/page.tsx           # Project management
-├── templates/page.tsx          # Email template management
-├── analytics/page.tsx          # Analytics dashboard with charts
-├── sent/page.tsx               # Sent emails view
-├── opportunities/page.tsx      # Opportunities pipeline
-├── intelligence/page.tsx       # AI intelligence (ADMIN only)
-├── finance/page.tsx            # Finance tracking (ADMIN only)
-├── team/page.tsx               # Team management (ADMIN only)
-└── settings/page.tsx           # App settings
+├── page.tsx                   # Inbox (main email interface)
+├── layout.tsx                 # Root layout + FilterProvider + UIProvider + UndoToastProvider + ClientLayout
+├── globals.css                # ~58 KB of vanilla CSS (oklch tokens, dark mode)
+├── login/page.tsx             # Login (Google OAuth + email/password)
+├── invite/accept/page.tsx     # Invitation acceptance
+├── dashboard/page.tsx         # Role-aware dashboard (JarvisDailyBriefing + metrics)
+├── actions/page.tsx           # Action queue (prioritized work list) — non-editor
+├── clients/page.tsx
+├── clients/[id]/page.tsx      # Individual contact detail
+├── accounts/page.tsx          # Gmail/IMAP management (admin)
+├── campaigns/page.tsx
+├── campaigns/new/page.tsx
+├── campaigns/[id]/page.tsx
+├── projects/page.tsx          # Edit projects (admin)
+├── my-projects/page.tsx       # User-scoped projects
+├── link-projects/page.tsx     # Link contacts to projects (admin)
+├── templates/page.tsx
+├── analytics/page.tsx
+├── sent/page.tsx
+├── opportunities/page.tsx     # Pipeline view
+├── intelligence/page.tsx      # Jarvis audit (admin)
+├── finance/page.tsx           # Revenue + collections (admin)
+├── data-health/page.tsx       # Data integrity checks (admin)
+├── team/page.tsx              # Team management (admin)
+├── scraper/page.tsx           # Lead scraper (admin)
+├── jarvis/page.tsx            # Jarvis chat
+└── settings/page.tsx
 ```
 
-### Server Actions (src/actions/) — 19 files
+### Server Actions (`src/actions/`) — 23 files
 
 | File | Purpose |
 |------|---------|
-| `emailActions.ts` | Send, fetch, search, read/unread, delete emails |
+| `emailActions.ts` | Send, fetch, search, read/unread, delete |
 | `contactDetailActions.ts` | Contact CRUD, pipeline stage transitions |
 | `campaignActions.ts` | Campaign CRUD, launch, stop, enrollment |
-| `accountActions.ts` | Gmail account connect/disconnect, sync controls |
-| `authActions.ts` | Get current user, session management |
-| `userManagementActions.ts` | ADMIN: list users, assign accounts, roles, deactivate |
-| `inviteActions.ts` | ADMIN: send/revoke/resend invitations via Resend |
-| `projectActions.ts` | Project CRUD, status updates |
+| `accountActions.ts` | Gmail/IMAP connect/disconnect, sync controls |
+| `authActions.ts` | Current user, logout |
+| `userManagementActions.ts` | ADMIN: list users, roles, deactivate |
+| `inviteActions.ts` | ADMIN: send/revoke/resend invites via Resend |
+| `projectActions.ts` | Project CRUD, status |
 | `templateActions.ts` | Email template CRUD |
-| `analyticsActions.ts` | Dashboard analytics queries |
+| `analyticsActions.ts` | Dashboard analytics |
 | `dashboardActions.ts` | Sales rep dashboard data |
-| `financeActions.ts` | Revenue and payment tracking |
-| `intelligenceActions.ts` | AI relationship summaries |
-| `clientActions.ts` | Client-specific queries |
-| `importActions.ts` | CSV import for contacts |
-| `automationActions.ts` | Automation settings (follow-ups, lead scoring) |
+| `financeActions.ts` | Revenue + payment tracking |
+| `intelligenceActions.ts` | AI audit cards |
+| `clientActions.ts` | Client queries |
+| `importActions.ts` | CSV import |
+| `automationActions.ts` | Automation settings |
 | `relationshipActions.ts` | Contact relationship data |
-| `revenueActions.ts` | Revenue calculations |
-| `summaryActions.ts` | Summary/overview data |
+| `revenueActions.ts` | Revenue calcs |
+| `summaryActions.ts` | Overview/summary |
+| `actionQueueActions.ts` | **NEW:** Prioritized action queue (REPLY_NOW / FOLLOW_UP / WIN_BACK / NEW_LEAD / STALE) |
+| `dataHealthActions.ts` | **NEW:** Data integrity checks (admin) |
+| `jarvisActions.ts` | **NEW:** Daily briefing, reply suggestions, feedback log, knowledge verification |
+| `scraperActions.ts` | **NEW:** Scraper jobs + results CRUD |
 
-### Services (src/services/) — 18 files
+### Services (`src/services/`) — 23 files
 
 | File | Purpose |
 |------|---------|
-| `gmailSyncService.ts` | Full sync, partial sync (History API), watch registration |
-| `emailSyncLogic.ts` | Email classification, contact auto-creation, pipeline transitions |
-| `gmailSenderService.ts` | MIME message building, Gmail API send, token refresh |
-| `manualEmailService.ts` | IMAP/SMTP for non-Gmail accounts |
-| `trackingService.ts` | 1x1 pixel injection, link rewriting for click tracking |
-| `emailClassificationService.ts` | Email type taxonomy (outreach, follow-up, reply) |
-| `campaignProcessorService.ts` | Phase 1: enqueue sends (schedule, limits, spintax, placeholders) |
-| `sendQueueProcessorService.ts` | Phase 2: process send queue (send, track, advance steps) |
-| `salesAutomationService.ts` | Auto follow-ups, warm lead detection, lead scoring, re-engagement |
-| `accountHealthService.ts` | Bounce rate calculation, health scoring, auto-pause |
-| `accountRotationService.ts` | Multi-account round-robin, warmup mode, daily limits |
-| `googleAuthService.ts` | OAuth URL generation, callback handling, token storage |
-| `crmAuthService.ts` | CRM-specific OAuth flow |
-| `tokenRefreshService.ts` | Token refresh for all accounts, auto-recovery from ERROR |
-| `watchRenewalService.ts` | Gmail Pub/Sub watch lifecycle (renew every 7 days) |
-| `webhookProcessorService.ts` | Process webhook_events with exponential backoff (max 5 retries) |
-| `aiSummaryService.ts` | AI relationship audits via Groq (Llama 3.3 70B) with Gemini fallback |
-| `pipelineLogic.ts` | Pipeline stage transition rules |
+| `gmailSyncService.ts` | Full + history sync, watch registration |
+| `emailSyncLogic.ts` | Classification, auto-contact creation, pipeline transitions |
+| `gmailSenderService.ts` | MIME build, Gmail send, token refresh |
+| `manualEmailService.ts` | IMAP/SMTP for non-Gmail |
+| `trackingService.ts` | Open pixel + link rewriting |
+| `emailClassificationService.ts` | Email type taxonomy |
+| `campaignProcessorService.ts` | Phase 1: enqueue |
+| `sendQueueProcessorService.ts` | Phase 2: send + advance |
+| `salesAutomationService.ts` | Follow-ups, warm-lead detection, lead scoring |
+| `accountHealthService.ts` | Bounce rate, health score, auto-pause |
+| `accountRotationService.ts` | Round-robin, warmup mode |
+| `googleAuthService.ts` | OAuth URL + callback + token storage |
+| `crmAuthService.ts` | CRM OAuth flow |
+| `tokenRefreshService.ts` | Token refresh, auto-recovery from ERROR |
+| `watchRenewalService.ts` | Gmail Pub/Sub watch lifecycle (7-day TTL) |
+| `webhookProcessorService.ts` | Retry webhook events with exponential backoff (max 5) |
+| `aiSummaryService.ts` | Relationship audits (Groq + Gemini fallback) |
+| `pipelineLogic.ts` | Stage transition rules |
+| `jarvisService.ts` | **NEW:** Jarvis chat brain — 18 tools, system prompt with live business data |
+| `jarvisAgentService.ts` | **NEW:** Autonomous goal-driven agent (plan/execute/evaluate) |
+| `dailyBriefingService.ts` | **NEW:** Role-aware 24h briefing (ADMIN/SALES/VIDEO_EDITOR paths) via Groq llama-3.1-8b-instant |
+| `replySuggestionService.ts` | **NEW:** In-thread reply draft generation |
+| `leadScraperService.ts` | **NEW:** cheerio-based website scraper with lead scoring |
+| `templateMiningService.ts` | **NEW:** Groq-based weekly template mining from sent emails |
 
-### API Routes (app/api/)
+### API Routes (`app/api/`) — 32 routes
 
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/api/auth/login` | POST | Email + password login |
-| `/api/auth/google` | GET | Gmail OAuth initiation (account connection) |
-| `/api/auth/google/callback` | GET | Gmail OAuth callback |
-| `/api/auth/crm/google` | GET | CRM login OAuth initiation |
-| `/api/auth/crm/google/callback` | GET | CRM login OAuth callback |
-| `/api/auth/set-password` | POST | Set password for invited users |
-| `/api/sync` | POST | Manual/on-demand email sync |
-| `/api/sync/health` | GET | Sync status check |
-| `/api/sync/poll` | GET | Webhook polling fallback |
-| `/api/webhooks/gmail` | POST | Google Pub/Sub push notifications |
-| `/api/track` | GET | Open tracking pixel (1x1 PNG) |
-| `/api/track/click` | GET | Click tracking redirect |
-| `/api/track/session` | — | Owner session detection |
-| `/api/campaigns/process` | POST/GET | Campaign processor (QStash + Vercel Cron) |
-| `/api/cron/automations` | POST/GET | Hourly: token refresh, automations, health |
-| `/api/cron/process-webhooks` | POST/GET | Every 2 min: webhook retry processor |
-| `/api/cron/renew-gmail-watches` | POST/GET | Every 6 days: renew Gmail watches |
-| `/api/cron/cleanup-tracking` | POST/GET | Weekly: database maintenance |
-| `/api/unsubscribe` | GET | Campaign unsubscribe handler |
-| `/api/ext/add-lead` | POST | Chrome extension: add lead |
-| `/api/ext/check-duplicate` | GET | Chrome extension: check email exists |
-| `/api/ext/ping` | GET | Health check |
-| `/api/extension/generate-key` | POST | Generate extension API key |
-| `/api/extension/me` | GET | Current user for extension |
-| `/api/extension/clients` | GET | Client list for extension |
-| `/api/extension/download` | GET | Extension binary download |
-| `/api/migrate` | — | Database migration endpoint |
-| `/api/ping` | GET | App health check |
-| `/api/backfill-email-types` | — | One-time email type backfill |
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/api/ping` | GET | none | Health check |
+| `/api/auth/login` | POST | none | Email + password login |
+| `/api/auth/google/callback` | GET | session | Gmail account-connection OAuth callback (init is client-side — no separate `/api/auth/google` route) |
+| `/api/auth/crm/google` | GET | none | CRM login OAuth init |
+| `/api/auth/crm/google/callback` | GET | CSRF state | CRM login OAuth callback |
+| `/api/auth/set-password` | POST | session | Set password for invited users |
+| `/api/sync` | POST | session | Manual sync trigger |
+| `/api/sync/health` | GET | session | Sync status |
+| `/api/sync/poll` | GET | session | Webhook-polling fallback |
+| `/api/webhooks/gmail` | POST | OIDC | Gmail Pub/Sub push |
+| `/api/track` | GET | none | Open pixel |
+| `/api/track/click` | GET | none | Click-through redirect |
+| `/api/campaigns/process` | POST/GET | QStash/CRON_SECRET | Campaign processor (15 min) |
+| `/api/cron/automations` | POST/GET | QStash/CRON_SECRET | Hourly automations |
+| `/api/cron/process-webhooks` | POST/GET | QStash/CRON_SECRET | 2-min webhook retry |
+| `/api/cron/renew-gmail-watches` | POST/GET | QStash/CRON_SECRET | Every 6 days |
+| `/api/cron/cleanup-tracking` | POST/GET | QStash/CRON_SECRET | Weekly cleanup |
+| `/api/cron/sync-imap` | POST/GET | QStash/CRON_SECRET | **NEW:** IMAP sync every 30 min (max 5 accounts/run) |
+| `/api/unsubscribe` | GET | none | Campaign unsubscribe |
+| `/api/jarvis` | POST | session | **NEW:** Jarvis chat (tool-calling, 3 iterations max) |
+| `/api/jarvis/agent` | POST | session | **NEW:** Autonomous agent execution |
+| `/api/jarvis/tts` | POST | session | **NEW:** ElevenLabs TTS (voice: Sarah) |
+| `/api/mine-templates` | GET | CRON_SECRET | **NEW:** Weekly template mining (Mon 3 AM) |
+| `/api/mine-templates-direct` | POST | session | **NEW:** Manual template mining trigger |
+| `/api/ext/add-lead` | POST | API key | Chrome extension: add lead |
+| `/api/ext/check-duplicate` | GET | API key | Extension: check email exists |
+| `/api/ext/ping` | GET | none | Extension health |
+| `/api/extension/generate-key` | POST | session | Generate extension API key |
+| `/api/extension/me` | GET | API key | Current user for extension |
+| `/api/extension/clients` | GET | API key | Client list for extension |
+| `/api/extension/download` | GET | session | Extension binary download |
+| `/api/backfill-email-types` | POST | session | One-time email type backfill |
+| `/api/migrate` | POST | admin | DB migration endpoint |
+
+### Components (`app/components/`)
+Core: `ClientLayout`, `Sidebar`, `Topbar`, `ComposeModal`, `InlineReply`, `InboxComponents` (EmailRow + EmailDetail + PaginationControls + ToastStack), `LoadingStates`, `ErrorBoundary`, `Resizer`.
+
+Feature: `AddProjectModal`, `AddLeadModal`, `TemplatePickerModal`, `CSVImportModal`, `DownloadExtensionModal`, `OnboardingWizard`, `QuickActions`, `ActionCard`, `AnalyticsCharts`, `CampaignTabs`, `ABTestingAnalytics`, `ABTestingChart`, `RevenueChart`, `RevenueBarChart`, `DateRangePicker`.
+
+Jarvis: **`JarvisVoiceOrb`**, **`JarvisDailyBriefing`**, **`JarvisSuggestionBox`**.
+
+UI primitives (`app/components/ui/`): `Badge`, `Button`, `ErrorAlert`, `FormField`.
+
+### Hooks (`app/hooks/`)
+`useMailbox.ts` (useReducer + 2-tier cache), `usePrefetch.ts`, `useIdleDetection.ts`.
+
+### Context (`app/context/`)
+`FilterContext` (selected account, date range), `UIContext` (compose open, etc.), `UndoToastContext`.
+
+### Utils (`src/utils/`) — 15 files
+`accessControl.ts`, `accountHelpers.ts`, `clientHabits.ts`, `csvParser.ts`, `emailNormalizer.ts`, `emailPreview.ts`, `emailTransformers.ts`, `encryption.ts`, `migrationHelpers.ts`, `pagination.ts`, `phoneExtractor.ts`, `placeholders.ts`, `spintax.ts`, `threadHelpers.ts`, `unsubscribe.ts`.
+
+### Lib (`src/lib/`) — 6 files
+`auth.ts` (session enc/dec), `supabase.ts` (service-role client, server), `supabase-client.ts` (anon, browser), `safe-action.ts` (cookie-role gate), **`roleGate.ts`** (fresh-DB role check for page wrappers), `config.ts`.
+
+### Top-level `lib/`
+- `lib/qstash.ts` — QStash receiver config + signing keys.
+- `lib/projects/` — actions, types, constants, csv-parser, editorStats for the Edit Projects tracker (consumed by `app/projects/page.tsx` and `components/projects/*`).
+
+### Top-level `components/`
+Not under `app/` — the Notion-style Edit Projects UI lives here:
+- `components/projects/ProjectsClient.tsx`, `EditorDashboard.tsx`, `EditorWorkstation.tsx`
+- `components/projects/table/` (ProjectTable, ProjectTableHeader, ProjectTableRow, TableFooter, TablePagination)
+- `components/projects/cells/` — 12 cell types (Text, Number, Date, Url, Checkbox, Priority, Tags, Person, Progress, Paid, HardDrive, AMReview)
+- `components/projects/toolbar/` (TableToolbar, ViewSwitcher, CSVImportModal)
+- `components/projects/views/BoardView.tsx`
+- `components/projects/project-detail/ProjectDetailPanel.tsx`
+
+### `app/utils/` (4 files — undocumented in earlier audit)
+`helpers.ts`, `localCache.ts`, `staleWhileRevalidate.ts`, `useHydration.ts`.
+
+### `src/constants/`
+`limits.ts` — numeric limits (pagination, send caps).
+
+### `src/hooks/`
+`useRealtimeInbox.ts` — Supabase realtime subscription for inbox.
+
+### `src/scripts/`
+`backfillClients.ts` — one-off data backfill.
+
+### Scripts (`scripts/`)
+Code: `backfill-warmup-badges.mjs`, `db-maintenance.mjs`, `import-revenue.ts`, `mine-jarvis-knowledge.ts`, `setup-qstash-schedules.ts`, `warmup.mjs`, `warmup.ts`.
+Data inputs: `Edit_revenue_for_web_app.csv`, `not-found-projects.csv`.
+
+### `docs/`
+`ACTION-PAGE-REDESIGN.md`, `ACTION-QUEUE-ARCHITECTURE.md`, `DEEP-DIVE.md`, `DESIGN-IMPLEMENTATION-PLAN.md`, `DEVELOPER_GUIDE.md`, `JARVIS-TRAINING-PLAN.md`, `SALES-AGENT-PLAYBOOK.md`, `UNIBOX-SOP.md`, plus `docs/qa/` (build-config-qa, database-qa, architecture-dry-qa) and `docs/superpowers/plans/`.
+
+### Chrome Extension (`chrome-extension/`)
+Self-contained extension with `background/`, `content/`, `popup/`, `fallbacks/`, `utils/`, `manifest.json` (v3), own `package.json`, `build.js`, `zip.js`, and `dist/`. Talks to `/api/ext/*` and `/api/extension/*`.
+
+### Orphan files (verified 2026-04-21, candidates for removal)
+- `src/actions/automationActions.ts`
+- `src/actions/relationshipActions.ts`
+- `src/services/pipelineLogic.ts`
+- `app/components/RevenueChart.tsx`, `app/components/RevenueBarChart.tsx`
+- `app/components/OnboardingWizard.tsx`
+- `app/components/JarvisDailyBriefing.tsx` *(dashboard calls the action directly, not the component)*
 
 ---
 
-## Services Connected
+## Background Jobs
 
-### Supabase (Database + Auth)
-- **PostgreSQL** with PgBouncer connection pooling
-- **Real-time subscriptions** via `useRealtimeInbox` hook
-- **Service role key** for server-side operations (never expose to client)
-- **Anon key** for client-side operations (public, safe to expose)
-- **RPC functions** for complex queries (inbox with counts, lead scoring, etc.)
+| Schedule | Path | Purpose |
+|----------|------|---------|
+| Every 2 min | `/api/cron/process-webhooks` | Retry failed Gmail webhook events (max 5 retries, exponential backoff) |
+| Every 15 min | `/api/campaigns/process` | Campaign processor (3 phases) |
+| Every 15 min | `/api/cron/sync-imap` | IMAP/manual account sync (max 5 accounts/run) |
+| Hourly | `/api/cron/automations` | Token refresh, lead scoring, warm-lead detection, health checks |
+| Every 6 days | `/api/cron/renew-gmail-watches` | Renew Pub/Sub watches before 7-day expiry |
+| Weekly (Mon 3 AM) | `/api/mine-templates` | Mine templates from historical sent emails (Groq Llama 3.3 70B) |
+| Weekly | `/api/cron/cleanup-tracking` | Truncate old email bodies, delete old activity logs |
 
-### Google APIs (Gmail + OAuth)
-- **Gmail API:** Message sync (full + history-based), send, labels, watch
-- **OAuth2:** Account authentication, token refresh, consent flow
-- **Pub/Sub:** Push notifications for real-time email sync (webhook → `/api/webhooks/gmail`)
-- **Scopes:** gmail.readonly, gmail.modify, gmail.send, gmail.labels, userinfo.email, userinfo.profile
+All cron routes accept both POST (QStash signed) and GET (Vercel Cron with `Bearer ${CRON_SECRET}`). Timings in `vercel.json` for function `maxDuration` (30-60 s).
 
-### Upstash QStash (Task Queue)
-- **Campaign processor:** Every 15 minutes (3-phase: enqueue → send → subsequence triggers)
-- **Automations:** Every hour (token refresh, lead scoring, warm lead detection, health checks)
-- **Webhook processor:** Every 2 minutes (retry failed Gmail webhooks with exponential backoff)
-- **Watch renewal:** Every 6 days (renew Gmail Pub/Sub watches before 7-day expiry)
-- **Cleanup:** Weekly (truncate old email bodies, delete old activity logs)
-- **Auth:** QSTASH_TOKEN + signing key verification on all POST endpoints
-- **Fallback:** All cron routes also accept GET with Bearer CRON_SECRET for Vercel Cron
+---
 
-### Resend (Transactional Email)
-- **Purpose:** Team invitation emails only
-- **From:** noreply@texasbrains.com
-- **Triggered by:** `sendInviteAction()` in `src/actions/inviteActions.ts`
+## External Integrations
 
-### Vercel (Hosting + Deployment)
+| Service | Purpose | Where |
+|---------|---------|-------|
+| **Supabase** | PostgreSQL, realtime, RPC functions | `src/lib/supabase*.ts`, hooks |
+| **Google Gmail API + OAuth2 + Pub/Sub** | Sync, send, push notifications | `googleAuthService.ts`, `gmailSyncService.ts`, `gmailSenderService.ts`, webhooks |
+| **Upstash QStash** | Cron + queue (signing-key verified) | `lib/qstash.ts`, all `/api/cron/*` |
+| **Resend** | Transactional email (invitations only) from `noreply@texasbrains.com` | `inviteActions.ts` |
+| **Groq** | Primary LLM — `llama-3.3-70b-versatile` for Jarvis chat/agent/mining, `llama-3.1-8b-instant` for daily briefing | `jarvisService.ts`, `dailyBriefingService.ts`, `templateMiningService.ts`, `aiSummaryService.ts` |
+| **Google Gemini** | LLM fallback when Groq fails | `aiSummaryService.ts` |
+| **ElevenLabs** | TTS (`eleven_multilingual_v2`, voice `Sarah` / `EXAVITQu4vr4xnSDxMaL`). Falls back to browser `SpeechSynthesis`. | `/api/jarvis/tts` |
+| **Vercel** | Hosting (IAD1), serverless functions, Vercel Cron fallback | — |
+
+---
+
+## Current Production Status
+
+- **Live URL:** https://txb-unibox.vercel.app
 - **Region:** IAD1 (US East)
-- **Serverless functions:** 30-60 second timeouts for sync/campaign routes
-- **Security headers:** X-Frame-Options: DENY, X-Content-Type-Options: nosniff, Referrer-Policy
-- **Static assets:** 1-year cache with immutable flag
-- **API routes:** no-store cache headers
-- **Console stripping:** Production builds remove console.log (keep error/warn)
+- **Environment parity:** Local dev is a perfect mirror of production — shared Supabase DB, same commit hash `038a3bb` (last deployed).
+- **Data volume:** ~12,913 contacts, 1,117 projects, 62 active Gmail accounts, capacity ~1,860 emails/day, $367K all-time revenue, 83% collection rate.
+- **Team:** 11 account managers.
 
-### Groq + Google Gemini (AI)
-- **Purpose:** AI relationship summaries and next-email suggestions
-- **Primary:** Groq (Llama 3.3 70B, free tier)
-- **Fallback:** Google Gemini
-- **Used in:** `/intelligence` page, `aiSummaryService.ts`
+---
 
-### Chrome Extension
-- **API endpoints:** `/api/ext/*` and `/api/extension/*`
-- **Features:** Add leads, check duplicates, view clients
-- **Auth:** API key-based authentication
+## Critical Files (Do Not Break)
+
+| File | Why |
+|------|-----|
+| `proxy.ts` | IP whitelist + session validation on every request |
+| `src/lib/auth.ts` | Session encryption/decryption |
+| `src/lib/roleGate.ts` | Fresh DB role check for page guards |
+| `src/lib/safe-action.ts` | Cookie-role gate for all server actions |
+| `src/utils/accessControl.ts` | Data scoping — breaking this leaks data across roles |
+| `src/utils/encryption.ts` | OAuth/IMAP token encryption |
+| `app/dashboard/PageClient.tsx` | Heart of the dashboard (Jarvis briefing + metrics) |
+| `app/api/webhooks/gmail/route.ts` | Gmail push notifications |
+| `app/api/auth/crm/google/callback/route.ts` | OAuth login callback |
+| `src/services/jarvisService.ts` | Jarvis tool catalog + system prompt (contains live business data) |
+| `prisma/schema.prisma` | Only ADD models/fields — never rename existing `@@map()` |
+| `next.config.js` | Turbopack, server externals, security headers |
+| `vercel.json` | Function timeouts, region, crons |
+
+---
+
+## Non-Obvious Patterns
+
+1. **`middleware.ts` is now `proxy.ts`** — Next.js 16 convention (commit `038a3bb`). The file exports a `proxy()` function, not `middleware()`. Don't recreate `middleware.ts`.
+2. **`server-only` import is required** on every file in `src/services/` to prevent accidental client-bundle leaks.
+3. **Turbopack is the default** in Next.js 16 — `next.config.js` has an empty `turbopack: {}` block. Heavy packages (`@prisma/client`, `googleapis`, `nodemailer`, `imapflow`, `mailparser`) are in `serverExternalPackages` so they're not bundled.
+4. **Two role-check layers, by design:**
+   - `ensureAuthenticated()` in server actions uses the **cookie's role** (fast, no DB hit).
+   - `roleGate.ts` in server-component page wrappers uses the **DB's current role** (safe against stale cookies after role change).
+5. **`getAccessibleGmailAccountIds()` is memoized per-request** via React `cache()` — safe to call many times in one server action tree.
+6. **`users_ *_role* enum` in DB differs from Prisma enum** — the Prisma schema only has `ADMIN` + `SALES`, but the DB also stores `ACCOUNT_MANAGER` and `VIDEO_EDITOR` as valid strings. All code paths must handle all 4.
+7. **Jarvis system prompt embeds live business data** — revenue totals, top clients, team roster are hard-coded into `JARVIS_SYSTEM_PROMPT` in `jarvisService.ts`. When data shifts materially (new top clients, changed totals), update that string.
+8. **`console.log` is stripped in production** (keeps only `error`/`warn`) — via `next.config.js` compiler.
+9. **ESLint is broken on Next 16** — `eslint-config-next@16` needs a standalone ESLint config. Currently `npm run lint` exits with an error. Build still works because Vercel's `buildCommand` is `next build || true` — be careful: this masks real build failures too.
+10. **Sidebar polls `actionQueueActions` every 60 s** for the badge count — an idle page still triggers this work.
+11. **`jarvis_feedback` and `jarvis_knowledge` are raw Supabase tables**, not modeled in Prisma — queries use the Supabase client directly.
 
 ---
 
 ## Coding Patterns
 
-### Server Actions Pattern
+### Server Action Pattern
 ```typescript
 // src/actions/exampleActions.ts
 'use server';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, blockEditorAccess, requireAdmin } from '../utils/accessControl';
 import { supabase } from '../lib/supabase';
 
-export async function myAction(param: string) {
+export async function myAction() {
     const { userId, role } = await ensureAuthenticated();
-    // For admin-only actions:
-    // requireAdmin(role);
-    
-    // For RBAC-filtered queries:
-    const accountAccess = await getAccessibleGmailAccountIds(userId, role);
-    
-    const { data, error } = await supabase
-        .from('my_table')
-        .select('*')
-        .in('gmail_account_id', accountAccess === 'ALL' ? [] : accountAccess);
-    
+    blockEditorAccess(role);          // throw on VIDEO_EDITOR
+    // requireAdmin(role);             // uncomment for admin-only
+
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    const accountIds = accessible === 'ALL' ? null : accessible;
+    if (Array.isArray(accountIds) && accountIds.length === 0) {
+        return { success: true, data: [] };
+    }
+
+    let q = supabase.from('email_messages').select('*');
+    if (accountIds) q = q.in('gmail_account_id', accountIds);
+    const { data, error } = await q;
     if (error) return { success: false, error: error.message };
     return { success: true, data };
 }
 ```
 
-### API Route Pattern
+### Page Wrapper Pattern (server component)
 ```typescript
-// app/api/example/route.ts
-import { getSession } from '../../../src/lib/auth';
+// app/feature/page.tsx
+import { blockEditorAccess } from '../../src/lib/roleGate';
+import FeatureClient from './PageClient';
 
-export async function GET(request: Request) {
-    const session = await getSession();
-    if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    // ... handle request
-    return Response.json({ data });
-}
-
-// For cron routes (dual QStash + Vercel Cron support):
-export async function POST(request: Request) {
-    // QStash signature verification
-    const receiver = new Receiver({ ... });
-    await receiver.verify({ ... });
-    // ... process
-}
-export async function GET(request: Request) {
-    // Vercel Cron with Bearer token
-    const auth = request.headers.get('authorization');
-    if (auth !== `Bearer ${process.env.CRON_SECRET}`) return new Response('Unauthorized', { status: 401 });
-    // ... same process
+export default async function Page() {
+    await blockEditorAccess();        // or requireAdminAccess()
+    return <FeatureClient />;
 }
 ```
 
-### Component Pattern
+### Client Page Pattern
 ```typescript
-// app/myfeature/page.tsx
+// app/feature/PageClient.tsx
 'use client';
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useGlobalFilter } from '../context/FilterContext';
-import { useHydrated } from '../utils/useHydration';
-import { PageLoader } from '../components/LoadingStates';
-import { myAction } from '../../src/actions/myActions';
+import { myAction } from '../../src/actions/exampleActions';
 
-export default function MyFeaturePage() {
+export default function FeatureClient() {
     const { selectedAccountId } = useGlobalFilter();
-    const isHydrated = useHydrated();
     const [data, setData] = useState([]);
-
-    useEffect(() => {
-        myAction(selectedAccountId).then(res => {
-            if (res.success) setData(res.data);
-        });
-    }, [selectedAccountId]);
-
-    if (!isHydrated) return <PageLoader isLoading type="list" />;
-    return <div>...</div>;
+    useEffect(() => { myAction().then(r => r.success && setData(r.data)); }, [selectedAccountId]);
+    return <div>…</div>;
 }
 ```
 
-### State Management
-- **Global state:** 3 context providers in `app/context/` (Filter, UI, UndoToast)
-- **Email state:** `useMailbox` hook with useReducer + 2-tier caching (memory + localStorage)
-- **Real-time:** `useRealtimeInbox` hook for Supabase WebSocket subscriptions
-- **Hydration:** `useHydrated()` hook to prevent SSR/client mismatch
-- **Role caching:** localStorage `unibox_user_role` for instant sidebar rendering
+### Cron Route Pattern (dual QStash + Vercel Cron)
+```typescript
+// app/api/cron/your-job/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import * as crypto from 'crypto';
+import { qstashReceiver } from '../../../../lib/qstash';
 
-### Response Pattern
-All server actions return: `{ success: boolean, data?: T, error?: string }`
-Paginated actions return: `{ emails, totalCount, page, pageSize, totalPages }`
+async function run() { /* your logic */ }
 
----
-
-## Email Sync Strategy
-
-Three sync modes in `gmailSyncService.ts`:
-
-1. **Push (webhook):** Google Pub/Sub → `/api/webhooks/gmail` → insert into `webhook_events` → processed by cron every 2 min
-2. **History-based (partial):** Uses Gmail `historyId` for efficient incremental sync. Triggered by webhooks or manual sync.
-3. **Full sync:** Background reconciliation of all messages. Used on first connect or manual trigger.
-
-### Sync Processing (`emailSyncLogic.ts`)
-- **Sent email:** Auto-creates contact as CLIENT, transitions COLD_LEAD → CONTACTED
-- **Received email:** Creates contact ONLY if replying to our outreach, promotes COLD_LEAD → LEAD
-- **Filters out:** Promotional, social, automated, noreply, blocked domains (Facebook, LinkedIn, etc.)
-- **Deduplication:** Skips already-synced messages by message ID
-
-### Manual Accounts
-- IMAP via `imapflow` for receiving (last 6 months on first sync)
-- SMTP via `nodemailer` for sending
-- Supports INBOX, Sent, Spam, Trash, Drafts folders
-
----
-
-## Pipeline
-
-Leads flow through stages with automatic and manual transitions:
-
-```
-COLD_LEAD → CONTACTED → WARM_LEAD → LEAD → OFFER_ACCEPTED → CLOSED
-                                                              ↓
-                                                        NOT_INTERESTED
+export async function POST(req: NextRequest) {
+    const body = await req.text();
+    await qstashReceiver.verify({ signature: req.headers.get('upstash-signature')!, body });
+    return NextResponse.json(await run());
+}
+export async function GET(req: NextRequest) {
+    const auth = req.headers.get('authorization');
+    const expected = `Bearer ${process.env.CRON_SECRET}`;
+    if (!auth || !crypto.timingSafeEqual(Buffer.from(auth), Buffer.from(expected))) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    return NextResponse.json(await run());
+}
 ```
 
-### Automatic Transitions
-| Trigger | Transition |
-|---------|-----------|
-| First email sent | COLD_LEAD → CONTACTED |
-| 2+ opens, no reply (hourly detection) | → WARM_LEAD |
-| Reply received to outreach | CONTACTED/COLD_LEAD → LEAD |
-| Acceptance keywords in reply | Activity log "Possible Acceptance?" |
-
-Stage definitions and colors: `app/constants/stages.ts`
+### Response Envelope
+All server actions return `{ success: boolean; data?: T; error?: string }`. Paginated: `{ emails, totalCount, page, pageSize, totalPages }`.
 
 ---
 
-## Campaign System
-
-### 3-Phase Processor (every 15 minutes)
-
-1. **Phase 1 — Enqueue** (`campaignProcessorService.ts`): Find ready contacts, check schedule/timezone/limits, build content (placeholders + spintax), inject unsubscribe link, calculate stagger delays, insert into send queue
-2. **Phase 2 — Send** (`sendQueueProcessorService.ts`): Process QUEUED items (max 30/account/cycle), inject tracking, send via Gmail/SMTP, advance to next step or mark COMPLETED, retry up to 3x
-3. **Phase 3 — Subsequences**: Check if contacts opened email N days ago with no reply, trigger subsequence steps
-
-### Features
-- A/B testing variants per step
-- Spintax support: `{hello|hi|hey}`
-- Placeholder replacement: `{{first_name}}`, `{{company}}`, etc.
-- Account rotation with warmup mode (starts at 20/day, +1.43/day up to 500)
-- Auto-stop on reply
-- Unsubscribe tracking
-- Daily send limits per account
-
----
-
-## Critical Rules (NEVER break these)
-
-1. **NEVER touch the existing auth system** without full understanding of session encryption, middleware, and RBAC flows
-2. **ALWAYS run `npx tsc --noEmit`** before committing — TypeScript strict mode must pass
-3. **NEVER hardcode secrets** — all sensitive values go in `.env` (see `.env.example` for docs)
-4. **ALWAYS test after building** — run `npm run build` to catch SSR/client mismatches
-5. **ALWAYS `git push` after finishing** — don't leave work only committed locally
-6. **NEVER expose `SUPABASE_SERVICE_ROLE_KEY`** or `ENCRYPTION_KEY` to the client
-7. **NEVER bypass RBAC** — always use `ensureAuthenticated()` + `getAccessibleGmailAccountIds()` for data access
-8. **NEVER remove `'use server'`** from action files or `import 'server-only'` from service files
-9. **NEVER modify Prisma `@@map()` decorators** — they map to existing Supabase table/column names
-10. **ALWAYS use snake_case** for database column names in Prisma schema (with `@map()`)
-11. **NEVER delete webhook_events** without processing — use dead-letter pattern instead
-12. **NEVER skip IP whitelist or session checks** in middleware
-
----
-
-## Files NOT to Touch (Without Good Reason)
-
-| File | Why |
-|------|-----|
-| `middleware.ts` | Auth + IP whitelist — breaks all routes if modified incorrectly |
-| `src/lib/auth.ts` | Session encryption/decryption — breaks all logins |
-| `src/utils/encryption.ts` | OAuth token encryption — breaks all Gmail accounts |
-| `src/lib/safe-action.ts` | Auth enforcement for all server actions |
-| `src/utils/accessControl.ts` | RBAC enforcement — breaks data isolation |
-| `prisma/schema.prisma` | Only modify to ADD models/fields, never rename existing `@@map()` |
-| `app/api/webhooks/gmail/route.ts` | Gmail push notifications — breaks real-time sync |
-| `app/api/auth/crm/google/callback/route.ts` | OAuth callback — breaks login |
-| `next.config.js` | Server external packages, security headers, compiler settings |
-| `vercel.json` | Function timeouts, region config — breaks deployment |
-
----
-
-## Environment
-
-Copy `.env.example` to `.env`. Critical variables:
+## Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
-| `DATABASE_URL` | Supabase PostgreSQL (pooled via PgBouncer) |
-| `DIRECT_URL` | Supabase PostgreSQL (direct, for migrations only) |
+| `DATABASE_URL` | Supabase pooled connection |
+| `DIRECT_URL` | Supabase direct (migrations only) |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public Supabase endpoint |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anonymous key (safe to expose) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only service role (NEVER expose) |
-| `ENCRYPTION_KEY` | 64-char hex for OAuth token encryption |
-| `NEXTAUTH_SECRET` | Session encryption key |
-| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 Client Secret |
-| `GOOGLE_REDIRECT_URI` | OAuth callback URL |
-| `GOOGLE_PUBSUB_TOPIC` | GCP Pub/Sub topic for Gmail push |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key (safe to expose) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role (NEVER expose) |
+| `ENCRYPTION_KEY` | 64-char hex for OAuth/IMAP token encryption |
+| `NEXTAUTH_SECRET` | Session cookie encryption |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google OAuth |
+| `GOOGLE_PUBSUB_TOPIC` | Gmail push notifications topic |
 | `NEXT_PUBLIC_APP_URL` | Base URL for tracking pixels/links |
 | `CRON_SECRET` | Vercel Cron bearer token |
-| `RESEND_API_KEY` | Resend (invitation emails only) |
-| `QSTASH_TOKEN` | Upstash QStash auth |
-| `QSTASH_CURRENT_SIGNING_KEY` | QStash webhook verification |
-| `QSTASH_NEXT_SIGNING_KEY` | QStash key rotation |
+| `RESEND_API_KEY` | Resend (invites) |
+| `QSTASH_TOKEN` / `QSTASH_CURRENT_SIGNING_KEY` / `QSTASH_NEXT_SIGNING_KEY` | Upstash QStash |
+| `GROQ_API_KEY` | Jarvis + briefings + template mining |
+| `GEMINI_API_KEY` | AI summary fallback |
+| `ELEVENLABS_API_KEY` | Jarvis TTS (optional — falls back to browser TTS) |
 
 ---
 
-## Known Issues / Tech Debt
+## Immediate Roadmap
 
-See `KNOWN_ISSUES.md` for the full audit. Key items:
-
-### Critical
-- **SEC-005:** Hardcoded IP whitelist in middleware (should be env vars)
-- **SEC-006:** CRON_SECRET optional in automations endpoint (no default-deny)
-
-### High Priority
-- **PERF-001/002:** N+1 queries in campaign processing and email sync
-- **SEC-007:** Race condition on invitation acceptance (not atomic)
-- **SEC-008:** Sync endpoint doesn't verify account access via RBAC
-- **PERF-003:** Missing transactions in send queue (email sent but not recorded on failure)
-- **SEC-010:** Missing `server-only` imports on some service files
-- **BUG-001:** Null decrypt crash on manual accounts without refresh_token
-
-### Medium
-- **TYPE-001:** Widespread `any` types (lost TypeScript safety)
-- **TYPE-002:** Unsafe `as unknown as` type casting on API responses
-- **UX-003:** Hardcoded widths breaking mobile layout
-- **PERF-006:** Unbounded thread cache in useMailbox (memory leak)
+1. **Fix lint** — migrate to standalone ESLint config compatible with Next.js 16 (currently `npm run lint` is broken).
+2. **Performance** — cut initial hydration and Jarvis data-fetch latency (~5 s today). Profile `app/dashboard/PageClient.tsx` and `jarvisActions.ts#getDailyBriefingAction`.
+3. **Scraper scalability** — move `leadScraperService.ts` to a worker/queue so batches don't block the main thread.
+4. **Schema hardening** — migrate `ACCOUNT_MANAGER` and `VIDEO_EDITOR` into the Prisma `Role` enum; add Prisma models for `jarvis_feedback` and `jarvis_knowledge`.
+5. **Vercel `buildCommand` masks failures** — `next build || true` makes broken builds ship silently. Remove the `|| true` once lint + build are green.
 
 ---
 
-## How to Add New Features
+## Critical Rules
 
-### Adding a New Page
+1. **Never touch auth** (`proxy.ts`, `src/lib/auth.ts`, `roleGate.ts`, `safe-action.ts`, `accessControl.ts`) without understanding the whole chain.
+2. **Always `npx tsc --noEmit`** before committing — strict mode must pass.
+3. **Never hardcode secrets** — all in `.env`. See `.env.example`.
+4. **Always `npm run build`** before push — SSR/client mismatches only surface there.
+5. **Always `git push` after committing** — don't leave work only local.
+6. **Never expose `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY`, `NEXTAUTH_SECRET`** to the client.
+7. **Never bypass RBAC** — use `ensureAuthenticated()` + `getAccessibleGmailAccountIds()` for every data query.
+8. **Never remove `'use server'`** from action files or `import 'server-only'` from service files.
+9. **Never rename existing Prisma `@@map()` decorators** — they map to live Supabase tables/columns.
+10. **Always use snake_case** column names in Prisma (with `@map()`).
+11. **Never delete `webhook_events`** without processing — use dead-letter pattern.
+12. **Never skip IP whitelist or session checks** in `proxy.ts`.
+13. **Keep THIS file in sync** — see the Self-Updating Rule at the top.
 
-1. Create `app/myfeature/page.tsx` (use `'use client'` directive)
-2. Create `app/myfeature/loading.tsx` for loading state
-3. Add navigation entry in `app/components/Sidebar.tsx`:
-   - `NAV_SHARED` for all roles, or `NAV_ADMIN_ONLY` for admin-only pages
-4. If the page needs data, create server actions in `src/actions/myFeatureActions.ts`
-5. Follow the component pattern: `useHydrated()` → `useGlobalFilter()` → `useEffect` to load data → render
+---
 
-### Adding a New Server Action
+_Last audited: 2026-04-21 (Deep System Discovery — drift corrections). Commit at audit: `038a3bb`._
 
-1. Create or edit file in `src/actions/` with `'use server'` at top
-2. Always call `ensureAuthenticated()` first
-3. Use `requireAdmin(role)` for admin-only actions
-4. Use `getAccessibleGmailAccountIds()` for RBAC-filtered data
-5. Return `{ success: boolean, data?: T, error?: string }`
-
-### Adding a New API Route
-
-1. Create `app/api/myroute/route.ts`
-2. Export named functions: `GET`, `POST`, `PUT`, `DELETE`
-3. Validate session with `getSession()` or use QStash receiver for cron routes
-4. For cron routes: support both POST (QStash) and GET (Vercel Cron with Bearer token)
-5. Add function timeout in `vercel.json` if needed (default 10s, max 60s)
-
-### Adding a New Prisma Model
-
-1. Add model to `prisma/schema.prisma` with `@@map('snake_case_table_name')`
-2. Use `@map('snake_case')` for all column names
-3. Run `npx prisma migrate dev --name add-my-model`
-4. Run `npx prisma generate` to update client
-5. Create corresponding server actions in `src/actions/`
-
-### Adding a New Service
-
-1. Create file in `src/services/`
-2. Add `import 'server-only';` as first import
-3. Keep business logic here, database calls in actions
-4. If it needs scheduling, add a cron route in `app/api/cron/` with QStash + Vercel Cron dual support
-
-### Pre-Commit Checklist
-
-1. `npx tsc --noEmit` — type-check passes
-2. `npm run lint` — no lint errors
-3. `npm run build` — production build succeeds
-4. Test the feature manually in dev server
-5. Check RBAC: does it work correctly for both ADMIN and SALES roles?
-6. Check that no secrets are hardcoded
-7. Commit and push
+**Deep System Discovery 2026-04-21 — drift corrections applied:**
+- Removed non-existent routes `/api/auth/google` and `/api/track/session` from API table (verified in code).
+- Fixed IMAP cron cadence 30 min → 15 min (matches `scripts/setup-qstash-schedules.ts`).
+- Documented undocumented directories: `components/projects/` (25-file Notion-style tracker at repo root, not `app/components/`), `lib/projects/` (actions/types/constants/csv-parser/editorStats), `app/utils/` (helpers, localCache, staleWhileRevalidate, useHydration), `src/constants/limits.ts`, `src/hooks/useRealtimeInbox.ts`, `src/scripts/backfillClients.ts`, `docs/` (SOPs + QA + training plans).
+- Flagged orphan files (zero imports outside docs): `src/actions/automationActions.ts`, `src/actions/relationshipActions.ts`, `src/services/pipelineLogic.ts`, `app/components/RevenueChart.tsx`, `app/components/RevenueBarChart.tsx`, `app/components/OnboardingWizard.tsx`, `app/components/JarvisDailyBriefing.tsx` (this one is ⚠ documented as active but has zero imports — dashboard calls `getDailyBriefingAction` directly without the component).
+- Added Scripts CSVs note: `scripts/Edit_revenue_for_web_app.csv`, `scripts/not-found-projects.csv` are data inputs for `import-revenue.ts` / `db-maintenance.mjs`.

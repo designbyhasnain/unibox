@@ -1,6 +1,68 @@
 # Unibox — Developer Guide for Changes
 
-> Quick reference for making changes to the codebase. Updated March 2026.
+> Quick reference for making changes to the codebase. Last synced with git history: **2026-04-21** (commit `038a3bb`).
+
+---
+
+## Changelog (Apr 2026 — most recent first)
+
+_Synced from `git log` on 2026-04-21. Only merged `main` commits shown; see `git log` for the full history._
+
+### Infrastructure
+- **`038a3bb`** chore: rename `middleware.ts` → `proxy.ts` (Next.js 16 convention)
+- **`71dcf84`** feat: push all local UI changes to production
+- **`877a545`** fix: resolve type errors in warmup script blocking Vercel build
+
+### Design system overhaul (floating shell, oklch tokens, dark mode)
+- **`522d37f`** feat: rewrite Intelligence page as Jarvis audit card-based UI
+- **`84a407f`** feat: Sidebar full rewrite — pixel-match to design prototype
+- **`cf97ac2`** feat: Inbox design overhaul — all hardcoded colors replaced with tokens
+- **`d2264a6`** feat: Design system Phase 4 — component styles from prototype
+- **`788924a`** feat: Design system overhaul Phase 0+1+2 — oklch tokens, floating shell, sidebar
+- **`48998c6`** feat: complete dark mode polish for all components
+- **`f69ef27`** feat: dark mode with floating shell + theme toggle
+
+### Jarvis AI evolution
+- **`1f8371d`** feat: Jarvis coaching mode — feedback when agent already replied
+- **`2cf8091`** feat: Jarvis Phase 2+3 — knowledge retrieval + agent feedback loop
+- **`ebde325`** feat: Jarvis knowledge mining script + training-plan doc
+- **`c0084fc`** feat: Jarvis Phase 1 — smarter replies with business knowledge
+- **`2181866`** feat: Jarvis Daily Briefing — role-aware 24h summary on `/dashboard`
+- **`5ff704b`** feat: Jarvis Suggested Replies — AI-drafted reply above every thread
+
+### UX polish & performance
+- **`51722dc`** feat: animated loading text on all in-page loading states
+- **`a931b31`** feat: animated loading text with sales/editing personality
+- **`7013f44`** perf: lightning performance — Phase 1, 6, 10
+- **`d65d65e`** polish: Phase 2 — empty states, responsive grid, data-health cleanup
+- **`2bcf338`** feat: tier-1 upgrade across 7 target pages
+- **`00c425b`** feat: instant UX + smart role-based team management
+
+### Email / sync hardening
+- **`5a5e89c`** fix: open tracking now works on Gmail web + Android app
+- **`7fd5e9e`** fix: inbox was 3–15 rows/page because RPC returned mixed directions
+- **`0cc8c87`** feat: `deepGapFillSync` — backfill mail after recovery without rate limits
+- **`d160279`** feat: mass-Gmail stability — never disconnect over transient errors
+- **`23198c8`** fix: deduplicate emails across 77 Gmail accounts
+- **`95926ed`** fix: Sent tab uses RPC to avoid timeout on 77-account IN query
+- **`ad85310`** fix: restore RPC for inbox (prevents timeout), post-filter for RECEIVED only
+- **`b524815`** fix: inbox shows only RECEIVED, Sent shows only SENT
+- **`ccaedd9`** fix: inbox shows all stages, not just COLD_LEAD
+- **`0e0f683`** fix: inbox count shows real total; Sent uses direct query for SALES
+- **`35ce2ba` / `c5b7f46`** fix: inbox badge shows unread count and updates live
+- **`5310248`** feat: strict identity-based data scoping across all surfaces
+
+### Lead / campaign / ops tooling
+- **`d876778`** feat: Lead Scraper Phase 5 + warm-up failure badges
+- **`4494bf4`** feat: `scripts/backfill-warmup-badges.mjs` — reusable credential probe
+- **`f8f1e21`** feat: db-maintenance Phase 5 + 6 (ownerless contacts + fuzzy project matcher)
+- **`b770c2b`** feat: `scripts/db-maintenance.mjs` — safe DB maintenance utility
+- **`dc59da5`** feat: `scripts/warmup.mjs` — local-only Gmail warm-up via Prisma
+
+### Deep System Discovery — 2026-04-21
+- Full codebase re-audit after undocumented drift. `PROJECT_OVERVIEW.md` rewritten from scratch as a shareable source-of-truth.
+- `CLAUDE.md` updated: removed non-existent routes `/api/auth/google` and `/api/track/session`; fixed IMAP cron to 15 min; documented `components/projects/`, `lib/projects/`, `app/utils/`, `src/constants/`, `src/hooks/`, `src/scripts/`, `docs/`.
+- Flagged 7 orphan files + root-level detritus for cleanup (pending user approval).
 
 ---
 
