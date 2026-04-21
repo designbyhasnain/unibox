@@ -7,8 +7,19 @@ import { UndoToastProvider } from './context/UndoToastContext'
 import ClientLayout from './components/ClientLayout'
 
 export const metadata: Metadata = {
-    title: 'Unibox CRM',
-    description: 'Multi-account email CRM for Video Production',
+    title: {
+        default: 'Unibox',
+        template: '%s | Unibox',
+    },
+    description: 'Professional email CRM for Wedits — unified inbox, sales pipeline, and AI-powered outreach.',
+    applicationName: 'Unibox',
+    authors: [{ name: 'Wedits' }],
+    icons: { icon: '/icon.svg' },
+    robots: {
+        index: false,
+        follow: false,
+        nocache: true,
+    },
 }
 
 const themeScript = `(function(){try{var t=localStorage.getItem('unibox_theme');if(t==='light'){document.body.setAttribute('data-theme','light')}}catch(e){}})()`;

@@ -2,6 +2,8 @@ import { getFreshSession } from '../../src/lib/roleGate';
 import { redirect } from 'next/navigation';
 import Dashboard from './PageClient';
 
+export const metadata = { title: 'Dashboard' };
+
 export default async function DashboardPage() {
     const session = await getFreshSession();
     if (!session) redirect('/login');

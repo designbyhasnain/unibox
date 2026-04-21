@@ -2,9 +2,17 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
+import { requireAdmin } from '../utils/accessControl';
 
 export async function getFinanceOverviewAction(startDate: string, endDate: string) {
-    const { userId, role } = await ensureAuthenticated();
+    const { role } = await ensureAuthenticated();
+    // Workspace-wide revenue is admin-only — matches the /finance page gate.
+    // Without this, a SALES user could call the action directly from devtools.
+    try {
+        requireAdmin(role);
+    } catch {
+        return { success: false, error: 'Admin access required' };
+    }
 
     const { data, error } = await supabase.rpc('get_finance_summary', {
         p_start: startDate,

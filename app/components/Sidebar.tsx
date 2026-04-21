@@ -149,13 +149,6 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                     </button>
                 )}
 
-                {/* Search */}
-                <div className="sb-search">
-                    {Icon.search}
-                    <span>Search everything…</span>
-                    <span className="kbd">⌘K</span>
-                </div>
-
                 {/* Navigation */}
                 <div className="sb-nav-scroll">
                     {groups.map(({ name, items }) => (

@@ -3,6 +3,8 @@ import { getSession } from '../../src/lib/auth';
 import { supabase } from '../../src/lib/supabase';
 import ScraperClient from './ScraperClient';
 
+export const metadata = { title: 'Scraper' };
+
 export default async function ScraperPage() {
     const session = await getSession();
     if (!session) redirect('/login');
