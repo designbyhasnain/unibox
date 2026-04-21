@@ -76,6 +76,12 @@ const LOADING_MESSAGES: Record<string, string[]> = {
         'Loading preferences...',
         'Pulling your settings...',
     ],
+    'data-health': [
+        'Scanning database integrity...',
+        'Checking Gmail sync status...',
+        'Counting orphans and strays...',
+        'How healthy is the pipeline?',
+    ],
     default: [
         'Loading...',
         'Almost there...',

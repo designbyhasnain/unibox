@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { getDataHealthAction, getGmailSyncHealthAction, type DataHealthSnapshot, type GmailSyncHealth } from '../../src/actions/dataHealthActions';
 import { syncAllAccountsHealthAction } from '../../src/actions/accountActions';
+import { LoadingText } from '../components/LoadingStates';
 
 import { AlertTriangle, CheckCircle2, Mail, Database, Users, Briefcase, Clock, Zap } from 'lucide-react';
 
@@ -62,7 +63,9 @@ export default function DataHealthPage() {
                     )}
 
                     {loading ? (
-                        <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>
+                        <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>
+                            <LoadingText context="data-health" />
+                        </div>
                     ) : (
                         <>
                             {/* Gmail Sync Health */}

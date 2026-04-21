@@ -32,8 +32,8 @@ function buildCards(data: Awaited<ReturnType<typeof getIntelligenceDashboardActi
             contactName: c.name || undefined,
             contactEmail: c.email || undefined,
             dealStage: 'ACTIVE',
-            title: `${c.name || c.email} — response time slowing (${c.slowdownFactor}x)`,
-            description: `Previously replying in ${c.earlyAvgHours}h, now taking ${c.recentAvgHours}h on average. This ${c.slowdownFactor}x slowdown is a strong early churn signal — act before they go fully dark.`,
+            title: `${c.name || c.email} — response time slowing (${Number(c.slowdownFactor).toFixed(1)}x)`,
+            description: `Previously replying in ${c.earlyAvgHours}h, now taking ${c.recentAvgHours}h on average. This ${Number(c.slowdownFactor).toFixed(1)}x slowdown is a strong early churn signal — act before they go fully dark.`,
             recommendation: 'Send a short, personal check-in email today — no pitch, just genuine interest in their status.',
         });
     }

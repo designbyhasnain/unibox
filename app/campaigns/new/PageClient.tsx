@@ -51,14 +51,11 @@ type EnrollableContact = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+// Must stay in lockstep with Prisma enum CampaignGoal (prisma/schema.prisma).
 const GOAL_OPTIONS = [
     { value: 'COLD_OUTREACH', label: 'Cold Outreach', desc: 'Reach new prospects who haven\'t heard from you', icon: '🎯' },
     { value: 'FOLLOW_UP', label: 'Follow Up', desc: 'Re-engage prospects who didn\'t reply', icon: '🔄' },
     { value: 'RETARGETING', label: 'Retargeting', desc: 'Win back past leads or clients', icon: '🎪' },
-    { value: 'WARM_UP', label: 'Warm-up', desc: 'Nurture leads over time with value-driven content', icon: '🔥' },
-    { value: 'CLOSED_WON', label: 'Closed-Won', desc: 'Upsell and cross-sell to past paying clients', icon: '🏆' },
-    { value: 'LOCATION_BASED', label: 'Location-Based', desc: 'Target prospects by region or city', icon: '📍' },
-    { value: 'SEASONAL', label: 'Seasonal', desc: 'Holiday and event-based promotions', icon: '🎄' },
 ];
 
 const PLACEHOLDERS = [

@@ -541,7 +541,7 @@ export default function JarvisPage() {
                     </div>
                 </div>
                 <div className="jv-footer">
-                    <span className="jv-footer-text">Powered by Groq (Llama 3.3 70B) + ElevenLabs &mdash; 19 CRM tools &bull; Voice + Text</span>
+                    <span className="jv-footer-text">Powered by Groq (Llama 3.3 70B) + ElevenLabs &mdash; 18 CRM tools &bull; Voice + Text</span>
                 </div>
             </div>
         </>

@@ -228,7 +228,7 @@ export default function TeamPage() {
                     </div>
                     <div style={{ flex: 1 }} />
                     <button onClick={() => { setShowInviteModal(true); setInviteResult(null); setInviteForm({ name: '', email: '', role: 'SALES', assignedGmailAccountIds: [] }); }}
-                        style={{ background: 'var(--ink)', color: 'var(--canvas)', border: 'none', padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-ui)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        style={{ background: 'var(--ink)', color: 'var(--canvas)', border: 'none', padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-ui)', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', flexShrink: 0 }}>
                         + Invite member
                     </button>
                 </div>
