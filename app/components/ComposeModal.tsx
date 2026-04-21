@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction, searchContactsForComposeAction } from '../../src/actions/emailActions';
 import { useGlobalFilter } from '../context/FilterContext';
-import { ChevronDown, Paperclip, Clock, LayoutTemplate, UserPlus, Sparkles, Send, X, Maximize2 } from 'lucide-react';
+import { ChevronDown, LayoutTemplate, Sparkles, Send, X, Maximize2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import TemplatePickerModal from './TemplatePickerModal';
 
@@ -337,10 +337,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                 )}
 
                 <div className="compose-foot">
-                    <button className="icon-btn" title="Attach files"><Paperclip size={15} /></button>
-                    <button className="icon-btn" title="Schedule send"><Clock size={15} /></button>
                     <button className="icon-btn" title="Templates" onClick={() => setShowTemplatePicker(true)}><LayoutTemplate size={15} /></button>
-                    <button className="icon-btn" title="Add people"><UserPlus size={15} /></button>
                     <div className="spacer" />
                     <button className="ask-ai"><Sparkles size={12} />Ask AI</button>
                     <button className="send" onClick={handleSend} disabled={isSending || recipients.length === 0}>
