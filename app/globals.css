@@ -792,6 +792,43 @@ a {
     flex-shrink: 0;
 }
 
+/* Inline search inputs (inbox + clients + campaigns list toolbars). */
+.inbox-search, .inline-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--hairline-soft);
+    border-radius: 8px;
+    padding: 4px 8px;
+    height: 30px;
+    min-width: 180px;
+    max-width: 320px;
+    transition: border-color .12s, background .12s;
+}
+.inbox-search:focus-within, .inline-search:focus-within {
+    border-color: var(--accent);
+    background: var(--shell);
+}
+.inbox-search input, .inline-search input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 12.5px;
+    min-width: 0;
+}
+.inbox-search input::placeholder, .inline-search input::placeholder {
+    color: var(--ink-faint);
+}
+.inbox-search-icon, .inline-search-icon {
+    display: inline-flex;
+    color: var(--ink-faint);
+    flex-shrink: 0;
+}
+
 .icon-btn {
     width: 30px;
     height: 30px;

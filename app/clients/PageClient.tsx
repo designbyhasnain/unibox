@@ -56,12 +56,19 @@ export default function ClientsPage() {
     const [isAddOpen, setIsAddOpen] = useState(false);
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
     const menuWrapRef = useRef<HTMLDivElement | null>(null);
+
+    // Debounce search: only refetch 300ms after user stops typing.
+    useEffect(() => {
+        const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+        return () => clearTimeout(id);
+    }, [searchTerm]);
 
     const load = useCallback(async () => {
         try {
             const [result, user] = await Promise.all([
-                getClientsAction(selectedAccountId, 1, 100, searchTerm || undefined),
+                getClientsAction(selectedAccountId, 1, 100, debouncedSearch || undefined),
                 getCurrentUserAction(),
             ]);
             setClients(result.clients);
@@ -69,7 +76,7 @@ export default function ClientsPage() {
             setIsAdmin(user?.role === 'ADMIN' || user?.role === 'ACCOUNT_MANAGER');
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
-    }, [selectedAccountId, searchTerm]);
+    }, [selectedAccountId, debouncedSearch]);
 
     useEffect(() => { load(); }, [load]);
     useEffect(() => {
@@ -130,7 +137,27 @@ export default function ClientsPage() {
                             <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>{v.charAt(0).toUpperCase() + v.slice(1)}</button>
                         ))}
                     </div>
-                    <button className="icon-btn" title="Search">{ICON.search}</button>
+                    <div className="inline-search">
+                        <span className="inline-search-icon">{ICON.search}</span>
+                        <input
+                            type="search"
+                            placeholder="Search name, email, company"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            aria-label="Search clients"
+                        />
+                        {searchTerm && (
+                            <button
+                                className="icon-btn"
+                                style={{ width: 22, height: 22 }}
+                                onClick={() => setSearchTerm('')}
+                                aria-label="Clear search"
+                                title="Clear"
+                            >
+                                {ICON.x}
+                            </button>
+                        )}
+                    </div>
                     <button className="icon-btn" title="Filter">{ICON.filter}</button>
                     <button className="btn btn-dark" onClick={() => setIsAddOpen(true)}>{ICON.plus} Add client</button>
                 </div>

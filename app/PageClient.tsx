@@ -334,6 +334,27 @@ export default function InboxPage() {
                             )}
                         </div>
                         <div style={{ flex: 1 }} />
+                        <div className="inbox-search">
+                            <span className="inbox-search-icon">{ICONS.search}</span>
+                            <input
+                                type="search"
+                                placeholder="Search mail"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                aria-label="Search inbox"
+                            />
+                            {searchTerm && (
+                                <button
+                                    className="icon-btn"
+                                    style={{ width: 22, height: 22 }}
+                                    onClick={() => setSearchTerm('')}
+                                    aria-label="Clear search"
+                                    title="Clear"
+                                >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                </button>
+                            )}
+                        </div>
                         {isSyncing && (
                             <span className="inbox-sync-msg">
                                 <RefreshCw size={12} className="inbox-sync-spin" />

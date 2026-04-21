@@ -11,6 +11,8 @@ const ICON = {
     filter: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
     plus: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>,
     more: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>,
+    search: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>,
+    x: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>,
 };
 
 const Spark = ({ points, color = 'var(--ink-muted)' }: { points: number[]; color?: string }) => {
@@ -42,6 +44,7 @@ export default function CampaignsPage() {
     const [loading, setLoading] = useState(true);
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
     const menuWrapRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
@@ -81,6 +84,15 @@ export default function CampaignsPage() {
 
     if (!hydrated || loading) return <PageLoader isLoading type="list" count={6} context="inbox"><div /></PageLoader>;
 
+    const q = searchTerm.trim().toLowerCase();
+    const filteredCampaigns = q
+        ? campaigns.filter(c =>
+            (c.name || '').toLowerCase().includes(q) ||
+            (c.goal || '').toLowerCase().includes(q) ||
+            (c.createdBy?.name || '').toLowerCase().includes(q)
+        )
+        : campaigns;
+
     const running = campaigns.filter(c => c.status === 'RUNNING').length;
     const totalSent = campaigns.reduce((s, c) => s + (c.sentCount || 0), 0);
     const totalOpened = campaigns.reduce((s, c) => s + Math.round((c.sentCount || 0) * (c.openRate || 0) / 100), 0);
@@ -104,6 +116,27 @@ export default function CampaignsPage() {
                         <div className="sub">{campaigns.length} total · {running} running · {campaigns.filter(c => c.status === 'PAUSED').length} paused</div>
                     </div>
                     <div style={{ flex: 1 }} />
+                    <div className="inline-search">
+                        <span className="inline-search-icon">{ICON.search}</span>
+                        <input
+                            type="search"
+                            placeholder="Search campaigns"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            aria-label="Search campaigns"
+                        />
+                        {searchTerm && (
+                            <button
+                                className="icon-btn"
+                                style={{ width: 22, height: 22 }}
+                                onClick={() => setSearchTerm('')}
+                                aria-label="Clear search"
+                                title="Clear"
+                            >
+                                {ICON.x}
+                            </button>
+                        )}
+                    </div>
                     <button className="icon-btn" title="Filter">{ICON.filter}</button>
                     <Link href="/campaigns/new" className="btn btn-dark">{ICON.plus} New campaign</Link>
                 </div>
@@ -128,7 +161,12 @@ export default function CampaignsPage() {
                         </tr>
                     </thead>
                     <tbody>
-                        {campaigns.map(c => {
+                        {filteredCampaigns.length === 0 && searchTerm && (
+                            <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '24px' }}>
+                                No campaigns match &ldquo;{searchTerm}&rdquo;
+                            </td></tr>
+                        )}
+                        {filteredCampaigns.map(c => {
                             const rr = c.sentCount ? ((c.sentCount * (c.replyRate || 0) / 100) / c.sentCount * 100).toFixed(1) : '—';
                             const opened = Math.round((c.sentCount || 0) * (c.openRate || 0) / 100);
                             const replied = Math.round((c.sentCount || 0) * (c.replyRate || 0) / 100);
