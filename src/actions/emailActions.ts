@@ -578,59 +578,73 @@ export async function getClientEmailsAction(
 // ─── Mark Email As Read ───────────────────────────────────────────────────────
 
 export async function markEmailAsReadAction(messageId: string) {
-    if (!messageId) return { success: false };
-    const { error } = await supabase
-        .from('email_messages')
-        .update({ is_unread: false })
-        .eq('id', messageId);
+    if (!messageId) return { success: false, error: 'messageId is required' };
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return { success: false, error: 'Forbidden' };
+
+    let q = supabase.from('email_messages').update({ is_unread: false }).eq('id', messageId);
+    if (accessible !== 'ALL') q = q.in('gmail_account_id', accessible);
+    const { error } = await q;
 
     if (error) {
         console.error('markEmailAsReadAction error:', error);
-        return { success: false };
+        return { success: false, error: 'Failed to mark as read' };
     }
     return { success: true };
 }
 
 export async function markEmailAsUnreadAction(messageId: string) {
-    if (!messageId) return { success: false };
-    const { error } = await supabase
-        .from('email_messages')
-        .update({ is_unread: true })
-        .eq('id', messageId);
+    if (!messageId) return { success: false, error: 'messageId is required' };
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return { success: false, error: 'Forbidden' };
+
+    let q = supabase.from('email_messages').update({ is_unread: true }).eq('id', messageId);
+    if (accessible !== 'ALL') q = q.in('gmail_account_id', accessible);
+    const { error } = await q;
 
     if (error) {
         console.error('markEmailAsUnreadAction error:', error);
-        return { success: false };
+        return { success: false, error: 'Failed to mark as unread' };
     }
     return { success: true };
 }
 
 export async function bulkMarkAsReadAction(messageIds: string[]) {
     if (!messageIds || messageIds.length === 0) return { success: true };
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return { success: false, error: 'Forbidden' };
 
-    const { error } = await supabase
-        .from('email_messages')
-        .update({ is_unread: false })
-        .in('id', messageIds);
+    let q = supabase.from('email_messages').update({ is_unread: false }).in('id', messageIds);
+    if (accessible !== 'ALL') q = q.in('gmail_account_id', accessible);
+    const { error } = await q;
 
     if (error) {
         console.error('bulkMarkAsReadAction error:', error);
-        return { success: false };
+        return { success: false, error: 'Failed to mark as read' };
     }
     return { success: true };
 }
 
 export async function bulkMarkAsUnreadAction(messageIds: string[]) {
     if (!messageIds || messageIds.length === 0) return { success: true };
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return { success: false, error: 'Forbidden' };
 
-    const { error } = await supabase
-        .from('email_messages')
-        .update({ is_unread: true })
-        .in('id', messageIds);
+    let q = supabase.from('email_messages').update({ is_unread: true }).in('id', messageIds);
+    if (accessible !== 'ALL') q = q.in('gmail_account_id', accessible);
+    const { error } = await q;
 
     if (error) {
         console.error('bulkMarkAsUnreadAction error:', error);
-        return { success: false };
+        return { success: false, error: 'Failed to mark as unread' };
     }
     return { success: true };
 }
@@ -638,7 +652,9 @@ export async function bulkMarkAsUnreadAction(messageIds: string[]) {
 // ─── Update Pipeline Stage ────────────────────────────────────────────────────
 
 export async function updateEmailStageAction(messageId: string, stage: string) {
-    if (!messageId || !stage) return { success: false };
+    if (!messageId || !stage) return { success: false, error: 'messageId and stage are required' };
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
 
     // 1. Fetch the email to get the sender details
     const { data: emailMsg } = await supabase
@@ -647,7 +663,12 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
         .eq('id', messageId)
         .single();
 
-    if (!emailMsg) return { success: false };
+    if (!emailMsg) return { success: false, error: 'Email not found' };
+
+    // Ownership: verify the caller can access the source Gmail account
+    if (!(await canAccessGmailAccount(userId, role, emailMsg.gmail_account_id))) {
+        return { success: false, error: 'Forbidden' };
+    }
 
     // 2. Extract the clean email address and normalize
     const rawEmail = emailMsg.direction === 'RECEIVED' ? emailMsg.from_email : emailMsg.to_email;
@@ -796,6 +817,19 @@ export async function getThreadMessagesAction(threadId: string) {
 
 export async function deleteEmailAction(messageId: string) {
     if (!messageId) return { success: false, error: 'messageId is required' };
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+
+    // Ownership: load the message and verify access before deleting anything
+    const { data: msg } = await supabase
+        .from('email_messages')
+        .select('gmail_account_id')
+        .eq('id', messageId)
+        .maybeSingle();
+    if (!msg) return { success: false, error: 'Email not found' };
+    if (!(await canAccessGmailAccount(userId, role, msg.gmail_account_id))) {
+        return { success: false, error: 'Forbidden' };
+    }
 
     // Nullify source_email_id on linked projects instead of deleting them
     await supabase.from('projects').update({ source_email_id: null }).eq('source_email_id', messageId);
@@ -816,52 +850,72 @@ export async function deleteEmailAction(messageId: string) {
 
 export async function bulkDeleteEmailsAction(messageIds: string[]) {
     if (!messageIds || messageIds.length === 0) return { success: true };
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return { success: false, error: 'Forbidden' };
+
+    // Ownership: restrict the target set to messages the caller can access
+    let idsQuery = supabase
+        .from('email_messages')
+        .select('id')
+        .in('id', messageIds);
+    if (accessible !== 'ALL') idsQuery = idsQuery.in('gmail_account_id', accessible);
+    const { data: ownedRows } = await idsQuery;
+    const allowedIds = (ownedRows || []).map((r: any) => r.id);
+    if (allowedIds.length === 0) return { success: false, error: 'No accessible emails to delete' };
 
     // Nullify source_email_id on linked projects instead of deleting them
-    await supabase.from('projects').update({ source_email_id: null }).in('source_email_id', messageIds);
+    await supabase.from('projects').update({ source_email_id: null }).in('source_email_id', allowedIds);
 
     // Delete the messages
     const { error } = await supabase
         .from('email_messages')
         .delete()
-        .in('id', messageIds);
+        .in('id', allowedIds);
 
     if (error) {
         console.error('[emailActions] bulkDeleteEmailsAction error:', error);
         return { success: false, error: 'An error occurred while processing your request' };
     }
     revalidatePath('/');
-    return { success: true };
+    return { success: true, deleted: allowedIds.length };
 }
 
 // ─── Not Interested (Ignore Sender) ──────────────────────────────────────────
 
 export async function markAsNotInterestedAction(email: string) {
-    if (!email) return { success: false };
+    if (!email) return { success: false, error: 'email is required' };
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return { success: false, error: 'Forbidden' };
 
     try {
         const senderEmail = normalizeEmail(email);
 
-        // 1. Add specific email to ignored_senders
+        // 1. Global ignore-list (shared spam block — intentionally workspace-wide).
         const { error: ignoreError } = await supabase
             .from('ignored_senders')
             .upsert({ email: senderEmail }, { onConflict: 'email' });
-
         if (ignoreError) throw ignoreError;
 
-        // Update all messages from this specific email to NOT_INTERESTED stage
-        const { error: updateError } = await supabase
+        // 2. Update messages from this sender — scoped to caller's accessible accounts.
+        let msgsQuery = supabase
             .from('email_messages')
             .update({ pipeline_stage: 'NOT_INTERESTED' })
             .ilike('from_email', `%${escapeIlike(senderEmail)}%`);
-
+        if (accessible !== 'ALL') msgsQuery = msgsQuery.in('gmail_account_id', accessible);
+        const { error: updateError } = await msgsQuery;
         if (updateError) throw updateError;
 
-        // 3. Update contact if exists
-        await supabase
+        // 3. Update matching contacts — admins mark across workspace, SALES only their own.
+        let contactsQuery = supabase
             .from('contacts')
             .update({ pipeline_stage: 'NOT_INTERESTED' })
             .ilike('email', `%${escapeIlike(senderEmail)}%`);
+        if (accessible !== 'ALL') contactsQuery = contactsQuery.eq('account_manager_id', userId);
+        await contactsQuery;
 
         revalidatePath('/');
         return { success: true };
@@ -900,6 +954,8 @@ export async function getTabCountsAction(gmailAccountId?: string) {
 
 export async function markAsNotSpamAction(messageId: string) {
     if (!messageId) return { success: false, error: 'messageId is required' };
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     try {
         // 1. Fetch message and account details
         const { data: message, error: msgError } = await supabase
@@ -912,6 +968,11 @@ export async function markAsNotSpamAction(messageId: string) {
 
         const account = message.gmail_accounts as any;
         if (!account) throw new Error('Account not found');
+
+        // Ownership: caller must be able to access this Gmail account
+        if (!(await canAccessGmailAccount(userId, role, message.gmail_account_id))) {
+            return { success: false, error: 'Forbidden' };
+        }
 
         // 2. Call the appropriate service to move it back to Inbox on the server
         if (account.connection_method === 'MANUAL') {
@@ -1027,14 +1088,18 @@ export async function searchEmailsAction(
 
 export async function getEmailTrackingAction(messageId: string) {
     if (!messageId) return null;
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     try {
         const { data, error } = await supabase
             .from('email_messages')
-            .select('tracking_id, is_tracked, delivered_at, opened_at')
+            .select('tracking_id, is_tracked, delivered_at, opened_at, gmail_account_id')
             .eq('id', messageId)
             .single();
         if (error || !data) return null;
-        return data;
+        if (!(await canAccessGmailAccount(userId, role, data.gmail_account_id))) return null;
+        const { gmail_account_id: _drop, ...safe } = data as any;
+        return safe;
     } catch (err) {
         console.error('getEmailTrackingAction error:', err);
         return null;
@@ -1044,32 +1109,43 @@ export async function getEmailTrackingAction(messageId: string) {
 // ─── Bulk Actions ────────────────────────────────────────────────────────────
 
 export async function bulkUpdateStageAction(contactIds: string[], stage: string) {
-    await ensureAuthenticated();
-    const { error } = await supabase
-        .from('contacts')
-        .update({ pipeline_stage: stage })
-        .in('id', contactIds);
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    if (!contactIds || contactIds.length === 0) return { updated: 0 };
+
+    let q = supabase.from('contacts').update({ pipeline_stage: stage }).in('id', contactIds);
+    // SALES users may only update contacts they own.
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') q = q.eq('account_manager_id', userId);
+    const { error } = await q;
     if (error) throw new Error(error.message);
     revalidatePath('/');
     return { updated: contactIds.length };
 }
 
 export async function bulkMarkReadAction(messageIds: string[]) {
-    await ensureAuthenticated();
-    const { error } = await supabase
-        .from('email_messages')
-        .update({ is_unread: false })
-        .in('id', messageIds);
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    if (!messageIds || messageIds.length === 0) return { updated: 0 };
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return { updated: 0 };
+
+    let q = supabase.from('email_messages').update({ is_unread: false }).in('id', messageIds);
+    if (accessible !== 'ALL') q = q.in('gmail_account_id', accessible);
+    const { error } = await q;
     if (error) throw new Error(error.message);
     return { updated: messageIds.length };
 }
 
 export async function bulkMarkUnreadAction(messageIds: string[]) {
-    await ensureAuthenticated();
-    const { error } = await supabase
-        .from('email_messages')
-        .update({ is_unread: true })
-        .in('id', messageIds);
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    if (!messageIds || messageIds.length === 0) return { updated: 0 };
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return { updated: 0 };
+
+    let q = supabase.from('email_messages').update({ is_unread: true }).in('id', messageIds);
+    if (accessible !== 'ALL') q = q.in('gmail_account_id', accessible);
+    const { error } = await q;
     if (error) throw new Error(error.message);
     return { updated: messageIds.length };
 }
