@@ -3,6 +3,7 @@
 import { supabase } from '../lib/supabase';
 import { classifySentEmail, classifyReceivedEmail } from './emailClassificationService';
 import { extractPhoneFromText } from '../utils/phoneExtractor';
+import { detectStageSignal } from './stageDetectionService';
 
 const ACCEPTANCE_KEYWORDS = ['yes', "let's proceed", 'agreed', 'sounds good', 'deal', 'approve', 'accepted'];
 
@@ -352,16 +353,37 @@ export async function handleEmailReceived(data: {
         }
     }
 
-    // 3. Keyword detection for possible offer acceptance (Activity log only)
-    const bodyText = data.body.toLowerCase();
-    const mightBeAccepted = ACCEPTANCE_REGEXES.some((regex) => regex.test(bodyText));
-
-    if (mightBeAccepted && contact?.pipeline_stage === 'LEAD' && contact.id) {
-        await supabase.from('activity_logs').insert({
-            action: "System flagged 'Possible Acceptance?' due to keyword detection in reply.",
-            performed_by: 'System',
-            contact_id: contact.id,
-        });
+    // 3. Smart keyword detection for stage signals
+    if (contact?.id) {
+        const signal = detectStageSignal(data.body, contact.pipeline_stage, 'RECEIVED');
+        if (signal) {
+            if (signal.confidence === 'HIGH' && signal.suggestedStage === 'OFFER_ACCEPTED'
+                && contact.pipeline_stage === 'LEAD') {
+                // HIGH confidence acceptance on a LEAD → auto-promote
+                newEmailStage = 'OFFER_ACCEPTED';
+                await supabase.from('contacts').update({ pipeline_stage: 'OFFER_ACCEPTED' }).eq('id', contact.id);
+                await supabase.from('activity_logs').insert({
+                    action: `Auto-promoted to Offer Accepted: "${signal.matchedKeywords[0]}" detected (${signal.confidence} confidence).`,
+                    performed_by: 'System',
+                    contact_id: contact.id,
+                });
+            } else if (signal.suggestedStage !== 'NOT_INTERESTED') {
+                // MEDIUM/LOW → log for manual review
+                await supabase.from('activity_logs').insert({
+                    action: `Stage suggestion: ${signal.suggestedStage} (${signal.confidence}) — ${signal.reason}. Keywords: ${signal.matchedKeywords.join(', ')}`,
+                    performed_by: 'System',
+                    contact_id: contact.id,
+                });
+            }
+            // Rejection signals (LOW confidence) → log only, never auto-apply
+            if (signal.suggestedStage === 'NOT_INTERESTED') {
+                await supabase.from('activity_logs').insert({
+                    action: `Possible rejection detected: "${signal.matchedKeywords.join(', ')}". Review recommended.`,
+                    performed_by: 'System',
+                    contact_id: contact.id,
+                });
+            }
+        }
     }
 
     // 4. Auto-mark as client (INBOUND = sender is client)

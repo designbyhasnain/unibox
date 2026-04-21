@@ -49,8 +49,8 @@ const globalMailboxCache: Record<string, { emails: any[], totalCount: number, to
 let globalTabCountsCache: Record<string, Record<string, number>> = {};
 let globalTabCountsTimestamp: Record<string, number> = {};
 const globalThreadCache: Record<string, { data: any[], timestamp: number }> = {};
-const THREAD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const THREAD_CACHE_MAX_SIZE = 100;
+const THREAD_CACHE_TTL = 15 * 60 * 1000; // 15 minutes (was 5)
+const THREAD_CACHE_MAX_SIZE = 200; // (was 100)
 const TAB_COUNTS_TTL = 30_000; // 30 seconds
 
 /**
@@ -731,38 +731,37 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     }, []);
 
     const handleSelectEmail = useCallback(async (email: any) => {
-        // Optimized: Check if we have cached messages for instant display
+        // Step 1: INSTANT display — show cached thread or the clicked email immediately
         const cached = globalThreadCache[email.thread_id];
         const cachedThread = cached && (Date.now() - cached.timestamp < THREAD_CACHE_TTL) ? cached.data : null;
         if (cachedThread) {
             dispatch({ type: 'SELECT_EMAIL_AND_THREAD', selectedEmail: email, threadMessages: filterNoiseMessages(cachedThread) });
         } else {
+            // Show the clicked email as a single message immediately (no loading spinner)
             dispatch({ type: 'SELECT_EMAIL_AND_THREAD', selectedEmail: email, threadMessages: [email] });
         }
 
+        // Step 2: Mark as read (fire and forget — don't block UI)
         if (email.is_unread) {
             dispatch({
                 type: 'UPDATE_EMAILS',
                 updater: (prev) => prev.map(e => e.id === email.id ? { ...e, is_unread: false } : e),
             });
-            markEmailAsReadAction(email.id); // fire and forget
+            markEmailAsReadAction(email.id);
         }
 
+        // Step 3: Load full thread in background (non-blocking)
         if (email.thread_id) {
-            // If not cached, or to refresh the cache, fetch background
             if (!cachedThread) dispatch({ type: 'SET_THREAD_LOADING', isThreadLoading: true });
 
-            try {
-                // Use server action (service role) to bypass RLS and ensure body is returned
-                const enriched = await getThreadMessagesAction(email.thread_id);
-
-                // Update cache
+            // Don't await — let it load in background
+            getThreadMessagesAction(email.thread_id).then(enriched => {
                 globalThreadCache[email.thread_id] = { data: enriched, timestamp: Date.now() };
                 dispatch({ type: 'SET_THREAD', threadMessages: filterNoiseMessages(enriched), isThreadLoading: false });
-            } catch (err) {
+            }).catch(err => {
                 console.error('Thread load failed', err);
                 dispatch({ type: 'SET_THREAD_LOADING', isThreadLoading: false });
-            }
+            });
         }
     }, []);
 
