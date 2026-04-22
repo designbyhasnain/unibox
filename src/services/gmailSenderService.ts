@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { handleEmailSent } from './emailSyncLogic';
 import { refreshAccessToken } from './googleAuthService';
 import { prepareTrackedEmail } from './trackingService';
+import { formatFromHeader } from '../utils/fromAddress';
 
 /**
  * Sends an email via Gmail API and syncs it to the database.
@@ -52,11 +53,12 @@ export async function sendGmailEmail(params: {
         oauth2Client.setCredentials({ access_token: token });
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-        // Build MIME message manually to avoid bulky dependencies if possible, 
+        // Build MIME message manually to avoid bulky dependencies if possible,
         // but ensure it's robust for UTF-8.
         const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+        const fromHeader = formatFromHeader(account.display_name, account.email);
         const messageParts = [
-            `From: ${account.email}`,
+            `From: ${fromHeader}`,
             `To: ${to}`,
             ...(cc ? [`Cc: ${cc}`] : []),
             ...(bcc ? [`Bcc: ${bcc}`] : []),

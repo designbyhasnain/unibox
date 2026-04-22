@@ -236,6 +236,10 @@ model GmailAccount {
   healthScore      Int       @default(100) @map("health_score")
   lastSendResetAt  DateTime  @default(now()) @map("last_send_reset_at")
 
+  // Persona — shown in the From header so recipients see a real name/photo.
+  displayName      String?   @map("display_name")
+  profileImage     String?   @map("profile_image")
+
   emails          EmailMessage[]
   assignments     UserGmailAssignment[]
   campaigns       Campaign[]

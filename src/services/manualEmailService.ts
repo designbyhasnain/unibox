@@ -97,8 +97,9 @@ export async function sendManualEmail(params: {
         auth: { user: account.email, pass: password },
     });
 
+    const displayName = (account.display_name ?? '').trim();
     const info = await transporter.sendMail({
-        from: account.email,
+        from: displayName ? { name: displayName, address: account.email } : account.email,
         to,
         ...(cc ? { cc } : {}),
         ...(bcc ? { bcc } : {}),

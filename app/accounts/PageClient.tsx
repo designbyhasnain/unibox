@@ -5,6 +5,7 @@ import { useGlobalFilter } from '../context/FilterContext';
 import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import { useUI } from '../context/UIContext';
 import Topbar from '../components/Topbar';
+import ManagePersonaModal, { type PersonaTarget } from '../components/ManagePersonaModal';
 import {
     getGoogleAuthUrlAction,
     connectManualAccountAction,
@@ -35,6 +36,8 @@ interface GmailAccount {
     watch_status?: string | null;
     last_error_message?: string | null;
     health_score?: number | null;
+    display_name?: string | null;
+    profile_image?: string | null;
 }
 
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
@@ -150,6 +153,19 @@ export default function AccountsPage() {
     const [userRole, setUserRole] = useState<string | null>(null);
     const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
     const [isRenewingWatches, setIsRenewingWatches] = useState(false);
+
+    // Persona state — per-account edit OR bulk-apply to selection.
+    const [personaTarget, setPersonaTarget] = useState<PersonaTarget | null>(null);
+    const [personaBulkOpen, setPersonaBulkOpen] = useState(false);
+    const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
+    const toggleBulkSelect = (id: string) => {
+        setSelectedForBulk(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+    const clearBulkSelection = () => setSelectedForBulk(new Set());
 
 
     const fetchAccounts = async () => {
@@ -550,8 +566,28 @@ export default function AccountsPage() {
                                             >
                                                 {/* Card Content */}
                                                 <div className="acct-card-header">
+                                                    {isAdmin && (
+                                                        <label
+                                                            className="acct-card-check"
+                                                            title="Select for bulk persona apply"
+                                                            onClick={e => e.stopPropagation()}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedForBulk.has(acc.id)}
+                                                                onChange={() => toggleBulkSelect(acc.id)}
+                                                                aria-label={`Select ${acc.email} for bulk action`}
+                                                            />
+                                                        </label>
+                                                    )}
                                                     <div className="acct-card-icon">
-                                                        {acc.connection_method === 'OAUTH' ? <GoogleIcon /> : (
+                                                        {acc.profile_image ? (
+                                                            <img
+                                                                src={acc.profile_image}
+                                                                alt={acc.display_name || acc.email}
+                                                                className="acct-card-avatar"
+                                                            />
+                                                        ) : acc.connection_method === 'OAUTH' ? <GoogleIcon /> : (
                                                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                                                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                                                                 <polyline points="22,6 12,13 2,6" />
@@ -560,7 +596,14 @@ export default function AccountsPage() {
                                                     </div>
                                                     <div className="acct-card-info">
                                                         <div className="acct-card-email">
-                                                            {acc.email}
+                                                            {acc.display_name ? (
+                                                                <>
+                                                                    <span className="acct-card-display-name">{acc.display_name}</span>
+                                                                    <span className="acct-card-email-muted">&nbsp;· {acc.email}</span>
+                                                                </>
+                                                            ) : (
+                                                                acc.email
+                                                            )}
                                                         </div>
                                                         <div className="acct-card-meta">
                                                             <StatusBadge status={acc.status} />
@@ -690,6 +733,18 @@ export default function AccountsPage() {
                                                                 Re-test
                                                             </button>
                                                         )}
+                                                        <button
+                                                            className="btn btn-sm btn-secondary"
+                                                            onClick={() => setPersonaTarget({
+                                                                id: acc.id,
+                                                                email: acc.email,
+                                                                displayName: acc.display_name ?? null,
+                                                                profileImage: acc.profile_image ?? null,
+                                                            })}
+                                                            title="Set display name + photo shown to recipients"
+                                                        >
+                                                            Persona
+                                                        </button>
                                                         <button
                                                             className="btn btn-sm btn-danger"
                                                             onClick={() => setAccountToRemove(acc)}
@@ -909,6 +964,38 @@ export default function AccountsPage() {
                 </div>
             )}
 
+
+            {/* Persona modal (per-account OR bulk) */}
+            {(personaTarget || personaBulkOpen) && (
+                <ManagePersonaModal
+                    target={personaTarget || undefined}
+                    bulkTargets={
+                        personaBulkOpen
+                            ? accounts
+                                .filter((a: any) => selectedForBulk.has(a.id))
+                                .map((a: any) => ({ id: a.id, email: a.email }))
+                            : undefined
+                    }
+                    onClose={() => { setPersonaTarget(null); setPersonaBulkOpen(false); }}
+                    onApplied={() => {
+                        refreshAccountsSilently();
+                        clearBulkSelection();
+                    }}
+                />
+            )}
+
+            {/* Bulk persona bar — floats at bottom when any accounts are checked */}
+            {isAdmin && selectedForBulk.size > 0 && (
+                <div className="bulk-bar" role="region" aria-label="Bulk persona actions">
+                    <div className="bulk-bar-count">{selectedForBulk.size} selected</div>
+                    <div className="bulk-bar-actions">
+                        <button className="btn btn-secondary btn-sm" onClick={clearBulkSelection}>Clear</button>
+                        <button className="btn btn-primary btn-sm" onClick={() => setPersonaBulkOpen(true)}>
+                            Apply persona to {selectedForBulk.size}
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Remove confirmation modal */}
             {accountToRemove && (

@@ -545,3 +545,117 @@ export async function syncAllAccountsHealthAction(): Promise<{
         failures: failures.slice(0, 50),
     };
 }
+
+// ─── Persona: display name + profile photo shown in the From header ──────────
+
+const AVATARS_BUCKET = 'avatars';
+const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+async function ensureAvatarsBucket(): Promise<void> {
+    // Idempotent — creates the bucket the first time we ever upload, makes it
+    // public so email clients can fetch the image.
+    const { data: existing } = await supabase.storage.getBucket(AVATARS_BUCKET);
+    if (existing) return;
+    const { error } = await supabase.storage.createBucket(AVATARS_BUCKET, {
+        public: true,
+        fileSizeLimit: MAX_IMAGE_BYTES,
+        allowedMimeTypes: ALLOWED_MIME,
+    });
+    if (error && !/already exists/i.test(error.message)) {
+        throw new Error(`Failed to create avatars bucket: ${error.message}`);
+    }
+}
+
+export async function uploadPersonaImageAction(
+    formData: FormData
+): Promise<{ success: boolean; url?: string; error?: string }> {
+    const { role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') {
+        return { success: false, error: 'Admin access required' };
+    }
+
+    const file = formData.get('file');
+    if (!(file instanceof File)) return { success: false, error: 'No file uploaded' };
+    if (file.size > MAX_IMAGE_BYTES) return { success: false, error: 'Image too large (max 5 MB)' };
+    if (!ALLOWED_MIME.includes(file.type)) {
+        return { success: false, error: 'Only JPG, PNG, WebP, GIF accepted' };
+    }
+
+    try {
+        await ensureAvatarsBucket();
+
+        const ext = (file.name.split('.').pop() || 'img').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const path = `personas/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext || 'img'}`;
+        const bytes = Buffer.from(await file.arrayBuffer());
+
+        const { error: uploadError } = await supabase.storage
+            .from(AVATARS_BUCKET)
+            .upload(path, bytes, {
+                contentType: file.type,
+                cacheControl: '31536000',
+                upsert: false,
+            });
+        if (uploadError) return { success: false, error: uploadError.message };
+
+        const { data: pub } = supabase.storage.from(AVATARS_BUCKET).getPublicUrl(path);
+        return { success: true, url: pub.publicUrl };
+    } catch (e: any) {
+        return { success: false, error: e?.message || 'Upload failed' };
+    }
+}
+
+export async function updateAccountPersonaAction(
+    accountId: string,
+    patch: { displayName?: string | null; profileImage?: string | null }
+): Promise<{ success: boolean; error?: string }> {
+    const { role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') {
+        return { success: false, error: 'Admin access required' };
+    }
+    const update: Record<string, any> = {};
+    if (patch.displayName !== undefined) update.display_name = patch.displayName?.trim() || null;
+    if (patch.profileImage !== undefined) update.profile_image = patch.profileImage || null;
+    if (Object.keys(update).length === 0) return { success: true };
+
+    const { error } = await supabase.from('gmail_accounts').update(update).eq('id', accountId);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+}
+
+export async function bulkApplyPersonaAction(
+    accountIds: string[],
+    persona: { displayName?: string | null; profileImage?: string | null }
+): Promise<{ success: boolean; updated?: number; error?: string }> {
+    const { role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') {
+        return { success: false, error: 'Admin access required' };
+    }
+    if (!accountIds.length) return { success: false, error: 'No accounts selected' };
+
+    const update: Record<string, any> = {};
+    if (persona.displayName !== undefined) update.display_name = persona.displayName?.trim() || null;
+    if (persona.profileImage !== undefined) update.profile_image = persona.profileImage || null;
+    if (Object.keys(update).length === 0) return { success: false, error: 'Nothing to apply' };
+
+    const { data, error } = await supabase
+        .from('gmail_accounts')
+        .update(update)
+        .in('id', accountIds)
+        .select('id');
+    if (error) return { success: false, error: error.message };
+    return { success: true, updated: data?.length || 0 };
+}
+
+export async function clearPersonaAction(accountId: string): Promise<{ success: boolean; error?: string }> {
+    const { role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') {
+        return { success: false, error: 'Admin access required' };
+    }
+    const { error } = await supabase
+        .from('gmail_accounts')
+        .update({ display_name: null, profile_image: null })
+        .eq('id', accountId);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+}

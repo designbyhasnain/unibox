@@ -265,7 +265,7 @@ PostgreSQL via Supabase. Two connection strings:
 |-------|-------|---------|
 | **User** | `users` | Auth + role + avatar |
 | **Contact** | `contacts` | Lead/client with pipeline stage, lead score, follow-up state |
-| **GmailAccount** | `gmail_accounts` | Gmail/IMAP account: OAuth tokens, sync state, health, warmup, daily limits |
+| **GmailAccount** | `gmail_accounts` | Gmail/IMAP account: OAuth tokens, sync state, health, warmup, daily limits, **persona (`display_name` + `profile_image`) shown in From header** |
 | **Invitation** | `invitations` | Team invites (7-day token, assigned Gmail IDs) |
 | **UserGmailAssignment** | `user_gmail_assignments` | SALES → GmailAccount pivot |
 | **EmailThread** | `email_threads` | Gmail thread grouping |
@@ -346,7 +346,7 @@ app/
 | `emailActions.ts` | Send, fetch, search, read/unread, delete |
 | `contactDetailActions.ts` | Contact CRUD, pipeline stage transitions |
 | `campaignActions.ts` | Campaign CRUD, launch, stop, enrollment |
-| `accountActions.ts` | Gmail/IMAP connect/disconnect, sync controls |
+| `accountActions.ts` | Gmail/IMAP connect/disconnect, sync controls, **persona (upload image to Supabase `avatars` bucket, set display name, bulk apply)** |
 | `authActions.ts` | Current user, logout |
 | `userManagementActions.ts` | ADMIN: list users, roles, deactivate |
 | `inviteActions.ts` | ADMIN: send/revoke/resend invites via Resend |
@@ -373,8 +373,8 @@ app/
 |------|---------|
 | `gmailSyncService.ts` | Full + history sync, watch registration |
 | `emailSyncLogic.ts` | Classification, auto-contact creation, pipeline transitions |
-| `gmailSenderService.ts` | MIME build, Gmail send, token refresh |
-| `manualEmailService.ts` | IMAP/SMTP for non-Gmail |
+| `gmailSenderService.ts` | MIME build, Gmail send, token refresh. **From header uses `formatFromHeader()` so `display_name` appears alongside the address when set.** |
+| `manualEmailService.ts` | IMAP/SMTP for non-Gmail. **Passes `{ name, address }` to nodemailer when persona `display_name` is set.** |
 | `trackingService.ts` | Open pixel + link rewriting |
 | `emailClassificationService.ts` | Email type taxonomy |
 | `campaignProcessorService.ts` | Phase 1: enqueue |
@@ -449,8 +449,8 @@ UI primitives (`app/components/ui/`): `Badge`, `Button`, `ErrorAlert`, `FormFiel
 ### Context (`app/context/`)
 `FilterContext` (selected account, date range), `UIContext` (compose open, etc.), `UndoToastContext`.
 
-### Utils (`src/utils/`) — 15 files
-`accessControl.ts`, `accountHelpers.ts`, `clientHabits.ts`, `csvParser.ts`, `emailNormalizer.ts`, `emailPreview.ts`, `emailTransformers.ts`, `encryption.ts`, `migrationHelpers.ts`, `pagination.ts`, `phoneExtractor.ts`, `placeholders.ts`, `spintax.ts`, `threadHelpers.ts`, `unsubscribe.ts`.
+### Utils (`src/utils/`) — 16 files
+`accessControl.ts`, `accountHelpers.ts`, `clientHabits.ts`, `csvParser.ts`, `emailNormalizer.ts`, `emailPreview.ts`, `emailTransformers.ts`, `encryption.ts`, `fromAddress.ts` (RFC 2047 From-header formatter used by Gmail sender), `migrationHelpers.ts`, `pagination.ts`, `phoneExtractor.ts`, `placeholders.ts`, `spintax.ts`, `threadHelpers.ts`, `unsubscribe.ts`.
 
 ### Lib (`src/lib/`) — 6 files
 `auth.ts` (session enc/dec), `supabase.ts` (service-role client, server), `supabase-client.ts` (anon, browser), `safe-action.ts` (cookie-role gate), **`roleGate.ts`** (fresh-DB role check for page wrappers), `config.ts`.
@@ -576,6 +576,8 @@ All cron routes accept both POST (QStash signed) and GET (Vercel Cron with `Bear
 9. **ESLint is broken on Next 16** — `eslint-config-next@16` needs a standalone ESLint config. Currently `npm run lint` exits with an error. Build still works because Vercel's `buildCommand` is `next build || true` — be careful: this masks real build failures too.
 10. **Sidebar polls `actionQueueActions` every 60 s** for the badge count — an idle page still triggers this work.
 11. **`jarvis_feedback` and `jarvis_knowledge` are raw Supabase tables**, not modeled in Prisma — queries use the Supabase client directly.
+12. **Supabase Storage `avatars` bucket is created lazily** on first persona upload via `ensureAvatarsBucket()` in `accountActions.ts`. It is **public** so email clients can fetch `<img>` URLs we stuff into HTML bodies. Images live under `personas/{ts}-{rand}.{ext}`. The bucket is not tracked in Prisma.
+13. **Gmail inbox avatars are a Gravatar thing, not ours.** Our `profile_image` column only drives in-app display (Accounts page, sender row) and optional inline signatures. Recipients (Gmail/Outlook) will only show a sender photo if the email owner has that same image on Gravatar. The Persona modal surfaces this as a copy-email hint.
 
 ---
 
@@ -716,7 +718,7 @@ All server actions return `{ success: boolean; data?: T; error?: string }`. Pagi
 
 ---
 
-_Last audited: 2026-04-21 (Deep System Discovery — drift corrections). Commit at audit: `038a3bb`._
+_Last audited: 2026-04-22 (added GlobalTopbar search + GmailAccount persona). Commit at audit: `d941239+`._
 
 **Deep System Discovery 2026-04-21 — drift corrections applied:**
 - Removed non-existent routes `/api/auth/google` and `/api/track/session` from API table (verified in code).
