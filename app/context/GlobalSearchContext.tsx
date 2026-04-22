@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useSyncExternalStore } from 'react';
 
 export interface GlobalSearchConfig {
     placeholder?: string;
@@ -10,61 +10,100 @@ export interface GlobalSearchConfig {
     onClear?: () => void;
 }
 
-interface GlobalSearchContextValue {
+// ────────────────────────────────────────────────────────────────────────────
+// Module-scope store. No React context — pages push into this store and
+// subscribers (GlobalTopbar only) re-render via useSyncExternalStore.
+//
+// Why not context: pages that register a search handler would subscribe to
+// the provider's value. When register() bumped state, every page that had
+// called useRegisterGlobalSearch re-rendered. Their inline `onClear: () => ...`
+// arrows produced fresh identities, which re-triggered the hook's effect,
+// which called register() again → infinite loop ("Maximum update depth
+// exceeded"). Moving the registry out of React state breaks that loop.
+// ────────────────────────────────────────────────────────────────────────────
+
+type Snapshot = {
     config: GlobalSearchConfig | null;
-    register: (key: string, config: GlobalSearchConfig) => void;
-    unregister: (key: string) => void;
+    version: number;
+};
+
+const registry = new Map<string, GlobalSearchConfig>();
+let activeKey: string | null = null;
+let snapshot: Snapshot = { config: null, version: 0 };
+const listeners = new Set<() => void>();
+
+function emit() {
+    const config = activeKey ? registry.get(activeKey) ?? null : null;
+    snapshot = { config, version: snapshot.version + 1 };
+    listeners.forEach(l => l());
 }
 
-const GlobalSearchContext = createContext<GlobalSearchContextValue | null>(null);
-
-export function GlobalSearchProvider({ children }: { children: React.ReactNode }) {
-    // Keyed registry lets the latest page registration win; last-in is active.
-    const [activeKey, setActiveKey] = useState<string | null>(null);
-    const registryRef = useRef<Map<string, GlobalSearchConfig>>(new Map());
-    const [, force] = useState(0);
-    const bump = useCallback(() => force(n => n + 1), []);
-
-    const register = useCallback((key: string, cfg: GlobalSearchConfig) => {
-        registryRef.current.set(key, cfg);
-        setActiveKey(key);
-        bump();
-    }, [bump]);
-
-    const unregister = useCallback((key: string) => {
-        registryRef.current.delete(key);
-        setActiveKey(prev => {
-            if (prev !== key) return prev;
-            const keys = Array.from(registryRef.current.keys());
-            return keys.length ? keys[keys.length - 1]! : null;
-        });
-        bump();
-    }, [bump]);
-
-    const config = activeKey ? registryRef.current.get(activeKey) ?? null : null;
-
-    const value = useMemo<GlobalSearchContextValue>(() => ({ config, register, unregister }), [config, register, unregister]);
-
-    return <GlobalSearchContext.Provider value={value}>{children}</GlobalSearchContext.Provider>;
+function subscribe(l: () => void) {
+    listeners.add(l);
+    return () => { listeners.delete(l); };
 }
 
-export function useGlobalSearch(): GlobalSearchContextValue {
-    const ctx = useContext(GlobalSearchContext);
-    if (!ctx) throw new Error('useGlobalSearch must be used within GlobalSearchProvider');
-    return ctx;
+function getSnapshot() { return snapshot; }
+// SSR safety: identical snapshot on the server so the first client render
+// matches. Since the registry is populated via useEffect (client-only), the
+// server always sees null config.
+const SERVER_SNAPSHOT: Snapshot = { config: null, version: 0 };
+function getServerSnapshot() { return SERVER_SNAPSHOT; }
+
+function registerImpl(key: string, cfg: GlobalSearchConfig) {
+    registry.set(key, cfg);
+    activeKey = key;
+    emit();
+}
+
+function unregisterImpl(key: string) {
+    registry.delete(key);
+    if (activeKey === key) {
+        const keys = Array.from(registry.keys());
+        activeKey = keys.length ? keys[keys.length - 1]! : null;
+    }
+    emit();
+}
+
+// ── Public hooks ────────────────────────────────────────────────────────────
+
+export function useGlobalSearchSnapshot(): Snapshot {
+    return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
 /**
  * Register this page's search handler with the global Topbar search bar.
- * Pass a stable key (e.g. the route path) so re-renders don't thrash.
+ *
+ * `cfg` may be recreated every render (inline object) — the hook keeps the
+ * latest callbacks in a ref and only re-pushes to the store when the
+ * displayed fields (placeholder, value) actually change, so new function
+ * identities never cause re-renders.
  */
 export function useRegisterGlobalSearch(key: string, cfg: GlobalSearchConfig | null) {
-    const { register, unregister } = useGlobalSearch();
-    // Re-register every time any part of cfg changes (value, handlers, placeholder).
+    // Always keep the freshest cfg in a ref so the wrapper below sees latest handlers.
+    const cfgRef = useRef(cfg);
+    cfgRef.current = cfg;
+
+    const placeholder = cfg?.placeholder;
+    const value = cfg?.value ?? '';
+    const active = !!cfg;
+
     useEffect(() => {
-        if (!cfg) return;
-        register(key, cfg);
-        return () => unregister(key);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [key, cfg?.placeholder, cfg?.value, cfg?.onChange, cfg?.onSubmit, cfg?.onClear]);
+        if (!active) return;
+        const wrapper: GlobalSearchConfig = {
+            placeholder,
+            value,
+            onChange: (v) => cfgRef.current?.onChange(v),
+            onSubmit: (v) => cfgRef.current?.onSubmit?.(v),
+            onClear: () => cfgRef.current?.onClear?.(),
+        };
+        registerImpl(key, wrapper);
+        return () => unregisterImpl(key);
+    }, [key, active, placeholder, value]);
+}
+
+// Legacy provider export so app/layout.tsx doesn't need to change. It's a
+// pass-through now that the store is module-scoped.
+export function GlobalSearchProvider({ children }: { children: React.ReactNode }) {
+    return <>{children}</>;
 }

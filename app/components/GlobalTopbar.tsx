@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useRef } from 'react';
-import { useGlobalSearch } from '../context/GlobalSearchContext';
+import { useGlobalSearchSnapshot } from '../context/GlobalSearchContext';
 
 export default function GlobalTopbar() {
-    const { config } = useGlobalSearch();
+    const { config } = useGlobalSearchSnapshot();
     const inputRef = useRef<HTMLInputElement>(null);
 
     const active = !!config;

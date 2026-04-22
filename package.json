@@ -4,8 +4,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
+    "dev:fresh": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true});require('fs').rmSync('node_modules/.cache',{recursive:true,force:true});\" && next dev",
     "build": "next build",
     "start": "next start",
+    "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true});require('fs').rmSync('node_modules/.cache',{recursive:true,force:true});console.log('cleaned .next + node_modules/.cache');\"",
     "lint": "next lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
