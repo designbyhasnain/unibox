@@ -17,6 +17,7 @@ import {
     renewAllWatchesAction,
     retestManualAccountAction,
     syncAllAccountsHealthAction,
+    syncGoogleProfilesAction,
 } from '../../src/actions/accountActions';
 import { PageLoader } from '../components/LoadingStates';
 import { getCurrentUserAction } from '../../src/actions/authActions';
@@ -153,6 +154,26 @@ export default function AccountsPage() {
     const [userRole, setUserRole] = useState<string | null>(null);
     const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
     const [isRenewingWatches, setIsRenewingWatches] = useState(false);
+    const [isSyncingProfiles, setIsSyncingProfiles] = useState(false);
+    const [profileSyncResult, setProfileSyncResult] = useState<string | null>(null);
+
+    const handleSyncGoogleProfiles = async () => {
+        setIsSyncingProfiles(true);
+        setProfileSyncResult(null);
+        try {
+            const res = await syncGoogleProfilesAction();
+            if (res.success) {
+                setProfileSyncResult(`Done — ${res.updated} updated, ${res.failed} failed out of ${res.processed} accounts.`);
+                refreshAccountsSilently();
+            } else {
+                setProfileSyncResult(`Error: ${res.error}`);
+            }
+        } catch (e: any) {
+            setProfileSyncResult(`Error: ${e?.message || 'Unknown'}`);
+        } finally {
+            setIsSyncingProfiles(false);
+        }
+    };
 
     // Persona state — per-account edit OR bulk-apply to selection.
     const [personaTarget, setPersonaTarget] = useState<PersonaTarget | null>(null);
@@ -472,6 +493,18 @@ export default function AccountsPage() {
                                         </svg>
                                     </button>
                                     <button
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={handleSyncGoogleProfiles}
+                                        disabled={isSyncingProfiles}
+                                        title="Fetch Google profile name + photo for all OAuth accounts with empty persona"
+                                        style={{ opacity: isSyncingProfiles ? 0.6 : 1 }}
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+                                        </svg>
+                                        {isSyncingProfiles ? 'Syncing…' : 'Sync Google Profiles'}
+                                    </button>
+                                    <button
                                         className="btn btn-primary btn-sm"
                                         onClick={() => { setShowSelectionModal(true); setError(null); }}
                                     >
@@ -543,6 +576,13 @@ export default function AccountsPage() {
                                             <button className="btn btn-sm btn-danger" onClick={() => handleOAuthFlow()}>Re-authenticate</button>
                                         </div>
                                     ))}
+                                </div>
+                            )}
+
+                            {profileSyncResult && (
+                                <div className={`acct-sync-banner ${profileSyncResult.startsWith('Error') ? 'acct-sync-banner--error' : 'acct-sync-banner--ok'}`}>
+                                    {profileSyncResult}
+                                    <button className="icon-btn" style={{ marginLeft: 8 }} onClick={() => setProfileSyncResult(null)} aria-label="Dismiss">×</button>
                                 </div>
                             )}
 

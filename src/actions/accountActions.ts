@@ -3,7 +3,7 @@
 import { google } from 'googleapis';
 import { cookies } from 'next/headers';
 import { supabase } from '../lib/supabase';
-import { getGoogleAuthUrl, generateOAuthState, handleAuthCallback } from '../services/googleAuthService';
+import { getGoogleAuthUrl, generateOAuthState, handleAuthCallback, fetchGoogleProfile, refreshAccessToken } from '../services/googleAuthService';
 import { testManualConnection } from '../services/manualEmailService';
 import { encrypt, decrypt } from '../utils/encryption';
 import { syncGmailEmails, deepGapFillSync } from '../services/gmailSyncService';
@@ -658,4 +658,74 @@ export async function clearPersonaAction(accountId: string): Promise<{ success: 
         .eq('id', accountId);
     if (error) return { success: false, error: error.message };
     return { success: true };
+}
+
+/**
+ * Go through all OAuth accounts that are missing a name OR picture and
+ * populate them from Google's userinfo endpoint.
+ *
+ * Priority: manual persona always wins — only NULL fields are filled.
+ * Skips accounts where both display_name and profile_image are already set.
+ * Tries the stored access_token first; falls back to a token refresh if it
+ * gets a 401.
+ */
+export async function syncGoogleProfilesAction(): Promise<{
+    success: boolean;
+    processed?: number;
+    updated?: number;
+    failed?: number;
+    error?: string;
+}> {
+    const { role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') {
+        return { success: false, error: 'Admin access required' };
+    }
+
+    // Fetch all OAuth accounts that still have at least one null persona field.
+    const { data: accounts, error: fetchErr } = await supabase
+        .from('gmail_accounts')
+        .select('id, email, access_token, refresh_token, display_name, profile_image')
+        .eq('connection_method', 'OAUTH')
+        .or('display_name.is.null,profile_image.is.null');
+
+    if (fetchErr) return { success: false, error: fetchErr.message };
+    if (!accounts || accounts.length === 0) {
+        return { success: true, processed: 0, updated: 0, failed: 0 };
+    }
+
+    let updated = 0;
+    let failed = 0;
+
+    for (const account of accounts) {
+        try {
+            let token: string = account.access_token;
+
+            let profile = token ? await fetchGoogleProfile(token) : null;
+
+            // Access token expired — try a refresh.
+            if (!profile && account.refresh_token) {
+                try {
+                    token = await refreshAccessToken(account.id);
+                    profile = await fetchGoogleProfile(token);
+                } catch {
+                    // refresh failed — skip, don't break the loop
+                }
+            }
+
+            if (!profile) { failed++; continue; }
+
+            const patch: Record<string, string> = {};
+            if (!account.display_name && profile.name) patch.display_name = profile.name;
+            if (!account.profile_image && profile.picture) patch.profile_image = profile.picture;
+
+            if (Object.keys(patch).length === 0) continue; // nothing new to write
+
+            await supabase.from('gmail_accounts').update(patch).eq('id', account.id);
+            updated++;
+        } catch {
+            failed++;
+        }
+    }
+
+    return { success: true, processed: accounts.length, updated, failed };
 }

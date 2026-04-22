@@ -79,10 +79,10 @@ export async function handleAuthCallback(
 
     if (!email) throw new Error('Could not retrieve email from Google');
 
-    // Fetch existing account to preserve refresh token and history_id
+    // Fetch existing account to preserve refresh token, history_id, and persona
     const { data: existingAccount } = await supabase
         .from('gmail_accounts')
-        .select('refresh_token, history_id')
+        .select('refresh_token, history_id, display_name, profile_image')
         .eq('email', email)
         .single();
 
@@ -100,7 +100,8 @@ export async function handleAuthCallback(
     }
 
     // Preserve history_id on reconnect so partial sync can resume
-    // instead of forcing a full resync from zero
+    // instead of forcing a full resync from zero.
+    // Persona: auto-populate from Google if not manually set — manual persona wins.
     const upsertData: Record<string, unknown> = {
         user_id: userId,
         email,
@@ -115,6 +116,14 @@ export async function handleAuthCallback(
         upsertData.history_id = existingAccount.history_id;
     }
 
+    // Backfill Google profile name + picture if the account has no manual persona.
+    if (!existingAccount?.display_name && userInfo.name) {
+        upsertData.display_name = userInfo.name;
+    }
+    if (!existingAccount?.profile_image && userInfo.picture) {
+        upsertData.profile_image = userInfo.picture;
+    }
+
     const { data, error } = await supabase
         .from('gmail_accounts')
         .upsert(upsertData, { onConflict: 'email' })
@@ -123,6 +132,30 @@ export async function handleAuthCallback(
 
     if (error) throw error;
     return data;
+}
+
+/**
+ * Fetch the Google profile (name + picture) for an already-connected OAuth
+ * account using its current access token. Returns null if the token is
+ * invalid or the request fails.
+ */
+export async function fetchGoogleProfile(
+    accessToken: string
+): Promise<{ name: string | null; picture: string | null } | null> {
+    try {
+        const res = await fetch(
+            'https://www.googleapis.com/oauth2/v2/userinfo?fields=name,picture',
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        if (!res.ok) return null;
+        const data: { name?: string; picture?: string } = await res.json();
+        return {
+            name: data.name ?? null,
+            picture: data.picture ?? null,
+        };
+    } catch {
+        return null;
+    }
 }
 
 /**

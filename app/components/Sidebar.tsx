@@ -199,7 +199,15 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                 {/* Account filter / user card */}
                 {!isEditor && mounted && (
                     <div className="sb-account-filter">
-                        <div className="sb-avatar av-e">{initials}</div>
+                        {(() => {
+                            const primary = selectedAccountId !== 'ALL'
+                                ? accounts.find((a: any) => a.id === selectedAccountId)
+                                : accounts[0];
+                            const pic = (primary as any)?.profile_image;
+                            return pic
+                                ? <img src={pic} alt={(primary as any)?.display_name || (primary as any)?.email || 'Account'} className="sb-avatar sb-avatar-img" />
+                                : <div className="sb-avatar av-e">{initials}</div>;
+                        })()}
                         <div className="sb-meta">
                             <div className="sb-name">{userName || 'User'}</div>
                             <div className="sb-sub">{accountLabel}</div>
