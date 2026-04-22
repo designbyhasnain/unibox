@@ -37,7 +37,9 @@ const nextConfig = {
 
     // ─── Security & Performance Headers ────────────────────────────────────────
     async headers() {
-        return [
+        const isDev = process.env.NODE_ENV !== 'production';
+
+        const rules = [
             {
                 source: '/(.*)',
                 headers: [
@@ -45,15 +47,30 @@ const nextConfig = {
                     { key: 'X-Content-Type-Options', value: 'nosniff' },
                     { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
                     { key: 'Cache-Control', value: 'no-store, must-revalidate' },
+                    // Dev only: instruct Chrome to evict ALL cached assets for
+                    // this origin on every navigation. This prevents the
+                    // Turbopack "module factory is not available" blank-page
+                    // bug caused by the browser serving stale immutable chunks
+                    // from a previous dev session where server-action IDs have
+                    // since changed.
+                    ...(isDev ? [{ key: 'Clear-Site-Data', value: '"cache"' }] : []),
                 ],
             },
-            {
+        ];
+
+        // Production only: Next hashes every static chunk by content, so it's
+        // safe to cache forever. In dev Turbopack reuses filenames with
+        // changing content — never apply immutable in dev.
+        if (!isDev) {
+            rules.push({
                 source: '/_next/static/(.*)',
                 headers: [
                     { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
                 ],
-            },
-        ];
+            });
+        }
+
+        return rules;
     },
 };
 
