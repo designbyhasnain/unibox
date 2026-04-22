@@ -8,6 +8,7 @@ import { usePrefetch } from '../hooks/usePrefetch';
 import Sidebar from './Sidebar';
 import ComposeModal from './ComposeModal';
 import JarvisVoiceOrb from './JarvisVoiceOrb';
+import GlobalTopbar from './GlobalTopbar';
 import { ErrorBoundary } from './ErrorBoundary';
 interface ClientLayoutProps {
     children: React.ReactNode;
@@ -44,6 +45,7 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
                         <line x1="3" y1="18" x2="21" y2="18" />
                     </svg>
                 </button>
+                <GlobalTopbar />
                 <ErrorBoundary section="Page">
                     {children}
                 </ErrorBoundary>

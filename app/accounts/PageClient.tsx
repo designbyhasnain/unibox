@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useGlobalFilter } from '../context/FilterContext';
+import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import { useUI } from '../context/UIContext';
 import Topbar from '../components/Topbar';
 import {
@@ -140,6 +141,12 @@ export default function AccountsPage() {
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    useRegisterGlobalSearch('/accounts', {
+        placeholder: 'Search accounts',
+        value: searchQuery,
+        onChange: setSearchQuery,
+        onClear: () => setSearchQuery(''),
+    });
     const [userRole, setUserRole] = useState<string | null>(null);
     const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
     const [isRenewingWatches, setIsRenewingWatches] = useState(false);

@@ -4,6 +4,7 @@ import './globals.css'
 import { FilterProvider } from './context/FilterContext'
 import { UIProvider } from './context/UIContext'
 import { UndoToastProvider } from './context/UndoToastContext'
+import { GlobalSearchProvider } from './context/GlobalSearchContext'
 import ClientLayout from './components/ClientLayout'
 
 export const metadata: Metadata = {
@@ -37,11 +38,13 @@ export default function RootLayout({
                 <FilterProvider>
                     <UIProvider>
                         <UndoToastProvider>
-                            <div className="layout-container">
-                                <ClientLayout>
-                                    {children}
-                                </ClientLayout>
-                            </div>
+                            <GlobalSearchProvider>
+                                <div className="layout-container">
+                                    <ClientLayout>
+                                        {children}
+                                    </ClientLayout>
+                                </div>
+                            </GlobalSearchProvider>
                         </UndoToastProvider>
                     </UIProvider>
                 </FilterProvider>

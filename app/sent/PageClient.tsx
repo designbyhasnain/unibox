@@ -7,6 +7,7 @@ import InlineReply from '../components/InlineReply';
 import { useMailbox } from '../hooks/useMailbox';
 import { EmailRow, EmailDetail, PaginationControls, ToastStack } from '../components/InboxComponents';
 import { useGlobalFilter } from '../context/FilterContext';
+import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 
@@ -52,6 +53,13 @@ export default function SentPage() {
     });
 
     const [searchTerm, setSearchTerm] = useState('');
+    useRegisterGlobalSearch('/sent', {
+        placeholder: 'Search sent messages',
+        value: searchTerm,
+        onChange: setSearchTerm,
+        onClear: () => setSearchTerm(''),
+    });
+
     const [isReplyingInline, setIsReplyingInline] = useState(false);
     const { setComposeOpen, setComposeDefaultTo } = useUI();
     const [toasts, setToasts] = useState<ToastItem[]>([]);

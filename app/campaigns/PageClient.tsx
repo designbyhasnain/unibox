@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import { getCampaignsAction, deleteCampaignAction } from '../../src/actions/campaignActions';
+import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 
 const ICON = {
     filter: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
@@ -53,6 +54,13 @@ export default function CampaignsPage() {
             .catch(console.error)
             .finally(() => setLoading(false));
     }, []);
+
+    useRegisterGlobalSearch('/campaigns', {
+        placeholder: 'Search campaigns',
+        value: searchTerm,
+        onChange: setSearchTerm,
+        onClear: () => setSearchTerm(''),
+    });
 
     // Click-outside to close the row menu.
     useEffect(() => {
@@ -116,27 +124,6 @@ export default function CampaignsPage() {
                         <div className="sub">{campaigns.length} total · {running} running · {campaigns.filter(c => c.status === 'PAUSED').length} paused</div>
                     </div>
                     <div style={{ flex: 1 }} />
-                    <div className="inline-search">
-                        <span className="inline-search-icon">{ICON.search}</span>
-                        <input
-                            type="search"
-                            placeholder="Search campaigns"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            aria-label="Search campaigns"
-                        />
-                        {searchTerm && (
-                            <button
-                                className="icon-btn"
-                                style={{ width: 22, height: 22 }}
-                                onClick={() => setSearchTerm('')}
-                                aria-label="Clear search"
-                                title="Clear"
-                            >
-                                {ICON.x}
-                            </button>
-                        )}
-                    </div>
                     <button className="icon-btn" title="Filter">{ICON.filter}</button>
                     <Link href="/campaigns/new" className="btn btn-dark">{ICON.plus} New campaign</Link>
                 </div>

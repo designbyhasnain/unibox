@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getClientsAction, removeClientsAction } from '../../src/actions/clientActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { useGlobalFilter } from '../context/FilterContext';
+import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import { useUI } from '../context/UIContext';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
@@ -64,6 +65,13 @@ export default function ClientsPage() {
         const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
         return () => clearTimeout(id);
     }, [searchTerm]);
+
+    useRegisterGlobalSearch('/clients', {
+        placeholder: 'Search name, email, company',
+        value: searchTerm,
+        onChange: setSearchTerm,
+        onClear: () => setSearchTerm(''),
+    });
 
     const load = useCallback(async () => {
         try {
@@ -136,27 +144,6 @@ export default function ClientsPage() {
                         {(['list', 'grid', 'board'] as const).map(v => (
                             <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>{v.charAt(0).toUpperCase() + v.slice(1)}</button>
                         ))}
-                    </div>
-                    <div className="inline-search">
-                        <span className="inline-search-icon">{ICON.search}</span>
-                        <input
-                            type="search"
-                            placeholder="Search name, email, company"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            aria-label="Search clients"
-                        />
-                        {searchTerm && (
-                            <button
-                                className="icon-btn"
-                                style={{ width: 22, height: 22 }}
-                                onClick={() => setSearchTerm('')}
-                                aria-label="Clear search"
-                                title="Clear"
-                            >
-                                {ICON.x}
-                            </button>
-                        )}
                     </div>
                     <button className="icon-btn" title="Filter">{ICON.filter}</button>
                     <button className="btn btn-dark" onClick={() => setIsAddOpen(true)}>{ICON.plus} Add client</button>
