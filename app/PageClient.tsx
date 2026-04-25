@@ -470,7 +470,10 @@ export default function InboxPage() {
                                     // See docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md.
                                     const amName: string | null = email.account_manager_name || null;
                                     const amEmail: string = email.account_manager_email || '';
-                                    const amLabel = amName ? `AM(${amName})` : (email.contact_id ? 'Unassigned' : '—');
+                                    // Display rule: first word only (e.g. "Shayan Ismail" → "Shayan").
+                                    // Full name lives in the title tooltip for disambiguation.
+                                    const amFirst = amName ? amName.trim().split(/\s+/)[0] : null;
+                                    const amLabel = amFirst || (email.contact_id ? 'Unassigned' : '—');
                                     const dateStr = formatDate(email.sent_at);
                                     const initials = senderName.charAt(0).toUpperCase();
 
@@ -507,10 +510,10 @@ export default function InboxPage() {
                                                     )}
                                                     <span
                                                         style={{ marginLeft: 'auto', color: 'var(--ink-muted)' }}
-                                                        title={amEmail || amLabel}
+                                                        title={amName ? `${amName}${amEmail ? ` <${amEmail}>` : ''}` : amLabel}
                                                     >
                                                         {accountEmail} ·{' '}
-                                                        <span style={amName ? undefined : { fontStyle: 'italic', opacity: 0.7 }}>
+                                                        <span style={amFirst ? undefined : { fontStyle: 'italic', opacity: 0.7 }}>
                                                             {amLabel}
                                                         </span>
                                                     </span>
@@ -568,8 +571,8 @@ export default function InboxPage() {
                                 {selectedEmail.account_manager_name && (
                                     <>
                                         <span>·</span>
-                                        <span title={selectedEmail.account_manager_email || ''}>
-                                            Managed by {selectedEmail.account_manager_name}
+                                        <span title={`${selectedEmail.account_manager_name}${selectedEmail.account_manager_email ? ` <${selectedEmail.account_manager_email}>` : ''}`}>
+                                            {selectedEmail.account_manager_name.trim().split(/\s+/)[0]}
                                         </span>
                                     </>
                                 )}
@@ -710,10 +713,10 @@ export default function InboxPage() {
                                         <span className="k">Manager</span>
                                         <span
                                             className="v"
-                                            title={selectedEmail.account_manager_email || ''}
+                                            title={selectedEmail.account_manager_name ? `${selectedEmail.account_manager_name}${selectedEmail.account_manager_email ? ` <${selectedEmail.account_manager_email}>` : ''}` : 'Unassigned'}
                                             style={selectedEmail.account_manager_name ? undefined : { fontStyle: 'italic', opacity: 0.7 }}
                                         >
-                                            {selectedEmail.account_manager_name || 'Unassigned'}
+                                            {selectedEmail.account_manager_name ? selectedEmail.account_manager_name.trim().split(/\s+/)[0] : 'Unassigned'}
                                         </span>
                                     </div>
                                     <div className="kv"><span className="k">Thread health</span><span className="v" style={{ color: 'var(--coach)' }}>{threadMessages.length > 2 ? 'Active' : 'New'}</span></div>
