@@ -3,10 +3,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Topbar from '../../components/Topbar';
-import { getContactDetailAction, updateContactAction } from '../../../src/actions/contactDetailActions';
+import {
+    getContactDetailAction,
+    updateContactAction,
+    getOwnershipTransferHistoryAction,
+    type OwnershipTransferEntry,
+} from '../../../src/actions/contactDetailActions';
 import { generateAISummaryAction } from '../../../src/actions/summaryActions';
 import { avatarColor, initials } from '../../utils/helpers';
 import { STAGE_LABELS, STAGE_COLORS } from '../../constants/stages';
+
+const firstName = (full?: string | null) => (full || '').trim().split(/\s+/)[0] || '';
+
+const sourceLabel = (s: string) => {
+    switch (s) {
+        case 'manual': return 'manual edit';
+        case 'bulk': return 'bulk reassignment';
+        case 'admin_override': return 'admin override';
+        case 'import': return 'CSV import';
+        case 'campaign': return 'campaign enrollment';
+        case 'scraper': return 'lead scraper';
+        case 'invite': return 'invitation accepted';
+        case 'system': return 'automated';
+        default: return s;
+    }
+};
 
 export default function ContactDetailPage() {
     const params = useParams();
@@ -22,6 +43,24 @@ export default function ContactDetailPage() {
     const [aiLoading, setAiLoading] = useState(false);
     const [editing, setEditing] = useState(false);
     const [editForm, setEditForm] = useState({ name: '', company: '', phone: '', notes: '' });
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [history, setHistory] = useState<OwnershipTransferEntry[] | null>(null);
+
+    const toggleHistory = useCallback(async () => {
+        if (historyOpen) { setHistoryOpen(false); return; }
+        setHistoryOpen(true);
+        if (history !== null) return;
+        setHistoryLoading(true);
+        try {
+            const result = await getOwnershipTransferHistoryAction(contactId);
+            if (result.success) setHistory(result.entries);
+            else setHistory([]);
+        } catch {
+            setHistory([]);
+        }
+        setHistoryLoading(false);
+    }, [contactId, historyOpen, history]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -133,6 +172,43 @@ export default function ContactDetailPage() {
                                 {c.lead_score > 0 && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(139,92,246,0.1)', color: 'var(--accent)', fontWeight: 600 }}>Score: {c.lead_score}</span>}
                                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: c.relationship_health === 'warm' ? 'rgba(16,185,129,0.1)' : c.relationship_health === 'cold' ? 'rgba(239,68,68,0.1)' : 'rgba(107,114,128,0.1)', color: c.relationship_health === 'warm' ? 'var(--coach)' : c.relationship_health === 'cold' ? 'var(--danger)' : 'var(--ink-muted)' }}>{c.relationship_health || 'neutral'}</span>
                             </div>
+
+                            {/* Ownership row + collapsible transfer history */}
+                            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span>
+                                    Owner:{' '}
+                                    {data.currentOwner?.name
+                                        ? <strong style={{ color: 'var(--text-primary)' }}>{firstName(data.currentOwner.name)}</strong>
+                                        : <em style={{ color: 'var(--text-tertiary)' }}>Unassigned</em>}
+                                </span>
+                                <button
+                                    onClick={toggleHistory}
+                                    title="Show / hide ownership transfer history"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: 11, padding: '2px 6px', borderRadius: 4 }}
+                                >
+                                    {historyOpen ? 'Hide history ▴' : 'Transfer history ▾'}
+                                </button>
+                            </div>
+                            {historyOpen && (
+                                <div style={{ marginTop: 8, padding: 10, background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: 11, color: 'var(--text-secondary)' }}>
+                                    {historyLoading
+                                        ? <div style={{ color: 'var(--text-tertiary)' }}>Loading history…</div>
+                                        : (history && history.length > 0)
+                                            ? history.map(h => (
+                                                <div key={h.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '3px 0' }}>
+                                                    <span style={{ color: 'var(--text-tertiary)', minWidth: 80 }}>{new Date(h.created_at).toLocaleDateString()}</span>
+                                                    <span>
+                                                        {h.from_name ? firstName(h.from_name) : <em>unassigned</em>}
+                                                        {' → '}
+                                                        <strong style={{ color: 'var(--text-primary)' }}>{h.to_name ? firstName(h.to_name) : <em>unassigned</em>}</strong>
+                                                    </span>
+                                                    <span style={{ color: 'var(--text-tertiary)' }}>· {sourceLabel(h.source as string)}</span>
+                                                    {h.reason && <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>· "{h.reason}"</span>}
+                                                </div>
+                                            ))
+                                            : <div style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>No transfers recorded yet.</div>}
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -276,7 +352,22 @@ export default function ContactDetailPage() {
                                                 <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                                                     <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: p.paid_status === 'PAID' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: p.paid_status === 'PAID' ? 'var(--coach)' : 'var(--danger)' }}>{p.paid_status}</span>
                                                 </td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-tertiary)' }}>{p.account_manager || '—'}</td>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-tertiary)' }}>
+                                                    {(() => {
+                                                        const closer = firstName(p.closer_name);
+                                                        const owner = firstName(p.current_owner_name);
+                                                        // Dual-ownership: closer != current owner (and both exist) → show both
+                                                        if (closer && owner && p.closer_id && p.current_owner_id && p.closer_id !== p.current_owner_id) {
+                                                            return (
+                                                                <span title={`Closed by ${p.closer_name} · Currently managed by ${p.current_owner_name}`}>
+                                                                    Closed by <strong style={{ color: 'var(--text-secondary)' }}>{closer}</strong> · Now: <strong style={{ color: 'var(--text-primary)' }}>{owner}</strong>
+                                                                </span>
+                                                            );
+                                                        }
+                                                        // Single owner (or matching closer = owner) → show one name; fall back to legacy string
+                                                        return closer || owner || p.account_manager || '—';
+                                                    })()}
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -291,17 +382,43 @@ export default function ContactDetailPage() {
                             {data.activity.length === 0 ? (
                                 <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>No activity recorded</div>
                             ) : (
-                                data.activity.map((a: any) => (
-                                    <div key={a.id} style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between' }}>
-                                        <div>
-                                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{a.action}</div>
-                                            {a.details && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{typeof a.details === 'string' ? a.details : JSON.stringify(a.details)}</div>}
+                                data.activity.map((a: any) => {
+                                    // activity_logs.note holds JSON for OWNERSHIP_TRANSFER; legacy rows used `details`.
+                                    let parsedNote: any = null;
+                                    const raw = a.note ?? a.details;
+                                    if (typeof raw === 'string') {
+                                        try { parsedNote = JSON.parse(raw); } catch { /* not JSON — fall back to raw text */ }
+                                    } else if (raw && typeof raw === 'object') {
+                                        parsedNote = raw;
+                                    }
+                                    let detail: React.ReactNode = null;
+                                    if (a.action === 'OWNERSHIP_TRANSFER' && parsedNote) {
+                                        detail = (
+                                            <span>
+                                                {parsedNote.from_user_id ? 'transfer' : 'assigned'}
+                                                {parsedNote.source ? ` · ${sourceLabel(parsedNote.source)}` : ''}
+                                                {parsedNote.reason ? ` · "${parsedNote.reason}"` : ''}
+                                            </span>
+                                        );
+                                    } else if (a.action === 'AM_CREDIT_OVERRIDE' && parsedNote) {
+                                        detail = <span>project AM override · "{parsedNote.reason || ''}"</span>;
+                                    } else if (parsedNote) {
+                                        detail = <span>{JSON.stringify(parsedNote)}</span>;
+                                    } else if (typeof raw === 'string') {
+                                        detail = <span>{raw}</span>;
+                                    }
+                                    return (
+                                        <div key={a.id} style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between' }}>
+                                            <div>
+                                                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{a.action}</div>
+                                                {detail && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{detail}</div>}
+                                            </div>
+                                            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                                                {new Date(a.created_at).toLocaleDateString()}
+                                            </div>
                                         </div>
-                                        <div style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>
-                                            {new Date(a.created_at).toLocaleDateString()}
-                                        </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     )}

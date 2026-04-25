@@ -23,6 +23,15 @@ export type ProjectUpdatePayload = {
     clientId?: string;
 };
 
+// Options for sensitive overrides — currently only the AM-credit lock on PAID projects.
+// See docs/AM-CREDIT-AND-OWNERSHIP-SCOPE.md §3.1.
+export type ProjectUpdateOptions = {
+    adminOverride?: boolean;
+    reason?: string;
+};
+
+const AM_CREDIT_OVERRIDE_MIN_REASON = 10;
+
 // Fetch projects with server-side pagination
 export type PaginatedProjectsResult = {
     projects: any[];
@@ -109,7 +118,11 @@ export async function getManagersAction() {
 }
 
 // Update an existing project
-export async function updateProjectAction(projectId: string, payload: ProjectUpdatePayload) {
+export async function updateProjectAction(
+    projectId: string,
+    payload: ProjectUpdatePayload,
+    options?: ProjectUpdateOptions,
+) {
     const { userId, role } = await ensureAuthenticated();
     blockEditorAccess(role);
     if (!projectId) return { success: false, error: 'projectId is required' };
@@ -117,6 +130,42 @@ export async function updateProjectAction(projectId: string, payload: ProjectUpd
     // Non-admins cannot reassign a project to a different manager
     if (payload.accountManagerId !== undefined && !isAdmin(role)) {
         delete payload.accountManagerId;
+    }
+
+    // ── AM Credit Lock guard ───────────────────────────────────────────────
+    // If the caller is changing account_manager_id on a PAID project, require
+    // an explicit ADMIN override with a reason. See docs/AM-CREDIT-AND-OWNERSHIP-SCOPE.md.
+    let amOverrideContext: { fromAmId: string | null; toAmId: string | null } | null = null;
+    if (payload.accountManagerId !== undefined) {
+        const { data: existing, error: fetchErr } = await supabase
+            .from('projects')
+            .select('account_manager_id, paid_status')
+            .eq('id', projectId)
+            .maybeSingle();
+        if (fetchErr) {
+            console.error('updateProjectAction prefetch error:', fetchErr);
+            return { success: false, error: 'An error occurred while processing your request' };
+        }
+        if (!existing) {
+            return { success: false, error: 'Project not found or access denied' };
+        }
+        const fromAmId = existing.account_manager_id ?? null;
+        const toAmId = payload.accountManagerId || null;
+        const isChanging = fromAmId !== toAmId;
+        const isPaid = existing.paid_status === 'PAID';
+        if (isChanging && isPaid) {
+            if (!isAdmin(role)) {
+                return { success: false, error: 'AM credit is locked on a paid project. Contact an admin to override.' };
+            }
+            if (!options?.adminOverride) {
+                return { success: false, error: 'AM credit is locked on a paid project. Pass { adminOverride: true, reason } to override.' };
+            }
+            const reason = (options.reason || '').trim();
+            if (reason.length < AM_CREDIT_OVERRIDE_MIN_REASON) {
+                return { success: false, error: `Override requires a reason (min ${AM_CREDIT_OVERRIDE_MIN_REASON} chars).` };
+            }
+            amOverrideContext = { fromAmId, toAmId };
+        }
     }
     // Build update object, filtering out undefined values to avoid nullifying existing fields
     const updateData: Record<string, any> = {};
@@ -170,6 +219,25 @@ export async function updateProjectAction(projectId: string, payload: ProjectUpd
     }
     if (!data) {
         return { success: false, error: 'Project not found or access denied' };
+    }
+
+    if (amOverrideContext) {
+        const { error: logErr } = await supabase.from('activity_logs').insert({
+            action: 'AM_CREDIT_OVERRIDE',
+            performed_by: userId,
+            project_id: projectId,
+            contact_id: data.client_id ?? null,
+            note: JSON.stringify({
+                from_user_id: amOverrideContext.fromAmId,
+                to_user_id: amOverrideContext.toAmId,
+                reason: (options?.reason || '').trim(),
+                source: 'admin_override',
+            }),
+        });
+        if (logErr) {
+            // Override happened but the audit row failed — surface this loudly so it can be re-logged.
+            console.error('AM_CREDIT_OVERRIDE audit log write failed:', logErr);
+        }
     }
 
     revalidatePath('/projects');

@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { normalizeEmail } from '../utils/emailNormalizer';
 import { getAccessibleGmailAccountIds, getOwnerFilter, blockEditorAccess, isAdmin } from '../utils/accessControl';
+import { transferContactAction } from './contactDetailActions';
 
 // 9.0 — Ensure a contact exists for a given email address
 export async function ensureContactAction(email: string, name?: string) {
@@ -424,15 +425,31 @@ export async function updateClientAction(clientId: string, updates: ClientUpdate
     if (!clientId) return { success: false, error: 'clientId is required' };
     const ownerFilter = getOwnerFilter(userId, role);
 
+    // AM reassignment is a separate audited transfer — defer to the chokepoint.
+    // See docs/AM-CREDIT-AND-OWNERSHIP-SCOPE.md §3.2.
+    if (updates.account_manager_id !== undefined && isAdmin(role)) {
+        const transferResult = await transferContactAction(clientId, updates.account_manager_id || null, { source: 'manual' });
+        if (!transferResult.success) return transferResult;
+    }
+
     // Whitelist allowed fields to prevent mass assignment.
-    // SALES users cannot reassign a contact to a different manager.
-    const allowedFields: (keyof ClientUpdatePayload)[] = ['name', 'email', 'company', 'phone', 'location', 'priority', 'estimated_value', 'expected_close_date', 'pipeline_stage', 'contact_status', 'account_manager_id'];
+    // account_manager_id intentionally excluded — handled above by transferContactAction.
+    const allowedFields: (keyof ClientUpdatePayload)[] = ['name', 'email', 'company', 'phone', 'location', 'priority', 'estimated_value', 'expected_close_date', 'pipeline_stage', 'contact_status'];
     const payload: Record<string, any> = { updated_at: new Date().toISOString() };
     for (const field of allowedFields) {
         if (updates[field] !== undefined) {
-            if (field === 'account_manager_id' && !isAdmin(role)) continue;
             payload[field] = field === 'email' ? normalizeEmail(updates[field] as string) : updates[field];
         }
+    }
+
+    // If only account_manager_id was updated, the chokepoint already wrote and revalidated — short-circuit.
+    if (Object.keys(payload).length === 1) {
+        const { data } = await supabase
+            .from('contacts')
+            .select(`id, name, email, pipeline_stage, updated_at, account_manager:users(name)`)
+            .eq('id', clientId)
+            .maybeSingle();
+        return { success: true, client: data };
     }
 
     let q = supabase.from('contacts').update(payload).eq('id', clientId);
