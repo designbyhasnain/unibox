@@ -290,9 +290,10 @@ PostgreSQL via Supabase. Two connection strings:
 `Role`, `InvitationStatus`, `UserStatus`, `GmailAccountStatus`, `ConnectionMethod`, `WatchStatus`, `PipelineStage`, `EmailDirection`, `EmailType`, `PaidStatus`, `FinalReviewStatus`, `Priority`, `ContactType`, `CampaignGoal`, `CampaignStatus`, `CampaignContactStatus`, `CampaignStoppedReason`, `SubsequenceTrigger`, `WebhookEventStatus`, `SendQueueStatus`, `TemplateCategory`, `ProjectProgress`, `ProjectPriority`, `AMReview`.
 
 ### Non-Prisma (raw) Tables
-These are queried directly via Supabase but not yet modeled in Prisma:
-- **`jarvis_feedback`** — logs Jarvis suggestion vs actual agent reply, with similarity score.
-- **`jarvis_knowledge`** — mined Q&A from historical emails with `agent_verified`, `success_score`, `price_mentioned`.
+These are queried directly via Supabase but not yet modeled in Prisma. **Setup SQL: `scripts/jarvis-tables.sql`** — paste into Supabase SQL editor (idempotent, safe to re-run).
+- **`jarvis_knowledge`** — mined Q&A from historical emails. Cols: `id`, `category`, `client_question`, `our_reply`, `outcome`, `contact_region`, `service_type`, `price_mentioned`, `success_score` (0-1 float), `source_contact_id`, `source_thread_id`, `agent_verified`, `notes`, `created_at`, `updated_at`. Indexes: `(category, success_score DESC)`, `(agent_verified, success_score DESC)`, `(contact_region)`, `(source_contact_id)`.
+- **`jarvis_feedback`** — logs Jarvis suggestion vs actual agent reply. Cols: `id`, `contact_id`, `thread_id`, `jarvis_suggestion`, `agent_reply`, `similarity_score`, `accepted`, `notes`, `created_at`.
+- **`jarvis_lessons`** — anti-patterns from lost deals. Cols: `id`, `category`, `client_question`, `bad_reply`, `why_lost`, `lesson`, `contact_region`, `source_contact_id`, `created_at`. Used by `replySuggestionService.fetchRelevantLessons()` to inject "AVOID" examples into prompts.
 
 > When adding fields to these tables, document them here and consider adding Prisma models to make the schema authoritative.
 
@@ -524,8 +525,9 @@ All cron routes accept both POST (QStash signed) and GET (Vercel Cron with `Bear
 | **Google Gmail API + OAuth2 + Pub/Sub** | Sync, send, push notifications | `googleAuthService.ts`, `gmailSyncService.ts`, `gmailSenderService.ts`, webhooks |
 | **Upstash QStash** | Cron + queue (signing-key verified) | `lib/qstash.ts`, all `/api/cron/*` |
 | **Resend** | Transactional email (invitations only) from `noreply@texasbrains.com` | `inviteActions.ts` |
-| **Groq** | Primary LLM — `llama-3.3-70b-versatile` for Jarvis chat/agent/mining, `llama-3.1-8b-instant` for daily briefing | `jarvisService.ts`, `dailyBriefingService.ts`, `templateMiningService.ts`, `aiSummaryService.ts` |
-| **Google Gemini** | LLM fallback when Groq fails | `aiSummaryService.ts` |
+| **Anthropic Claude** (via Gloy proxy) | **Primary** for in-thread reply suggestions — `claude-sonnet-4.5` (note the dot, not a dash). Base URL `https://api.gloyai.fun`, Anthropic Messages API path `/v1/messages`. Auth via `x-api-key` header. Balance/key check: `GET /claude/key`. Falls back to Groq → Gemini. | `replySuggestionService.ts` |
+| **Groq** | Primary LLM — `llama-3.3-70b-versatile` for Jarvis chat/agent/mining, `llama-3.1-8b-instant` for daily briefing | `jarvisService.ts`, `dailyBriefingService.ts`, `templateMiningService.ts`, `aiSummaryService.ts`, `replySuggestionService.ts` (fallback + coaching) |
+| **Google Gemini** | LLM fallback when Groq fails | `aiSummaryService.ts`, `replySuggestionService.ts` |
 | **ElevenLabs** | TTS (`eleven_multilingual_v2`, voice `Sarah` / `EXAVITQu4vr4xnSDxMaL`). Falls back to browser `SpeechSynthesis`. | `/api/jarvis/tts` |
 | **Vercel** | Hosting (IAD1), serverless functions, Vercel Cron fallback | — |
 
@@ -684,9 +686,11 @@ All server actions return `{ success: boolean; data?: T; error?: string }`. Pagi
 | `CRON_SECRET` | Vercel Cron bearer token |
 | `RESEND_API_KEY` | Resend (invites) |
 | `QSTASH_TOKEN` / `QSTASH_CURRENT_SIGNING_KEY` / `QSTASH_NEXT_SIGNING_KEY` | Upstash QStash |
-| `GROQ_API_KEY` | Jarvis + briefings + template mining |
+| `GROQ_API_KEY` | Jarvis + briefings + template mining + reply-suggestion fallback |
 | `GEMINI_API_KEY` | AI summary fallback |
 | `ELEVENLABS_API_KEY` | Jarvis TTS (optional — falls back to browser TTS) |
+| `ANTHROPIC_API_KEY` | Claude (via Gloy proxy) — primary for in-thread reply suggestions. Format: `sk-funpay-...` (proxy key, not real Anthropic key) |
+| `ANTHROPIC_BASE_URL` | Gloy proxy URL — defaults to `https://api.gloyai.fun` if unset |
 
 ---
 
@@ -718,7 +722,50 @@ All server actions return `{ success: boolean; data?: T; error?: string }`. Pagi
 
 ---
 
-_Last audited: 2026-04-22 (added GlobalTopbar search + GmailAccount persona). Commit at audit: `d941239+`._
+_Last audited: 2026-04-25 (inbox AM display fix + Jarvis Reply/Coach mode-detection fix + Gloy proxy swap). Previous audit: 2026-04-22 (GlobalTopbar search + GmailAccount persona, commit `d941239+`)._
+
+**Build 2026-04-25 (latest) — Inbox row "AM" label now shows the contact's account manager (with a smart fallback to the Gmail-account assignment), not the Gmail-account creator. Full design in [`docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md`](docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md).**
+- **Root cause**: The inbox row was rendering `email.gmail_accounts.user.name` — i.e. the user who *connected the Gmail account* (`gmail_accounts.user_id`, Prisma `createdById`). For Wedits, that's the team admin who onboarded all 62 inboxes, so every row showed the same name. The actual relationship owner is on `contacts.account_manager_id` (override) with `user_gmail_assignments` as the per-inbox default.
+- **Three distinct ownership pointers in the schema** (do not conflate):
+  1. **Gmail-account creator** — `gmail_accounts.user_id` → who connected the OAuth. Audit/refresh only. **Never use for display.**
+  2. **Gmail-account assignment** — `user_gmail_assignments` (M:N pivot) → which user(s) own this inbox. Drives RBAC via `getAccessibleGmailAccountIds()` AND is the **default AM** for any contact on that inbox.
+  3. **Account manager for the contact** — `contacts.account_manager_id` → the explicit per-contact override. **Wins over the default when set.**
+- **Resolution chain (matches user's stated rule):** *"the email account filmsbyrafay assigned to rameez so all the clients on that email is rameez clients if client database is not saying otherwise"* →
+  1. `contacts.account_manager_id` (explicit override) →
+  2. `user_gmail_assignments` for the row's `gmail_account_id` (default; multi-user → prefer SALES role over ADMIN, tie-break by oldest `assigned_at`) →
+  3. `Unassigned` (italic dim).
+- **Fix — server** ([`src/actions/emailActions.ts:194` — `getInboxEmailsAction`](src/actions/emailActions.ts#L194)): SELECT now includes `contact_id`. Three batched lookups (`contacts.in(uniqueContactIds)`, `user_gmail_assignments.in(uniqueAccountIds)`, deduped `users.in(allAmIds)`). Each row gets `account_manager_name`, `account_manager_email`, and `account_manager_source: 'contact' | 'gmail_account' | null`. AM `users.name` empty falls back to local-part of email.
+- **Fix — UI** ([`app/components/InboxComponents.tsx:54-61, 141-149` — `EmailRow`](app/components/InboxComponents.tsx#L54)): renders `<gmail-account-email> · AM(<name>)`. When neither contact nor account assignment resolves, shows `Unassigned` in italic dim text. Tooltip on the AM label exposes the AM's email.
+- **Follow-up TODO**: lift the AM-attach logic into `attachAccountManagerNames(rows)` and reuse on the sent / search / thread-side-panel paths flagged in the doc (lines 387, 487, 840, 908, 1117 of `emailActions.ts`).
+
+**Build 2026-04-25 (later) — Fixed Jarvis Reply/Coach mode detection + long-thread bug. Full design in [`docs/JARVIS-MODE-DETECTION-FIX.md`](docs/JARVIS-MODE-DETECTION-FIX.md).**
+- **Root cause #1**: `Reply` / `Coach` toggle in [`app/PageClient.tsx:671-672`](app/PageClient.tsx#L671-L672) was decorative — `jarvisMode` state never reached `<JarvisSuggestionBox>`. The component decided mode purely from server response.
+- **Root cause #2**: `suggestReplyAction` used `.order('sent_at', { ascending: true }).limit(20)`, which returned the OLDEST 20 messages. Long threads (>20 msgs) had wrong mode + wrong prompt context. Now `ascending: false` + `limit(30)` + `.reverse()` for chronological context.
+- **Root cause #3**: Sync race — Gmail webhook → `email_messages` insert isn't transactional with the inbox UI's live thread display. New inbound visible in inbox list but not yet in DB → mode auto-detects to coach on previous SENT.
+- **Fix — server contract** ([`src/actions/jarvisActions.ts`](src/actions/jarvisActions.ts), [`src/services/replySuggestionService.ts`](src/services/replySuggestionService.ts)): `suggestReplyAction(threadId, opts?: { forceMode?: 'reply' | 'coach' })`. Returns `{ ..., mode, modeSource: 'forced' | 'auto', staleData: boolean }`. Staleness check compares `email_threads.last_message_at` vs newest fetched `email_messages.sent_at` (with 10s grace).
+- **Fix — coaching prompt**: Adapts when there's no SENT message to coach (e.g. user forces coach on an inbound-only thread).
+- **Fix — UI** ([`app/components/JarvisSuggestionBox.tsx`](app/components/JarvisSuggestionBox.tsx), [`app/PageClient.tsx`](app/PageClient.tsx)): `JarvisSuggestionBox` accepts `forceMode?: 'reply' | 'coach' | null`, refetches on prop change, renders `· auto` badge when mode is auto-detected and `· sync catching up` warn badge when DB is behind. PageClient `jarvisMode` state extended to `'auto' | 'reply' | 'coach'` (default `'auto'`), three tabs.
+
+**Build 2026-04-25 — Switched Claude reply suggestion proxy from gngn.my → Gloy:**
+- Swapped `ANTHROPIC_BASE_URL` default `https://api.gngn.my` → `https://api.gloyai.fun` and `CLAUDE_MODEL` `claude-sonnet-4-6` → `claude-sonnet-4.5` (Gloy uses dot-versioning; verified end-to-end via `/v1/messages` smoke test).
+- Auth header still `x-api-key` (Gloy accepts both `Authorization: Bearer` and `x-api-key`); kept `anthropic-version: 2023-06-01` (Gloy ignores it harmlessly).
+- Key prefix changed from `sk_live_*` (gngn.my) → `sk-funpay-*` (Gloy). Validate with `GET https://api.gloyai.fun/claude/key`.
+- Patched `scripts/mine-jarvis-knowledge.ts` to coerce object-typed `price_mentioned` (Llama sometimes returns a price-list object) → smallest numeric, non-finite → null. Prevents Postgres numeric insert errors.
+
+**Build 2026-04-24 — Claude reply suggestion + RAG infrastructure:**
+- Added Anthropic Claude (via gngn.my proxy, model `claude-sonnet-4-6`) as primary LLM for in-thread reply suggestions; Groq + Gemini remain as fallback chain.
+- New env vars: `ANTHROPIC_API_KEY` (proxy `sk_live_*` format), `ANTHROPIC_BASE_URL` (defaults to `https://api.gngn.my`).
+- New table: `jarvis_lessons` (anti-patterns from lost deals — Q&A + `why_lost` + `lesson` columns). Used by `replySuggestionService.fetchRelevantLessons()`.
+- Confirmed: `jarvis_knowledge` and `jarvis_feedback` tables previously documented but DID NOT EXIST in DB. Setup SQL added at `scripts/jarvis-tables.sql` — paste into Supabase SQL editor (idempotent).
+- Upgraded `replySuggestionService.ts`:
+  - V2 system prompt with explicit Empathy Opener + Closing Playbook + Pricing Table (~3KB, prompt-cached).
+  - New `fetchTopExamples()` with 3-tier fallback: verified+region+score → verified+score → recent. Returns top-5 (was top-3).
+  - New `fetchRelevantLessons()` injects 1 anti-pattern per category (lost-deal lesson) when applicable.
+  - New `formatInboxSignalsBlock()` injects auto-detected signals (payment / deadline / files / frustration / silence) into the user prompt via `extractInboxSignals` from `clientIntelligenceService`.
+  - Coaching mode (when last message was SENT) still uses Groq, unchanged.
+- Updated `scripts/mine-jarvis-knowledge.ts`: added `--limit=N` flag for first-run trial (was hard-wired to all 200+ contacts).
+- New helper `scripts/create-jarvis-tables.mjs` (pg-direct DDL — currently blocked by stale .env DB password; user runs SQL manually in Supabase dashboard for now).
+- New playbook doc: `docs/CLAUDE-REPLY-SUGGESTION-PLAYBOOK.md` — full speed × accuracy implementation plan (7 phases).
 
 **Deep System Discovery 2026-04-21 — drift corrections applied:**
 - Removed non-existent routes `/api/auth/google` and `/api/track/session` from API table (verified in code).

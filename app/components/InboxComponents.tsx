@@ -52,7 +52,12 @@ export const EmailRow = React.memo(function EmailRow({
 
     const subject = email.subject || '(no subject)';
     const accountEmail = email.gmail_accounts?.email || '';
-    const managerName = email.gmail_accounts?.user?.name || '';
+    // Account manager = the human who owns the relationship with the contact
+    // (contacts.account_manager_id → users.name), NOT the user who connected the
+    // Gmail account. See docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md.
+    const amName = email.account_manager_name || null;
+    const amEmail = email.account_manager_email || '';
+    const amLabel = amName ? `AM(${amName})` : (email.contact_id ? 'Unassigned' : '—');
     const dateStr = formatDate(email.sent_at);
 
     return (
@@ -138,9 +143,13 @@ export const EmailRow = React.memo(function EmailRow({
                 {accountEmail}
             </div>
 
-            {/* Manager */}
-            <div className="gmail-row-manager" title={managerName}>
-                {managerName}
+            {/* Account manager (relationship owner — see docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md) */}
+            <div
+                className="gmail-row-manager"
+                title={amEmail || amLabel}
+                style={amName ? undefined : { fontStyle: 'italic', opacity: 0.6 }}
+            >
+                {amLabel}
             </div>
 
             {/* Date */}

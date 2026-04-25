@@ -23,6 +23,9 @@ import { useHydrated } from './utils/useHydration';
 import { formatDate, cleanPreview } from './utils/helpers';
 import { getAvatarSrc, getAvatarBg } from './utils/avatars';
 import { RefreshCw, Mail, Send, Trash2, Eye, EyeOff, CheckCheck } from 'lucide-react';
+import ClientIntelligencePanel from './components/ClientIntelligencePanel';
+import { getClientIntelligenceAction } from '../src/actions/clientIntelligenceAction';
+import type { ClientIntelligenceProfile } from '../src/types/clientIntelligence';
 
 const PAGE_SIZE = 50;
 
@@ -118,14 +121,37 @@ export default function InboxPage() {
     const [bulkLoading, setBulkLoading] = useState(false);
     const [jarvisDraft, setJarvisDraft] = useState<string>('');
     const [jarvisDraftVersion, setJarvisDraftVersion] = useState(0);
-    const [jarvisMode, setJarvisMode] = useState<'reply' | 'coach'>('reply');
+    const [jarvisMode, setJarvisMode] = useState<'auto' | 'reply' | 'coach'>('auto');
     const [replyMode, setReplyMode] = useState<'reply' | 'fwd'>('reply');
+    const [col3Tab, setCol3Tab] = useState<'jarvis' | 'client'>('jarvis');
+    const [clientProfile, setClientProfile] = useState<ClientIntelligenceProfile | null>(null);
+    const [clientProfileLoading, setClientProfileLoading] = useState(false);
 
     // Reset reply state whenever a different thread is opened
     useEffect(() => {
         setJarvisDraft('');
         setIsReplyingInline(false);
     }, [selectedEmail?.id]);
+
+    // Fetch client intelligence profile when a thread with a known contact is selected
+    useEffect(() => {
+        if (!selectedEmail?.contact_id) {
+            setClientProfile(null);
+            return;
+        }
+        let cancelled = false;
+        setClientProfileLoading(true);
+        const contactEmail = selectedEmail.direction === 'RECEIVED'
+            ? (selectedEmail.from_email?.match(/<([^>]+)>/)?.[1] ?? selectedEmail.from_email ?? null)
+            : (selectedEmail.to_email?.split(',')[0]?.match(/<([^>]+)>/)?.[1] ?? selectedEmail.to_email?.split(',')[0] ?? null);
+        getClientIntelligenceAction(selectedEmail.contact_id, contactEmail).then(result => {
+            if (cancelled) return;
+            setClientProfileLoading(false);
+            if (result.success) setClientProfile(result.data);
+            else setClientProfile(null);
+        });
+        return () => { cancelled = true; };
+    }, [selectedEmail?.contact_id]);
 
     const handleCopyJarvisDraft = useCallback((text: string) => {
         setJarvisDraft(text);
@@ -620,44 +646,93 @@ export default function InboxPage() {
                     <Resizer varName="--jar-w" storageKey="unibox:jar-w" min={280} max={520} defaultVal={340} invert />
                 )}
 
-                {/* ═══ Column 3: Jarvis Panel ═══ */}
+                {/* ═══ Column 3: Jarvis / Client Panel ═══ */}
                 {hasEmail && (
                     <div className="col col-jarvis">
                         <div className="col-head">
                             <span style={{ color: 'var(--accent-ink)', display: 'inline-flex' }}>{ICONS.spark}</span>
-                            <span className="title">Jarvis</span>
+                            <span className="title">{col3Tab === 'client' ? 'Client' : 'Jarvis'}</span>
                             <div className="tabs" style={{ marginLeft: 'auto' }}>
-                                <button className={jarvisMode === 'reply' ? 'active' : ''} onClick={() => setJarvisMode('reply')}>Reply</button>
-                                <button className={jarvisMode === 'coach' ? 'active' : ''} onClick={() => setJarvisMode('coach')}>Coach</button>
+                                {col3Tab === 'jarvis' && (
+                                    <>
+                                        <button className={jarvisMode === 'auto' ? 'active' : ''} onClick={() => setJarvisMode('auto')} title="Auto: pick reply or coach based on the latest message">Auto</button>
+                                        <button className={jarvisMode === 'reply' ? 'active' : ''} onClick={() => setJarvisMode('reply')} title="Force draft-a-reply">Reply</button>
+                                        <button className={jarvisMode === 'coach' ? 'active' : ''} onClick={() => setJarvisMode('coach')} title="Force coaching feedback on our most recent SENT">Coach</button>
+                                        <span className="col-head-divider" />
+                                    </>
+                                )}
+                                <button className={col3Tab === 'jarvis' ? 'active' : ''} onClick={() => setCol3Tab('jarvis')}>{ICONS.spark}</button>
+                                <button className={col3Tab === 'client' ? 'active' : ''} onClick={() => setCol3Tab('client')}>
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                </button>
                             </div>
                         </div>
-                        <div className="jarvis-panel">
-                            {selectedEmail.thread_id && (
-                                <JarvisSuggestionBox
-                                    threadId={selectedEmail.thread_id}
-                                    onCopy={handleCopyJarvisDraft}
-                                />
-                            )}
 
-                            {/* Relationship sub-card */}
-                            <div className="sub-card">
-                                <h4>Relationship</h4>
-                                <div className="stage-bar">
-                                    {['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'].map((s) => (
-                                        <button
-                                            key={s}
-                                            className={selectedEmail.pipeline_stage === s ? 'active' : ''}
-                                            onClick={() => handleChangeStage(selectedEmail.id, s)}
-                                        >
-                                            {stageLabel(s)}
-                                        </button>
-                                    ))}
+                        {col3Tab === 'jarvis' && (
+                            <div className="jarvis-panel">
+                                {selectedEmail.thread_id && (
+                                    <JarvisSuggestionBox
+                                        threadId={selectedEmail.thread_id}
+                                        forceMode={jarvisMode === 'auto' ? null : jarvisMode}
+                                        onCopy={handleCopyJarvisDraft}
+                                    />
+                                )}
+
+                                {/* Relationship sub-card */}
+                                <div className="sub-card">
+                                    <h4>Relationship</h4>
+                                    <div className="stage-bar">
+                                        {['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'].map((s) => (
+                                            <button
+                                                key={s}
+                                                className={selectedEmail.pipeline_stage === s ? 'active' : ''}
+                                                onClick={() => handleChangeStage(selectedEmail.id, s)}
+                                            >
+                                                {stageLabel(s)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="kv"><span className="k">Account</span><span className="v">{selectedEmail.gmail_accounts?.email || 'Unknown'}</span></div>
+                                    <div className="kv"><span className="k">Manager</span><span className="v">{selectedEmail.gmail_accounts?.user?.name || 'Unassigned'}</span></div>
+                                    <div className="kv"><span className="k">Thread health</span><span className="v" style={{ color: 'var(--coach)' }}>{threadMessages.length > 2 ? 'Active' : 'New'}</span></div>
                                 </div>
-                                <div className="kv"><span className="k">Account</span><span className="v">{selectedEmail.gmail_accounts?.email || 'Unknown'}</span></div>
-                                <div className="kv"><span className="k">Manager</span><span className="v">{selectedEmail.gmail_accounts?.user?.name || 'Unassigned'}</span></div>
-                                <div className="kv"><span className="k">Thread health</span><span className="v" style={{ color: 'var(--coach)' }}>{threadMessages.length > 2 ? 'Active' : 'New'}</span></div>
                             </div>
-                        </div>
+                        )}
+
+                        {col3Tab === 'client' && (
+                            <div className="jarvis-panel">
+                                {selectedEmail.contact_id ? (
+                                    <ClientIntelligencePanel
+                                        profile={clientProfile!}
+                                        isLoading={clientProfileLoading || !clientProfile}
+                                        onSendReminder={() => {
+                                            if (!clientProfile) return;
+                                            const to = clientProfile.email;
+                                            const name = clientProfile.name.split(' ')[0];
+                                            setComposeDefaultTo(to);
+                                            setComposeDefaultSubject(`Following up — ${clientProfile.finance.unpaidAmount > 0 ? 'Invoice reminder' : 'Checking in'}`);
+                                            setComposeDefaultBody(`Hi ${name},\n\nJust wanted to follow up...\n\n`);
+                                            setComposeOpen(true);
+                                        }}
+                                        onInvoice={() => {
+                                            if (!clientProfile) return;
+                                            const to = clientProfile.email;
+                                            const name = clientProfile.name.split(' ')[0];
+                                            const project = clientProfile.production.primaryProject?.name || 'your project';
+                                            setComposeDefaultTo(to);
+                                            setComposeDefaultSubject(`Invoice — ${project}`);
+                                            setComposeDefaultBody(`Hi ${name},\n\nHope the ${project} film is everything you dreamed of!\nPlease find your invoice attached.\n\n`);
+                                            setComposeOpen(true);
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="ci-no-contact">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--ink-faint)" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                        <p>No contact linked to this email</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 

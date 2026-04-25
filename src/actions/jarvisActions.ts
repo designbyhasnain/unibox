@@ -66,19 +66,21 @@ function guessRegion(email: string, company: string | null): string | null {
     return null;
 }
 
-export async function suggestReplyAction(threadId: string) {
+export type SuggestReplyOpts = { forceMode?: 'reply' | 'coach' };
+
+export async function suggestReplyAction(threadId: string, opts?: SuggestReplyOpts) {
     // Global timeout: if entire action takes > 25s, bail out with error
     const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Jarvis timed out after 25s')), 25_000)
     );
     try {
-        return await Promise.race([_suggestReplyImpl(threadId), timeoutPromise]);
+        return await Promise.race([_suggestReplyImpl(threadId, opts), timeoutPromise]);
     } catch (e: any) {
         return { success: false as const, error: e?.message || 'Jarvis timed out' };
     }
 }
 
-async function _suggestReplyImpl(threadId: string) {
+async function _suggestReplyImpl(threadId: string, opts?: SuggestReplyOpts) {
     const { userId, role } = await ensureAuthenticated();
     blockEditorAccess(role);
     if (!threadId) return { success: false as const, error: 'threadId is required' };
@@ -88,14 +90,18 @@ async function _suggestReplyImpl(threadId: string) {
         return { success: false as const, error: 'No accessible accounts' };
     }
 
+    // Newest 30 first, then reverse for chronological prompt context.
+    // Old code did `ascending: true` + `limit(20)`, which silently returned the
+    // OLDEST 20 messages — wrong mode + wrong context for any thread > 20 msgs.
     let msgQuery = supabase
         .from('email_messages')
         .select('id, from_email, to_email, subject, body, snippet, direction, sent_at, gmail_account_id, contact_id')
         .eq('thread_id', threadId)
-        .order('sent_at', { ascending: true })
-        .limit(20);
+        .order('sent_at', { ascending: false })
+        .limit(30);
     if (accessible !== 'ALL') msgQuery = msgQuery.in('gmail_account_id', accessible);
-    const { data: messages, error: msgErr } = await msgQuery;
+    const { data: rawMessages, error: msgErr } = await msgQuery;
+    const messages = (rawMessages || []).slice().reverse();
 
     if (msgErr) {
         console.error('[suggestReplyAction] fetch error:', msgErr);
@@ -115,28 +121,46 @@ async function _suggestReplyImpl(threadId: string) {
         name: string | null; email: string; company: string | null;
         pipelineStage: string | null; region?: string | null;
         totalEmails?: number; totalProjects?: number; totalRevenue?: number;
+        paidRevenue?: number; unpaidAmount?: number;
         contactType?: string | null; lastEmailDate?: string | null;
+        daysSinceLastContact?: number | null;
+        relationshipHealth?: string | null;
+        clientSince?: string | null;
+        clientTier?: string | null;
+        isClient?: boolean;
+        accountManagerName?: string | null;
     } = {
         name: null, email: contactEmailGuess, company: null,
         pipelineStage: null,
     };
 
+    const contactCols = `id, name, email, company, pipeline_stage, contact_type, location,
+        total_revenue, paid_revenue, unpaid_amount, total_projects,
+        days_since_last_contact, relationship_health, client_since,
+        client_tier, is_client, account_manager_id`;
+
     const resolvedId = contactId;
     if (resolvedId) {
         const { data: c } = await supabase
             .from('contacts')
-            .select('id, name, email, company, pipeline_stage, contact_type, location')
+            .select(contactCols)
             .eq('id', resolvedId)
             .maybeSingle();
 
         if (c) {
-            const [emailCount, projectData] = await Promise.all([
+            const [emailCount, projectData, am] = await Promise.all([
                 supabase.from('email_messages').select('*', { count: 'exact', head: true }).eq('contact_id', c.id),
                 supabase.from('projects').select('id, total_cost').eq('contact_id', c.id),
+                c.account_manager_id
+                    ? supabase.from('users').select('name').eq('id', c.account_manager_id).maybeSingle()
+                    : Promise.resolve({ data: null }),
             ]);
 
             const projects = projectData.data || [];
-            const totalRevenue = projects.reduce((sum, p) => sum + (p.total_cost || 0), 0);
+            // Prefer pre-aggregated values from contacts table; fall back to live computation
+            const totalRevenue = (typeof c.total_revenue === 'number' && c.total_revenue > 0)
+                ? c.total_revenue
+                : projects.reduce((sum, p) => sum + (p.total_cost || 0), 0);
 
             contact = {
                 name: c.name,
@@ -145,15 +169,23 @@ async function _suggestReplyImpl(threadId: string) {
                 pipelineStage: c.pipeline_stage,
                 region: c.location || guessRegion(c.email, c.company),
                 totalEmails: emailCount.count || messages.length,
-                totalProjects: projects.length,
+                totalProjects: c.total_projects || projects.length,
                 totalRevenue,
+                paidRevenue: typeof c.paid_revenue === 'number' ? c.paid_revenue : undefined,
+                unpaidAmount: typeof c.unpaid_amount === 'number' ? c.unpaid_amount : undefined,
                 contactType: c.contact_type,
+                daysSinceLastContact: typeof c.days_since_last_contact === 'number' ? c.days_since_last_contact : null,
+                relationshipHealth: c.relationship_health,
+                clientSince: c.client_since,
+                clientTier: c.client_tier,
+                isClient: !!c.is_client,
+                accountManagerName: am.data?.name || null,
             };
         }
     } else if (contactEmailGuess) {
         const { data: c } = await supabase
             .from('contacts')
-            .select('id, name, email, company, pipeline_stage, contact_type, location')
+            .select(contactCols)
             .eq('email', contactEmailGuess)
             .maybeSingle();
 
@@ -163,6 +195,15 @@ async function _suggestReplyImpl(threadId: string) {
                 pipelineStage: c.pipeline_stage,
                 region: c.location || guessRegion(c.email, c.company),
                 contactType: c.contact_type,
+                totalRevenue: typeof c.total_revenue === 'number' ? c.total_revenue : undefined,
+                paidRevenue: typeof c.paid_revenue === 'number' ? c.paid_revenue : undefined,
+                unpaidAmount: typeof c.unpaid_amount === 'number' ? c.unpaid_amount : undefined,
+                totalProjects: typeof c.total_projects === 'number' ? c.total_projects : undefined,
+                daysSinceLastContact: typeof c.days_since_last_contact === 'number' ? c.days_since_last_contact : null,
+                relationshipHealth: c.relationship_health,
+                clientSince: c.client_since,
+                clientTier: c.client_tier,
+                isClient: !!c.is_client,
             };
         }
     }
@@ -175,11 +216,27 @@ async function _suggestReplyImpl(threadId: string) {
         sentAt: m.sent_at || '',
     }));
 
-    const { suggestion, error, mode } = await generateReplySuggestion(contact, thread);
+    // Staleness check — Gmail webhook → email_messages insert isn't transactional with
+    // the inbox UI's live thread display. If email_threads says a newer message exists
+    // than what we just pulled, surface a hint so the user knows to Regenerate after sync.
+    const newestSentAt = messages[messages.length - 1]?.sent_at || '';
+    let staleData = false;
+    try {
+        const { data: threadRow } = await supabase
+            .from('email_threads')
+            .select('last_message_at')
+            .eq('id', threadId)
+            .maybeSingle();
+        if (threadRow?.last_message_at && newestSentAt && new Date(threadRow.last_message_at).getTime() > new Date(newestSentAt).getTime() + 10_000) {
+            staleData = true;
+        }
+    } catch { /* best-effort hint, never blocks the suggestion */ }
+
+    const { suggestion, error, mode, modeSource } = await generateReplySuggestion(contact, thread, opts);
     if (!suggestion) {
-        return { success: false as const, error: error || 'Jarvis could not generate a draft' };
+        return { success: false as const, error: error || 'Jarvis could not generate a draft', staleData };
     }
-    return { success: true as const, suggestion, mode: mode || 'reply' };
+    return { success: true as const, suggestion, mode: mode || 'reply', modeSource: modeSource || 'auto', staleData };
 }
 
 /**

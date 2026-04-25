@@ -5,6 +5,14 @@ import { suggestReplyAction, logJarvisFeedbackAction } from '../../src/actions/j
 
 interface JarvisSuggestionBoxProps {
     threadId: string;
+    /**
+     * Optional explicit mode override.
+     *  - undefined / null  → server auto-detects from last message direction.
+     *  - 'reply'           → force draft-a-reply.
+     *  - 'coach'           → force coaching feedback on our most recent SENT.
+     * Changing this prop triggers a re-fetch.
+     */
+    forceMode?: 'reply' | 'coach' | null;
     onCopy: (suggestion: string) => void;
 }
 
@@ -32,33 +40,40 @@ const ICON = {
     thumbDown: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10zM17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>,
 };
 
-export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggestionBoxProps) {
+export default function JarvisSuggestionBox({ threadId, forceMode, onCopy }: JarvisSuggestionBoxProps) {
     const [suggestion, setSuggestion] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
     const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
     const [mode, setMode] = useState<'reply' | 'coaching'>('reply');
+    const [modeSource, setModeSource] = useState<'forced' | 'auto'>('auto');
+    const [staleData, setStaleData] = useState(false);
     const activeThreadRef = useRef<string | null>(null);
 
-    const load = useCallback(async (tid: string) => {
+    const load = useCallback(async (tid: string, override: 'reply' | 'coach' | null | undefined) => {
         activeThreadRef.current = tid;
         setIsLoading(true);
         setError(null);
         setSuggestion(null);
         setCopied(false);
         setFeedback(null);
+        setStaleData(false);
         try {
-            const res = await suggestReplyAction(tid);
+            const res = await suggestReplyAction(tid, override ? { forceMode: override } : undefined);
             if (activeThreadRef.current !== tid) return;
             if (res.success) {
                 setSuggestion(res.suggestion);
-                setMode((res as { mode?: string }).mode === 'coaching' ? 'coaching' : 'reply');
-                if ((res as { mode?: string }).mode !== 'coaching') {
+                const r = res as { mode?: string; modeSource?: 'forced' | 'auto'; staleData?: boolean };
+                setMode(r.mode === 'coaching' ? 'coaching' : 'reply');
+                setModeSource(r.modeSource === 'forced' ? 'forced' : 'auto');
+                setStaleData(!!r.staleData);
+                if (r.mode !== 'coaching') {
                     lastJarvisSuggestion = { threadId: tid, suggestion: res.suggestion };
                 }
             } else {
                 setError(res.error || 'Jarvis could not generate a draft.');
+                setStaleData(!!(res as { staleData?: boolean }).staleData);
             }
         } catch (e: any) {
             if (activeThreadRef.current === tid) setError(e?.message || 'Unexpected error');
@@ -69,8 +84,8 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
 
     useEffect(() => {
         if (!threadId) return;
-        load(threadId);
-    }, [threadId, load]);
+        load(threadId, forceMode ?? null);
+    }, [threadId, forceMode, load]);
 
     const handleCopy = () => {
         if (!suggestion) return;
@@ -106,7 +121,15 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
         <div className={`jarvis-card ${isCoach ? 'coach' : 'reply'}`}>
             <div className="jarvis-head">
                 <span className="jarvis-spark">{ICON.spark}</span>
-                <span className="label">{isCoach ? 'Coaching feedback' : 'Suggested reply'}</span>
+                <span className="label">
+                    {isCoach ? 'Coaching feedback' : 'Suggested reply'}
+                    {!isLoading && suggestion && modeSource === 'auto' && (
+                        <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--ink-muted)', fontWeight: 400 }} title="Mode auto-detected from the latest message in the thread. Use the Reply / Coach tabs above to override.">· auto</span>
+                    )}
+                    {!isLoading && staleData && (
+                        <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn)', fontWeight: 500 }} title="The most recent inbound may not be in the database yet (Gmail webhook still in flight). Click Regenerate in a few seconds for the freshest version.">· sync catching up</span>
+                    )}
+                </span>
                 <span className="conf">
                     {isLoading ? (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -147,7 +170,7 @@ export default function JarvisSuggestionBox({ threadId, onCopy }: JarvisSuggesti
                             {ICON.copy} {copied ? 'Copied!' : 'Copy to reply'}
                         </button>
                     )}
-                    <button className="jarvis-btn" onClick={() => load(threadId)}>
+                    <button className="jarvis-btn" onClick={() => load(threadId, forceMode ?? null)}>
                         {ICON.refresh} Regenerate
                     </button>
                     <div style={{ flex: 1 }} />

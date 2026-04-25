@@ -216,7 +216,7 @@ export async function getInboxEmailsAction(
     const isSpamParam = stage === 'SPAM';
     let query = supabase
         .from('email_messages')
-        .select('id, thread_id, from_email, to_email, subject, snippet, body, direction, sent_at, is_unread, pipeline_stage, gmail_account_id, is_tracked, delivered_at, opened_at', { count: 'estimated' })
+        .select('id, thread_id, from_email, to_email, subject, snippet, body, direction, sent_at, is_unread, pipeline_stage, gmail_account_id, contact_id, is_tracked, delivered_at, opened_at', { count: 'estimated' })
         .in('gmail_account_id', accountIds)
         .eq('direction', 'RECEIVED')
         .eq('is_spam', isSpamParam);
@@ -270,16 +270,100 @@ export async function getInboxEmailsAction(
         });
     }
 
+    // Resolve the account-manager for each row.
+    // Resolution chain (see docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md):
+    //   1. contacts.account_manager_id  (the explicit per-contact override)
+    //   2. user_gmail_assignments        (default: the salesperson the Gmail account
+    //                                     is assigned to — if Filmsbyrafay is assigned
+    //                                     to Rameez, every contact on that inbox is
+    //                                     Rameez's unless the contact says otherwise)
+    //   3. null  → "Unassigned"
+    // Both lookups are batched + by primary key.
+    // TODO: lift to a shared `attachAccountManagerNames(rows)` helper and reuse on
+    // the sent / search / thread paths flagged in the doc.
+    type AmInfo = { name: string; email: string };
+    const uniqueContactIds = [...new Set(rows.map(r => r.contact_id).filter(Boolean))] as string[];
+    const contactAmMap: Record<string, AmInfo | null> = {};
+    const accountAmMap: Record<string, AmInfo | null> = {};
+
+    // Build a userById map shared between both resolution sources to avoid
+    // double-querying the same users.
+    const userById: Record<string, AmInfo> = {};
+    const fetchUsersByIds = async (ids: string[]) => {
+        const missing = ids.filter(id => !(id in userById));
+        if (missing.length === 0) return;
+        const { data } = await supabase.from('users').select('id, name, email').in('id', missing);
+        (data || []).forEach(u => {
+            const fallbackName = (u.name && u.name.trim()) || (u.email?.split('@')[0] ?? '');
+            userById[u.id] = { name: fallbackName, email: u.email || '' };
+        });
+    };
+
+    // Source 1 — contacts.account_manager_id
+    if (uniqueContactIds.length > 0) {
+        const { data: contactRows } = await supabase
+            .from('contacts')
+            .select('id, account_manager_id')
+            .in('id', uniqueContactIds);
+        const amIds = [...new Set((contactRows || []).map(c => c.account_manager_id).filter(Boolean))] as string[];
+        await fetchUsersByIds(amIds);
+        (contactRows || []).forEach(c => {
+            contactAmMap[c.id] = c.account_manager_id ? (userById[c.account_manager_id] || null) : null;
+        });
+    }
+
+    // Source 2 — user_gmail_assignments (per-account default)
+    // Multiple users can be assigned to one Gmail account; prefer SALES role
+    // (the working salesperson) over ADMIN (an admin who happens to also have access),
+    // tie-broken by oldest assignment (the original owner).
+    if (uniqueAccountIds.length > 0) {
+        const { data: assignRows } = await supabase
+            .from('user_gmail_assignments')
+            .select('gmail_account_id, user_id, assigned_at')
+            .in('gmail_account_id', uniqueAccountIds)
+            .order('assigned_at', { ascending: true });
+
+        const assignmentUserIds = [...new Set((assignRows || []).map(a => a.user_id).filter(Boolean))] as string[];
+        await fetchUsersByIds(assignmentUserIds);
+        // Need user roles to break ties — fetch them from the same table in one go.
+        const { data: roleRows } = assignmentUserIds.length > 0
+            ? await supabase.from('users').select('id, role').in('id', assignmentUserIds)
+            : { data: [] as { id: string; role: string }[] };
+        const roleById: Record<string, string> = {};
+        (roleRows || []).forEach(u => { roleById[u.id] = u.role; });
+
+        const byAccount: Record<string, { user_id: string; assigned_at: string }[]> = {};
+        (assignRows || []).forEach(a => {
+            (byAccount[a.gmail_account_id] = byAccount[a.gmail_account_id] || []).push({ user_id: a.user_id, assigned_at: a.assigned_at });
+        });
+        Object.entries(byAccount).forEach(([accId, list]) => {
+            const sales = list.find(a => roleById[a.user_id] === 'SALES');
+            const pick = sales || list[0];
+            accountAmMap[accId] = pick ? (userById[pick.user_id] || null) : null;
+        });
+    }
+
     const totalCount = count ?? ((page - 1) * clampedPageSize + rows.length);
     const totalPages = Math.max(1, Math.ceil(totalCount / clampedPageSize));
 
     const stageOverride = stage === 'SPAM' ? { pipeline_stage: 'SPAM' } : undefined;
     const emails = rows.map((r) => {
         const acc = accountMap[r.gmail_account_id];
+        // Resolution order: contact override → gmail-account assignment default → null.
+        const am: AmInfo | null = (r.contact_id && contactAmMap[r.contact_id])
+            || accountAmMap[r.gmail_account_id]
+            || null;
         return {
             ...r,
             account_email: acc?.email,
             manager_name: acc?.managerName || 'System',
+            account_manager_name: am?.name || null,
+            account_manager_email: am?.email || null,
+            // Tells the UI whether the AM came from the contact override or the
+            // gmail-account default — enables a subtle visual hint if we ever want one.
+            account_manager_source: (r.contact_id && contactAmMap[r.contact_id])
+                ? 'contact'
+                : (accountAmMap[r.gmail_account_id] ? 'gmail_account' : null),
             gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },
             has_reply: false,
             ...stageOverride,

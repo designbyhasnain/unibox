@@ -18,7 +18,8 @@ const supabase = createClient(
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY!;
 const DRY_RUN = process.argv.includes('--dry');
-const BATCH_SIZE = 20;
+const limitArg = process.argv.find(a => a.startsWith('--limit='));
+const CONTACT_LIMIT = limitArg ? parseInt(limitArg.split('=')[1]!, 10) : Infinity;
 
 interface QAPair {
     category: string;
@@ -107,7 +108,16 @@ Only output valid JSON, nothing else.`
 
         const jsonMatch = raw.match(/\{[\s\S]*\}/);
         if (!jsonMatch) return null;
-        return JSON.parse(jsonMatch[0]);
+        const parsed = JSON.parse(jsonMatch[0]);
+        // Llama sometimes returns price_mentioned as a nested object (e.g. a price list).
+        // Coerce: object → smallest number found; non-finite → null.
+        if (parsed && typeof parsed.price_mentioned === 'object' && parsed.price_mentioned !== null) {
+            const nums = Object.values(parsed.price_mentioned).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+            parsed.price_mentioned = nums.length > 0 ? Math.min(...nums) : null;
+        } else if (typeof parsed?.price_mentioned !== 'number' || !Number.isFinite(parsed.price_mentioned)) {
+            parsed.price_mentioned = null;
+        }
+        return parsed;
     } catch {
         return null;
     }
@@ -197,7 +207,30 @@ async function main() {
         if (count && count >= 4) enriched.push(c);
     }
 
+    // Dedup: skip contacts already mined (idempotent reruns)
+    const skipMined = !process.argv.includes('--force');
+    let alreadyMinedIds = new Set<string>();
+    if (skipMined) {
+        const { data: existing } = await supabase
+            .from('jarvis_knowledge')
+            .select('source_contact_id')
+            .not('source_contact_id', 'is', null);
+        alreadyMinedIds = new Set((existing || []).map(r => r.source_contact_id).filter(Boolean));
+        const before = enriched.length;
+        const filtered = enriched.filter(c => !alreadyMinedIds.has(c.id));
+        if (filtered.length < before) {
+            console.log(`Skipping ${before - filtered.length} already-mined contacts (use --force to re-mine).`);
+        }
+        enriched.length = 0;
+        enriched.push(...filtered);
+    }
+
     console.log(`Found ${contacts.length} closed/accepted contacts, ${enriched.length} have 4+ emails\n`);
+
+    const toProcess = enriched.slice(0, CONTACT_LIMIT);
+    if (CONTACT_LIMIT < enriched.length) {
+        console.log(`Limited to first ${CONTACT_LIMIT} for this run.\n`);
+    }
 
     if (!DRY_RUN) {
         // Create table if not exists (using raw SQL via RPC or just try insert)
@@ -211,9 +244,9 @@ async function main() {
     let totalPairs = 0;
     let processedContacts = 0;
 
-    for (const contact of enriched) {
+    for (const contact of toProcess) {
         processedContacts++;
-        process.stdout.write(`[${processedContacts}/${enriched.length}] ${(contact.name || contact.email).padEnd(30)} `);
+        process.stdout.write(`[${processedContacts}/${toProcess.length}] ${(contact.name || contact.email).padEnd(30)} `);
 
         const pairs = await processContact(contact);
         totalPairs += pairs.length;
