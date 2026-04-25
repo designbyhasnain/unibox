@@ -6,9 +6,11 @@ import Topbar from '../../components/Topbar';
 import {
     getContactDetailAction,
     updateContactAction,
+    transferContactAction,
     getOwnershipTransferHistoryAction,
     type OwnershipTransferEntry,
 } from '../../../src/actions/contactDetailActions';
+import { getManagersAction } from '../../../src/actions/projectActions';
 import { generateAISummaryAction } from '../../../src/actions/summaryActions';
 import { avatarColor, initials } from '../../utils/helpers';
 import { STAGE_LABELS, STAGE_COLORS } from '../../constants/stages';
@@ -46,21 +48,12 @@ export default function ContactDetailPage() {
     const [historyOpen, setHistoryOpen] = useState(false);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [history, setHistory] = useState<OwnershipTransferEntry[] | null>(null);
-
-    const toggleHistory = useCallback(async () => {
-        if (historyOpen) { setHistoryOpen(false); return; }
-        setHistoryOpen(true);
-        if (history !== null) return;
-        setHistoryLoading(true);
-        try {
-            const result = await getOwnershipTransferHistoryAction(contactId);
-            if (result.success) setHistory(result.entries);
-            else setHistory([]);
-        } catch {
-            setHistory([]);
-        }
-        setHistoryLoading(false);
-    }, [contactId, historyOpen, history]);
+    const [transferring, setTransferring] = useState(false);
+    const [transferError, setTransferError] = useState<string | null>(null);
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const [managers, setManagers] = useState<Array<{ id: string; name: string }>>([]);
+    const [pickerSelection, setPickerSelection] = useState<string>('');
+    const [pickerReason, setPickerReason] = useState<string>('');
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -76,6 +69,61 @@ export default function ContactDetailPage() {
         }
         setLoading(false);
     }, [contactId]);
+
+    const refreshHistory = useCallback(async () => {
+        try {
+            const result = await getOwnershipTransferHistoryAction(contactId);
+            if (result.success) setHistory(result.entries);
+        } catch { /* ignore */ }
+    }, [contactId]);
+
+    const toggleHistory = useCallback(async () => {
+        if (historyOpen) { setHistoryOpen(false); return; }
+        setHistoryOpen(true);
+        if (history !== null) return;
+        setHistoryLoading(true);
+        await refreshHistory();
+        setHistoryLoading(false);
+    }, [historyOpen, history, refreshHistory]);
+
+    const openPicker = useCallback(async () => {
+        setTransferError(null);
+        setPickerOpen(true);
+        setPickerReason('');
+        if (managers.length === 0) {
+            const list = await getManagersAction();
+            setManagers((list || []).filter((m: any) => m && m.id && m.name));
+        }
+        setPickerSelection(data?.currentOwner?.id || '');
+    }, [managers.length, data?.currentOwner?.id]);
+
+    const submitTransfer = useCallback(async () => {
+        const target = pickerSelection || null;
+        if (target === (data?.currentOwner?.id || null)) {
+            setPickerOpen(false);
+            return;
+        }
+        setTransferring(true);
+        setTransferError(null);
+        try {
+            const result = await transferContactAction(contactId, target, {
+                source: 'manual',
+                reason: pickerReason.trim() || undefined,
+            });
+            if (!result.success) {
+                setTransferError(result.error);
+                setTransferring(false);
+                return;
+            }
+            setPickerOpen(false);
+            // Refresh both contact (to update the Owner display) and the history list.
+            await Promise.all([load(), refreshHistory()]);
+            setHistoryOpen(true);
+        } catch (e: any) {
+            setTransferError(e?.message || 'Transfer failed');
+        }
+        setTransferring(false);
+    }, [contactId, pickerSelection, pickerReason, data?.currentOwner?.id, load, refreshHistory]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -182,6 +230,13 @@ export default function ContactDetailPage() {
                                         : <em style={{ color: 'var(--text-tertiary)' }}>Unassigned</em>}
                                 </span>
                                 <button
+                                    onClick={openPicker}
+                                    title="Reassign this contact to a different account manager"
+                                    style={{ background: 'none', border: '1px solid var(--border-subtle)', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 11, padding: '2px 8px', borderRadius: 4 }}
+                                >
+                                    Change
+                                </button>
+                                <button
                                     onClick={toggleHistory}
                                     title="Show / hide ownership transfer history"
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: 11, padding: '2px 6px', borderRadius: 4 }}
@@ -189,6 +244,52 @@ export default function ContactDetailPage() {
                                     {historyOpen ? 'Hide history ▴' : 'Transfer history ▾'}
                                 </button>
                             </div>
+                            {pickerOpen && (
+                                <div style={{ marginTop: 8, padding: 12, background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <label style={{ fontSize: 11, color: 'var(--text-tertiary)', minWidth: 80 }}>New owner</label>
+                                        <select
+                                            value={pickerSelection}
+                                            onChange={e => setPickerSelection(e.target.value)}
+                                            style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 12, minWidth: 200 }}
+                                        >
+                                            <option value="">— Unassigned —</option>
+                                            {managers.map(m => (
+                                                <option key={m.id} value={m.id}>{m.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <label style={{ fontSize: 11, color: 'var(--text-tertiary)', minWidth: 80 }}>Reason <span style={{ opacity: 0.6 }}>(optional)</span></label>
+                                        <input
+                                            value={pickerReason}
+                                            onChange={e => setPickerReason(e.target.value)}
+                                            placeholder='e.g. "Hamza is taking over after Anas left"'
+                                            style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 12, flex: 1, minWidth: 200 }}
+                                        />
+                                    </div>
+                                    {transferError && <div style={{ fontSize: 11, color: 'var(--danger)' }}>{transferError}</div>}
+                                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                                        <button
+                                            onClick={() => { setPickerOpen(false); setTransferError(null); }}
+                                            disabled={transferring}
+                                            className="btn btn-secondary sm"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={submitTransfer}
+                                            disabled={transferring}
+                                            className="btn btn-primary sm"
+                                        >
+                                            {transferring ? 'Transferring…' : 'Transfer'}
+                                        </button>
+                                    </div>
+                                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                                        Logged as <strong>OWNERSHIP_TRANSFER</strong> with from / to / actor / source=&quot;manual&quot; / reason. Visible in Transfer history below and the Activity tab.
+                                    </div>
+                                </div>
+                            )}
                             {historyOpen && (
                                 <div style={{ marginTop: 8, padding: 10, background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: 11, color: 'var(--text-secondary)' }}>
                                     {historyLoading
