@@ -465,7 +465,12 @@ export default function InboxPage() {
                                     const subject = email.subject || '(no subject)';
                                     const stage = email.pipeline_stage;
                                     const accountEmail = email.gmail_accounts?.email || '';
-                                    const managerName = email.gmail_accounts?.user?.name || '';
+                                    // AM = the human who owns the relationship with this contact, resolved
+                                    // server-side via contacts.account_manager_id → user_gmail_assignments → null.
+                                    // See docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md.
+                                    const amName: string | null = email.account_manager_name || null;
+                                    const amEmail: string = email.account_manager_email || '';
+                                    const amLabel = amName ? `AM(${amName})` : (email.contact_id ? 'Unassigned' : '—');
                                     const dateStr = formatDate(email.sent_at);
                                     const initials = senderName.charAt(0).toUpperCase();
 
@@ -500,8 +505,14 @@ export default function InboxPage() {
                                                     {stage && (
                                                         <span className={`chip dot ${stageClass(stage)}`}>{stageLabel(stage)}</span>
                                                     )}
-                                                    <span style={{ marginLeft: 'auto', color: 'var(--ink-muted)' }}>
-                                                        {accountEmail.split('@')[0]} {managerName ? `· ${managerName}` : ''}
+                                                    <span
+                                                        style={{ marginLeft: 'auto', color: 'var(--ink-muted)' }}
+                                                        title={amEmail || amLabel}
+                                                    >
+                                                        {accountEmail} ·{' '}
+                                                        <span style={amName ? undefined : { fontStyle: 'italic', opacity: 0.7 }}>
+                                                            {amLabel}
+                                                        </span>
                                                     </span>
                                                 </div>
                                             </div>
