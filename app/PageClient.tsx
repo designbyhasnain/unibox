@@ -564,11 +564,13 @@ export default function InboxPage() {
                                 <span>·</span>
                                 <span>{threadMessages.length || 1} messages</span>
                                 <span>·</span>
-                                <span>{selectedEmail.gmail_accounts?.email?.split('@')[0] || ''}</span>
-                                {selectedEmail.gmail_accounts?.user?.name && (
+                                <span>{selectedEmail.gmail_accounts?.email || ''}</span>
+                                {selectedEmail.account_manager_name && (
                                     <>
                                         <span>·</span>
-                                        <span>Managed by {selectedEmail.gmail_accounts.user.name}</span>
+                                        <span title={selectedEmail.account_manager_email || ''}>
+                                            Managed by {selectedEmail.account_manager_name}
+                                        </span>
                                     </>
                                 )}
                             </div>
@@ -704,7 +706,16 @@ export default function InboxPage() {
                                         ))}
                                     </div>
                                     <div className="kv"><span className="k">Account</span><span className="v">{selectedEmail.gmail_accounts?.email || 'Unknown'}</span></div>
-                                    <div className="kv"><span className="k">Manager</span><span className="v">{selectedEmail.gmail_accounts?.user?.name || 'Unassigned'}</span></div>
+                                    <div className="kv">
+                                        <span className="k">Manager</span>
+                                        <span
+                                            className="v"
+                                            title={selectedEmail.account_manager_email || ''}
+                                            style={selectedEmail.account_manager_name ? undefined : { fontStyle: 'italic', opacity: 0.7 }}
+                                        >
+                                            {selectedEmail.account_manager_name || 'Unassigned'}
+                                        </span>
+                                    </div>
                                     <div className="kv"><span className="k">Thread health</span><span className="v" style={{ color: 'var(--coach)' }}>{threadMessages.length > 2 ? 'Active' : 'New'}</span></div>
                                 </div>
                             </div>
