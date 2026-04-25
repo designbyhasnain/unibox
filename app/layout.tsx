@@ -7,6 +7,13 @@ import { UndoToastProvider } from './context/UndoToastContext'
 import { GlobalSearchProvider } from './context/GlobalSearchContext'
 import ClientLayout from './components/ClientLayout'
 
+// Every authenticated page reads the unibox_session cookie via getFreshSession()
+// or ensureAuthenticated(); Next 16's prerender path can't satisfy that and
+// crashes with a workUnitAsyncStorage invariant during build. Force-dynamic at
+// the root cascades to all pages and prevents a regression every time a new
+// page is added.
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
     title: {
         default: 'Unibox',
