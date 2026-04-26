@@ -101,12 +101,13 @@ export async function getAllProjectsAction(
     };
 }
 
-// Fetch all account managers for dropdowns
+// Fetch users assignable as account managers (excludes VIDEO_EDITOR — they cannot own contacts/projects)
 export async function getManagersAction() {
     const { userId, role } = await ensureAuthenticated();
     const { data, error } = await supabase
         .from('users')
-        .select('id, name')
+        .select('id, name, email, role')
+        .neq('role', 'VIDEO_EDITOR')
         .order('name');
 
     if (error) {
@@ -114,7 +115,11 @@ export async function getManagersAction() {
         return [];
     }
 
-    return data ?? [];
+    // Use email local-part as fallback for empty names
+    return (data ?? []).map(u => ({
+        id: u.id,
+        name: (u.name && u.name.trim()) || (u.email?.split('@')[0] ?? 'Unnamed'),
+    }));
 }
 
 // Update an existing project

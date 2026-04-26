@@ -130,6 +130,7 @@ export default function InboxPage() {
     // Optimistic override of an inbox row's account-manager display after a transfer,
     // so the UI updates immediately without waiting for an inbox refetch. Keyed by contact_id.
     const [ownerOverrides, setOwnerOverrides] = useState<Record<string, { id: string | null; name: string | null }>>({});
+    const [ownerPickerOpenFor, setOwnerPickerOpenFor] = useState<string | null>(null);
 
     // Reset reply state whenever a different thread is opened
     useEffect(() => {
@@ -715,7 +716,7 @@ export default function InboxPage() {
                                     <div className="kv"><span className="k">Account</span><span className="v">{selectedEmail.gmail_accounts?.email || 'Unknown'}</span></div>
                                     <div className="kv">
                                         <span className="k">Manager</span>
-                                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' }}>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                             {(() => {
                                                 const override = selectedEmail.contact_id ? ownerOverrides[selectedEmail.contact_id] : null;
                                                 const displayName = override?.name ?? selectedEmail.account_manager_name;
@@ -727,20 +728,41 @@ export default function InboxPage() {
                                                 );
                                             })()}
                                             {selectedEmail.contact_id && (
-                                                <OwnerPicker
-                                                    contactId={selectedEmail.contact_id}
-                                                    currentOwnerId={(selectedEmail.contact_id ? ownerOverrides[selectedEmail.contact_id]?.id : null) ?? selectedEmail.account_manager_id ?? null}
-                                                    currentOwnerName={(selectedEmail.contact_id ? ownerOverrides[selectedEmail.contact_id]?.name : null) ?? selectedEmail.account_manager_name ?? null}
-                                                    layout="compact"
-                                                    onTransferred={(next) => {
-                                                        if (selectedEmail.contact_id) {
-                                                            setOwnerOverrides(prev => ({ ...prev, [selectedEmail.contact_id as string]: next }));
-                                                        }
+                                                <button
+                                                    onClick={() => setOwnerPickerOpenFor(prev => prev === selectedEmail.contact_id ? null : selectedEmail.contact_id)}
+                                                    title="Reassign this contact to a different account manager"
+                                                    style={{
+                                                        background: 'none',
+                                                        border: '1px solid var(--hairline)',
+                                                        cursor: 'pointer',
+                                                        color: 'var(--ink-muted)',
+                                                        fontSize: 10,
+                                                        padding: '1px 6px',
+                                                        borderRadius: 4,
+                                                        lineHeight: 1.4,
                                                     }}
-                                                />
+                                                >
+                                                    {ownerPickerOpenFor === selectedEmail.contact_id ? 'Cancel' : 'Change'}
+                                                </button>
                                             )}
                                         </span>
                                     </div>
+                                    {selectedEmail.contact_id && ownerPickerOpenFor === selectedEmail.contact_id && (
+                                        <OwnerPicker
+                                            contactId={selectedEmail.contact_id}
+                                            currentOwnerId={ownerOverrides[selectedEmail.contact_id]?.id ?? selectedEmail.account_manager_id ?? null}
+                                            currentOwnerName={ownerOverrides[selectedEmail.contact_id]?.name ?? selectedEmail.account_manager_name ?? null}
+                                            layout="compact"
+                                            open
+                                            onCancel={() => setOwnerPickerOpenFor(null)}
+                                            onTransferred={(next) => {
+                                                if (selectedEmail.contact_id) {
+                                                    setOwnerOverrides(prev => ({ ...prev, [selectedEmail.contact_id as string]: next }));
+                                                }
+                                                setOwnerPickerOpenFor(null);
+                                            }}
+                                        />
+                                    )}
                                     <div className="kv"><span className="k">Thread health</span><span className="v" style={{ color: 'var(--coach)' }}>{threadMessages.length > 2 ? 'Active' : 'New'}</span></div>
                                 </div>
                             </div>

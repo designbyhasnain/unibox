@@ -95,6 +95,8 @@ export default function OwnerPicker({
         setTransferring(false);
     }, [contactId, selection, reason, currentOwnerId, handleClose, onTransferred]);
 
+    const compact = layout === 'compact';
+
     if (!open) {
         return (
             <button
@@ -102,11 +104,11 @@ export default function OwnerPicker({
                 title="Reassign this contact to a different account manager"
                 style={{
                     background: 'none',
-                    border: '1px solid var(--border-subtle)',
+                    border: '1px solid var(--border-subtle, var(--hairline))',
                     cursor: 'pointer',
-                    color: 'var(--text-secondary)',
-                    fontSize: 11,
-                    padding: '2px 8px',
+                    color: 'var(--text-secondary, var(--ink-muted))',
+                    fontSize: compact ? 10 : 11,
+                    padding: compact ? '1px 6px' : '2px 8px',
                     borderRadius: 4,
                 }}
             >
@@ -115,27 +117,47 @@ export default function OwnerPicker({
         );
     }
 
-    const compact = layout === 'compact';
+    // Compact mode = labels stack on top of inputs (narrow column),
+    // default = labels inline (wider modal-style row).
+    const stackInputs = compact;
 
     return (
         <div style={{
-            marginTop: compact ? 6 : 8,
-            padding: compact ? 8 : 12,
-            background: 'var(--bg-tertiary)',
+            marginTop: compact ? 8 : 10,
+            padding: compact ? 10 : 12,
+            background: 'var(--bg-tertiary, rgba(255,255,255,0.04))',
             borderRadius: 8,
-            border: '1px solid var(--border-subtle)',
+            border: '1px solid var(--border-subtle, var(--hairline))',
             display: 'flex',
             flexDirection: 'column',
-            gap: 8,
+            gap: stackInputs ? 10 : 8,
             width: '100%',
             boxSizing: 'border-box',
         }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <label style={{ fontSize: 11, color: 'var(--text-tertiary)', minWidth: compact ? 70 : 80 }}>New owner</label>
+            <div style={{ display: 'flex', flexDirection: stackInputs ? 'column' : 'row', gap: stackInputs ? 4 : 8, alignItems: stackInputs ? 'stretch' : 'center' }}>
+                <label style={{
+                    fontSize: 10,
+                    color: 'var(--text-tertiary, var(--ink-faint))',
+                    textTransform: stackInputs ? 'uppercase' : 'none',
+                    letterSpacing: stackInputs ? '0.06em' : 0,
+                    minWidth: stackInputs ? 'auto' : 80,
+                    fontWeight: stackInputs ? 600 : 400,
+                }}>New owner</label>
                 <select
                     value={selection}
                     onChange={e => setSelection(e.target.value)}
-                    style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 12, flex: 1, minWidth: 160 }}
+                    style={{
+                        padding: '6px 8px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border-subtle, var(--hairline))',
+                        background: 'var(--bg-secondary, var(--shell))',
+                        color: 'var(--text-primary, var(--ink))',
+                        fontSize: 12,
+                        flex: stackInputs ? undefined : 1,
+                        width: stackInputs ? '100%' : undefined,
+                        minWidth: stackInputs ? 0 : 140,
+                        maxWidth: '100%',
+                    }}
                 >
                     <option value="">— Unassigned —</option>
                     {managers.map(m => (
@@ -143,24 +165,43 @@ export default function OwnerPicker({
                     ))}
                 </select>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <label style={{ fontSize: 11, color: 'var(--text-tertiary)', minWidth: compact ? 70 : 80 }}>Reason <span style={{ opacity: 0.6 }}>(optional)</span></label>
+            <div style={{ display: 'flex', flexDirection: stackInputs ? 'column' : 'row', gap: stackInputs ? 4 : 8, alignItems: stackInputs ? 'stretch' : 'center' }}>
+                <label style={{
+                    fontSize: 10,
+                    color: 'var(--text-tertiary, var(--ink-faint))',
+                    textTransform: stackInputs ? 'uppercase' : 'none',
+                    letterSpacing: stackInputs ? '0.06em' : 0,
+                    minWidth: stackInputs ? 'auto' : 80,
+                    fontWeight: stackInputs ? 600 : 400,
+                }}>Reason <span style={{ opacity: 0.6, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional)</span></label>
                 <input
                     value={reason}
                     onChange={e => setReason(e.target.value)}
                     placeholder={currentOwnerName ? `e.g. "${firstName(currentOwnerName)} left, handing over"` : 'e.g. "Initial assignment"'}
-                    style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 12, flex: 1, minWidth: 160 }}
+                    style={{
+                        padding: '6px 8px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border-subtle, var(--hairline))',
+                        background: 'var(--bg-secondary, var(--shell))',
+                        color: 'var(--text-primary, var(--ink))',
+                        fontSize: 12,
+                        flex: stackInputs ? undefined : 1,
+                        width: stackInputs ? '100%' : undefined,
+                        minWidth: stackInputs ? 0 : 140,
+                        maxWidth: '100%',
+                        boxSizing: 'border-box',
+                    }}
                 />
             </div>
             {error && <div style={{ fontSize: 11, color: 'var(--danger)' }}>{error}</div>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                 <button onClick={handleClose} disabled={transferring} className="btn btn-secondary sm">Cancel</button>
                 <button onClick={handleSubmit} disabled={transferring} className="btn btn-primary sm">
                     {transferring ? 'Transferring…' : 'Transfer'}
                 </button>
             </div>
-            <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
-                Logged as <strong>OWNERSHIP_TRANSFER</strong> · actor / from / to / source=&quot;manual&quot; / reason. Visible in the contact&apos;s Transfer history and Activity tab.
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary, var(--ink-faint))', lineHeight: 1.4 }}>
+                Logged as <strong>OWNERSHIP_TRANSFER</strong> in activity log · actor / from / to / source=&quot;manual&quot; / reason.
             </div>
         </div>
     );
