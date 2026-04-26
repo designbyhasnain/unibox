@@ -38,18 +38,39 @@ export default function OwnerPicker({
     const open = controlledOpen ?? internalOpen;
 
     const [managers, setManagers] = useState<Array<{ id: string; name: string }>>([]);
+    const [managersLoading, setManagersLoading] = useState(false);
+    const [managersError, setManagersError] = useState<string | null>(null);
     const [selection, setSelection] = useState<string>(currentOwnerId || '');
     const [reason, setReason] = useState<string>('');
     const [transferring, setTransferring] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Always refetch managers when the picker is opened — keeps the list current
+    // and surfaces failures (auth, server error, empty result) loudly.
     useEffect(() => {
         if (!open) return;
-        if (managers.length > 0) return;
+        let cancelled = false;
+        setManagersLoading(true);
+        setManagersError(null);
         getManagersAction()
-            .then(list => setManagers((list || []).filter((m: any) => m && m.id && m.name)))
-            .catch(() => setManagers([]));
-    }, [open, managers.length]);
+            .then(list => {
+                if (cancelled) return;
+                const cleaned = (list || []).filter((m: any) => m && m.id && m.name);
+                setManagers(cleaned);
+                if (cleaned.length === 0) {
+                    setManagersError('No assignable managers found. Check the Team page or your role permissions.');
+                }
+            })
+            .catch(err => {
+                if (cancelled) return;
+                setManagersError(err?.message || 'Failed to load managers');
+                setManagers([]);
+            })
+            .finally(() => {
+                if (!cancelled) setManagersLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [open]);
 
     useEffect(() => {
         if (open) {
@@ -58,6 +79,20 @@ export default function OwnerPicker({
             setError(null);
         }
     }, [open, currentOwnerId]);
+
+    // If we don't have an ID for the current owner but we have a name and the manager
+    // list has loaded, try to preselect by name match (handles stale/incomplete row data).
+    useEffect(() => {
+        if (!open) return;
+        if (selection) return;
+        if (!currentOwnerName) return;
+        if (managers.length === 0) return;
+        const target = currentOwnerName.trim().toLowerCase();
+        const firstWord = target.split(/\s+/)[0] || target;
+        const match = managers.find(m => m.name.trim().toLowerCase() === target)
+            || managers.find(m => m.name.trim().toLowerCase().startsWith(firstWord));
+        if (match) setSelection(match.id);
+    }, [open, selection, currentOwnerName, managers]);
 
     const handleOpen = useCallback(() => {
         if (controlledOpen === undefined) setInternalOpen(true);
@@ -146,6 +181,7 @@ export default function OwnerPicker({
                 <select
                     value={selection}
                     onChange={e => setSelection(e.target.value)}
+                    disabled={managersLoading}
                     style={{
                         padding: '6px 8px',
                         borderRadius: 6,
@@ -164,6 +200,13 @@ export default function OwnerPicker({
                         <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                 </select>
+                <div style={{ fontSize: 10, color: managersError ? 'var(--danger)' : 'var(--text-tertiary, var(--ink-faint))', marginTop: 2 }}>
+                    {managersLoading
+                        ? 'Loading managers…'
+                        : managersError
+                            ? managersError
+                            : `${managers.length} manager${managers.length === 1 ? '' : 's'} available`}
+                </div>
             </div>
             <div style={{ display: 'flex', flexDirection: stackInputs ? 'column' : 'row', gap: stackInputs ? 4 : 8, alignItems: stackInputs ? 'stretch' : 'center' }}>
                 <label style={{
