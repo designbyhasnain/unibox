@@ -24,6 +24,7 @@ import { formatDate, cleanPreview } from './utils/helpers';
 import { getAvatarSrc, getAvatarBg } from './utils/avatars';
 import { RefreshCw, Mail, Send, Trash2, Eye, EyeOff, CheckCheck } from 'lucide-react';
 import ClientIntelligencePanel from './components/ClientIntelligencePanel';
+import OwnerPicker from './components/OwnerPicker';
 import { getClientIntelligenceAction } from '../src/actions/clientIntelligenceAction';
 import type { ClientIntelligenceProfile } from '../src/types/clientIntelligence';
 
@@ -126,6 +127,9 @@ export default function InboxPage() {
     const [col3Tab, setCol3Tab] = useState<'jarvis' | 'client'>('jarvis');
     const [clientProfile, setClientProfile] = useState<ClientIntelligenceProfile | null>(null);
     const [clientProfileLoading, setClientProfileLoading] = useState(false);
+    // Optimistic override of an inbox row's account-manager display after a transfer,
+    // so the UI updates immediately without waiting for an inbox refetch. Keyed by contact_id.
+    const [ownerOverrides, setOwnerOverrides] = useState<Record<string, { id: string | null; name: string | null }>>({});
 
     // Reset reply state whenever a different thread is opened
     useEffect(() => {
@@ -711,12 +715,30 @@ export default function InboxPage() {
                                     <div className="kv"><span className="k">Account</span><span className="v">{selectedEmail.gmail_accounts?.email || 'Unknown'}</span></div>
                                     <div className="kv">
                                         <span className="k">Manager</span>
-                                        <span
-                                            className="v"
-                                            title={selectedEmail.account_manager_name ? `${selectedEmail.account_manager_name}${selectedEmail.account_manager_email ? ` <${selectedEmail.account_manager_email}>` : ''}` : 'Unassigned'}
-                                            style={selectedEmail.account_manager_name ? undefined : { fontStyle: 'italic', opacity: 0.7 }}
-                                        >
-                                            {selectedEmail.account_manager_name ? selectedEmail.account_manager_name.trim().split(/\s+/)[0] : 'Unassigned'}
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' }}>
+                                            {(() => {
+                                                const override = selectedEmail.contact_id ? ownerOverrides[selectedEmail.contact_id] : null;
+                                                const displayName = override?.name ?? selectedEmail.account_manager_name;
+                                                const tooltip = displayName ? `${displayName}${selectedEmail.account_manager_email ? ` <${selectedEmail.account_manager_email}>` : ''}` : 'Unassigned';
+                                                return (
+                                                    <span className="v" title={tooltip} style={displayName ? undefined : { fontStyle: 'italic', opacity: 0.7 }}>
+                                                        {displayName ? displayName.trim().split(/\s+/)[0] : 'Unassigned'}
+                                                    </span>
+                                                );
+                                            })()}
+                                            {selectedEmail.contact_id && (
+                                                <OwnerPicker
+                                                    contactId={selectedEmail.contact_id}
+                                                    currentOwnerId={(selectedEmail.contact_id ? ownerOverrides[selectedEmail.contact_id]?.id : null) ?? selectedEmail.account_manager_id ?? null}
+                                                    currentOwnerName={(selectedEmail.contact_id ? ownerOverrides[selectedEmail.contact_id]?.name : null) ?? selectedEmail.account_manager_name ?? null}
+                                                    layout="compact"
+                                                    onTransferred={(next) => {
+                                                        if (selectedEmail.contact_id) {
+                                                            setOwnerOverrides(prev => ({ ...prev, [selectedEmail.contact_id as string]: next }));
+                                                        }
+                                                    }}
+                                                />
+                                            )}
                                         </span>
                                     </div>
                                     <div className="kv"><span className="k">Thread health</span><span className="v" style={{ color: 'var(--coach)' }}>{threadMessages.length > 2 ? 'Active' : 'New'}</span></div>

@@ -42,7 +42,7 @@ export type PaginatedEmailResult = {
 //   2. user_gmail_assignments       (default per Gmail inbox; SALES role wins
 //                                    over ADMIN, oldest assigned_at as tiebreak)
 //   3. null                         → "Unassigned" in the UI
-type AmInfo = { name: string; email: string };
+type AmInfo = { id: string; name: string; email: string };
 type AmResolution = {
     contactAmMap: Record<string, AmInfo | null>;
     accountAmMap: Record<string, AmInfo | null>;
@@ -62,7 +62,7 @@ async function resolveAccountManagers(
         const { data } = await supabase.from('users').select('id, name, email').in('id', missing);
         (data || []).forEach(u => {
             const fallbackName = (u.name && u.name.trim()) || (u.email?.split('@')[0] ?? '');
-            userById[u.id] = { name: fallbackName, email: u.email || '' };
+            userById[u.id] = { id: u.id, name: fallbackName, email: u.email || '' };
         });
     };
 
@@ -106,11 +106,12 @@ async function resolveAccountManagers(
 function pickAccountManager(
     row: { contact_id?: string | null; gmail_account_id?: string | null },
     res: AmResolution,
-): { name: string | null; email: string | null; source: 'contact' | 'gmail_account' | null } {
+): { id: string | null; name: string | null; email: string | null; source: 'contact' | 'gmail_account' | null } {
     const contactAm = row.contact_id ? res.contactAmMap[row.contact_id] : null;
     const accountAm = row.gmail_account_id ? res.accountAmMap[row.gmail_account_id] : null;
     const am = contactAm || accountAm || null;
     return {
+        id: am?.id || null,
         name: am?.name || null,
         email: am?.email || null,
         source: contactAm ? 'contact' : (accountAm ? 'gmail_account' : null),
@@ -364,6 +365,7 @@ export async function getInboxEmailsAction(
             ...r,
             account_email: acc?.email,
             manager_name: acc?.managerName || 'System',
+            account_manager_id: am.id,
             account_manager_name: am.name,
             account_manager_email: am.email,
             account_manager_source: am.source,
@@ -474,6 +476,7 @@ export async function getInboxWithCountsAction(
             ...r,
             account_email: acc?.email,
             manager_name: acc?.managerName || 'System',
+            account_manager_id: am.id,
             account_manager_name: am.name,
             account_manager_email: am.email,
             account_manager_source: am.source,
