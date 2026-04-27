@@ -137,15 +137,8 @@ export default function OwnerPicker({
             <button
                 onClick={handleOpen}
                 title="Reassign this contact to a different account manager"
-                style={{
-                    background: 'none',
-                    border: '1px solid var(--border-subtle, var(--hairline))',
-                    cursor: 'pointer',
-                    color: 'var(--text-secondary, var(--ink-muted))',
-                    fontSize: compact ? 10 : 11,
-                    padding: compact ? '1px 6px' : '2px 8px',
-                    borderRadius: 4,
-                }}
+                className="owner-picker__trigger"
+                data-compact={compact ? '' : undefined}
             >
                 Change
             </button>
@@ -157,50 +150,22 @@ export default function OwnerPicker({
     const stackInputs = compact;
 
     return (
-        <div style={{
-            marginTop: compact ? 8 : 10,
-            padding: compact ? 10 : 12,
-            background: 'var(--bg-tertiary, rgba(255,255,255,0.04))',
-            borderRadius: 8,
-            border: '1px solid var(--border-subtle, var(--hairline))',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: stackInputs ? 10 : 8,
-            width: '100%',
-            boxSizing: 'border-box',
-        }}>
-            <div style={{ display: 'flex', flexDirection: stackInputs ? 'column' : 'row', gap: stackInputs ? 4 : 8, alignItems: stackInputs ? 'stretch' : 'center' }}>
-                <label style={{
-                    fontSize: 10,
-                    color: 'var(--text-tertiary, var(--ink-faint))',
-                    textTransform: stackInputs ? 'uppercase' : 'none',
-                    letterSpacing: stackInputs ? '0.06em' : 0,
-                    minWidth: stackInputs ? 'auto' : 80,
-                    fontWeight: stackInputs ? 600 : 400,
-                }}>New owner</label>
+        <div className={`owner-picker ${compact ? 'owner-picker--compact' : ''}`}>
+            <div className="owner-picker__row" data-stack={stackInputs ? '' : undefined}>
+                <label className="owner-picker__label" data-stack={stackInputs ? '' : undefined}>New owner</label>
                 <select
                     value={selection}
                     onChange={e => setSelection(e.target.value)}
                     disabled={managersLoading}
-                    style={{
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        border: '1px solid var(--border-subtle, var(--hairline))',
-                        background: 'var(--bg-secondary, var(--shell))',
-                        color: 'var(--text-primary, var(--ink))',
-                        fontSize: 12,
-                        flex: stackInputs ? undefined : 1,
-                        width: stackInputs ? '100%' : undefined,
-                        minWidth: stackInputs ? 0 : 140,
-                        maxWidth: '100%',
-                    }}
+                    className="owner-picker__control"
+                    data-stack={stackInputs ? '' : undefined}
                 >
                     <option value="">— Unassigned —</option>
                     {managers.map(m => (
                         <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                 </select>
-                <div style={{ fontSize: 10, color: managersError ? 'var(--danger)' : 'var(--text-tertiary, var(--ink-faint))', marginTop: 2 }}>
+                <div className={`owner-picker__hint ${managersError ? 'is-error' : ''}`}>
                     {managersLoading
                         ? 'Loading managers…'
                         : managersError
@@ -208,42 +173,26 @@ export default function OwnerPicker({
                             : `${managers.length} manager${managers.length === 1 ? '' : 's'} available`}
                 </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: stackInputs ? 'column' : 'row', gap: stackInputs ? 4 : 8, alignItems: stackInputs ? 'stretch' : 'center' }}>
-                <label style={{
-                    fontSize: 10,
-                    color: 'var(--text-tertiary, var(--ink-faint))',
-                    textTransform: stackInputs ? 'uppercase' : 'none',
-                    letterSpacing: stackInputs ? '0.06em' : 0,
-                    minWidth: stackInputs ? 'auto' : 80,
-                    fontWeight: stackInputs ? 600 : 400,
-                }}>Reason <span style={{ opacity: 0.6, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional)</span></label>
+            <div className="owner-picker__row" data-stack={stackInputs ? '' : undefined}>
+                <label className="owner-picker__label" data-stack={stackInputs ? '' : undefined}>
+                    Reason <span style={{ opacity: 0.6, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional)</span>
+                </label>
                 <input
                     value={reason}
                     onChange={e => setReason(e.target.value)}
                     placeholder={currentOwnerName ? `e.g. "${firstName(currentOwnerName)} left, handing over"` : 'e.g. "Initial assignment"'}
-                    style={{
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        border: '1px solid var(--border-subtle, var(--hairline))',
-                        background: 'var(--bg-secondary, var(--shell))',
-                        color: 'var(--text-primary, var(--ink))',
-                        fontSize: 12,
-                        flex: stackInputs ? undefined : 1,
-                        width: stackInputs ? '100%' : undefined,
-                        minWidth: stackInputs ? 0 : 140,
-                        maxWidth: '100%',
-                        boxSizing: 'border-box',
-                    }}
+                    className="owner-picker__control"
+                    data-stack={stackInputs ? '' : undefined}
                 />
             </div>
-            {error && <div style={{ fontSize: 11, color: 'var(--danger)' }}>{error}</div>}
-            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            {error && <div className="owner-picker__hint is-error">{error}</div>}
+            <div className="owner-picker__actions">
                 <button onClick={handleClose} disabled={transferring} className="btn btn-secondary sm">Cancel</button>
                 <button onClick={handleSubmit} disabled={transferring} className="btn btn-primary sm">
                     {transferring ? 'Transferring…' : 'Transfer'}
                 </button>
             </div>
-            <div style={{ fontSize: 10, color: 'var(--text-tertiary, var(--ink-faint))', lineHeight: 1.4 }}>
+            <div className="owner-picker__footnote">
                 Logged as <strong>OWNERSHIP_TRANSFER</strong> in activity log · actor / from / to / source=&quot;manual&quot; / reason.
             </div>
         </div>

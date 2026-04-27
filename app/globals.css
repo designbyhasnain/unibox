@@ -7831,4 +7831,85 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
 .btn-danger-text {
     color: var(--danger) !important;
 }
-
+/* ─── Owner Picker (account-manager transfer) ──────────────────────────────
+   Used in two surfaces: contact detail page (default layout) and the inbox
+   right-rail Relationship card (compact layout). Tokens — --surface,
+   --surface-2, --hairline, --hairline-soft, --ink, --ink-muted, --ink-faint,
+   --danger — are all defined for both [data-theme="light"] and the default
+   dark theme, so this picker auto-flips with the rest of the UI. */
+.owner-picker__trigger {
+    background: none;
+    border: 1px solid var(--hairline);
+    color: var(--ink-muted);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    line-height: 1.4;
+    transition: background 120ms, color 120ms, border-color 120ms;
+}
+.owner-picker__trigger[data-compact] { font-size: 10px; padding: 1px 6px; }
+.owner-picker__trigger:hover { background: var(--surface-hover); color: var(--ink); border-color: var(--ink-faint); }
+
+.owner-picker {
+    margin-top: 10px;
+    padding: 12px;
+    background: var(--surface-2);
+    border-radius: 8px;
+    border: 1px solid var(--hairline-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+}
+.owner-picker--compact { margin-top: 8px; padding: 10px; gap: 10px; }
+
+.owner-picker__row { display: flex; flex-direction: row; gap: 8px; align-items: center; }
+.owner-picker__row[data-stack] { flex-direction: column; gap: 4px; align-items: stretch; }
+
+.owner-picker__label {
+    font-size: 10px;
+    color: var(--ink-faint);
+    min-width: 80px;
+    font-weight: 400;
+}
+.owner-picker__label[data-stack] {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    min-width: auto;
+}
+
+.owner-picker__control {
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 12px;
+    font-family: inherit;
+    flex: 1;
+    min-width: 140px;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.owner-picker__control[data-stack] { flex: none; width: 100%; min-width: 0; }
+.owner-picker__control:focus { outline: none; border-color: var(--accent, var(--ink-faint)); }
+.owner-picker__control:disabled { opacity: 0.6; cursor: wait; }
+
+.owner-picker__hint {
+    font-size: 10px;
+    color: var(--ink-faint);
+    line-height: 1.4;
+}
+.owner-picker__hint.is-error { color: var(--danger); }
+
+.owner-picker__actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+.owner-picker__footnote {
+    font-size: 10px;
+    color: var(--ink-faint);
+    line-height: 1.4;
+}
+.owner-picker__footnote strong { color: var(--ink-muted); }
