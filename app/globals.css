@@ -7607,13 +7607,19 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
     cursor: pointer;
 }
 
+.acct-card-icon--photo {
+    background: transparent;
+    overflow: hidden;
+    border-radius: 50%;
+    padding: 0;
+}
+
 .acct-card-avatar {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     object-fit: cover;
     display: block;
-    background: var(--surface-2);
 }
 
 .acct-card-display-name {

@@ -64,12 +64,19 @@ export function flushAllMailboxCaches() {
     Object.keys(globalTabCountsCache).forEach(k => delete globalTabCountsCache[k]);
     Object.keys(globalTabCountsTimestamp).forEach(k => delete globalTabCountsTimestamp[k]);
 
-    // Wipe localStorage caches
+    // Wipe localStorage caches (all versions)
     if (typeof window !== 'undefined') {
         const keysToRemove: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            if (key && (key.startsWith('unibox_cache_mailbox_') || key.startsWith('unibox_cache_inbox_tabs_'))) {
+            if (key && (
+                key.startsWith('unibox_cache_mailbox_') ||
+                key.startsWith('unibox_cache_inbox_tabs_') ||
+                key.startsWith('unibox_cache_inbox_') ||
+                key.startsWith('unibox_cache_sent_') ||
+                key.startsWith('unibox_cache_client_') ||
+                key.startsWith('unibox_cache_search_')
+            )) {
                 keysToRemove.push(key);
             }
         }
@@ -238,12 +245,13 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
     const { isIdle, resume: resumeFromIdle } = useIdleDetection();
 
     // 1. Generate a robust cache key
+    // v2: bumped to evict old localStorage entries that lack account_display_name / account_profile_image
     const getCacheKey = useCallback(() => {
-        if (type === 'inbox') return `inbox_${activeStage}_${selectedAccountId}`;
-        if (type === 'sent') return `sent_${selectedAccountId}`;
-        if (type === 'client') return `client_${clientEmail}_${selectedAccountId}`;
-        if (type === 'search') return `search_${searchTerm}_${selectedAccountId}`;
-        return 'default';
+        if (type === 'inbox') return `inbox_v2_${activeStage}_${selectedAccountId}`;
+        if (type === 'sent') return `sent_v2_${selectedAccountId}`;
+        if (type === 'client') return `client_v2_${clientEmail}_${selectedAccountId}`;
+        if (type === 'search') return `search_v2_${searchTerm}_${selectedAccountId}`;
+        return 'default_v2';
     }, [type, activeStage, clientEmail, searchTerm, selectedAccountId]);
 
     const cacheKey = getCacheKey();

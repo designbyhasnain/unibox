@@ -457,8 +457,9 @@ export default function InboxPage() {
                                 emails.filter((e: any) => !isNoiseEmail(e)).map((email: any) => {
                                     const isSelected = selectedEmail?.id === email.id;
                                     const isUnread = email.is_unread;
+                                    const isSent = email.direction === 'SENT';
                                     let senderName = 'Unknown';
-                                    if (email.direction === 'SENT') {
+                                    if (isSent) {
                                         const toRaw = email.to_email || '';
                                         const toNameMatch = toRaw.split(',')[0]?.match(/^([^<]+)</);
                                         const toName = toNameMatch ? toNameMatch[1]?.trim().replace(/"/g, '') : toRaw.split('@')[0];
@@ -470,13 +471,10 @@ export default function InboxPage() {
                                     const subject = email.subject || '(no subject)';
                                     const stage = email.pipeline_stage;
                                     const accountEmail = email.gmail_accounts?.email || '';
-                                    // AM = the human who owns the relationship with this contact, resolved
-                                    // server-side via contacts.account_manager_id → user_gmail_assignments → null.
-                                    // See docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md.
+                                    const accountDisplayName: string = email.account_display_name || '';
+                                    const accountProfileImage: string = email.account_profile_image || '';
                                     const amName: string | null = email.account_manager_name || null;
                                     const amEmail: string = email.account_manager_email || '';
-                                    // Display rule: first word only (e.g. "Shayan Ismail" → "Shayan").
-                                    // Full name lives in the title tooltip for disambiguation.
                                     const amFirst = amName ? amName.trim().split(/\s+/)[0] : null;
                                     const amLabel = amFirst || (email.contact_id ? 'Unassigned' : '—');
                                     const dateStr = formatDate(email.sent_at);
@@ -489,17 +487,23 @@ export default function InboxPage() {
                                             onClick={() => handleSelectEmail(email)}
                                             onMouseEnter={() => prefetchThread?.(email.thread_id)}
                                         >
-                                            <div className="avatar" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: getAvatarBg(senderName) }}>
-                                                <img src={getAvatarSrc(senderName)} alt={initials} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                            </div>
+                                            {isSent && accountProfileImage ? (
+                                                <div className="avatar" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
+                                                    <img src={accountProfileImage} alt={accountDisplayName || accountEmail} style={{ width: '100%', height: '100%', objectFit: 'cover' }} referrerPolicy="no-referrer" />
+                                                </div>
+                                            ) : (
+                                                <div className="avatar" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: getAvatarBg(senderName) }}>
+                                                    <img src={getAvatarSrc(senderName)} alt={initials} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                </div>
+                                            )}
                                             <div className="body">
                                                 <div className="top">
                                                     {isUnread && <span className="unread-dot" />}
                                                     <span className="sender">
-                                                        {email.direction === 'SENT' ? `To: ${senderName}` : senderName}
+                                                        {isSent ? `To: ${senderName}` : senderName}
                                                     </span>
                                                     <span className="time">
-                                                        {email.direction === 'SENT' && (
+                                                        {isSent && (
                                                             <span style={{ marginRight: 4, display: 'inline-flex', verticalAlign: 'middle' }}>
                                                                 <CheckCheck size={13} color={email.opened_at ? 'var(--accent)' : 'var(--ink-faint)'} strokeWidth={email.opened_at ? 3 : 2} />
                                                             </span>
@@ -514,13 +518,14 @@ export default function InboxPage() {
                                                         <span className={`chip dot ${stageClass(stage)}`}>{stageLabel(stage)}</span>
                                                     )}
                                                     <span
-                                                        style={{ marginLeft: 'auto', color: 'var(--ink-muted)' }}
+                                                        style={{ marginLeft: 'auto', color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 4 }}
                                                         title={amName ? `${amName}${amEmail ? ` <${amEmail}>` : ''}` : amLabel}
                                                     >
-                                                        {accountEmail} ·{' '}
-                                                        <span style={amFirst ? undefined : { fontStyle: 'italic', opacity: 0.7 }}>
-                                                            {amLabel}
-                                                        </span>
+                                                        {accountProfileImage && (
+                                                            <img src={accountProfileImage} alt="" style={{ width: 14, height: 14, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} referrerPolicy="no-referrer" />
+                                                        )}
+                                                        {accountDisplayName || accountEmail.split('@')[0]}
+                                                        {amFirst && <span style={{ opacity: 0.7 }}>{' '}· {amFirst}</span>}
                                                     </span>
                                                 </div>
                                             </div>
@@ -572,7 +577,12 @@ export default function InboxPage() {
                                 <span>·</span>
                                 <span>{threadMessages.length || 1} messages</span>
                                 <span>·</span>
-                                <span>{selectedEmail.gmail_accounts?.email || ''}</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    {selectedEmail.account_profile_image && (
+                                        <img src={selectedEmail.account_profile_image} alt="" style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }} referrerPolicy="no-referrer" />
+                                    )}
+                                    {selectedEmail.account_display_name || selectedEmail.gmail_accounts?.email || ''}
+                                </span>
                                 {selectedEmail.account_manager_name && (
                                     <>
                                         <span>·</span>

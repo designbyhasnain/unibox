@@ -205,7 +205,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                                 : accounts[0];
                             const pic = (primary as any)?.profile_image;
                             return pic
-                                ? <img src={pic} alt={(primary as any)?.display_name || (primary as any)?.email || 'Account'} className="sb-avatar sb-avatar-img" />
+                                ? <img src={pic} alt={(primary as any)?.display_name || (primary as any)?.email || 'Account'} className="sb-avatar sb-avatar-img" referrerPolicy="no-referrer" />
                                 : <div className="sb-avatar av-e">{initials}</div>;
                         })()}
                         <div className="sb-meta">

@@ -340,15 +340,15 @@ export async function getInboxEmailsAction(
 
     // Fetch account display info in one query.
     const uniqueAccountIds = [...new Set(rows.map(r => r.gmail_account_id).filter(Boolean))];
-    const accountMap: Record<string, { email: string; managerName: string }> = {};
+    const accountMap: Record<string, { email: string; managerName: string; displayName: string | null; profileImage: string | null }> = {};
     if (uniqueAccountIds.length > 0) {
         const { data: accs } = await supabase
             .from('gmail_accounts')
-            .select('id, email, users ( name )')
+            .select('id, email, display_name, profile_image, users ( name )')
             .in('id', uniqueAccountIds);
         (accs || []).forEach((a: any) => {
             const user = Array.isArray(a.users) ? a.users[0] : a.users;
-            accountMap[a.id] = { email: a.email, managerName: user?.name || 'System' };
+            accountMap[a.id] = { email: a.email, managerName: user?.name || 'System', displayName: a.display_name || null, profileImage: a.profile_image || null };
         });
     }
 
@@ -369,6 +369,8 @@ export async function getInboxEmailsAction(
             account_manager_name: am.name,
             account_manager_email: am.email,
             account_manager_source: am.source,
+            account_display_name: acc?.displayName,
+            account_profile_image: acc?.profileImage,
             gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },
             has_reply: false,
             ...stageOverride,
@@ -431,15 +433,15 @@ export async function getInboxWithCountsAction(
 
     // Lookup account info for display
     const uniqueAccountIds = [...new Set(rawRows.map((r: any) => r.gmail_account_id).filter(Boolean))];
-    const accountMap: Record<string, { email: string; managerName: string }> = {};
+    const accountMap: Record<string, { email: string; managerName: string; displayName: string | null; profileImage: string | null }> = {};
     if (uniqueAccountIds.length > 0) {
         const { data: accs } = await supabase
             .from('gmail_accounts')
-            .select('id, email, users ( name )')
+            .select('id, email, display_name, profile_image, users ( name )')
             .in('id', uniqueAccountIds);
         (accs || []).forEach((a: any) => {
             const user = Array.isArray(a.users) ? a.users[0] : a.users;
-            accountMap[a.id] = { email: a.email, managerName: user?.name || 'System' };
+            accountMap[a.id] = { email: a.email, managerName: user?.name || 'System', displayName: a.display_name || null, profileImage: a.profile_image || null };
         });
     }
 
@@ -480,6 +482,8 @@ export async function getInboxWithCountsAction(
             account_manager_name: am.name,
             account_manager_email: am.email,
             account_manager_source: am.source,
+            account_display_name: acc?.displayName,
+            account_profile_image: acc?.profileImage,
             gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },
             has_reply: false,
             ...stageOverride,
@@ -520,7 +524,7 @@ export async function getSentEmailsAction(
                 id, thread_id, from_email, to_email, subject, snippet, direction,
                 sent_at, is_unread, pipeline_stage, gmail_account_id, is_tracked,
                 delivered_at, opened_at, contact_id,
-                gmail_accounts ( email, users ( name ) )
+                gmail_accounts ( email, display_name, profile_image, users ( name ) )
             `)
             .in('gmail_account_id', accountIds)
             .eq('direction', 'SENT')
@@ -580,6 +584,8 @@ export async function getSentEmailsAction(
             ...r,
             account_email: joinedAcc?.email,
             manager_name: user?.name || 'System',
+            account_display_name: joinedAcc?.display_name || null,
+            account_profile_image: joinedAcc?.profile_image || null,
             gmail_accounts: { email: joinedAcc?.email, user: { name: user?.name || 'System' } },
             has_reply: false,
         };
@@ -914,15 +920,15 @@ export async function getThreadMessagesAction(threadId: string) {
 
     // Batch-fetch account info
     const accountIds = [...new Set(unique.map((m: any) => m.gmail_account_id).filter(Boolean))];
-    const accountMap: Record<string, { email: string; name: string }> = {};
+    const accountMap: Record<string, { email: string; name: string; displayName: string | null; profileImage: string | null }> = {};
     if (accountIds.length > 0) {
         const { data: accs } = await supabase
             .from('gmail_accounts')
-            .select('id, email, users ( name )')
+            .select('id, email, display_name, profile_image, users ( name )')
             .in('id', accountIds);
         (accs || []).forEach((a: any) => {
             const user = Array.isArray(a.users) ? a.users[0] : a.users;
-            accountMap[a.id] = { email: a.email, name: user?.name || 'System' };
+            accountMap[a.id] = { email: a.email, name: user?.name || 'System', displayName: a.display_name || null, profileImage: a.profile_image || null };
         });
     }
 
@@ -933,6 +939,8 @@ export async function getThreadMessagesAction(threadId: string) {
             has_reply: threadHasReply,
             account_email: acc?.email,
             manager_name: acc?.name || 'System',
+            account_display_name: acc?.displayName,
+            account_profile_image: acc?.profileImage,
             gmail_accounts: { email: acc?.email, user: { name: acc?.name || 'System' } },
         };
     });
@@ -970,15 +978,15 @@ export async function batchGetThreadsAction(threadIds: string[]) {
 
     // Fetch account info
     const accountIds = [...new Set(messages.map((m: any) => m.gmail_account_id).filter(Boolean))];
-    const accountMap: Record<string, { email: string; name: string }> = {};
+    const accountMap: Record<string, { email: string; name: string; displayName: string | null; profileImage: string | null }> = {};
     if (accountIds.length > 0) {
         const { data: accs } = await supabase
             .from('gmail_accounts')
-            .select('id, email, users ( name )')
+            .select('id, email, display_name, profile_image, users ( name )')
             .in('id', accountIds);
         (accs || []).forEach((a: any) => {
             const user = Array.isArray(a.users) ? a.users[0] : a.users;
-            accountMap[a.id] = { email: a.email, name: user?.name || 'System' };
+            accountMap[a.id] = { email: a.email, name: user?.name || 'System', displayName: a.display_name || null, profileImage: a.profile_image || null };
         });
     }
 
@@ -1001,6 +1009,8 @@ export async function batchGetThreadsAction(threadIds: string[]) {
                 has_reply: hasReply,
                 account_email: acc?.email,
                 manager_name: acc?.name || 'System',
+                account_display_name: acc?.displayName,
+                account_profile_image: acc?.profileImage,
                 gmail_accounts: { email: acc?.email, user: { name: acc?.name || 'System' } },
             };
         });

@@ -52,12 +52,12 @@ export const EmailRow = React.memo(function EmailRow({
 
     const subject = email.subject || '(no subject)';
     const accountEmail = email.gmail_accounts?.email || '';
-    // Account manager = the human who owns the relationship with the contact
-    // (contacts.account_manager_id → users.name), NOT the user who connected the
-    // Gmail account. See docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md.
+    const accountDisplayName: string = email.account_display_name || '';
+    const accountProfileImage: string = email.account_profile_image || '';
     const amName = email.account_manager_name || null;
     const amEmail = email.account_manager_email || '';
     const amLabel = amName ? `AM(${amName})` : (email.contact_id ? 'Unassigned' : '—');
+    const managerName = email.gmail_accounts?.user?.name || '';
     const dateStr = formatDate(email.sent_at);
 
     return (
@@ -139,8 +139,22 @@ export const EmailRow = React.memo(function EmailRow({
             )}
 
             {/* Gmail Account */}
-            <div className="gmail-row-account" title={accountEmail}>
-                {accountEmail}
+            <div className="gmail-row-account" title={accountDisplayName || accountEmail} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {accountProfileImage ? (
+                    <img
+                        src={accountProfileImage}
+                        alt={accountDisplayName || accountEmail}
+                        style={{ width: 20, height: 20, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                        referrerPolicy="no-referrer"
+                    />
+                ) : (
+                    <div style={{ width: 20, height: 20, borderRadius: '50%', background: avatarColor(accountEmail), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#fff', flexShrink: 0 }}>
+                        {(accountDisplayName || accountEmail).charAt(0).toUpperCase()}
+                    </div>
+                )}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {accountDisplayName || accountEmail}
+                </span>
             </div>
 
             {/* Account manager (relationship owner — see docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md) */}
@@ -186,6 +200,7 @@ export const EmailRow = React.memo(function EmailRow({
         prev.email.pipeline_stage === next.email.pipeline_stage &&
         prev.email.opened_at === next.email.opened_at &&
         prev.email.has_reply === next.email.has_reply &&
+        prev.email.account_profile_image === next.email.account_profile_image &&
         prev.isSelected === next.isSelected &&
         prev.isRowChecked === next.isRowChecked &&
         prev.showBadge === next.showBadge
@@ -913,9 +928,11 @@ export function EmailDetail({
 
                             const isCollapsed = collapsedThreads.has(msg.id) && !isLast;
                             const isSent = msg.direction === 'SENT';
+                            const personaName: string = isSent ? (msg.account_display_name || '') : '';
+                            const personaImage: string = isSent ? (msg.account_profile_image || '') : '';
 
                             const senderNameRaw = extractSenderName(msg.from_email || '');
-                            const senderName = senderNameRaw || 'Unknown';
+                            const senderName = personaName || senderNameRaw || 'Unknown';
                             const expandedEmail = extractEmail(msg.from_email || '');
                             const toRecipientsText = isSent ? (msg.to_email ? extractSenderName(msg.to_email) || expandedEmail : 'recipient') : 'me';
 
@@ -932,11 +949,22 @@ export function EmailDetail({
                                         <div
                                             className="gmail-avatar"
                                             style={{
-                                                background: avatarColor(expandedEmail || senderName),
-                                                marginTop: (isCollapsed || isLast) ? '2px' : '0'
+                                                background: personaImage ? 'transparent' : avatarColor(expandedEmail || senderName),
+                                                marginTop: (isCollapsed || isLast) ? '2px' : '0',
+                                                overflow: personaImage ? 'hidden' : undefined,
+                                                padding: personaImage ? 0 : undefined,
                                             }}
                                         >
-                                            {(senderName.charAt(0) || '?').toUpperCase()}
+                                            {personaImage ? (
+                                                <img
+                                                    src={personaImage}
+                                                    alt={senderName}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                                    referrerPolicy="no-referrer"
+                                                />
+                                            ) : (
+                                                (senderName.charAt(0) || '?').toUpperCase()
+                                            )}
                                         </div>
 
                                         <div className="gmail-msg-info">
@@ -1348,7 +1376,9 @@ export function ThreadMessages({ threadMessages, isThreadLoading, emailId }: Thr
 
                 const isCollapsed = collapsedThreads.has(msg.id) && !isLast;
                 const isSent = msg.direction === 'SENT';
-                const senderName = extractSenderName(msg.from_email || '') || 'Unknown';
+                const personaName: string = isSent ? (msg.account_display_name || '') : '';
+                const personaImage: string = isSent ? (msg.account_profile_image || '') : '';
+                const senderName = personaName || extractSenderName(msg.from_email || '') || 'Unknown';
                 const senderEmail = extractEmail(msg.from_email || '');
                 const toText = isSent ? (msg.to_email ? extractSenderName(msg.to_email) || senderEmail : 'recipient') : 'me';
                 const initials = (senderName.charAt(0) || '?').toUpperCase();
@@ -1361,7 +1391,18 @@ export function ThreadMessages({ threadMessages, isThreadLoading, emailId }: Thr
                             onClick={!isLast ? () => toggleCollapse(msg.id) : undefined}
                             style={!isLast ? { cursor: 'pointer' } : undefined}
                         >
-                            <div className={`avatar ${avClass}`}>{initials}</div>
+                            {personaImage ? (
+                                <div className={`avatar ${avClass}`} style={{ overflow: 'hidden', padding: 0, background: 'transparent' }}>
+                                    <img
+                                        src={personaImage}
+                                        alt={senderName}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                        referrerPolicy="no-referrer"
+                                    />
+                                </div>
+                            ) : (
+                                <div className={`avatar ${avClass}`}>{initials}</div>
+                            )}
                             <div style={{ minWidth: 0 }}>
                                 <div className="from">
                                     {senderName}

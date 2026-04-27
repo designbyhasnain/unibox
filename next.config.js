@@ -1,5 +1,20 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    // ─── Images ──────────────────────────────────────────────────────────────
+    images: {
+        remotePatterns: [
+            {
+                protocol: 'https',
+                hostname: 'lh3.googleusercontent.com',
+            },
+            {
+                protocol: 'https',
+                hostname: '*.supabase.co',
+                pathname: '/storage/v1/object/public/**',
+            },
+        ],
+    },
+
     // ─── Server External Packages ─────────────────────────────────────────────
     // Next.js 15+ / Turbopack way to tell bundler NOT to bundle these heavy
     // server-only packages — they are available natively at runtime on Vercel.

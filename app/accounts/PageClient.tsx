@@ -620,12 +620,18 @@ export default function AccountsPage() {
                                                             />
                                                         </label>
                                                     )}
-                                                    <div className="acct-card-icon">
+                                                    <div className={`acct-card-icon${acc.profile_image ? ' acct-card-icon--photo' : ''}`}>
                                                         {acc.profile_image ? (
                                                             <img
                                                                 src={acc.profile_image}
                                                                 alt={acc.display_name || acc.email}
                                                                 className="acct-card-avatar"
+                                                                referrerPolicy="no-referrer"
+                                                                onError={e => {
+                                                                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                                                    const parent = e.currentTarget.parentElement;
+                                                                    if (parent) parent.classList.remove('acct-card-icon--photo');
+                                                                }}
                                                             />
                                                         ) : acc.connection_method === 'OAUTH' ? <GoogleIcon /> : (
                                                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
