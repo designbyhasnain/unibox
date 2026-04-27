@@ -16,6 +16,7 @@ const ALLOWED_IPS = [
     '192.168.18.27',
     '127.0.0.1',
     '::1',
+    '::ffff:127.0.0.1',  // IPv6-mapped loopback (browser extension, curl, etc.)
 ];
 
 // IP prefixes — matches any IP starting with these (covers ISP range + mobile 5G)
