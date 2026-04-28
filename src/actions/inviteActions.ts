@@ -172,6 +172,24 @@ export async function revokeInviteAction(inviteId: string) {
 }
 
 /**
+ * Permanently delete an invitation regardless of status (PENDING / EXPIRED / ACCEPTED).
+ * ADMIN only. Use this when an admin wants to fully purge an invite row from the table.
+ * `revokeInviteAction` is the status-restricted variant kept for the existing Revoke UX.
+ */
+export async function deleteInvitationAction(inviteId: string) {
+    const { role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
+
+    const { error } = await supabase.from('invitations').delete().eq('id', inviteId);
+    if (error) {
+        console.error('[inviteActions] deleteInvitationAction error:', error);
+        return { success: false, error: 'Failed to delete invitation' };
+    }
+
+    return { success: true };
+}
+
+/**
  * Resend an invitation. Works on both PENDING and EXPIRED — expired invitations
  * are reset to PENDING with a fresh 7-day token. ADMIN only.
  */

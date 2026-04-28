@@ -156,6 +156,80 @@ export async function reactivateUserAction(targetUserId: string) {
 }
 
 /**
+ * Permanently delete a user. ADMIN only.
+ *
+ * FK strategy — `gmail_accounts.user_id`, `campaigns.created_by_id`,
+ * `email_templates.created_by_id`, `edit_projects.user_id`, `invitations.invited_by`
+ * all point at users with destructive defaults (CASCADE) or NOT-NULL columns. Naively
+ * deleting would either nuke connected Gmail inboxes (and all their emails) or fail.
+ * We reassign those rows to the calling admin first; nullable refs (`projects.account_manager_id`)
+ * get set to NULL; `contacts.account_manager_id` is `SetNull`; `user_gmail_assignments`
+ * is explicitly cleared per the spec (cascade would also work).
+ */
+export async function deleteUserAction(targetUserId: string) {
+    const { userId, role } = await ensureAuthenticated();
+    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
+    if (targetUserId === userId) return { success: false, error: 'Cannot delete yourself' };
+
+    // 1. Clean up user_gmail_assignments (per spec)
+    {
+        const { error } = await supabase.from('user_gmail_assignments').delete().eq('user_id', targetUserId);
+        if (error) {
+            console.error('[userManagement] deleteUserAction: failed to clear gmail assignments', error);
+            return { success: false, error: 'Failed to clear Gmail assignments' };
+        }
+    }
+
+    // 2. Reassign Gmail accounts to the calling admin so OAuth tokens + emails survive.
+    {
+        const { error } = await supabase.from('gmail_accounts').update({ user_id: userId }).eq('user_id', targetUserId);
+        if (error) {
+            console.error('[userManagement] deleteUserAction: failed to reassign gmail accounts', error);
+            return { success: false, error: 'Failed to reassign Gmail accounts' };
+        }
+    }
+
+    // 3. Reassign campaigns (CASCADE would drop them).
+    {
+        const { error } = await supabase.from('campaigns').update({ created_by_id: userId }).eq('created_by_id', targetUserId);
+        if (error) console.error('[userManagement] deleteUserAction: campaigns reassign warn', error);
+    }
+
+    // 4. Reassign email templates (CASCADE would drop them).
+    {
+        const { error } = await supabase.from('email_templates').update({ created_by_id: userId }).eq('created_by_id', targetUserId);
+        if (error) console.error('[userManagement] deleteUserAction: templates reassign warn', error);
+    }
+
+    // 5. Reassign edit_projects.user_id (NOT NULL, RESTRICT — cannot null out).
+    {
+        const { error } = await supabase.from('edit_projects').update({ user_id: userId }).eq('user_id', targetUserId);
+        if (error) console.error('[userManagement] deleteUserAction: edit_projects reassign warn', error);
+    }
+
+    // 6. Null out projects.account_manager_id (RESTRICT, but column is nullable).
+    {
+        const { error } = await supabase.from('projects').update({ account_manager_id: null }).eq('account_manager_id', targetUserId);
+        if (error) console.error('[userManagement] deleteUserAction: projects null-out warn', error);
+    }
+
+    // 7. Reassign invitations sent by this user (invited_by is NOT NULL).
+    {
+        const { error } = await supabase.from('invitations').update({ invited_by: userId }).eq('invited_by', targetUserId);
+        if (error) console.error('[userManagement] deleteUserAction: invitations reassign warn', error);
+    }
+
+    // 8. Finally, delete the user row.
+    const { error } = await supabase.from('users').delete().eq('id', targetUserId);
+    if (error) {
+        console.error('[userManagement] deleteUserAction: final delete failed', error);
+        return { success: false, error: `Failed to delete user: ${error.message}` };
+    }
+
+    return { success: true };
+}
+
+/**
  * Set a user's password. ADMIN only.
  */
 export async function setUserPasswordAction(targetUserId: string, newPassword: string) {

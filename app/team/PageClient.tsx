@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUserAction } from '../../src/actions/authActions';
-import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, updateUserRoleAction, deactivateUserAction, reactivateUserAction, setUserPasswordAction } from '../../src/actions/userManagementActions';
-import { sendInviteAction, listInvitesAction, revokeInviteAction, resendInviteAction } from '../../src/actions/inviteActions';
+import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, updateUserRoleAction, deactivateUserAction, reactivateUserAction, setUserPasswordAction, deleteUserAction } from '../../src/actions/userManagementActions';
+import { sendInviteAction, listInvitesAction, revokeInviteAction, resendInviteAction, deleteInvitationAction } from '../../src/actions/inviteActions';
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import { PageLoader } from '../components/LoadingStates';
@@ -158,6 +158,33 @@ export default function TeamPage() {
         if (!res.success) {
             setUsers(snapshot);
             alert(res.error || 'Failed to reactivate user');
+            return;
+        }
+        loadData();
+    };
+
+    // Optimistic permanent delete — row disappears immediately; rolls back on failure.
+    const handleDeleteUser = async (targetUserId: string) => {
+        if (!confirm('Are you sure you want to permanently remove this member? This action cannot be undone.')) return;
+        const snapshot = users;
+        setUsers(prev => prev.filter(u => u.id !== targetUserId));
+        const res = await deleteUserAction(targetUserId);
+        if (!res.success) {
+            setUsers(snapshot);
+            alert(res.error || 'Failed to delete user');
+            return;
+        }
+        loadData();
+    };
+
+    const handleDeleteInvitation = async (id: string) => {
+        if (!confirm('Are you sure you want to permanently remove this invitation? This action cannot be undone.')) return;
+        const snapshot = invitations;
+        setInvitations(prev => prev.filter(i => i.id !== id));
+        const res = await deleteInvitationAction(id);
+        if (!res.success) {
+            setInvitations(snapshot);
+            alert(res.error || 'Failed to delete invitation');
             return;
         }
         loadData();
@@ -360,17 +387,25 @@ export default function TeamPage() {
                                             </td>
                                             <td style={tdRowStyle}>
                                                 {user.id !== currentUser?.userId && (
-                                                    user.crm_status === 'ACTIVE' ? (
-                                                        <button onClick={() => handleDeactivate(user.id)} disabled={actionLoading === user.id}
-                                                            style={{ fontSize: 12, color: 'var(--ink-muted)', background: 'none', border: '1px solid var(--hairline)', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
-                                                            Deactivate
-                                                        </button>
-                                                    ) : (
-                                                        <button onClick={() => handleReactivate(user.id)} disabled={actionLoading === user.id}
-                                                            style={{ fontSize: 12, color: '#fff', background: 'var(--coach)', border: 'none', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
-                                                            Reactivate
-                                                        </button>
-                                                    )
+                                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                                        {user.crm_status === 'ACTIVE' ? (
+                                                            <button onClick={() => handleDeactivate(user.id)} disabled={actionLoading === user.id}
+                                                                style={{ fontSize: 12, color: 'var(--ink-muted)', background: 'none', border: '1px solid var(--hairline)', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
+                                                                Deactivate
+                                                            </button>
+                                                        ) : (
+                                                            <button onClick={() => handleReactivate(user.id)} disabled={actionLoading === user.id}
+                                                                style={{ fontSize: 12, color: '#fff', background: 'var(--coach)', border: 'none', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
+                                                                Reactivate
+                                                            </button>
+                                                        )}
+                                                        {currentUser?.role === 'ADMIN' && (
+                                                            <button onClick={() => handleDeleteUser(user.id)} disabled={actionLoading === user.id}
+                                                                style={{ fontSize: 12, color: '#fff', background: 'var(--danger)', border: '1px solid var(--danger)', padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
+                                                                Delete
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </td>
                                         </tr>
@@ -427,7 +462,7 @@ export default function TeamPage() {
                                             </td>
                                             <td style={tdStyle}>
                                                 {inv.status === 'PENDING' && (
-                                                    <div style={{ display: 'flex', gap: 8 }}>
+                                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                                                         <button onClick={() => handleResendInvite(inv.id)} disabled={actionLoading === inv.id}
                                                             style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: '1px solid var(--accent)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Resend
@@ -436,10 +471,16 @@ export default function TeamPage() {
                                                             style={{ fontSize: 12, color: 'var(--danger)', background: 'none', border: '1px solid var(--danger)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Revoke
                                                         </button>
+                                                        {currentUser?.role === 'ADMIN' && (
+                                                            <button onClick={() => handleDeleteInvitation(inv.id)} disabled={actionLoading === inv.id}
+                                                                style={{ fontSize: 12, color: '#fff', background: 'var(--danger)', border: '1px solid var(--danger)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
+                                                                Delete
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 )}
                                                 {inv.status === 'EXPIRED' && (
-                                                    <div style={{ display: 'flex', gap: 8 }}>
+                                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                                                         <button onClick={() => handleResendInvite(inv.id)} disabled={actionLoading === inv.id}
                                                             style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: '1px solid var(--accent)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Resend
@@ -448,6 +489,12 @@ export default function TeamPage() {
                                                             style={{ fontSize: 12, color: 'var(--ink-muted)', background: 'none', border: '1px solid var(--hairline)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
                                                             Remove
                                                         </button>
+                                                        {currentUser?.role === 'ADMIN' && (
+                                                            <button onClick={() => handleDeleteInvitation(inv.id)} disabled={actionLoading === inv.id}
+                                                                style={{ fontSize: 12, color: '#fff', background: 'var(--danger)', border: '1px solid var(--danger)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
+                                                                Delete
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 )}
                                             </td>
