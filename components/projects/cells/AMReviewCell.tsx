@@ -1,46 +1,30 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
 import { AM_REVIEW_CONFIG } from '../../../lib/projects/constants';
 import type { AMReview } from '../../../lib/projects/types';
+import SmartSelect, { type SmartSelectOption } from './SmartSelect';
 
-const ALL = Object.keys(AM_REVIEW_CONFIG) as AMReview[];
+const ORDER: AMReview[] = ['NO_ISSUE', 'HAS_ISSUE'] as AMReview[];
 
 export default function AMReviewCell({ value, onChange }: {
-  value: AMReview;
-  onChange: (v: AMReview) => void;
+    value: AMReview;
+    onChange: (v: AMReview) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
+    const options: SmartSelectOption[] = ORDER.map(v => {
+        const c = (AM_REVIEW_CONFIG as Record<string, { label: string; bg: string; color: string }>)[v]
+            ?? { label: v, bg: '#4a4a4a', color: '#fff' };
+        return { value: v, label: c.label, bg: c.bg, fg: c.color };
+    });
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  const cfg = value ? (AM_REVIEW_CONFIG as Record<string, { label: string; bg: string; color: string }>)[value] : null;
-  const fallback = AM_REVIEW_CONFIG['NO_ISSUE'];
-
-  return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
-      <span className="ep-pill" style={{ background: (cfg || fallback).bg, color: (cfg || fallback).color }} onClick={e => { e.stopPropagation(); setOpen(!open); }}>
-        {(cfg || fallback).label}
-      </span>
-      {open && (
-        <div className="ep-dropdown">
-          {ALL.map(v => {
-            const c = (AM_REVIEW_CONFIG as Record<string, { label: string; bg: string; color: string }>)[v] || fallback;
-            return (
-              <div key={v} className="ep-dropdown-item" onClick={e => { e.stopPropagation(); onChange(v); setOpen(false); }}>
-                <span className="ep-pill" style={{ background: c.bg, color: c.color }}>{c.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+    // The DB column is non-null (defaults to NO_ISSUE) so we don't allow clearing.
+    return (
+        <SmartSelect
+            mode="single"
+            value={value || 'NO_ISSUE'}
+            onChange={(v) => v && onChange(v as AMReview)}
+            options={options}
+            noSearch
+            minWidth={140}
+            maxWidth={200}
+        />
+    );
 }

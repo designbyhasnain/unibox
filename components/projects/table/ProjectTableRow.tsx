@@ -14,6 +14,7 @@ import AMReviewCell from '../cells/AMReviewCell';
 import HardDriveCell from '../cells/HardDriveCell';
 import PersonCell from '../cells/PersonCell';
 import EditorAssignmentCell from '../cells/EditorAssignmentCell';
+import AccountManagerCell from '../cells/AccountManagerCell';
 import PaidCell from '../cells/PaidCell';
 
 type Props = {
@@ -61,6 +62,8 @@ function ProjectTableRow({ project, selected, onSelect, onUpdate, onOpen, onDupl
         return <PaidCell value={(val as string) || null} onChange={v => onUpdate('paid', v)} />;
       case 'person':
         return <PersonCell value={(val as string) || null} onChange={v => onUpdate(col.id, v)} />;
+      case 'accountManager':
+        return <AccountManagerCell value={(val as string) || null} onChange={v => onUpdate(col.id, v)} />;
       case 'editorAssignment':
         return (
           <EditorAssignmentCell
@@ -94,12 +97,11 @@ function ProjectTableRow({ project, selected, onSelect, onUpdate, onOpen, onDupl
   );
 }
 
+// handleUpdate in ProjectsClient creates a new project object via spread, so
+// reference equality is enough — and it correctly catches every field the row
+// renders (tags, hardDrive, paid, accountManager, amReview, etc.) without
+// requiring this list to stay in sync with the cell types.
 export default React.memo(ProjectTableRow, (prev, next) =>
-  prev.project.id === next.project.id &&
-  prev.project.updatedAt === next.project.updatedAt &&
-  prev.selected === next.selected &&
-  prev.project.progress === next.project.progress &&
-  prev.project.isChecked === next.project.isChecked &&
-  prev.project.editorId === next.project.editorId &&
-  prev.project.assignedEditorName === next.project.assignedEditorName
+  prev.project === next.project &&
+  prev.selected === next.selected
 );

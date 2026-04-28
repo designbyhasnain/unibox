@@ -1,66 +1,35 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
 import { PAID_CONFIG } from '../../../lib/projects/constants';
+import SmartSelect, { type SmartSelectOption } from './SmartSelect';
 
-const ALL_OPTIONS = Object.keys(PAID_CONFIG);
+// Order: the three primary states first (the Prisma PaidStatus enum equivalents),
+// then legacy / situational states already in the dataset.
+const PRIMARY = ['paid', 'Partially Paid', 'Unpaid'];
+const SECONDARY = ['Unpaid (paid $100)', 'Invoiced', 'Ghosted', 'Not paying', 'NA', 'N/A'];
 
 export default function PaidCell({ value, onChange }: {
-  value: string | null;
-  onChange: (v: string) => void;
+    value: string | null;
+    onChange: (v: string | null) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [custom, setCustom] = useState('');
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+    const options: SmartSelectOption[] = [...PRIMARY, ...SECONDARY].map(k => {
+        const c = PAID_CONFIG[k] ?? { label: k, bg: '#4a4a4a', color: '#fff' };
+        return { value: k, label: c.label, bg: c.bg, fg: c.color };
+    });
 
-  useEffect(() => {
-    if (!open) return;
-    inputRef.current?.focus();
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  const cfg = value ? PAID_CONFIG[value] : null;
-
-  return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
-      <span
-        className="ep-pill"
-        style={cfg ? { background: cfg.bg, color: cfg.color } : value ? { background: '#4a4a4a', color: '#fff' } : { opacity: 0.4 }}
-        onClick={e => { e.stopPropagation(); setOpen(!open); }}
-      >
-        {cfg?.label || value || '—'}
-      </span>
-      {open && (
-        <div className="ep-dropdown" style={{ minWidth: 200 }}>
-          <input
-            ref={inputRef}
-            className="ep-cell-input"
-            placeholder="Select an option or create one"
-            value={custom}
-            onChange={e => setCustom(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && custom.trim()) {
-                onChange(custom.trim());
-                setCustom('');
-                setOpen(false);
-              }
-            }}
-            style={{ marginBottom: 4 }}
-          />
-          {ALL_OPTIONS.filter(o => !custom || o.toLowerCase().includes(custom.toLowerCase())).map(opt => {
-            const c = PAID_CONFIG[opt];
-            return (
-              <div key={opt} className="ep-dropdown-item" onClick={e => { e.stopPropagation(); onChange(opt); setCustom(''); setOpen(false); }}>
-                <span className="ep-pill" style={c ? { background: c.bg, color: c.color } : {}}>{c?.label || opt}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+    return (
+        <SmartSelect
+            mode="single"
+            value={value}
+            onChange={onChange}
+            options={options}
+            clearable
+            clearLabel="None"
+            placeholder="Set status…"
+            // Permit free-form for the rare label not in PAID_CONFIG so historical
+            // imports keep working — e.g. someone typed a one-off note.
+            creatable
+            minWidth={200}
+            maxWidth={280}
+        />
+    );
 }

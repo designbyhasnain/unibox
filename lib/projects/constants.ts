@@ -67,7 +67,7 @@ export const TABLE_COLUMNS = [
   { id: "reviewerValue",       label: "Reviewer Value",     width: 120, type: "number" as const },
   { id: "actualHours",         label: "Actual Hours",       width: 110, type: "number" as const },
   { id: "amReview",            label: "AM/Review",          width: 110, type: "amreview" as const },
-  { id: "accountManager",      label: "Account Manager",    width: 140, type: "person" as const },
+  { id: "accountManager",      label: "Account Manager",    width: 180, type: "accountManager" as const },
   { id: "totalAmount",         label: "Total Amount",       width: 120, type: "number" as const },
   { id: "paid",                label: "Paid",               width: 140, type: "paid" as const },
   { id: "received1",           label: "Received 1",         width: 110, type: "number" as const },
