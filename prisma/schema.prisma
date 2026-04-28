@@ -137,6 +137,7 @@ model User {
   handledContacts  Contact[]              @relation("AccountManager")
   projects         Project[]
   editProjects     EditProject[]
+  editorProjects   EditProject[]          @relation("AssignedEditor")
   invitationsSent  Invitation[]           @relation("InvitedByUser")
   gmailAssignments UserGmailAssignment[]
   campaigns        Campaign[]
@@ -827,12 +828,20 @@ model EditProject {
   userId              String           @map("user_id")
   user                User             @relation(fields: [userId], references: [id])
 
+  /// Assigned video editor — set via the admin Projects table dropdown.
+  /// Distinct from `userId` (the project's original owner / row creator). All
+  /// editor-facing queries scope by `editorId`. SQL migration:
+  /// `scripts/add-editor-id.sql` (idempotent).
+  editorId            String?          @map("editor_id")
+  assignedEditor      User?            @relation("AssignedEditor", fields: [editorId], references: [id], onDelete: SetNull)
+
   comments            ProjectComment[]
 
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
 
   @@index([userId])
+  @@index([editorId])
   @@index([progress])
   @@index([createdAt])
   @@map("edit_projects")

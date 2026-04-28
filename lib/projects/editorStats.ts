@@ -43,7 +43,7 @@ export async function getEditorTodayData(): Promise<EditorTodayData> {
     const { data: projects } = await supabase
         .from('edit_projects')
         .select('id, name, client_name, progress, formula_percent, due_date, size_in_gbs, hard_drive, raw_data_url, working_hours, actual_hours, data_checked, priority')
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .in('progress', ACTIVE)
         .order('due_date', { ascending: true, nullsFirst: false });
 
@@ -145,13 +145,13 @@ export async function getEditorActiveCountAction(): Promise<{ active: number; re
     const { count: active } = await supabase
         .from('edit_projects')
         .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .in('progress', ['IN_PROGRESS', 'IN_REVISION', 'DOWNLOADING', 'DOWNLOADED']);
 
     const { count: revisions } = await supabase
         .from('edit_projects')
         .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .eq('progress', 'IN_REVISION');
 
     return { active: active || 0, revisions: revisions || 0 };
@@ -188,7 +188,7 @@ export async function getEditorProjectDetail(projectId: string): Promise<EditorP
         .from('edit_projects')
         .select('id, name, client_name, progress, formula_percent, due_date, size_in_gbs, hard_drive, raw_data_url, priority, notes, working_hours, actual_hours, brief_length, software, data_checked, editor, account_manager')
         .eq('id', projectId)
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .maybeSingle();
 
     if (!project) return null;
@@ -266,7 +266,7 @@ export async function getEditorMyQueueData(): Promise<{ projects: EditorQueuePro
     const { data: projects } = await supabase
         .from('edit_projects')
         .select('id, name, client_name, progress, formula_percent, date, due_date, size_in_gbs, priority, data_checked, hard_drive, working_hours')
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .in('progress', ACTIVE)
         .order('due_date', { ascending: true, nullsFirst: false });
 
@@ -330,7 +330,7 @@ export async function getEditorRevisionsData(): Promise<{ items: EditorRevisionI
     const { data: projects } = await supabase
         .from('edit_projects')
         .select('id, name, client_name, progress, updated_at')
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .in('progress', ['IN_REVISION', 'IN_PROGRESS', 'DOWNLOADING', 'DOWNLOADED', 'ON_HOLD'])
         .order('updated_at', { ascending: false });
 
@@ -392,7 +392,7 @@ export async function getEditorDeliveredData(): Promise<{ projects: EditorDelive
     const { data: projects } = await supabase
         .from('edit_projects')
         .select('id, name, client_name, progress, completion_date, date, rated_by_ch, tags')
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .in('progress', ['APPROVED', 'DONE'])
         .order('completion_date', { ascending: false, nullsFirst: false })
         .limit(50);
@@ -444,7 +444,7 @@ export async function getEditorDashboardStats(): Promise<EditorStats> {
     const { data: all } = await supabase
         .from('edit_projects')
         .select('id, name, progress, due_date, created_at, completion_date')
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .order('due_date', { ascending: true, nullsFirst: false });
 
     const projects = all || [];
@@ -550,7 +550,7 @@ export async function getEditorFootageData(): Promise<EditorFootageData> {
     const { data: projects } = await supabase
         .from('edit_projects')
         .select('id, name, client_name, hard_drive, raw_data_url, size_in_gbs, progress')
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .in('progress', ['IN_PROGRESS', 'IN_REVISION', 'DOWNLOADING', 'DOWNLOADED', 'ON_HOLD', 'APPROVED', 'DONE'])
         .order('created_at', { ascending: false });
 
@@ -608,7 +608,7 @@ export async function getEditorBrandGuidesData(): Promise<{ guides: EditorBrandG
     const { data: projects } = await supabase
         .from('edit_projects')
         .select('id, name, client_name, brief_length, song_preferences, software, notes, created_at')
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .order('created_at', { ascending: false });
 
     const all = projects || [];
@@ -655,7 +655,7 @@ export async function uploadCutAction(projectId: string, url: string): Promise<{
         .from('edit_projects')
         .select('id, name, user_id')
         .eq('id', projectId)
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .maybeSingle();
     if (!project) return { success: false, error: 'Project not found or not assigned to you' };
 
@@ -683,8 +683,7 @@ export async function uploadCutAction(projectId: string, url: string): Promise<{
     const { error: uErr } = await supabase
         .from('edit_projects')
         .update({ last_cut_url: trimmed })
-        .eq('id', projectId)
-        .eq('user_id', userId);
+        .eq('id', projectId);
     if (uErr) {
         console.warn('[uploadCutAction] last_cut_url column not present (run scripts/add-last-cut-url.sql)', uErr.message);
     }
@@ -704,7 +703,7 @@ export async function sendForReviewAction(projectId: string, note?: string): Pro
         .from('edit_projects')
         .select('id, user_id')
         .eq('id', projectId)
-        .eq('user_id', userId)
+        .eq('editor_id', userId)
         .maybeSingle();
     if (!project) return { success: false, error: 'Project not found or not assigned to you' };
 

@@ -13,6 +13,7 @@ import TagsCell from '../cells/TagsCell';
 import AMReviewCell from '../cells/AMReviewCell';
 import HardDriveCell from '../cells/HardDriveCell';
 import PersonCell from '../cells/PersonCell';
+import EditorAssignmentCell from '../cells/EditorAssignmentCell';
 import PaidCell from '../cells/PaidCell';
 
 type Props = {
@@ -60,6 +61,15 @@ function ProjectTableRow({ project, selected, onSelect, onUpdate, onOpen, onDupl
         return <PaidCell value={(val as string) || null} onChange={v => onUpdate('paid', v)} />;
       case 'person':
         return <PersonCell value={(val as string) || null} onChange={v => onUpdate(col.id, v)} />;
+      case 'editorAssignment':
+        return (
+          <EditorAssignmentCell
+            editorId={(p as Record<string, unknown>).editorId as string | null ?? null}
+            editorName={(p as Record<string, unknown>).assignedEditorName as string | null ?? null}
+            legacyName={(p as Record<string, unknown>).editor as string | null ?? null}
+            onChange={v => onUpdate('editorId', v)}
+          />
+        );
     }
   };
 
@@ -89,5 +99,7 @@ export default React.memo(ProjectTableRow, (prev, next) =>
   prev.project.updatedAt === next.project.updatedAt &&
   prev.selected === next.selected &&
   prev.project.progress === next.project.progress &&
-  prev.project.isChecked === next.project.isChecked
+  prev.project.isChecked === next.project.isChecked &&
+  prev.project.editorId === next.project.editorId &&
+  prev.project.assignedEditorName === next.project.assignedEditorName
 );

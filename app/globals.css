@@ -6318,6 +6318,22 @@ textarea:focus-visible {
 .ep-dropdown-item { padding: 5px 8px; cursor: pointer; border-radius: 4px; font-size: 0.78rem; }
 .ep-dropdown-item:hover { background: var(--bg-elevated); }
 
+/* ── Editor assignment cell — dynamic dropdown for the admin Projects table ── */
+.ep-editor-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 4px; border-radius: 14px; cursor: pointer; max-width: 100%; font-size: 0.78rem; color: var(--text-primary); background: var(--bg-elevated); border: 1px solid transparent; transition: border-color var(--dur-fast); white-space: nowrap; }
+.ep-editor-pill:hover { border-color: var(--border); }
+.ep-editor-avatar { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; color: #fff; font-size: 9px; font-weight: 700; flex-shrink: 0; }
+.ep-editor-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-editor-email { color: var(--text-muted); font-size: 0.7rem; margin-left: auto; flex-shrink: 0; }
+
+.ep-editor-dropdown { min-width: 280px; max-width: 340px; padding: 6px; }
+.ep-editor-search { width: 100%; box-sizing: border-box; padding: 6px 10px; background: var(--bg-base, #0F0F11); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 0.8rem; outline: none; margin-bottom: 4px; font-family: inherit; }
+.ep-editor-search:focus { border-color: #a78bfa; }
+.ep-editor-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.ep-editor-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
+.ep-editor-active { background: rgba(167, 139, 250, 0.14); }
+.ep-editor-active .ep-editor-name { color: #a78bfa; font-weight: 600; }
+.ep-editor-loading { padding: 12px 8px; font-size: 0.78rem; color: var(--text-muted); text-align: center; }
+
 /* ── Tags ── */
 .ep-tags-row { display: flex; gap: 4px; align-items: center; overflow: hidden; cursor: pointer; width: 100%; }
 .ep-tag { display: inline-block; padding: 1px 8px; border: 1px solid; border-radius: 12px; font-size: 0.68rem; white-space: nowrap; }

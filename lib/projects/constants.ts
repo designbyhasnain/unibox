@@ -55,7 +55,7 @@ export const TABLE_COLUMNS = [
   { id: "startDate",           label: "start date",         width: 130, type: "datetime" as const },
   { id: "approvedDate",        label: "approved date",      width: 130, type: "datetime" as const },
   { id: "tags",                label: "Tags",               width: 160, type: "tags" as const },
-  { id: "editor",              label: "Editor",             width: 130, type: "person" as const },
+  { id: "editor",              label: "Editor",             width: 180, type: "editorAssignment" as const },
   { id: "team",                label: "TEAM",               width: 100, type: "text" as const },
   { id: "sizeInGbs",           label: "Size in Gbs",        width: 120, type: "text" as const },
   { id: "hardDrive",           label: "Hard Drive",         width: 130, type: "harddrive" as const },

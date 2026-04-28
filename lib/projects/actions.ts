@@ -60,10 +60,14 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
 
   let query = supabase
     .from('edit_projects')
-    .select('*, comments:project_comments(id)', { count: 'exact' });
+    .select('*, comments:project_comments(id), assignedEditor:users!edit_projects_editor_id_fkey(id, name)', { count: 'exact' });
 
   // Strict identity scoping for non-admin roles
-  if (!isAdminRole) {
+  if (isEditorRole) {
+    // Editors only see projects where they are the assigned editor.
+    query = query.eq('editor_id', userId);
+  } else if (!isAdminRole) {
+    // Sales etc. — keep legacy user_id ownership scope.
     query = query.eq('user_id', userId);
   }
 
@@ -93,6 +97,7 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
   const isEditor = role === 'VIDEO_EDITOR';
   const projects = (data || []).map((p: Record<string, unknown>) => {
     const comments = Array.isArray(p.comments) ? p.comments : [];
+    const editor = Array.isArray(p.assignedEditor) ? p.assignedEditor[0] : p.assignedEditor;
     const row: Record<string, unknown> = {
       id: p.id, date: p.date, clientName: p.client_name, clientEmail: p.client_email, name: p.name,
       progress: p.progress, isChecked: p.is_checked,
@@ -113,6 +118,8 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
       amReview: p.am_review,
       totalAmount: p.total_amount, paid: p.paid, received1: p.received_1,
       userId: p.user_id,
+      editorId: p.editor_id ?? null,
+      assignedEditorName: (editor && (editor as Record<string, unknown>).name) || null,
       createdAt: p.created_at, updatedAt: p.updated_at,
       _count: { comments: comments.length },
     };
@@ -159,6 +166,7 @@ export async function updateEditProject(id: string, updates: Record<string, unkn
     fileNeeded: 'file_needed', dataChecked: 'data_checked',
     briefDueDate: 'brief_due_date', briefLength: 'brief_length',
     songPreferences: 'song_preferences', ratedByEditor: 'rated_by_editor',
+    editorId: 'editor_id',
     ratedByCH: 'rated_by_ch', reviewerValue: 'reviewer_value',
     actualHours: 'actual_hours', workingHours: 'working_hours',
     reviewerFeedback: 'reviewer_feedback', totalProjectValue: 'total_project_value',

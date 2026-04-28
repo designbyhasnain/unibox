@@ -16,6 +16,8 @@ const rows = [
     { name: 'Brand reel — Q2',                    client_name: 'Tim Yoshida',   progress: 'ON_HOLD',     priority: 'LOW',    formula_percent: 0,  date: day(-30), due_date: day(-2),  data_checked: false, hard_drive: 'HDD-01' },
 ];
 
-const payload = rows.map(r => ({ ...r, user_id: userId, working_hours: 0, actual_hours: 0, formula_percent: r.formula_percent, is_checked: false }));
+// Set editor_id (the canonical scoping field) AND user_id (legacy/owner) to the
+// same target so the seed shows up in the editor's view immediately.
+const payload = rows.map(r => ({ ...r, user_id: userId, editor_id: userId, working_hours: 0, actual_hours: 0, formula_percent: r.formula_percent, is_checked: false }));
 const { data, error } = await sb.from('edit_projects').insert(payload).select('id, name, progress');
 console.log(error ?? data);

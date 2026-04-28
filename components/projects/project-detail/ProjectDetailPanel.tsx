@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
 import { PROGRESS_CONFIG, PRIORITY_CONFIG, AM_REVIEW_CONFIG, PAID_CONFIG } from '../../../lib/projects/constants';
 import { getEditProjectById, addProjectComment, deleteProjectComment } from '../../../lib/projects/actions';
+import EditorAssignmentCell from '../cells/EditorAssignmentCell';
 
 type Props = {
   projectId: string;
@@ -258,7 +259,17 @@ export default function ProjectDetailPanel({ projectId, onClose, onUpdate, onDup
         <div className="ep-detail-fields">
           {renderDate('📅', 'Date', 'date')}
           {renderText('👤', 'Client name', 'client_name')}
-          {renderText('👥', 'Editor', 'editor')}
+          <div className="ep-detail-field">
+            <div className="ep-detail-field-label"><span>👥</span> Editor</div>
+            <div className="ep-detail-field-value">
+              <EditorAssignmentCell
+                editorId={(p.editorId ?? p.editor_id) as string | null ?? null}
+                editorName={(p.assignedEditorName) as string | null ?? null}
+                legacyName={(p.editor as string) || null}
+                onChange={v => onUpdate('editorId', v)}
+              />
+            </div>
+          </div>
           {renderDropdown('⚡', 'Progress', 'progress', PROGRESS_CONFIG)}
           {renderDate('📅', 'Due', 'due_date')}
           {renderUrl('📁', 'Raw Data', 'raw_data_url')}

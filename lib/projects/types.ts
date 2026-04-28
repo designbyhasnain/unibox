@@ -45,6 +45,10 @@ export type EditProjectType = {
   paid: string | null;
   received1: number | null;
   userId: string;
+  /** UUID of the assigned video editor (Phase 1 dynamic assignment). */
+  editorId: string | null;
+  /** Cached name of the assigned editor — only present when joined from `users`. */
+  assignedEditorName: string | null;
   createdAt: string;
   updatedAt: string;
 };
