@@ -142,11 +142,13 @@ export async function getEditorTodayData(): Promise<EditorTodayData> {
 export async function getEditorActiveCountAction(): Promise<{ active: number; revisions: number }> {
     const { userId } = await ensureAuthenticated();
 
+    // Must match the My Queue page's filter exactly so the badge and the page
+    // never disagree. getEditorMyQueueData includes ON_HOLD — keep them in sync.
     const { count: active } = await supabase
         .from('edit_projects')
         .select('id', { count: 'exact', head: true })
         .eq('editor_id', userId)
-        .in('progress', ['IN_PROGRESS', 'IN_REVISION', 'DOWNLOADING', 'DOWNLOADED']);
+        .in('progress', ['IN_PROGRESS', 'IN_REVISION', 'DOWNLOADING', 'DOWNLOADED', 'ON_HOLD']);
 
     const { count: revisions } = await supabase
         .from('edit_projects')
@@ -324,6 +326,13 @@ export type EditorRevisionItem = {
     isNew: boolean;
 };
 
+/**
+ * Mirrors the Sidebar's Revisions badge exactly: every IN_REVISION project
+ * assigned to this editor, comments or not. Previous version filtered to
+ * five statuses AND required ≥1 comment, which produced a sidebar/page
+ * count mismatch when an admin moved a project to IN_REVISION before any
+ * comment landed.
+ */
 export async function getEditorRevisionsData(): Promise<{ items: EditorRevisionItem[] }> {
     const { userId } = await ensureAuthenticated();
 
@@ -331,43 +340,42 @@ export async function getEditorRevisionsData(): Promise<{ items: EditorRevisionI
         .from('edit_projects')
         .select('id, name, client_name, progress, updated_at')
         .eq('editor_id', userId)
-        .in('progress', ['IN_REVISION', 'IN_PROGRESS', 'DOWNLOADING', 'DOWNLOADED', 'ON_HOLD'])
+        .eq('progress', 'IN_REVISION')
         .order('updated_at', { ascending: false });
 
     const all = projects || [];
     const projectIds = all.map(p => p.id as string);
-    if (projectIds.length === 0) return { items: [] };
-
-    const { data: comments } = await supabase
-        .from('project_comments')
-        .select('id, project_id, content, author_name, created_at')
-        .in('project_id', projectIds)
-        .order('created_at', { ascending: false });
 
     const commentsByProject: Record<string, Array<{ id: string; content: string; authorName: string; createdAt: string }>> = {};
-    for (const c of comments || []) {
-        const pid = c.project_id as string;
-        if (!commentsByProject[pid]) commentsByProject[pid] = [];
-        commentsByProject[pid].push({ id: c.id as string, content: c.content as string, authorName: c.author_name as string, createdAt: c.created_at as string });
+    if (projectIds.length > 0) {
+        const { data: comments } = await supabase
+            .from('project_comments')
+            .select('id, project_id, content, author_name, created_at')
+            .in('project_id', projectIds)
+            .order('created_at', { ascending: false });
+
+        for (const c of comments || []) {
+            const pid = c.project_id as string;
+            if (!commentsByProject[pid]) commentsByProject[pid] = [];
+            commentsByProject[pid].push({ id: c.id as string, content: c.content as string, authorName: c.author_name as string, createdAt: c.created_at as string });
+        }
     }
 
     const oneHourAgo = Date.now() - 3_600_000;
-    const items: EditorRevisionItem[] = all
-        .filter(p => (commentsByProject[p.id as string] || []).length > 0)
-        .map(p => {
-            const pc = commentsByProject[p.id as string] || [];
-            const latest = pc[0];
-            return {
-                projectId: p.id as string,
-                projectName: p.name as string,
-                clientName: p.client_name as string | null,
-                progress: p.progress as string,
-                commentCount: pc.length,
-                latestComment: latest || null,
-                allComments: pc,
-                isNew: latest ? new Date(latest.createdAt).getTime() > oneHourAgo : false,
-            };
-        });
+    const items: EditorRevisionItem[] = all.map(p => {
+        const pc = commentsByProject[p.id as string] || [];
+        const latest = pc[0];
+        return {
+            projectId: p.id as string,
+            projectName: p.name as string,
+            clientName: p.client_name as string | null,
+            progress: p.progress as string,
+            commentCount: pc.length,
+            latestComment: latest || null,
+            allComments: pc,
+            isNew: latest ? new Date(latest.createdAt).getTime() > oneHourAgo : false,
+        };
+    });
 
     return { items };
 }

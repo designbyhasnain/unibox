@@ -6313,8 +6313,13 @@ textarea:focus-visible {
 .ep-link { color: var(--accent); text-decoration: none; font-size: 0.78rem; }
 .ep-link:hover { text-decoration: underline; }
 
-/* ── Dropdown ── */
+/* ── Dropdown ──
+   .ep-popover is portaled to document.body with `position: fixed` so it
+   escapes any ancestor `overflow: hidden` (the cells use it for ellipsis).
+   .ep-dropdown is the legacy in-flow variant kept for any non-portal callers. */
+.ep-popover { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,0.18)); padding: 4px; }
 .ep-dropdown { position: absolute; top: 100%; left: 0; z-index: 50; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-md); padding: 4px; min-width: 140px; }
+.ep-dropdown-inner { display: flex; flex-direction: column; gap: 1px; }
 .ep-dropdown-item { padding: 5px 8px; cursor: pointer; border-radius: 4px; font-size: 0.78rem; }
 .ep-dropdown-item:hover { background: var(--bg-elevated); }
 

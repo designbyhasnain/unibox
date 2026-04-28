@@ -1,7 +1,8 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { PRIORITY_CONFIG } from '../../../lib/projects/constants';
 import type { ProjectPriority } from '../../../lib/projects/types';
+import Popover from './Popover';
 
 const ALL_PRIORITY = Object.keys(PRIORITY_CONFIG) as ProjectPriority[];
 
@@ -10,30 +11,22 @@ export default function PriorityCell({ value, onChange }: {
   onChange: (v: ProjectPriority | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  const triggerRef = useRef<HTMLSpanElement>(null);
 
   const cfg = value ? (PRIORITY_CONFIG as Record<string, { label: string; bg: string; color: string }>)[value] : null;
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
+    <>
       <span
+        ref={triggerRef}
         className="ep-pill"
         style={cfg ? { background: cfg.bg, color: cfg.color } : { opacity: 0.4 }}
-        onClick={e => { e.stopPropagation(); setOpen(!open); }}
+        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
       >
         {cfg ? cfg.label : '—'}
       </span>
-      {open && (
-        <div className="ep-dropdown">
+      <Popover open={open} onClose={() => setOpen(false)} triggerRef={triggerRef} minWidth={140}>
+        <div className="ep-dropdown-inner">
           {ALL_PRIORITY.map(p => {
             const c = (PRIORITY_CONFIG as Record<string, { label: string; bg: string; color: string }>)[p] || { label: p, bg: '#eee', color: '#333' };
             return (
@@ -46,7 +39,7 @@ export default function PriorityCell({ value, onChange }: {
             <span style={{ opacity: 0.5 }}>None</span>
           </div>
         </div>
-      )}
-    </div>
+      </Popover>
+    </>
   );
 }
