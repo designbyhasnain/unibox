@@ -6,6 +6,7 @@ import { getCurrentUserAction } from '../../src/actions/authActions';
 import { getDailyBriefingAction, regenerateDailyBriefingAction } from '../../src/actions/jarvisActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
+import EditorTodayView from '../components/EditorTodayView';
 
 function fmt(n: number) {
     if (n >= 10000) return '$' + (n / 1000).toFixed(0) + 'k';
@@ -38,6 +39,8 @@ const ICON = {
 };
 
 export default function Dashboard({ userRole }: { userRole?: string }) {
+    if (userRole === 'VIDEO_EDITOR') return <EditorTodayView />;
+
     const hydrated = useHydrated();
     const [name, setName] = useState('');
     const [d, setD] = useState<any>(null);

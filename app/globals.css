@@ -7924,7 +7924,28 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
    EDITOR TODAY VIEW  (VIDEO_EDITOR role — /dashboard)
    ══════════════════════════════════════════════════════════ */
 
-.ed-today { padding: 28px 36px 48px; max-width: 1400px; animation: fadeIn 0.2s var(--ease); height: 100%; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--hairline) transparent; box-sizing: border-box; }
+/* Editor "Today" view — design-locked dark surface even when the app is in light mode. */
+.ed-today { padding: 28px 36px 48px; max-width: 1400px; animation: fadeIn 0.2s var(--ease); height: 100%; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #2a2a30 transparent; box-sizing: border-box; background: #0F0F11; color: #f3f4f6; }
+.ed-today .ed-week-strip,
+.ed-today .ed-desk-card,
+.ed-today .ed-feedback-panel,
+.ed-today .ed-blockers-card,
+.ed-today .ed-load-card { background: #1A1A1E; border-color: #2a2a30; color: #f3f4f6; }
+.ed-today .ed-feedback-item.clickable:hover,
+.ed-today .ed-blocker-item.clickable:hover { background: #232328; }
+.ed-today .ed-feedback-item,
+.ed-today .ed-blocker-item { border-bottom-color: #2a2a30; }
+.ed-today .ed-greeting,
+.ed-today .ed-col-title,
+.ed-today .ed-desk-card-title,
+.ed-today .ed-feedback-author,
+.ed-today .ed-blocker-name { color: #f3f4f6; }
+.ed-today .ed-header-sub,
+.ed-today .ed-desk-card-sub,
+.ed-today .ed-feedback-time,
+.ed-today .ed-feedback-project,
+.ed-today .ed-week-day,
+.ed-today .ed-week-label { color: #9ca3af; }
 .ed-today::-webkit-scrollbar { width: 8px; }
 .ed-today::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 4px; }
 

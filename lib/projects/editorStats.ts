@@ -437,11 +437,12 @@ export type EditorStats = {
 };
 
 export async function getEditorDashboardStats(): Promise<EditorStats> {
-    await ensureAuthenticated();
+    const { userId } = await ensureAuthenticated();
 
     const { data: all } = await supabase
         .from('edit_projects')
         .select('id, name, progress, due_date, created_at, completion_date')
+        .eq('user_id', userId)
         .order('due_date', { ascending: true, nullsFirst: false });
 
     const projects = all || [];
