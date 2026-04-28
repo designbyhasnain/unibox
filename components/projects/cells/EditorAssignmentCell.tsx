@@ -29,7 +29,13 @@ type Props = {
     editorId: string | null;
     editorName: string | null;
     legacyName: string | null;
-    onChange: (newEditorId: string | null) => void;
+    /**
+     * Emits the new editor id AND its display name. The parent's optimistic
+     * update needs both so the cell re-renders instantly with the new label
+     * — without the second arg the row would show "Unassigned" until the
+     * next refetch picked up the joined editor name.
+     */
+    onChange: (newEditorId: string | null, newEditorName: string | null) => void;
 };
 
 export default function EditorAssignmentCell({ editorId, editorName, legacyName, onChange }: Props) {
@@ -80,7 +86,7 @@ export default function EditorAssignmentCell({ editorId, editorName, legacyName,
                 <div className="ep-editor-list">
                     <div
                         className={`ep-dropdown-item ep-editor-item${editorId === null ? ' ep-editor-active' : ''}`}
-                        onClick={() => { onChange(null); setOpen(false); }}
+                        onClick={() => { onChange(null, null); setOpen(false); }}
                     >
                         <span className="ep-editor-avatar" style={{ background: '#3a3a40' }}>?</span>
                         <span className="ep-editor-name" style={{ opacity: 0.7, fontStyle: 'italic' }}>Unassigned</span>
@@ -93,7 +99,7 @@ export default function EditorAssignmentCell({ editorId, editorName, legacyName,
                         <div
                             key={ed.id}
                             className={`ep-dropdown-item ep-editor-item${editorId === ed.id ? ' ep-editor-active' : ''}`}
-                            onClick={() => { onChange(ed.id); setOpen(false); }}
+                            onClick={() => { onChange(ed.id, ed.name); setOpen(false); }}
                         >
                             <span className="ep-editor-avatar" style={{ background: avatarColor(ed.name) }}>
                                 {initials(ed.name)}

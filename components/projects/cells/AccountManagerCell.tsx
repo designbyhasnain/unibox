@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { listAccountManagersAction, type AmCandidate } from '../../../src/actions/projectMetadataActions';
 import SmartSelect, { type SmartSelectOption } from './SmartSelect';
 
-// Module-level cache so opening a 2nd cell doesn't refetch.
+// Module-level cache so opening 50 AM cells in a row triggers one fetch.
 let cached: AmCandidate[] | null = null;
 let inflight: Promise<AmCandidate[]> | null = null;
 function loadAMs(): Promise<AmCandidate[]> {
@@ -19,10 +19,11 @@ function loadAMs(): Promise<AmCandidate[]> {
 }
 
 /**
- * Free-form `accountManager` string column on edit_projects. The dropdown
- * matches by name (case-insensitive) so picking John Doe from the list
- * sets `accountManager: 'John Doe'` — keeping the legacy schema intact
- * while bringing the data under a real list.
+ * Free-form `account_manager` string column on edit_projects. The dropdown
+ * is a union of (1) every active SALES user — admins excluded since the AM
+ * is an outward-facing role — and (2) every distinct legacy name already
+ * present in the data. Picking either kind writes the display name to the
+ * column, so no schema change required.
  */
 export default function AccountManagerCell({ value, onChange }: {
     value: string | null;
@@ -37,10 +38,12 @@ export default function AccountManagerCell({ value, onChange }: {
     }, []);
 
     const options: SmartSelectOption[] = users.map(u => ({
-        value: u.name,
+        value: u.value,
         label: u.name,
-        subtitle: u.email,
-        avatar: '', // tells SmartSelect to render an avatar
+        subtitle: u.subtitle,
+        // Real SALES users get an avatar; legacy strings render plain so the
+        // distinction is obvious in the picker.
+        avatar: u.legacy ? undefined : '',
     }));
 
     return (
@@ -53,8 +56,8 @@ export default function AccountManagerCell({ value, onChange }: {
             placeholder="Assign AM…"
             clearable
             clearLabel="Unassigned"
-            minWidth={260}
-            maxWidth={340}
+            minWidth={280}
+            maxWidth={360}
         />
     );
 }

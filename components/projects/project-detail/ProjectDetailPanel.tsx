@@ -266,7 +266,10 @@ export default function ProjectDetailPanel({ projectId, onClose, onUpdate, onDup
                 editorId={(p.editorId ?? p.editor_id) as string | null ?? null}
                 editorName={(p.assignedEditorName) as string | null ?? null}
                 legacyName={(p.editor as string) || null}
-                onChange={v => onUpdate('editorId', v)}
+                onChange={(id, name) => {
+                  onUpdate('editorId', id);
+                  onUpdate('assignedEditorName', name);
+                }}
               />
             </div>
           </div>

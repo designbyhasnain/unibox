@@ -5,34 +5,79 @@ import { ensureAuthenticated } from '../lib/safe-action';
 
 /**
  * Lists potential Account Managers for the Projects table dropdown.
- * Anyone with a CRM-facing role (ADMIN, ACCOUNT_MANAGER, SALES) qualifies.
- * VIDEO_EDITORs are excluded.
  *
- * The list refreshes every time the dropdown opens, so newly-invited team
- * members appear automatically — no rebuild needed.
+ * Two groups, returned together:
+ *   1. Active users with role = SALES (admins are excluded — admins shouldn't
+ *      appear in an AM picker since the AM is an outward-facing role).
+ *   2. "Legacy" entries pulled from edit_projects.account_manager (a free-form
+ *      string column from the imported CSV era). Some of those names match
+ *      a real SALES user; some don't. We surface every distinct name so no
+ *      historical data is lost — picking one keeps the same string going.
+ *
+ * The list refreshes every time the dropdown opens, so newly-invited SALES
+ * reps appear automatically.
  */
-export type AmCandidate = { id: string; name: string; email: string };
+export type AmCandidate = {
+    /** What gets stored in edit_projects.account_manager when this row is picked. Always the display name. */
+    value: string;
+    name: string;
+    /** Subtitle in the dropdown — email for real users, "legacy" tag otherwise. */
+    subtitle: string;
+    /** True for free-form names that have no matching SALES user account yet. */
+    legacy: boolean;
+};
 
 export async function listAccountManagersAction(): Promise<{ success: true; users: AmCandidate[] } | { success: false; error: string }> {
     const { role } = await ensureAuthenticated();
     if (role === 'VIDEO_EDITOR') return { success: false, error: 'Forbidden' };
 
-    const { data, error } = await supabase
-        .from('users')
-        .select('id, name, email, role, crm_status')
-        .in('role', ['ADMIN', 'ACCOUNT_MANAGER', 'SALES'])
-        .order('name', { ascending: true });
+    const [usersRes, legacyRes] = await Promise.all([
+        supabase
+            .from('users')
+            .select('id, name, email, role, crm_status')
+            .eq('role', 'SALES')
+            .order('name', { ascending: true }),
+        supabase
+            .from('edit_projects')
+            .select('account_manager')
+            .not('account_manager', 'is', null)
+            .order('updated_at', { ascending: false })
+            .limit(5000),
+    ]);
 
-    if (error) {
-        console.error('[listAccountManagersAction]', error);
-        return { success: false, error: error.message };
+    if (usersRes.error) {
+        console.error('[listAccountManagersAction] users', usersRes.error);
+        return { success: false, error: usersRes.error.message };
     }
 
-    const users = (data || [])
+    const real: AmCandidate[] = (usersRes.data || [])
         .filter((u: { crm_status: string | null }) => u.crm_status !== 'REVOKED')
-        .map((u: { id: string; name: string; email: string }) => ({ id: u.id, name: u.name, email: u.email }));
+        .map((u: { name: string; email: string }) => ({
+            value: u.name,
+            name: u.name,
+            subtitle: u.email,
+            legacy: false,
+        }));
 
-    return { success: true, users };
+    // Dedupe legacy names case-insensitively against the real list, sorted by frequency.
+    const realByName = new Set(real.map(u => u.name.toLowerCase()));
+    const counts = new Map<string, number>();
+    for (const row of (legacyRes.data || []) as { account_manager: string | null }[]) {
+        const name = (row.account_manager ?? '').trim();
+        if (!name) continue;
+        if (realByName.has(name.toLowerCase())) continue; // already in the real list
+        counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    const legacy: AmCandidate[] = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, n]) => ({
+            value: name,
+            name,
+            subtitle: `legacy · ${n}×`,
+            legacy: true,
+        }));
+
+    return { success: true, users: [...real, ...legacy] };
 }
 
 /**

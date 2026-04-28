@@ -134,9 +134,20 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
 export async function createEditProject(data: Record<string, unknown>) {
   const { userId } = await ensureAuthenticated();
 
+  // Default the project date to today when the caller doesn't provide one —
+  // matches the Notion-style "+ New" UX where the row appears with today
+  // already filled in (instead of an empty Date cell that needs editing).
+  const today = new Date().toISOString();
+  const seeded = {
+    ...data,
+    user_id: userId,
+    name: data.name || 'Untitled',
+    date: data.date ?? today,
+  };
+
   const { data: project, error } = await supabase
     .from('edit_projects')
-    .insert({ ...data, user_id: userId, name: data.name || 'Untitled' })
+    .insert(seeded)
     .select()
     .single();
 

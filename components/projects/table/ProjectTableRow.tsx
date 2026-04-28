@@ -70,7 +70,13 @@ function ProjectTableRow({ project, selected, onSelect, onUpdate, onOpen, onDupl
             editorId={(p as Record<string, unknown>).editorId as string | null ?? null}
             editorName={(p as Record<string, unknown>).assignedEditorName as string | null ?? null}
             legacyName={(p as Record<string, unknown>).editor as string | null ?? null}
-            onChange={v => onUpdate('editorId', v)}
+            onChange={(id, name) => {
+              // editorId is the real DB write. assignedEditorName is a derived
+              // display field (joined from users) — handleUpdate skips its DB
+              // write and just mutates local state for instant feedback.
+              onUpdate('editorId', id);
+              onUpdate('assignedEditorName', name);
+            }}
           />
         );
     }

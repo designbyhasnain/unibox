@@ -81,9 +81,15 @@ export default function ProjectsClient({ userRole }: { userRole?: string }) {
     }
   }, [projects, activeView]);
 
+  // Local-only fields are computed/joined for display and have no DB column —
+  // handleUpdate writes them straight into local state and skips the server
+  // round-trip. Currently: assignedEditorName (joined from users via editor_id).
+  const LOCAL_ONLY_FIELDS = new Set(['assignedEditorName']);
+
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleUpdate = useCallback(async (id: string, field: string, value: unknown) => {
     setProjects(prev => prev.map(p => p.id === id ? { ...p, [field]: value } as ProjectWithCommentCount : p));
+    if (LOCAL_ONLY_FIELDS.has(field)) return;
     const res = await updateEditProject(id, { [field]: value });
     if (!res.success) loadProjects(currentPage, true);
   }, [loadProjects, currentPage]);
