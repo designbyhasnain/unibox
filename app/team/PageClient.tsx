@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, updateUserRoleAction, deactivateUserAction, reactivateUserAction, setUserPasswordAction, deleteUserAction } from '../../src/actions/userManagementActions';
@@ -32,6 +32,11 @@ export default function TeamPage() {
     const [passwordError, setPasswordError] = useState('');
     const [passwordSuccess, setPasswordSuccess] = useState('');
 
+    // Recently-deleted IDs we don't trust the server about for ~5s. Defeats Supabase
+    // read-replica lag where a freshly DELETE'd row can briefly reappear on the next
+    // SELECT. Refs don't trigger re-renders or invalidate loadData's deps.
+    const pendingDeletesRef = useRef<Set<string>>(new Set());
+
     const loadData = useCallback(async () => {
         if (!teamCache) setIsLoading(true);
         try {
@@ -46,8 +51,9 @@ export default function TeamPage() {
                 return;
             }
             setCurrentUser(user);
-            const newUsers = userResult.success ? userResult.users : [];
-            const newInvites = inviteResult.success ? inviteResult.invitations : [];
+            const pending = pendingDeletesRef.current;
+            const newUsers = (userResult.success ? userResult.users : []).filter((u: any) => !pending.has(u.id));
+            const newInvites = (inviteResult.success ? inviteResult.invitations : []).filter((i: any) => !pending.has(i.id));
             const newAccounts = accountResult.success ? accountResult.accounts : [];
             setUsers(newUsers);
             setInvitations(newInvites);
@@ -163,31 +169,62 @@ export default function TeamPage() {
         loadData();
     };
 
-    // Optimistic permanent delete — row disappears immediately; rolls back on failure.
+    // Instant optimistic delete: state + module cache + localStorage all flip in the
+    // same React tick, then the server runs in the background. No post-success
+    // refetch (would risk the row reappearing on a stale read replica). pendingDeletesRef
+    // also guards any unrelated loadData() that fires within 5s.
     const handleDeleteUser = async (targetUserId: string) => {
         if (!confirm('Are you sure you want to permanently remove this member? This action cannot be undone.')) return;
         const snapshot = users;
-        setUsers(prev => prev.filter(u => u.id !== targetUserId));
-        const res = await deleteUserAction(targetUserId);
-        if (!res.success) {
-            setUsers(snapshot);
-            alert(res.error || 'Failed to delete user');
-            return;
+        const filtered = users.filter(u => u.id !== targetUserId);
+
+        pendingDeletesRef.current.add(targetUserId);
+        setUsers(filtered);
+        if (teamCache) {
+            teamCache = { ...teamCache, users: filtered };
+            saveToLocalCache('team_data', teamCache);
         }
-        loadData();
+
+        try {
+            const res = await deleteUserAction(targetUserId);
+            if (!res.success) throw new Error(res.error || 'Failed to delete user');
+            setTimeout(() => pendingDeletesRef.current.delete(targetUserId), 5000);
+        } catch (err: any) {
+            pendingDeletesRef.current.delete(targetUserId);
+            setUsers(snapshot);
+            if (teamCache) {
+                teamCache = { ...teamCache, users: snapshot };
+                saveToLocalCache('team_data', teamCache);
+            }
+            alert(err?.message || 'Failed to delete user');
+        }
     };
 
     const handleDeleteInvitation = async (id: string) => {
         if (!confirm('Are you sure you want to permanently remove this invitation? This action cannot be undone.')) return;
         const snapshot = invitations;
-        setInvitations(prev => prev.filter(i => i.id !== id));
-        const res = await deleteInvitationAction(id);
-        if (!res.success) {
-            setInvitations(snapshot);
-            alert(res.error || 'Failed to delete invitation');
-            return;
+        const filtered = invitations.filter(i => i.id !== id);
+
+        pendingDeletesRef.current.add(id);
+        setInvitations(filtered);
+        if (teamCache) {
+            teamCache = { ...teamCache, invitations: filtered };
+            saveToLocalCache('team_data', teamCache);
         }
-        loadData();
+
+        try {
+            const res = await deleteInvitationAction(id);
+            if (!res.success) throw new Error(res.error || 'Failed to delete invitation');
+            setTimeout(() => pendingDeletesRef.current.delete(id), 5000);
+        } catch (err: any) {
+            pendingDeletesRef.current.delete(id);
+            setInvitations(snapshot);
+            if (teamCache) {
+                teamCache = { ...teamCache, invitations: snapshot };
+                saveToLocalCache('team_data', teamCache);
+            }
+            alert(err?.message || 'Failed to delete invitation');
+        }
     };
 
     // Optimistic checkbox toggle — mutate assignedAccounts locally first.
