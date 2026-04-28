@@ -794,6 +794,10 @@ model EditProject {
   fileNeeded          String?          @map("file_needed")
   dataChecked         Boolean          @default(false) @map("data_checked")
 
+  /// URL to the editor's most recently uploaded cut — set by Upload Cut on the editor workstation.
+  /// SQL migration: `scripts/add-last-cut-url.sql` (idempotent).
+  lastCutUrl          String?          @map("last_cut_url")
+
   priority            ProjectPriority?
 
   briefDueDate        String?          @map("brief_due_date")

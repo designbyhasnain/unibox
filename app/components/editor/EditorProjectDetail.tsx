@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getEditorProjectDetail, type EditorProjectDetailData } from '../../../lib/projects/editorStats';
+import { getEditorProjectDetail, uploadCutAction, sendForReviewAction, type EditorProjectDetailData } from '../../../lib/projects/editorStats';
 
 const STATUS_MAP: Record<string, { label: string; dot: string; bar: string }> = {
     IN_PROGRESS: { label: 'EDITING',   dot: '#a78bfa', bar: 'linear-gradient(90deg,#8b5cf6,#f97316)' },
@@ -54,6 +54,10 @@ interface Props {
 export default function EditorProjectDetail({ projectId, onClose }: Props) {
     const [detail, setDetail] = useState<EditorProjectDetailData | null>(null);
     const [loading, setLoading] = useState(false);
+    const [showUpload, setShowUpload] = useState(false);
+    const [uploadUrl, setUploadUrl] = useState('');
+    const [submitting, setSubmitting] = useState<'upload' | 'review' | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
 
     const load = useCallback(async (id: string) => {
         setLoading(true);
@@ -65,19 +69,45 @@ export default function EditorProjectDetail({ projectId, onClose }: Props) {
 
     useEffect(() => {
         if (projectId) load(projectId);
-        else setDetail(null);
+        else { setDetail(null); setShowUpload(false); setUploadUrl(''); setActionError(null); }
     }, [projectId, load]);
 
     const open = !!projectId;
 
     function handleOpenPremiere() {
         if (!detail) return;
-        const url = detail.hardDrive || detail.rawDataUrl;
-        if (url && url.startsWith('http')) {
+        // Try the explicit raw data URL first (it's a true URL field), fall back
+        // to hard_drive in case the editor stored a URL there. If neither is a
+        // URL, show a clear message instead of a silent dead-click.
+        const candidates = [detail.rawDataUrl, detail.hardDrive].filter(Boolean) as string[];
+        const url = candidates.find(u => /^https?:\/\//i.test(u));
+        if (url) {
             window.open(url, '_blank', 'noopener,noreferrer');
         } else {
-            alert('No project link available yet.');
+            alert('No drive URL set for this project yet — ask the admin to add one.');
         }
+    }
+
+    async function handleUploadCut() {
+        if (!projectId) return;
+        setActionError(null);
+        setSubmitting('upload');
+        const res = await uploadCutAction(projectId, uploadUrl);
+        setSubmitting(null);
+        if (!res.success) { setActionError(res.error || 'Upload failed'); return; }
+        setUploadUrl('');
+        setShowUpload(false);
+        await load(projectId); // refresh comments so the editor sees their post
+    }
+
+    async function handleSendForReview() {
+        if (!projectId) return;
+        setActionError(null);
+        setSubmitting('review');
+        const res = await sendForReviewAction(projectId);
+        setSubmitting(null);
+        if (!res.success) { setActionError(res.error || 'Failed to send'); return; }
+        await load(projectId);
     }
 
     const status  = detail ? (STATUS_MAP[detail.progress] ?? { label: detail.progress, dot: '#6b7280', bar: '#6b7280' }) : null;
@@ -199,10 +229,51 @@ export default function EditorProjectDetail({ projectId, onClose }: Props) {
                                 <button className="epd-btn-premiere" onClick={handleOpenPremiere}>
                                     {PREMIERE_ICON} Open in Premiere
                                 </button>
-                                <button className="epd-btn-upload">{UPLOAD_ICON} Upload cut</button>
-                                <button className="epd-btn-review">{CHECK_ICON} Send for review</button>
+                                <button className="epd-btn-upload" onClick={() => { setShowUpload(true); setActionError(null); }}>
+                                    {UPLOAD_ICON} Upload cut
+                                </button>
+                                <button className="epd-btn-review" onClick={handleSendForReview} disabled={submitting === 'review'}>
+                                    {CHECK_ICON} {submitting === 'review' ? 'Sending…' : 'Send for review'}
+                                </button>
                             </div>
+
+                            {actionError && <div className="epd-action-error">{actionError}</div>}
                         </>
+                    )}
+
+                    {/* Upload Cut modal — inline so the drawer stays self-contained. */}
+                    {showUpload && (
+                        <div className="epd-modal-backdrop" onClick={() => !submitting && setShowUpload(false)}>
+                            <div className="epd-modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true">
+                                <div className="epd-modal-head">
+                                    <span className="epd-modal-title">Upload cut</span>
+                                    <button className="epd-close" onClick={() => setShowUpload(false)}>{CLOSE_ICON}</button>
+                                </div>
+                                <p className="epd-modal-sub">
+                                    Paste a Google Drive, Dropbox, Vimeo, or Frame.io link to your latest cut. The admin will see a comment on this project.
+                                </p>
+                                <input
+                                    className="epd-modal-input"
+                                    type="url"
+                                    placeholder="https://drive.google.com/…"
+                                    value={uploadUrl}
+                                    onChange={e => setUploadUrl(e.target.value)}
+                                    autoFocus
+                                    onKeyDown={e => { if (e.key === 'Enter' && uploadUrl.trim()) handleUploadCut(); }}
+                                />
+                                {actionError && <div className="epd-modal-error">{actionError}</div>}
+                                <div className="epd-modal-actions">
+                                    <button className="epd-modal-cancel" onClick={() => setShowUpload(false)} disabled={!!submitting}>Cancel</button>
+                                    <button
+                                        className="epd-modal-submit"
+                                        onClick={handleUploadCut}
+                                        disabled={!uploadUrl.trim() || submitting === 'upload'}
+                                    >
+                                        {submitting === 'upload' ? 'Uploading…' : 'Send to admin'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     )}
 
                     {!loading && !detail && projectId && (

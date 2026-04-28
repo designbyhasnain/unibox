@@ -15,6 +15,7 @@ export type EditorTodayProject = {
     dueDate: string | null;
     sizeInGbs: string | null;
     hardDrive: string | null;
+    rawDataUrl: string | null;
     workingHours: number;
     actualHours: number;
     dataChecked: boolean;
@@ -41,7 +42,7 @@ export async function getEditorTodayData(): Promise<EditorTodayData> {
 
     const { data: projects } = await supabase
         .from('edit_projects')
-        .select('id, name, client_name, progress, formula_percent, due_date, size_in_gbs, hard_drive, working_hours, actual_hours, data_checked, priority')
+        .select('id, name, client_name, progress, formula_percent, due_date, size_in_gbs, hard_drive, raw_data_url, working_hours, actual_hours, data_checked, priority')
         .eq('user_id', userId)
         .in('progress', ACTIVE)
         .order('due_date', { ascending: true, nullsFirst: false });
@@ -98,6 +99,7 @@ export async function getEditorTodayData(): Promise<EditorTodayData> {
         dueDate: p.due_date as string | null,
         sizeInGbs: p.size_in_gbs as string | null,
         hardDrive: p.hard_drive as string | null,
+        rawDataUrl: p.raw_data_url as string | null,
         workingHours: (p.working_hours as number) || 0,
         actualHours: (p.actual_hours as number) || 0,
         dataChecked: (p.data_checked as boolean) || false,
@@ -492,4 +494,233 @@ export async function getEditorDashboardStats(): Promise<EditorStats> {
     const weeklyCompleted = weekLabels.map(w => ({ week: w, count: weekBuckets[w] ?? 0 }));
 
     return { assigned, inProgress, inReview, done, deadlines: upcoming, weeklyCompleted };
+}
+
+/* ── Footage Library ────────────────────────────────────── */
+
+export type EditorFootageProject = {
+    id: string;
+    name: string;
+    clientName: string | null;
+    hardDrive: string | null;
+    rawDataUrl: string | null;
+    sizeInGbs: string | null;
+    sizeBytes: number;
+    progress: string;
+    status: 'SYNCED' | 'PENDING';
+    isOpenable: boolean;
+};
+
+export type EditorFootageData = {
+    projects: EditorFootageProject[];
+    totalSizeLabel: string;
+    bucketCount: number;
+    pendingCount: number;
+};
+
+// Best-effort parser for the free-form size_in_gbs column ("1.2 TB", "340", "0").
+// Returns the size in bytes. Anything unparseable → 0.
+function parseSize(raw: string | null): number {
+    if (!raw) return 0;
+    const m = String(raw).trim().match(/([\d.]+)\s*(TB|GB|MB|KB|B)?/i);
+    if (!m || !m[1]) return 0;
+    const n = parseFloat(m[1]);
+    if (!Number.isFinite(n)) return 0;
+    const unit = (m[2] || 'GB').toUpperCase();
+    const mul =
+        unit === 'TB' ? 1024 ** 4 :
+        unit === 'GB' ? 1024 ** 3 :
+        unit === 'MB' ? 1024 ** 2 :
+        unit === 'KB' ? 1024 :
+        1;
+    return n * mul;
+}
+
+function formatSize(bytes: number): string {
+    if (!bytes || bytes < 1) return '—';
+    if (bytes >= 1024 ** 4) return (bytes / 1024 ** 4).toFixed(1) + ' TB';
+    if (bytes >= 1024 ** 3) return Math.round(bytes / 1024 ** 3) + ' GB';
+    if (bytes >= 1024 ** 2) return Math.round(bytes / 1024 ** 2) + ' MB';
+    return Math.round(bytes / 1024) + ' KB';
+}
+
+export async function getEditorFootageData(): Promise<EditorFootageData> {
+    const { userId } = await ensureAuthenticated();
+
+    const { data: projects } = await supabase
+        .from('edit_projects')
+        .select('id, name, client_name, hard_drive, raw_data_url, size_in_gbs, progress')
+        .eq('user_id', userId)
+        .in('progress', ['IN_PROGRESS', 'IN_REVISION', 'DOWNLOADING', 'DOWNLOADED', 'ON_HOLD', 'APPROVED', 'DONE'])
+        .order('created_at', { ascending: false });
+
+    const all = projects || [];
+    let totalBytes = 0;
+    let pendingCount = 0;
+
+    const result: EditorFootageProject[] = all.map(p => {
+        const hd = p.hard_drive as string | null;
+        const url = p.raw_data_url as string | null;
+        const size = p.size_in_gbs as string | null;
+        const sizeBytes = parseSize(size);
+        totalBytes += sizeBytes;
+        // "synced" = we have somewhere to point the editor (URL or labelled drive)
+        const status: 'SYNCED' | 'PENDING' = (hd || url) ? 'SYNCED' : 'PENDING';
+        if (status === 'PENDING') pendingCount++;
+        const openableUrl = (url && /^https?:\/\//i.test(url)) ? url : (hd && /^https?:\/\//i.test(hd) ? hd : null);
+        return {
+            id: p.id as string,
+            name: p.name as string,
+            clientName: p.client_name as string | null,
+            hardDrive: hd,
+            rawDataUrl: url,
+            sizeInGbs: size,
+            sizeBytes,
+            progress: p.progress as string,
+            status,
+            isOpenable: !!openableUrl,
+        };
+    });
+
+    return {
+        projects: result,
+        totalSizeLabel: formatSize(totalBytes),
+        bucketCount: result.length,
+        pendingCount,
+    };
+}
+
+/* ── Brand Guides ───────────────────────────────────────── */
+
+export type EditorBrandGuide = {
+    clientName: string;
+    projectCount: number;
+    briefLength: string | null;
+    songPreferences: string | null;
+    software: string | null;
+    notes: string | null;
+    latestProjectName: string;
+};
+
+export async function getEditorBrandGuidesData(): Promise<{ guides: EditorBrandGuide[] }> {
+    const { userId } = await ensureAuthenticated();
+
+    const { data: projects } = await supabase
+        .from('edit_projects')
+        .select('id, name, client_name, brief_length, song_preferences, software, notes, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+    const all = projects || [];
+    // Group by client_name; pick the newest non-empty value for each meta field.
+    const byClient = new Map<string, EditorBrandGuide>();
+    for (const p of all) {
+        const client = (p.client_name as string | null)?.trim();
+        if (!client) continue;
+        let g = byClient.get(client);
+        if (!g) {
+            g = {
+                clientName: client,
+                projectCount: 0,
+                briefLength: null,
+                songPreferences: null,
+                software: null,
+                notes: null,
+                latestProjectName: p.name as string,
+            };
+            byClient.set(client, g);
+        }
+        g.projectCount += 1;
+        // Newest first because of ORDER BY desc → keep first non-empty value.
+        if (!g.briefLength && p.brief_length) g.briefLength = p.brief_length as string;
+        if (!g.songPreferences && p.song_preferences) g.songPreferences = p.song_preferences as string;
+        if (!g.software && p.software) g.software = p.software as string;
+        if (!g.notes && p.notes) g.notes = (p.notes as string).slice(0, 220);
+    }
+
+    return { guides: [...byClient.values()].sort((a, b) => b.projectCount - a.projectCount) };
+}
+
+/* ── Upload Cut ─────────────────────────────────────────── */
+
+export async function uploadCutAction(projectId: string, url: string): Promise<{ success: boolean; error?: string }> {
+    const { userId } = await ensureAuthenticated();
+
+    const trimmed = (url || '').trim();
+    if (!trimmed) return { success: false, error: 'URL is required' };
+    if (!/^https?:\/\//i.test(trimmed)) return { success: false, error: 'URL must start with http:// or https://' };
+
+    // Verify the editor owns this project. Prevents one editor uploading cuts to another's project.
+    const { data: project } = await supabase
+        .from('edit_projects')
+        .select('id, name, user_id')
+        .eq('id', projectId)
+        .eq('user_id', userId)
+        .maybeSingle();
+    if (!project) return { success: false, error: 'Project not found or not assigned to you' };
+
+    const session = await getSession();
+    const authorName = session?.name || 'Editor';
+
+    // Primary delivery: a comment on the project. Admins see this in the project
+    // detail panel and on the Revisions / Today feed.
+    const { error: cErr } = await supabase
+        .from('project_comments')
+        .insert({
+            project_id: projectId,
+            author_id: userId,
+            author_name: authorName,
+            content: `📹 New cut uploaded — ${trimmed}`,
+        });
+    if (cErr) {
+        console.error('[uploadCutAction] failed to insert comment', cErr);
+        return { success: false, error: 'Failed to save cut. Try again.' };
+    }
+
+    // Secondary: store the URL on the project row for quick retrieval. The column
+    // is added by scripts/add-last-cut-url.sql — if the migration hasn't been
+    // applied yet, this silently no-ops so the comment delivery still succeeds.
+    const { error: uErr } = await supabase
+        .from('edit_projects')
+        .update({ last_cut_url: trimmed })
+        .eq('id', projectId)
+        .eq('user_id', userId);
+    if (uErr) {
+        console.warn('[uploadCutAction] last_cut_url column not present (run scripts/add-last-cut-url.sql)', uErr.message);
+    }
+
+    return { success: true };
+}
+
+/**
+ * Editor → admin signal: "I think this cut is ready for review." We don't move
+ * progress automatically (that's the admin's call) — we drop a comment that the
+ * admin will see in the Revisions inbox + the project's feedback thread.
+ */
+export async function sendForReviewAction(projectId: string, note?: string): Promise<{ success: boolean; error?: string }> {
+    const { userId } = await ensureAuthenticated();
+
+    const { data: project } = await supabase
+        .from('edit_projects')
+        .select('id, user_id')
+        .eq('id', projectId)
+        .eq('user_id', userId)
+        .maybeSingle();
+    if (!project) return { success: false, error: 'Project not found or not assigned to you' };
+
+    const session = await getSession();
+    const authorName = session?.name || 'Editor';
+    const trimmed = (note || '').trim();
+    const content = trimmed
+        ? `🚀 Sent for review — ${trimmed}`
+        : '🚀 Sent for review — latest cut is ready for the admin to review.';
+
+    const { error } = await supabase
+        .from('project_comments')
+        .insert({ project_id: projectId, author_id: userId, author_name: authorName, content });
+    if (error) {
+        console.error('[sendForReviewAction] insert failed', error);
+        return { success: false, error: 'Failed to send. Try again.' };
+    }
+    return { success: true };
 }

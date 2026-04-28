@@ -114,9 +114,11 @@ function DeskCard({
 
     function handlePremiere(e: React.MouseEvent) {
         e.stopPropagation();
-        const url = project.hardDrive;
-        if (url && url.startsWith('http')) window.open(url, '_blank', 'noopener,noreferrer');
-        else onSelect(); // fall back to opening detail panel
+        // Match the drawer's resolution order: real URL field first, drive label fallback.
+        const candidates = [project.rawDataUrl, project.hardDrive].filter(Boolean) as string[];
+        const url = candidates.find(u => /^https?:\/\//i.test(u));
+        if (url) window.open(url, '_blank', 'noopener,noreferrer');
+        else onSelect(); // No URL set — open detail panel so admin can be notified.
     }
 
     return (
@@ -174,10 +176,23 @@ export default function EditorTodayView() {
     const [data, setData]           = useState<EditorTodayData | null>(null);
     const [loading, setLoading]     = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [syncing, setSyncing] = useState(false);
 
-    useEffect(() => {
-        getEditorTodayData().then(d => { setData(d); setLoading(false); });
-    }, []);
+    const reload = async () => {
+        const d = await getEditorTodayData();
+        setData(d);
+        setLoading(false);
+    };
+
+    useEffect(() => { reload(); }, []);
+
+    const handleSync = async () => {
+        if (syncing) return;
+        setSyncing(true);
+        await reload();
+        // Brief visual feedback before re-enabling the button.
+        setTimeout(() => setSyncing(false), 600);
+    };
 
     if (loading) {
         return (
@@ -214,7 +229,9 @@ export default function EditorTodayView() {
                     </p>
                 </div>
                 <div className="ed-header-actions">
-                    <button className="ed-btn-ghost">{ICONS.sync} Sync footage</button>
+                    <button className="ed-btn-ghost" onClick={handleSync} disabled={syncing} title="Refresh project data">
+                        {ICONS.sync} {syncing ? 'Syncing…' : 'Sync footage'}
+                    </button>
                     <button className="ed-btn-primary" onClick={() => router.push('/my-queue')}>{ICONS.arrow} View all jobs</button>
                 </div>
             </div>
