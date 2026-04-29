@@ -580,6 +580,8 @@ All cron routes accept both POST (QStash signed) and GET (Vercel Cron with `Bear
 11. **`jarvis_feedback` and `jarvis_knowledge` are raw Supabase tables**, not modeled in Prisma — queries use the Supabase client directly.
 12. **Supabase Storage `avatars` bucket is created lazily** on first persona upload via `ensureAvatarsBucket()` in `accountActions.ts`. It is **public** so email clients can fetch `<img>` URLs we stuff into HTML bodies. Images live under `personas/{ts}-{rand}.{ext}`. The bucket is not tracked in Prisma.
 13. **Gmail inbox avatars are a Gravatar thing, not ours.** Our `profile_image` column only drives in-app display (Accounts page, sender row) and optional inline signatures. Recipients (Gmail/Outlook) will only show a sender photo if the email owner has that same image on Gravatar. The Persona modal surfaces this as a copy-email hint.
+14. **Theme toggle is `body[data-theme="light"]`, not `.dark` on html.** `:root` (html) holds the dark defaults; `[data-theme="light"]` only matches body, set by `themeScript` in `app/layout.tsx` from `localStorage.unibox_theme`. **Trap:** legacy alias tokens like `--bg-surface: var(--shell)` declared on `:root` get computed at html — where `[data-theme="light"]` doesn't match — so they freeze to the dark `--shell` value and inherit DARK to every descendant in light mode (silently breaking `.ep-page`, skeleton cards, search inputs). The fix lives in `globals.css` lines 219–278: every legacy alias that depends on a theme-swapping token must be **re-declared inside `[data-theme="light"]`** so it re-evaluates at body. When adding new aliases that wrap theme tokens, redeclare in both blocks.
+15. **Editor pages (`.ed-today`, `.fl-page`, `.bg-page`) are theme-aware as of 2026-04-29.** Previously they hardcoded `#0F0F11/#1A1A1E/#2a2a30/#f3f4f6/#9ca3af` which made them stay dark even in light mode. They now use `var(--canvas)` (wrapper), `var(--surface)` (cards), `var(--hairline)` (borders), `var(--ink)` / `var(--ink-muted)` (text), `var(--accent)` (purple). Status pills use `color-mix(in oklab, var(--coach), transparent 88%)` style rather than hardcoded rgba.
 
 ---
 
@@ -725,7 +727,7 @@ All server actions return `{ success: boolean; data?: T; error?: string }`. Pagi
 
 ---
 
-_Last audited: 2026-04-26 (AM credit & ownership separation — schema lock + transfer chokepoint + dual-ownership UI). Previous audit: 2026-04-25 (inbox AM display fix + Jarvis Reply/Coach mode-detection fix + Gloy proxy swap)._
+_Last audited: 2026-04-29 (theme integrity overhaul — legacy alias re-declaration in light theme + editor pages migrated to tokens). Previous audit: 2026-04-26 (AM credit & ownership separation — schema lock + transfer chokepoint + dual-ownership UI)._
 
 **Build 2026-04-26 — AM Credit & Ownership separation. Full design in [`docs/AM-CREDIT-AND-OWNERSHIP-SCOPE.md`](docs/AM-CREDIT-AND-OWNERSHIP-SCOPE.md).**
 - **Principle**: Historical credit (`projects.account_manager_id`) is immutable once `paid_status='PAID'`. Current ownership (`contacts.account_manager_id`) is mutable and moves with reassignments. Two facts, two fields, never conflated.
