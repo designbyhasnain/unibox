@@ -327,7 +327,7 @@ export default function JarvisPage() {
     return (
         <>
             <style>{`
-.jv{height:100%;display:flex;flex-direction:column;background:#09090b;font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.jv{height:100%;display:flex;flex-direction:column;background:var(--canvas);font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 .jv-hd{padding:16px 24px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:12px;flex-shrink:0}
 .jv-logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent));display:flex;align-items:center;justify-content:center;font-size:20px;position:relative}
 .jv-pulse{position:absolute;inset:-3px;border-radius:14px;border:2px solid transparent;animation:jvPulse 2s ease infinite}
@@ -361,22 +361,22 @@ export default function JarvisPage() {
 .jv-chip:hover{border-color:var(--accent);color:var(--accent);background:rgba(14,165,233,.08)}
 .msg{max-width:85%;padding:14px 18px;border-radius:14px;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
 .msg-user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
-.msg-assistant{align-self:flex-start;background:#18181b;color:#e4e4e7;border:1px solid rgba(255,255,255,.06);border-bottom-left-radius:4px}
+.msg-assistant{align-self:flex-start;background:var(--surface);color:var(--ink);border:1px solid var(--hairline-soft);border-bottom-left-radius:4px}
 .msg-tools{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
-.msg-tool{font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(14,165,233,.15);color:#38bdf8;font-weight:600;letter-spacing:.03em}
+.msg-tool{font-size:9px;padding:2px 8px;border-radius:4px;background:color-mix(in oklab, var(--info), transparent 80%);color:var(--info);font-weight:600;letter-spacing:.03em}
 .msg-time{font-size:9px;color:var(--surface-2);margin-top:4px}
 .msg-speak{margin-top:6px;background:none;border:1px solid rgba(255,255,255,.1);color:var(--ink-muted);padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;transition:all .15s}
 .msg-speak:hover{border-color:var(--accent);color:var(--accent)}
 
 /* Input */
 .jv-input-wrap{padding:12px 24px 16px;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0}
-.jv-input-box{display:flex;align-items:flex-end;gap:8px;background:#18181b;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:8px 12px;transition:border-color .15s}
+.jv-input-box{display:flex;align-items:flex-end;gap:8px;background:var(--surface);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:8px 12px;transition:border-color .15s}
 .jv-input-box:focus-within{border-color:var(--accent)}
 .jv-textarea{flex:1;background:none;border:none;color:var(--shell);font-size:14px;font-family:inherit;resize:none;outline:none;max-height:120px;line-height:1.5}
 .jv-textarea::placeholder{color:var(--surface-2)}
 .jv-mode-btn{background:var(--surface);border:none;border-radius:6px;padding:6px 10px;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;letter-spacing:.04em;transition:all .15s}
 .jv-send{width:36px;height:36px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s}
-.jv-send:hover{background:#0284c7}
+.jv-send:hover{background:var(--accent-ink)}
 .jv-send:disabled{background:var(--surface);color:var(--ink-2);cursor:not-allowed}
 .jv-mic{width:36px;height:36px;border-radius:8px;border:none;background:var(--surface);color:var(--ink-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;font-size:16px}
 .jv-mic:hover{background:var(--info);color:#fff}

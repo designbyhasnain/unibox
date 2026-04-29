@@ -1230,7 +1230,7 @@ export default function AccountsPage() {
                 .acct-warning-yellow {
                     background: rgba(234,179,8,0.07);
                     border: 1px solid rgba(234,179,8,0.18);
-                    color: #a16207;
+                    color: var(--warn);
                 }
                 .acct-sync-progress {
                     margin-top: 16px;
@@ -1283,7 +1283,7 @@ export default function AccountsPage() {
                     flex-shrink: 0;
                 }
                 .acct-modal-option-icon--oauth {
-                    background: #fff;
+                    background: #fff; /* white badge holds Google logo SVG — must stay white for brand parity */
                 }
                 .acct-modal-option-icon--manual {
                     background: var(--bg-tertiary);
