@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useGlobalFilter } from '../context/FilterContext';
 import { logoutAction, getCurrentUserAction } from '../../src/actions/authActions';
+import AccountSettingsModal from './AccountSettingsModal';
 
 /* ── 15×15 SVG icons matching design prototype ── */
 const Icon = {
@@ -55,22 +56,34 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
     const [userRole, setUserRole] = React.useState<string | null>(null);
     const [userName, setUserName] = React.useState('');
+    const [userAvatarUrl, setUserAvatarUrl] = React.useState<string | null>(null);
     const [mounted, setMounted] = React.useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
+    const [showAccountSettings, setShowAccountSettings] = React.useState(false);
+
+    const refreshProfile = React.useCallback(() => {
+        getCurrentUserAction().then(session => {
+            if (session) {
+                setUserRole(session.role);
+                setUserName(session.name || '');
+                setUserAvatarUrl(session.avatarUrl || null);
+                try { localStorage.setItem('unibox_user_role', session.role); } catch {}
+                try { localStorage.setItem('unibox_user_name', session.name || ''); } catch {}
+                try {
+                    if (session.avatarUrl) localStorage.setItem('unibox_user_avatar', session.avatarUrl);
+                    else localStorage.removeItem('unibox_user_avatar');
+                } catch {}
+            }
+        });
+    }, []);
 
     React.useEffect(() => {
         setMounted(true);
         try { const cached = localStorage.getItem('unibox_user_role'); if (cached) setUserRole(cached); } catch {}
         try { const cached = localStorage.getItem('unibox_user_name'); if (cached) setUserName(cached); } catch {}
-        getCurrentUserAction().then(session => {
-            if (session) {
-                setUserRole(session.role);
-                setUserName(session.name || '');
-                try { localStorage.setItem('unibox_user_role', session.role); } catch {}
-                try { localStorage.setItem('unibox_user_name', session.name || ''); } catch {}
-            }
-        });
-    }, []);
+        try { const cached = localStorage.getItem('unibox_user_avatar'); if (cached) setUserAvatarUrl(cached); } catch {}
+        refreshProfile();
+    }, [refreshProfile]);
 
     const [actionCount, setActionCount] = React.useState(0);
     React.useEffect(() => {
@@ -259,40 +272,41 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                     </div>
                 </div>
 
-                {/* Editor user card */}
-                {isEditor && mounted && (
-                    <div className="sb-account-filter">
-                        <div className="sb-avatar av-e">{initials}</div>
+                {/* User profile card — shows the LOGGED-IN USER's name + avatar
+                    from the users table, NOT a Gmail persona. Click opens the
+                    Account Settings modal (display name + change password). */}
+                {mounted && (
+                    <button
+                        type="button"
+                        className="sb-account-filter"
+                        onClick={() => setShowAccountSettings(true)}
+                        title="Account settings"
+                        style={{ font: 'inherit', textAlign: 'left', cursor: 'pointer' }}
+                    >
+                        {userAvatarUrl
+                            ? <img src={userAvatarUrl} alt={userName || 'You'} className="sb-avatar sb-avatar-img" referrerPolicy="no-referrer" />
+                            : <div className="sb-avatar av-e">{initials}</div>}
                         <div className="sb-meta">
-                            <div className="sb-name">{userName || 'Editor'}</div>
+                            <div className="sb-name">{userName || (isEditor ? 'Editor' : 'User')}</div>
                             <div className="sb-sub">
-                                {editorActiveCount > 0 ? `${editorActiveCount} active jobs · ` : ''}Editor
+                                {isEditor
+                                    ? (editorActiveCount > 0 ? `${editorActiveCount} active jobs · Editor` : 'Editor')
+                                    : accountLabel}
                             </div>
                         </div>
                         {Icon.chevDown}
-                    </div>
-                )}
-
-                {/* Account filter / user card */}
-                {!isEditor && mounted && (
-                    <div className="sb-account-filter">
-                        {(() => {
-                            const primary = selectedAccountId !== 'ALL'
-                                ? accounts.find((a: any) => a.id === selectedAccountId)
-                                : accounts[0];
-                            const pic = (primary as any)?.profile_image;
-                            return pic
-                                ? <img src={pic} alt={(primary as any)?.display_name || (primary as any)?.email || 'Account'} className="sb-avatar sb-avatar-img" referrerPolicy="no-referrer" />
-                                : <div className="sb-avatar av-e">{initials}</div>;
-                        })()}
-                        <div className="sb-meta">
-                            <div className="sb-name">{userName || 'User'}</div>
-                            <div className="sb-sub">{accountLabel}</div>
-                        </div>
-                        {Icon.chevDown}
-                    </div>
+                    </button>
                 )}
             </aside>
+
+            {/* Account Settings — controlled here so any page surface can
+                trigger via the sidebar profile button. */}
+            {showAccountSettings && (
+                <AccountSettingsModal
+                    onClose={() => setShowAccountSettings(false)}
+                    onUpdated={refreshProfile}
+                />
+            )}
 
             {/* Logout confirm */}
             {showLogoutConfirm && (

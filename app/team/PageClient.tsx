@@ -32,6 +32,7 @@ export default function TeamPage() {
     const [passwordModal, setPasswordModal] = useState<{ userId: string; name: string } | null>(null);
     const [passwordForm, setPasswordForm] = useState({ password: '', confirm: '' });
     const [passwordError, setPasswordError] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [passwordSuccess, setPasswordSuccess] = useState('');
 
     // Recently-deleted IDs we don't trust the server about for ~5s. Defeats Supabase
@@ -403,9 +404,12 @@ export default function TeamPage() {
                                                     }}>
                                                         {user.password ? 'Set \u2713' : 'Not set'}
                                                     </span>
-                                                    <button onClick={() => { setPasswordModal({ userId: user.id, name: user.name }); setPasswordForm({ password: '', confirm: '' }); setPasswordError(''); setPasswordSuccess(''); }}
-                                                        style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
-                                                        Set
+                                                    <button
+                                                        onClick={() => { setPasswordModal({ userId: user.id, name: user.name }); setPasswordForm({ password: '', confirm: '' }); setPasswordError(''); setPasswordSuccess(''); }}
+                                                        style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                                                        title={user.password ? `Reset ${user.name}'s password` : `Set initial password for ${user.name}`}
+                                                    >
+                                                        {user.password ? 'Reset password' : 'Set password'}
                                                     </button>
                                                 </div>
                                             </td>
@@ -661,12 +665,20 @@ export default function TeamPage() {
                                 )}
                                 <div style={{ marginBottom: 16 }}>
                                     <label style={labelStyle}>New Password</label>
-                                    <input type="password" value={passwordForm.password} onChange={e => setPasswordForm(f => ({ ...f, password: e.target.value }))}
-                                        placeholder="Min 8 characters" style={inputStyle} autoComplete="new-password" />
+                                    <div style={{ position: 'relative' }}>
+                                        <input type={showPassword ? 'text' : 'password'} value={passwordForm.password}
+                                            onChange={e => setPasswordForm(f => ({ ...f, password: e.target.value }))}
+                                            placeholder="Min 8 characters" style={{ ...inputStyle, paddingRight: 40 }} autoComplete="new-password" />
+                                        <button type="button" onClick={() => setShowPassword(s => !s)}
+                                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-muted)', padding: 4, display: 'flex' }}>
+                                            {showPassword ? '🙈' : '👁'}
+                                        </button>
+                                    </div>
                                 </div>
                                 <div style={{ marginBottom: 16 }}>
                                     <label style={labelStyle}>Confirm Password</label>
-                                    <input type="password" value={passwordForm.confirm} onChange={e => setPasswordForm(f => ({ ...f, confirm: e.target.value }))}
+                                    <input type={showPassword ? 'text' : 'password'} value={passwordForm.confirm} onChange={e => setPasswordForm(f => ({ ...f, confirm: e.target.value }))}
                                         placeholder="Re-enter password" style={inputStyle} autoComplete="new-password" />
                                 </div>
                                 <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
