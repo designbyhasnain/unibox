@@ -60,6 +60,79 @@ export async function updateOwnNameAction(newName: string) {
 }
 
 /**
+ * Upload + set the currently logged-in user's avatar. Saves the file to the
+ * shared `avatars` Supabase bucket under users/{userId}/... and writes the
+ * resulting public URL to users.avatar_url. Returns the new URL on success.
+ *
+ * Strictly self-service — the userId comes from the authenticated session,
+ * not the form. There's no path for one user to overwrite another's avatar.
+ */
+const AVATARS_BUCKET = 'avatars';
+const ALLOWED_AVATAR_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024; // 5 MB
+
+async function ensureAvatarsBucketSelfService(): Promise<void> {
+    const { data: existing } = await supabase.storage.getBucket(AVATARS_BUCKET);
+    if (existing) return;
+    const { error } = await supabase.storage.createBucket(AVATARS_BUCKET, {
+        public: true,
+        fileSizeLimit: MAX_AVATAR_BYTES,
+        allowedMimeTypes: ALLOWED_AVATAR_MIME,
+    });
+    if (error && !/already exists/i.test(error.message)) {
+        throw new Error(`Failed to create avatars bucket: ${error.message}`);
+    }
+}
+
+export async function uploadOwnAvatarAction(
+    formData: FormData
+): Promise<{ success: boolean; url?: string; error?: string }> {
+    const session = await getSession();
+    if (!session) return { success: false, error: 'Not authenticated' };
+
+    const file = formData.get('file');
+    if (!(file instanceof File)) return { success: false, error: 'No file uploaded' };
+    if (file.size > MAX_AVATAR_BYTES) return { success: false, error: 'Image too large (max 5 MB)' };
+    if (!ALLOWED_AVATAR_MIME.includes(file.type)) {
+        return { success: false, error: 'Only JPG, PNG, WebP, GIF accepted' };
+    }
+
+    try {
+        await ensureAvatarsBucketSelfService();
+
+        const ext = (file.name.split('.').pop() || 'img').toLowerCase().replace(/[^a-z0-9]/g, '');
+        // Per-user folder so we can rotate images without leaking across accounts.
+        const path = `users/${session.userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext || 'img'}`;
+        const bytes = Buffer.from(await file.arrayBuffer());
+
+        const { error: uploadError } = await supabase.storage
+            .from(AVATARS_BUCKET)
+            .upload(path, bytes, {
+                contentType: file.type,
+                cacheControl: '31536000',
+                upsert: false,
+            });
+        if (uploadError) return { success: false, error: uploadError.message };
+
+        const { data: pub } = supabase.storage.from(AVATARS_BUCKET).getPublicUrl(path);
+        const url = pub.publicUrl;
+
+        const { error: updateError } = await supabase
+            .from('users')
+            .update({ avatar_url: url })
+            .eq('id', session.userId);
+        if (updateError) {
+            console.error('[uploadOwnAvatarAction] DB update failed', updateError);
+            return { success: false, error: 'Uploaded but failed to save URL' };
+        }
+
+        return { success: true, url };
+    } catch (e: any) {
+        return { success: false, error: e?.message || 'Upload failed' };
+    }
+}
+
+/**
  * Change the currently logged-in user's password. Requires the current
  * password to authenticate the change (defense-in-depth — even if a session
  * is hijacked, the attacker still can't lock the legitimate user out).

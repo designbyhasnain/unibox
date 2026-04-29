@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Eye, EyeOff, X, Check } from 'lucide-react';
-import { updateOwnNameAction, changeOwnPasswordAction, getCurrentUserAction } from '../../src/actions/authActions';
+import { useState, useEffect, useRef } from 'react';
+import { Eye, EyeOff, X, Check, Camera, Loader2 } from 'lucide-react';
+import { updateOwnNameAction, changeOwnPasswordAction, uploadOwnAvatarAction, getCurrentUserAction } from '../../src/actions/authActions';
 import { useUndoToast } from '../context/UndoToastContext';
 
 interface Props {
@@ -20,8 +20,12 @@ export default function AccountSettingsModal({ onClose, onUpdated }: Props) {
     const [name, setName] = useState('');
     const [originalName, setOriginalName] = useState('');
     const [email, setEmail] = useState('');
+    const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
     const [savingName, setSavingName] = useState(false);
     const [nameSaved, setNameSaved] = useState(false);
+    const [uploadingAvatar, setUploadingAvatar] = useState(false);
+    const [avatarError, setAvatarError] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Password
     const [currentPassword, setCurrentPassword] = useState('');
@@ -39,9 +43,59 @@ export default function AccountSettingsModal({ onClose, onUpdated }: Props) {
                 setName(u.name || '');
                 setOriginalName(u.name || '');
                 setEmail(u.email || '');
+                setAvatarUrl(u.avatarUrl || null);
             }
         });
     }, []);
+
+    const initials = (name || email || '?').split(/[ @]/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+
+    const handlePickAvatar = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setAvatarError(null);
+
+        // Quick client-side guard so the user gets instant feedback before
+        // we even hit the server.
+        if (file.size > 5 * 1024 * 1024) { setAvatarError('Image too large (max 5 MB)'); return; }
+        if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+            setAvatarError('Use JPG, PNG, WebP or GIF'); return;
+        }
+
+        // Optimistic preview while uploading — we read the file as a data URL
+        // so the new image shows immediately, then swap to the real CDN URL
+        // when the upload finishes.
+        const localPreview = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+        setAvatarUrl(localPreview);
+
+        setUploadingAvatar(true);
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await uploadOwnAvatarAction(fd);
+        setUploadingAvatar(false);
+
+        if (res.success && res.url) {
+            setAvatarUrl(res.url);
+            try { localStorage.setItem('unibox_user_avatar', res.url); } catch {}
+            onUpdated?.();
+        } else {
+            // Roll back preview to whatever was on the user before the picker.
+            setAvatarUrl(prev => prev?.startsWith('data:') ? null : prev);
+            setAvatarError(res.error || 'Upload failed');
+            showError(`Couldn't upload avatar: ${res.error || 'unknown error'}`);
+        }
+        // Allow re-uploading the same filename later by clearing the input.
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
 
     const handleSaveName = async () => {
         if (!name.trim() || name === originalName) return;
@@ -136,6 +190,81 @@ export default function AccountSettingsModal({ onClose, onUpdated }: Props) {
                 <div style={{ padding: 20 }}>
                     {tab === 'profile' && (
                         <>
+                            <Field label="Profile photo">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                                    <button
+                                        type="button"
+                                        onClick={handlePickAvatar}
+                                        disabled={uploadingAvatar}
+                                        aria-label="Change profile photo"
+                                        style={{
+                                            position: 'relative',
+                                            width: 64, height: 64, borderRadius: '50%',
+                                            border: '1px solid var(--hairline)',
+                                            background: avatarUrl ? 'transparent' : 'var(--surface-2)',
+                                            color: 'var(--ink-muted)',
+                                            display: 'grid', placeItems: 'center',
+                                            cursor: uploadingAvatar ? 'wait' : 'pointer',
+                                            overflow: 'hidden',
+                                            padding: 0,
+                                            flexShrink: 0,
+                                        }}
+                                    >
+                                        {avatarUrl ? (
+                                            <img
+                                                src={avatarUrl}
+                                                alt={name || 'You'}
+                                                referrerPolicy="no-referrer"
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            />
+                                        ) : (
+                                            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink-2)' }}>{initials}</span>
+                                        )}
+                                        {uploadingAvatar && (
+                                            <span style={{
+                                                position: 'absolute', inset: 0,
+                                                background: 'color-mix(in oklab, var(--canvas), transparent 25%)',
+                                                display: 'grid', placeItems: 'center',
+                                            }}>
+                                                <Loader2 size={20} style={{ animation: 'jarvis-spin 0.9s linear infinite', color: 'var(--ink)' }} />
+                                            </span>
+                                        )}
+                                    </button>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <button
+                                            type="button"
+                                            onClick={handlePickAvatar}
+                                            disabled={uploadingAvatar}
+                                            style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: 6,
+                                                padding: '6px 12px',
+                                                background: 'var(--surface-2)',
+                                                border: '1px solid var(--hairline)',
+                                                borderRadius: 8,
+                                                color: 'var(--ink-2)',
+                                                fontSize: 12, fontWeight: 500,
+                                                cursor: uploadingAvatar ? 'wait' : 'pointer',
+                                            }}
+                                        >
+                                            <Camera size={13} />
+                                            {uploadingAvatar ? 'Uploading…' : avatarUrl ? 'Change photo' : 'Upload photo'}
+                                        </button>
+                                        <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 4 }}>
+                                            JPG, PNG, WebP or GIF · up to 5 MB
+                                        </div>
+                                        {avatarError && (
+                                            <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 4 }}>{avatarError}</div>
+                                        )}
+                                    </div>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/jpeg,image/png,image/webp,image/gif"
+                                        onChange={handleAvatarChange}
+                                        hidden
+                                    />
+                                </div>
+                            </Field>
                             <Field label="Display name">
                                 <input
                                     type="text"
