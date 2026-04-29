@@ -37,7 +37,15 @@ export default function RevisionsClient() {
                     <span className="rev-inbox-count">{newCount > 0 ? `${newCount} new · ` : ''}{items.length} total</span>
                 </div>
                 {loading && <div className="rev-loading">Loading…</div>}
-                {!loading && items.length === 0 && <div className="rev-empty">No feedback yet.</div>}
+                {!loading && items.length === 0 && (
+                    <div className="empty-state-v2" style={{ padding: '40px 16px' }}>
+                        <div className="empty-illu" aria-hidden="true">
+                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        </div>
+                        <h3>No feedback yet</h3>
+                        <p>When clients leave revision notes on your projects, they show up here so you can act on them fast.</p>
+                    </div>
+                )}
                 {items.map(item => (
                     <div
                         key={item.projectId}

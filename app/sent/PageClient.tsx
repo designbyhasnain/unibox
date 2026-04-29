@@ -220,15 +220,15 @@ export default function SentPage() {
                                 </div>
                                 <PageLoader isLoading={!isHydrated || isLoading} type="list" count={12}>
                                     {filteredEmails.length === 0 ? (
-                                        <div className="empty-state">
-                                            <div className="empty-state-icon">
-                                                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" strokeWidth="1.5">
+                                        <div className="empty-state-v2">
+                                            <div className="empty-illu" aria-hidden="true">
+                                                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                     <line x1="22" y1="2" x2="11" y2="13" />
                                                     <polygon points="22 2 15 22 11 13 2 9 22 2" />
                                                 </svg>
                                             </div>
-                                            <div className="empty-state-title">No sent mail</div>
-                                            <div className="empty-state-desc">Emails you send will appear here. Compose a new message to get started.</div>
+                                            <h3>No sent mail</h3>
+                                            <p>Emails you send will appear here. Press <kbd style={{ padding: '1px 5px', background: 'var(--surface-2)', borderRadius: 3, fontSize: 11 }}>C</kbd> to compose a new message.</p>
                                         </div>
                                     ) : (
                                         filteredEmails.map((email: any) => (

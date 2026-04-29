@@ -60,10 +60,14 @@ export default function FootageLibraryClient() {
 
             {loading && <div className="fl-empty">Loading footage…</div>}
             {!loading && visible.length === 0 && (
-                <div className="fl-empty">
-                    {data && data.projects.length === 0
-                        ? 'No active projects assigned to you yet.'
-                        : 'No footage matches that search.'}
+                <div className="empty-state-v2">
+                    <div className="empty-illu" aria-hidden="true">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                    </div>
+                    <h3>{data && data.projects.length === 0 ? 'No projects assigned yet' : 'No footage matches that search'}</h3>
+                    <p>{data && data.projects.length === 0
+                        ? 'When a project is assigned to you, links to its raw footage and hard-drive references will live here.'
+                        : 'Try a shorter query, or clear the search to see all assigned projects.'}</p>
                 </div>
             )}
 

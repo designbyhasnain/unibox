@@ -200,8 +200,12 @@ export default function FinancePage() {
                                                     </div>
                                                 ))}
                                                 {(data.outstanding || []).length === 0 && (
-                                                    <div className="empty-state" style={{ padding: '2rem', textAlign: 'center' }}>
-                                                        <div className="empty-state-title">No outstanding payments</div>
+                                                    <div className="empty-state-v2">
+                                                        <div className="empty-illu" aria-hidden="true" style={{ background: 'var(--coach-soft)', color: 'var(--coach)', borderColor: 'var(--coach)' }}>
+                                                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                                        </div>
+                                                        <h3>All paid up</h3>
+                                                        <p>No outstanding invoices right now. Every closed deal has been paid.</p>
                                                     </div>
                                                 )}
                                             </div>
@@ -209,8 +213,13 @@ export default function FinancePage() {
                                     </div>
                                 </>
                             ) : (
-                                <div className="empty-state">
-                                    <div className="empty-state-title">No finance data available</div>
+                                <div className="empty-state-v2">
+                                    <div className="empty-illu" aria-hidden="true">
+                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                                    </div>
+                                    <h3>No finance data yet</h3>
+                                    <p>Your revenue summary, collections, and outstanding balances will appear here once projects are linked to payments.</p>
+                                    <a href="/projects" className="empty-cta" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Go to Projects</a>
                                 </div>
                             )}
                         </PageLoader>

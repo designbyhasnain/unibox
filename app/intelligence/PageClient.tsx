@@ -234,12 +234,12 @@ export default function IntelligencePage() {
                 {/* ── Cards list ── */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px' }}>
                     {cards.length === 0 && (
-                        <div style={{
-                            textAlign: 'center', padding: '48px 0',
-                            color: 'var(--ink-muted)', fontSize: 13,
-                        }}>
-                            <CheckCircle2 size={32} style={{ color: 'var(--coach)', marginBottom: 10, opacity: 0.6, display: 'block', margin: '0 auto 10px' }} />
-                            All clear — no active insights. Run the audit to refresh.
+                        <div className="empty-state-v2">
+                            <div className="empty-illu" aria-hidden="true" style={{ background: 'var(--coach-soft)', color: 'var(--coach)', borderColor: 'var(--coach)' }}>
+                                <CheckCircle2 size={26} />
+                            </div>
+                            <h3>All clear</h3>
+                            <p>Jarvis has no critical insights or opportunities right now. Run the audit to refresh against the latest activity.</p>
                         </div>
                     )}
 

@@ -61,10 +61,14 @@ export default function BrandGuidesClient() {
 
             {loading && <div className="bg-empty">Loading brand guides…</div>}
             {!loading && visible.length === 0 && (
-                <div className="bg-empty">
-                    {guides && guides.length === 0
-                        ? 'No client style notes yet — they appear here as you work on projects with notes / brief / music preferences set.'
-                        : 'No clients match that search.'}
+                <div className="empty-state-v2">
+                    <div className="empty-illu" aria-hidden="true">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                    </div>
+                    <h3>{guides && guides.length === 0 ? 'No style notes yet' : 'No clients match that search'}</h3>
+                    <p>{guides && guides.length === 0
+                        ? 'As project briefs, music preferences, and notes are filled in, each client gets a brand guide page right here.'
+                        : 'Try a shorter query or clear the search to see all client style notes.'}</p>
                 </div>
             )}
 

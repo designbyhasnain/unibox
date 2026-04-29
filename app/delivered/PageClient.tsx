@@ -46,7 +46,14 @@ export default function DeliveredClient() {
             {loading && <div className="del-loading">Loading delivered work…</div>}
 
             {!loading && projects.length === 0 && (
-                <div className="del-empty">No delivered projects yet. Finished projects will appear here.</div>
+                <div className="empty-state-v2">
+                    <div className="empty-illu" aria-hidden="true">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    </div>
+                    <h3>No delivered projects yet</h3>
+                    <p>Once a project is approved and signed off, it lands here as part of your portfolio.</p>
+                    <a href="/my-queue" className="empty-cta" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>View active queue</a>
+                </div>
             )}
 
             <div className="del-grid">
