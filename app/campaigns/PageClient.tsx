@@ -153,6 +153,17 @@ export default function CampaignsPage() {
                                 No campaigns match &ldquo;{searchTerm}&rdquo;
                             </td></tr>
                         )}
+                        {filteredCampaigns.length === 0 && !searchTerm && (
+                            <tr><td colSpan={9}>
+                                <div className="empty-state-v2">
+                                    <div className="empty-illu" aria-hidden="true">
+                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                                    </div>
+                                    <h3>No campaigns yet</h3>
+                                    <p>Sequenced cold outreach with A/B testing, account rotation, and warm-up. Start with a goal and add steps.</p>
+                                </div>
+                            </td></tr>
+                        )}
                         {filteredCampaigns.map(c => {
                             const rr = c.sentCount ? ((c.sentCount * (c.replyRate || 0) / 100) / c.sentCount * 100).toFixed(1) : '—';
                             const opened = Math.round((c.sentCount || 0) * (c.openRate || 0) / 100);

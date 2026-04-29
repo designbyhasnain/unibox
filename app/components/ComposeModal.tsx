@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction, searchContactsForComposeAction } from '../../src/actions/emailActions';
+import { useUndoToast } from '../context/UndoToastContext';
 import { useGlobalFilter } from '../context/FilterContext';
 import { ChevronDown, LayoutTemplate, Sparkles, Send, X, Maximize2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
@@ -154,6 +155,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
         }
     };
 
+    const { showError } = useUndoToast();
     const sendingRef = useRef(false);
     const handleSend = async () => {
         const toStr = recipients.join(', ');
@@ -168,12 +170,16 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                 setSendResult({ success: true, message: 'Message sent.' });
                 setTimeout(() => onClose(), 2000);
             } else {
-                setSendResult({ success: false, message: result.error || 'Error sending.' });
+                const msg = result.error || 'Error sending.';
+                setSendResult({ success: false, message: msg });
+                showError(`Couldn't send email: ${msg}`, { onRetry: handleSend });
                 setIsSending(false);
                 sendingRef.current = false;
             }
         } catch (err: any) {
-            setSendResult({ success: false, message: err.message || 'Error occurred.' });
+            const msg = err.message || 'Error occurred.';
+            setSendResult({ success: false, message: msg });
+            showError(`Couldn't send email: ${msg}`, { onRetry: handleSend });
             setIsSending(false);
             sendingRef.current = false;
         }

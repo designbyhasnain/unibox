@@ -10,6 +10,7 @@ import {
     type ScrapeJobSummary,
     type ScrapeResultRow,
 } from '../../src/actions/scraperActions';
+import { useUndoToast } from '../context/UndoToastContext';
 
 export default function ScraperPage() {
     const [urls, setUrls] = useState('');
@@ -18,6 +19,7 @@ export default function ScraperPage() {
     const [results, setResults] = useState<ScrapeResultRow[]>([]);
     const [message, setMessage] = useState<string | null>(null);
     const [isPending, startTransition] = useTransition();
+    const { showError } = useUndoToast();
 
     // Phase 5: bulk enroll
     const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -56,6 +58,7 @@ export default function ScraperPage() {
                 if (res.jobId) setSelectedJobId(res.jobId);
             } else {
                 setMessage(`Error: ${res.error}`);
+                showError(`Scrape failed: ${res.error || 'unknown error'}`, { onRetry: handleStart });
             }
         });
     };

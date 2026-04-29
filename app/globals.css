@@ -427,7 +427,41 @@ button:disabled, button[aria-disabled="true"] {
     cursor: pointer;
 }
 
-/* (8) Error toast variant — sits in same stack as undo toast */
+/* (9) Mobile micro-fixes — surgical breakpoints under 480px so the dashboard
+   KPI grid stops overflowing and page padding doesn't squish the content
+   against the viewport edges. */
+@media (max-width: 480px) {
+    .kpi-grid {
+        grid-template-columns: 1fr !important;
+    }
+    .ep-page-header,
+    .pj-page .page-head,
+    .lp-in,
+    .fl-page,
+    .bg-page,
+    .ed-today {
+        padding-left: 14px !important;
+        padding-right: 14px !important;
+    }
+    .db-page {
+        padding: 16px 14px !important;
+    }
+    .db-head {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }
+    .db-head .refresh-btn {
+        margin-left: auto !important;
+    }
+    .ep-view-tabs {
+        padding: 0 14px !important;
+    }
+    .ep-toolbar {
+        padding: 5px 14px !important;
+    }
+}
+
+/* (10) Error toast variant — sits in same stack as undo toast */
 @keyframes errorToastIn {
     from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: translateY(0); }
