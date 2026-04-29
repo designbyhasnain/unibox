@@ -4,13 +4,13 @@ import { useState, useEffect } from 'react';
 import { getEditorDashboardStats, type EditorStats } from '../../lib/projects/editorStats';
 
 const STATUS_COLORS: Record<string, { color: string; bg: string }> = {
-    IN_PROGRESS: { color: '#d97706', bg: '#fffbeb' },
-    DOWNLOADED: { color: '#2563eb', bg: '#eff6ff' },
-    DOWNLOADING: { color: '#2563eb', bg: '#eff6ff' },
-    IN_REVIEW: { color: '#7c3aed', bg: '#f5f3ff' },
-    REVISION: { color: '#dc2626', bg: '#fef2f2' },
-    ON_HOLD: { color: '#6b7280', bg: '#f3f4f6' },
-    NOT_STARTED: { color: '#6b7280', bg: '#f3f4f6' },
+    IN_PROGRESS: { color: 'var(--warn)',       bg: 'color-mix(in oklab, var(--warn), transparent 88%)' },
+    DOWNLOADED:  { color: 'var(--info)',       bg: 'color-mix(in oklab, var(--info), transparent 88%)' },
+    DOWNLOADING: { color: 'var(--info)',       bg: 'color-mix(in oklab, var(--info), transparent 88%)' },
+    IN_REVIEW:   { color: 'var(--accent-ink)', bg: 'color-mix(in oklab, var(--accent), transparent 88%)' },
+    REVISION:    { color: 'var(--danger)',     bg: 'var(--danger-soft)' },
+    ON_HOLD:     { color: 'var(--ink-muted)',  bg: 'var(--surface-2)' },
+    NOT_STARTED: { color: 'var(--ink-muted)',  bg: 'var(--surface-2)' },
 };
 
 function formatDueDate(d: string): string {
@@ -47,19 +47,19 @@ export default function EditorDashboard() {
             </div>
 
             {/* KPI Cards — full-width grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px', padding: '0 0 24px 0', borderBottom: '1px solid #e5e7eb' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px', padding: '0 0 24px 0', borderBottom: '1px solid var(--hairline)' }}>
                 {([
-                    { label: 'Total Assigned', value: stats.assigned, color: '#3b82f6', icon: '📋' },
-                    { label: 'In Progress', value: stats.inProgress, color: '#d97706', icon: '⚡' },
-                    { label: 'In Review', value: stats.inReview, color: '#7c3aed', icon: '👁' },
-                    { label: 'Completed', value: stats.done, color: '#059669', icon: '✓' },
+                    { label: 'Total Assigned', value: stats.assigned,  color: 'var(--info)',       icon: '📋' },
+                    { label: 'In Progress',    value: stats.inProgress, color: 'var(--warn)',      icon: '⚡' },
+                    { label: 'In Review',      value: stats.inReview,   color: 'var(--accent-ink)', icon: '👁' },
+                    { label: 'Completed',      value: stats.done,       color: 'var(--coach)',     icon: '✓' },
                 ] as const).map(kpi => (
                     <div key={kpi.label} style={{
-                        padding: '20px 24px', borderRadius: '10px', border: '1px solid #e5e7eb',
-                        background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '20px 24px', borderRadius: '10px', border: '1px solid var(--hairline)',
+                        background: 'var(--shell)', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     }}>
                         <div>
-                            <div style={{ fontSize: '11px', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
                                 {kpi.label}
                             </div>
                             <div style={{ fontSize: '36px', fontWeight: 700, color: kpi.color, lineHeight: 1 }}>
@@ -73,38 +73,38 @@ export default function EditorDashboard() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                 {/* Priority Deadlines — professional table */}
-                <div style={{ background: 'white', borderRadius: '10px', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', fontSize: '13px', fontWeight: 700, color: '#111827' }}>
+                <div style={{ background: 'var(--shell)', borderRadius: '10px', border: '1px solid var(--hairline)', overflow: 'hidden' }}>
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--hairline)', fontSize: '13px', fontWeight: 700, color: 'var(--ink)' }}>
                         Priority Deadlines
                     </div>
                     {stats.deadlines.length === 0 ? (
-                        <div style={{ padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>No upcoming deadlines</div>
+                        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--ink-muted)', fontSize: '13px' }}>No upcoming deadlines</div>
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f9fafb' }}>
-                                    <th style={{ padding: '8px 16px', textAlign: 'left', fontSize: '10px', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project</th>
-                                    <th style={{ padding: '8px 16px', textAlign: 'left', fontSize: '10px', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</th>
-                                    <th style={{ padding: '8px 16px', textAlign: 'right', fontSize: '10px', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due</th>
+                                <tr style={{ background: 'var(--surface-2)' }}>
+                                    <th style={{ padding: '8px 16px', textAlign: 'left', fontSize: '10px', fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project</th>
+                                    <th style={{ padding: '8px 16px', textAlign: 'left', fontSize: '10px', fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</th>
+                                    <th style={{ padding: '8px 16px', textAlign: 'right', fontSize: '10px', fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {stats.deadlines.map(d => {
-                                    const sc = STATUS_COLORS[d.progress] || { color: '#6b7280', bg: '#f3f4f6' };
+                                    const sc = STATUS_COLORS[d.progress] || { color: 'var(--ink-muted)', bg: 'var(--surface-2)' };
                                     const daysLeft = Math.ceil((new Date(d.dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
                                     const urgent = daysLeft <= 2;
                                     return (
-                                        <tr key={d.id} style={{ borderBottom: '1px solid #f3f4f6', background: urgent ? '#fef2f2' : 'white' }}>
+                                        <tr key={d.id} style={{ borderBottom: '1px solid var(--hairline-soft)', background: urgent ? 'var(--danger-soft)' : 'transparent' }}>
                                             <td style={{ padding: '10px 16px' }}>
-                                                <div style={{ fontSize: '12px', fontWeight: 600, color: '#111827' }}>{d.name}</div>
-                                                <div style={{ fontSize: '10px', color: '#9ca3af' }}>{d.pseudonym}</div>
+                                                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--ink)' }}>{d.name}</div>
+                                                <div style={{ fontSize: '10px', color: 'var(--ink-muted)' }}>{d.pseudonym}</div>
                                             </td>
                                             <td style={{ padding: '10px 16px' }}>
                                                 <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 8px', borderRadius: '3px', color: sc.color, background: sc.bg }}>
                                                     {d.progress.replace(/_/g, ' ')}
                                                 </span>
                                             </td>
-                                            <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: '12px', fontWeight: urgent ? 600 : 400, color: urgent ? '#dc2626' : '#374151' }}>
+                                            <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: '12px', fontWeight: urgent ? 600 : 400, color: urgent ? 'var(--danger)' : 'var(--ink-2)' }}>
                                                 {formatDueDate(d.dueDate)}
                                             </td>
                                         </tr>
@@ -116,21 +116,21 @@ export default function EditorDashboard() {
                 </div>
 
                 {/* Weekly Completed Chart — full height */}
-                <div style={{ background: 'white', borderRadius: '10px', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', fontSize: '13px', fontWeight: 700, color: '#111827' }}>
+                <div style={{ background: 'var(--shell)', borderRadius: '10px', border: '1px solid var(--hairline)', overflow: 'hidden' }}>
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--hairline)', fontSize: '13px', fontWeight: 700, color: 'var(--ink)' }}>
                         Projects Completed — Last 4 Weeks
                     </div>
                     <div style={{ padding: '24px 20px', display: 'flex', alignItems: 'flex-end', gap: '16px', height: '220px' }}>
                         {stats.weeklyCompleted.map(w => (
                             <div key={w.week} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
-                                <div style={{ fontSize: '14px', fontWeight: 700, color: '#111827', marginBottom: '6px' }}>{w.count}</div>
+                                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--ink)', marginBottom: '6px' }}>{w.count}</div>
                                 <div style={{
                                     width: '100%', maxWidth: '60px',
                                     height: `${Math.max(12, (w.count / maxBarCount) * 140)}px`,
-                                    background: 'linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%)',
+                                    background: 'linear-gradient(180deg, var(--accent) 0%, color-mix(in oklab, var(--accent), black 30%) 100%)',
                                     borderRadius: '6px 6px 2px 2px',
                                 }} />
-                                <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '8px', fontWeight: 500 }}>{w.week}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--ink-muted)', marginTop: '8px', fontWeight: 500 }}>{w.week}</div>
                             </div>
                         ))}
                     </div>

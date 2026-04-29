@@ -7,20 +7,20 @@ type Project = Record<string, unknown>;
 type Comment = { id: string; content: string; author_name: string; created_at: string };
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-    ON_HOLD: { label: 'On Hold', color: '#6b7280', bg: '#f3f4f6' },
-    NOT_STARTED: { label: 'Not Started', color: '#6b7280', bg: '#f3f4f6' },
-    DOWNLOADED: { label: 'Downloaded', color: '#2563eb', bg: '#eff6ff' },
-    DOWNLOADING: { label: 'Downloading', color: '#2563eb', bg: '#eff6ff' },
-    IN_PROGRESS: { label: 'In Progress', color: '#d97706', bg: '#fffbeb' },
-    IN_REVIEW: { label: 'In Review', color: '#7c3aed', bg: '#f5f3ff' },
-    REVISION: { label: 'Revision', color: '#dc2626', bg: '#fef2f2' },
-    DONE: { label: 'Done', color: '#059669', bg: '#ecfdf5' },
-    APPROVED: { label: 'Approved', color: '#059669', bg: '#ecfdf5' },
-    DELIVERED: { label: 'Delivered', color: '#0d9488', bg: '#f0fdfa' },
+    ON_HOLD:     { label: 'On Hold',     color: 'var(--ink-muted)', bg: 'var(--surface-2)' },
+    NOT_STARTED: { label: 'Not Started', color: 'var(--ink-muted)', bg: 'var(--surface-2)' },
+    DOWNLOADED:  { label: 'Downloaded',  color: 'var(--info)',      bg: 'color-mix(in oklab, var(--info), transparent 88%)' },
+    DOWNLOADING: { label: 'Downloading', color: 'var(--info)',      bg: 'color-mix(in oklab, var(--info), transparent 88%)' },
+    IN_PROGRESS: { label: 'In Progress', color: 'var(--warn)',      bg: 'color-mix(in oklab, var(--warn), transparent 88%)' },
+    IN_REVIEW:   { label: 'In Review',   color: 'var(--accent-ink)', bg: 'color-mix(in oklab, var(--accent), transparent 88%)' },
+    REVISION:    { label: 'Revision',    color: 'var(--danger)',    bg: 'var(--danger-soft)' },
+    DONE:        { label: 'Done',        color: 'var(--coach)',     bg: 'var(--coach-soft)' },
+    APPROVED:    { label: 'Approved',    color: 'var(--coach)',     bg: 'var(--coach-soft)' },
+    DELIVERED:   { label: 'Delivered',   color: 'var(--coach)',     bg: 'var(--coach-soft)' },
 };
 
 function StatusBadge({ status }: { status: string }) {
-    const s = STATUS_LABELS[status] || { label: status, color: '#6b7280', bg: '#f3f4f6' };
+    const s = STATUS_LABELS[status] || { label: status, color: 'var(--ink-muted)', bg: 'var(--surface-2)' };
     return (
         <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, color: s.color, background: s.bg, whiteSpace: 'nowrap' }}>
             {s.label}
@@ -44,8 +44,8 @@ function timeAgo(d: string): string {
     return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const thStyle: React.CSSProperties = { padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', borderBottom: '2px solid #e5e7eb' };
-const tdStyle: React.CSSProperties = { padding: '8px 12px', fontSize: '12px', color: '#374151', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' };
+const thStyle: React.CSSProperties = { padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', borderBottom: '2px solid var(--hairline)' };
+const tdStyle: React.CSSProperties = { padding: '8px 12px', fontSize: '12px', color: 'var(--ink-2)', borderBottom: '1px solid var(--hairline-soft)', whiteSpace: 'nowrap' };
 
 export default function EditorWorkstation() {
     const [projects, setProjects] = useState<Project[]>([]);
@@ -100,13 +100,13 @@ export default function EditorWorkstation() {
     if (selected) {
         return (
             <div className="ep-page">
-                <div style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-muted)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
                         Back
                     </button>
-                    <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#111827', margin: 0 }}>{selected.name as string}</h2>
-                    <span style={{ fontSize: '12px', color: '#9ca3af' }}>{selected.clientName as string}</span>
+                    <h2 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>{selected.name as string}</h2>
+                    <span style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>{selected.clientName as string}</span>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', height: 'calc(100vh - 110px)', overflow: 'hidden' }}>
@@ -114,13 +114,13 @@ export default function EditorWorkstation() {
                     <div style={{ padding: '24px', overflowY: 'auto' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
                             {([
-                                ['Status', <div key="s" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><StatusBadge status={selected.progress as string} /><select value={selected.progress as string} onChange={(e) => handleStatusChange(e.target.value)} style={{ fontSize: '11px', border: '1px solid #e5e7eb', borderRadius: '4px', padding: '2px 4px', cursor: 'pointer' }}>{Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div>],
+                                ['Status', <div key="s" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><StatusBadge status={selected.progress as string} /><select value={selected.progress as string} onChange={(e) => handleStatusChange(e.target.value)} style={{ fontSize: '11px', border: '1px solid var(--hairline)', borderRadius: '4px', padding: '2px 4px', cursor: 'pointer', background: 'var(--shell)', color: 'var(--ink)' }}>{Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div>],
                                 ['Due Date', <span key="d" style={{ fontSize: '13px', fontWeight: 600 }}>{fmtDate(selected.dueDate)}</span>],
                                 ['Priority', <span key="p" style={{ fontSize: '13px', fontWeight: 600, textTransform: 'capitalize' as const }}>{(selected.priority as string || '—').toLowerCase()}</span>],
                                 ['Hours', <span key="h" style={{ fontSize: '13px', fontWeight: 600 }}>{selected.actualHours as number || 0}h</span>],
                             ] as [string, React.ReactNode][]).map(([label, value]) => (
-                                <div key={label} style={{ background: '#f9fafb', borderRadius: '8px', padding: '12px', border: '1px solid #f3f4f6' }}>
-                                    <div style={{ fontSize: '10px', fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>{label}</div>
+                                <div key={label} style={{ background: 'var(--surface-2)', borderRadius: '8px', padding: '12px', border: '1px solid var(--hairline-soft)' }}>
+                                    <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>{label}</div>
                                     {value}
                                 </div>
                             ))}
@@ -131,15 +131,15 @@ export default function EditorWorkstation() {
                                 ['Editor', selected.editor], ['Software', selected.software],
                                 ['Start Date', fmtDate(selected.startDate)], ['Team', selected.team],
                             ] as [string, unknown][]).map(([label, val]) => (
-                                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
-                                    <span style={{ fontSize: '12px', color: '#6b7280' }}>{label}</span>
-                                    <span style={{ fontSize: '12px', fontWeight: 500, color: '#111827' }}>{String(val || '—')}</span>
+                                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--hairline-soft)' }}>
+                                    <span style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>{label}</span>
+                                    <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--ink)' }}>{String(val || '—')}</span>
                                 </div>
                             ))}
                         </div>
 
-                        <h3 style={{ fontSize: '13px', fontWeight: 700, color: '#111827', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Brief &amp; Instructions</h3>
-                        <div style={{ background: '#f9fafb', borderRadius: '8px', padding: '16px', fontSize: '13px', lineHeight: 1.7, color: '#374151', minHeight: '100px', whiteSpace: 'pre-wrap', border: '1px solid #f3f4f6', marginBottom: '24px' }}>
+                        <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--ink)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Brief &amp; Instructions</h3>
+                        <div style={{ background: 'var(--surface-2)', borderRadius: '8px', padding: '16px', fontSize: '13px', lineHeight: 1.7, color: 'var(--ink-2)', minHeight: '100px', whiteSpace: 'pre-wrap', border: '1px solid var(--hairline-soft)', marginBottom: '24px' }}>
                             {(selected.notes as string) || (selected.songPreferences as string) || (selected.briefLength as string)
                                 ? [selected.notes, selected.briefLength && `Brief length: ${selected.briefLength}`, selected.songPreferences && `Song preferences: ${selected.songPreferences}`].filter(Boolean).join('\n\n')
                                 : 'No instructions provided yet.'}
@@ -147,42 +147,42 @@ export default function EditorWorkstation() {
 
                         {((selected.rawDataUrl as string) || (selected.fileNeeded as string)) && (
                             <>
-                                <h3 style={{ fontSize: '13px', fontWeight: 700, color: '#111827', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Files &amp; Data</h3>
+                                <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--ink)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Files &amp; Data</h3>
                                 <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '0', marginBottom: '24px' }}>
-                                    {String(selected.rawDataUrl || '') && <><div style={{ padding: '6px 0', fontSize: '12px', color: '#6b7280' }}>Raw Data</div><div style={{ padding: '6px 0', fontSize: '12px' }}><a href={String(selected.rawDataUrl)} target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>Open Link</a></div></>}
-                                    {String(selected.fileNeeded || '') && <><div style={{ padding: '6px 0', fontSize: '12px', color: '#6b7280' }}>File Needed</div><div style={{ padding: '6px 0', fontSize: '12px', color: '#111827' }}>{String(selected.fileNeeded)}</div></>}
-                                    {String(selected.hardDrive || '') && <><div style={{ padding: '6px 0', fontSize: '12px', color: '#6b7280' }}>Hard Drive</div><div style={{ padding: '6px 0', fontSize: '12px', color: '#111827' }}>{String(selected.hardDrive)}</div></>}
-                                    {String(selected.sizeInGbs || '') && <><div style={{ padding: '6px 0', fontSize: '12px', color: '#6b7280' }}>Size</div><div style={{ padding: '6px 0', fontSize: '12px', color: '#111827' }}>{String(selected.sizeInGbs)} GB</div></>}
+                                    {String(selected.rawDataUrl || '') && <><div style={{ padding: '6px 0', fontSize: '12px', color: 'var(--ink-muted)' }}>Raw Data</div><div style={{ padding: '6px 0', fontSize: '12px' }}><a href={String(selected.rawDataUrl)} target="_blank" rel="noreferrer" style={{ color: 'var(--info)' }}>Open Link</a></div></>}
+                                    {String(selected.fileNeeded || '') && <><div style={{ padding: '6px 0', fontSize: '12px', color: 'var(--ink-muted)' }}>File Needed</div><div style={{ padding: '6px 0', fontSize: '12px', color: 'var(--ink)' }}>{String(selected.fileNeeded)}</div></>}
+                                    {String(selected.hardDrive || '') && <><div style={{ padding: '6px 0', fontSize: '12px', color: 'var(--ink-muted)' }}>Hard Drive</div><div style={{ padding: '6px 0', fontSize: '12px', color: 'var(--ink)' }}>{String(selected.hardDrive)}</div></>}
+                                    {String(selected.sizeInGbs || '') && <><div style={{ padding: '6px 0', fontSize: '12px', color: 'var(--ink-muted)' }}>Size</div><div style={{ padding: '6px 0', fontSize: '12px', color: 'var(--ink)' }}>{String(selected.sizeInGbs)} GB</div></>}
                                 </div>
                             </>
                         )}
                     </div>
 
                     {/* Right: Comments panel */}
-                    <div style={{ borderLeft: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', background: '#fafafa' }}>
-                        <div style={{ padding: '16px', borderBottom: '1px solid #e5e7eb', fontSize: '13px', fontWeight: 700, color: '#111827' }}>
-                            Comments {comments.length > 0 && <span style={{ fontWeight: 400, color: '#9ca3af' }}>({comments.length})</span>}
+                    <div style={{ borderLeft: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column', background: 'var(--surface-2)' }}>
+                        <div style={{ padding: '16px', borderBottom: '1px solid var(--hairline)', fontSize: '13px', fontWeight: 700, color: 'var(--ink)' }}>
+                            Comments {comments.length > 0 && <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}>({comments.length})</span>}
                         </div>
                         <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-                            {detailLoading ? <p style={{ fontSize: '12px', color: '#9ca3af', padding: '12px' }}>Loading...</p> :
-                            comments.length === 0 ? <p style={{ fontSize: '12px', color: '#9ca3af', padding: '12px' }}>No comments yet.</p> :
+                            {detailLoading ? <p style={{ fontSize: '12px', color: 'var(--ink-muted)', padding: '12px' }}>Loading...</p> :
+                            comments.length === 0 ? <p style={{ fontSize: '12px', color: 'var(--ink-muted)', padding: '12px' }}>No comments yet.</p> :
                             comments.map(c => (
-                                <div key={c.id} style={{ padding: '10px', background: 'white', borderRadius: '6px', border: '1px solid #f3f4f6', marginBottom: '8px' }}>
+                                <div key={c.id} style={{ padding: '10px', background: 'var(--shell)', borderRadius: '6px', border: '1px solid var(--hairline-soft)', marginBottom: '8px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#374151' }}>{c.author_name}</span>
-                                        <span style={{ fontSize: '10px', color: '#9ca3af' }}>{timeAgo(c.created_at)}</span>
+                                        <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--ink-2)' }}>{c.author_name}</span>
+                                        <span style={{ fontSize: '10px', color: 'var(--ink-muted)' }}>{timeAgo(c.created_at)}</span>
                                     </div>
-                                    <p style={{ fontSize: '12px', color: '#374151', lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>{c.content}</p>
+                                    <p style={{ fontSize: '12px', color: 'var(--ink-2)', lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>{c.content}</p>
                                 </div>
                             ))}
                         </div>
-                        <div style={{ padding: '12px', borderTop: '1px solid #e5e7eb', display: 'flex', gap: '6px' }}>
+                        <div style={{ padding: '12px', borderTop: '1px solid var(--hairline)', display: 'flex', gap: '6px' }}>
                             <input value={newComment} onChange={(e) => setNewComment(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleComment(); } }}
                                 placeholder="Add a comment..." disabled={submitting}
-                                style={{ flex: 1, padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px', outline: 'none' }} />
+                                style={{ flex: 1, padding: '8px 10px', border: '1px solid var(--hairline)', borderRadius: '6px', fontSize: '12px', outline: 'none', background: 'var(--shell)', color: 'var(--ink)' }} />
                             <button onClick={handleComment} disabled={submitting || !newComment.trim()}
-                                style={{ padding: '8px 14px', background: '#111827', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 500, cursor: 'pointer', opacity: submitting || !newComment.trim() ? 0.5 : 1 }}>
+                                style={{ padding: '8px 14px', background: 'var(--ink)', color: 'var(--canvas)', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 500, cursor: 'pointer', opacity: submitting || !newComment.trim() ? 0.5 : 1 }}>
                                 Post
                             </button>
                         </div>
@@ -204,7 +204,7 @@ export default function EditorWorkstation() {
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                     <thead>
-                        <tr style={{ background: '#f9fafb' }}>
+                        <tr style={{ background: 'var(--surface-2)' }}>
                             <th style={thStyle}>Date</th>
                             <th style={thStyle}>Client</th>
                             <th style={thStyle}>Project Name</th>
@@ -219,23 +219,23 @@ export default function EditorWorkstation() {
                     <tbody>
                         {projects.map((p) => (
                             <tr key={p.id as string} style={{ cursor: 'pointer' }} onClick={() => openProject(p)}
-                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
-                                onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}>
+                                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-hover)')}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
                                 <td style={tdStyle}>{fmtDate(p.date)}</td>
-                                <td style={{ ...tdStyle, color: '#9ca3af' }}>{p.clientName as string}</td>
-                                <td style={{ ...tdStyle, fontWeight: 600, color: '#111827' }}>{p.name as string}</td>
+                                <td style={{ ...tdStyle, color: 'var(--ink-muted)' }}>{p.clientName as string}</td>
+                                <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--ink)' }}>{p.name as string}</td>
                                 <td style={tdStyle}><StatusBadge status={p.progress as string} /></td>
                                 <td style={tdStyle}>{fmtDate(p.dueDate)}</td>
                                 <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{(p.priority as string || '—').toLowerCase()}</td>
                                 <td style={tdStyle}>{(p.editor as string) || '—'}</td>
                                 <td style={tdStyle}>
                                     {Array.isArray(p.tags) && (p.tags as string[]).length > 0
-                                        ? (p.tags as string[]).map(t => <span key={t} style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: '#eff6ff', color: '#2563eb', marginRight: '4px' }}>{t}</span>)
+                                        ? (p.tags as string[]).map(t => <span key={t} style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'color-mix(in oklab, var(--info), transparent 88%)', color: 'var(--info)', marginRight: '4px' }}>{t}</span>)
                                         : '—'}
                                 </td>
                                 <td style={tdStyle}>
                                     <button onClick={(e) => { e.stopPropagation(); openProject(p); }}
-                                        style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', color: '#374151' }}>
+                                        style={{ background: 'none', border: '1px solid var(--hairline)', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', color: 'var(--ink-2)' }}>
                                         Open
                                     </button>
                                 </td>
