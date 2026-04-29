@@ -13,6 +13,13 @@ interface PendingDelete {
     onUndo: () => void;
 }
 
+interface ErrorToast {
+    id: string;
+    message: string;
+    onRetry?: () => void | Promise<void>;
+    autoDismissMs?: number;
+}
+
 interface UndoToastContextType {
     scheduleDelete: (params: {
         id: string;
@@ -24,6 +31,10 @@ interface UndoToastContextType {
     }) => void;
     undoDelete: (id: string) => void;
     pending: PendingDelete[];
+    /** Show a friendly error toast with an optional Retry button. Returns the toast id. */
+    showError: (message: string, opts?: { onRetry?: () => void | Promise<void>; autoDismissMs?: number }) => string;
+    dismissError: (id: string) => void;
+    errors: ErrorToast[];
 }
 
 const UndoToastContext = createContext<UndoToastContextType | undefined>(undefined);
@@ -32,7 +43,9 @@ const UNDO_DELAY = 5000;
 
 export function UndoToastProvider({ children }: { children: ReactNode }) {
     const [pending, setPending] = useState<PendingDelete[]>([]);
+    const [errors, setErrors] = useState<ErrorToast[]>([]);
     const pendingRef = useRef<PendingDelete[]>([]);
+    const errorsRef = useRef<ErrorToast[]>([]);
 
     const removePending = useCallback((id: string) => {
         pendingRef.current = pendingRef.current.filter(p => p.id !== id);
@@ -70,10 +83,30 @@ export function UndoToastProvider({ children }: { children: ReactNode }) {
         }
     }, [removePending]);
 
+    const dismissError = useCallback((id: string) => {
+        errorsRef.current = errorsRef.current.filter(e => e.id !== id);
+        setErrors([...errorsRef.current]);
+    }, []);
+
+    const showError = useCallback((message: string, opts?: { onRetry?: () => void | Promise<void>; autoDismissMs?: number }) => {
+        const id = `err-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const toast: ErrorToast = { id, message, onRetry: opts?.onRetry, autoDismissMs: opts?.autoDismissMs };
+        errorsRef.current = [...errorsRef.current, toast];
+        setErrors([...errorsRef.current]);
+
+        // Only auto-dismiss when no retry is available — retryable toasts stick until acknowledged.
+        if (!opts?.onRetry) {
+            const ms = opts?.autoDismissMs ?? 6000;
+            setTimeout(() => dismissError(id), ms);
+        }
+        return id;
+    }, [dismissError]);
+
     return (
-        <UndoToastContext.Provider value={{ scheduleDelete, undoDelete, pending }}>
+        <UndoToastContext.Provider value={{ scheduleDelete, undoDelete, pending, showError, dismissError, errors }}>
             {children}
             <UndoToastStack pending={pending} onUndo={undoDelete} />
+            <ErrorToastStack errors={errors} onDismiss={dismissError} />
         </UndoToastContext.Provider>
     );
 }
@@ -119,9 +152,10 @@ function UndoToastItem({ item, onUndo }: { item: PendingDelete; onUndo: () => vo
 
     return (
         <div style={{
-            background: '#1f2937', color: '#fff', borderRadius: 10,
+            background: 'var(--shell)', color: 'var(--ink)', borderRadius: 10,
             padding: '12px 16px', minWidth: 320, maxWidth: 400,
-            boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+            boxShadow: 'var(--shadow-pop)',
+            border: '1px solid var(--hairline)',
             animation: 'toastIn 0.25s ease',
             overflow: 'hidden', position: 'relative',
         }}>
@@ -131,7 +165,7 @@ function UndoToastItem({ item, onUndo }: { item: PendingDelete; onUndo: () => vo
                     <strong>{item.label}</strong> deleted
                 </span>
                 <button onClick={onUndo} style={{
-                    background: '#3b82f6', color: '#fff', border: 'none',
+                    background: 'var(--accent)', color: '#fff', border: 'none',
                     borderRadius: 6, padding: '5px 14px', fontSize: 12,
                     fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
                 }}>
@@ -140,9 +174,49 @@ function UndoToastItem({ item, onUndo }: { item: PendingDelete; onUndo: () => vo
             </div>
             <div style={{
                 position: 'absolute', bottom: 0, left: 0, height: 3,
-                background: '#3b82f6', transition: 'width 0.05s linear',
+                background: 'var(--accent)', transition: 'width 0.05s linear',
                 width: `${progress}%`, borderRadius: '0 0 10px 10px',
             }} />
+        </div>
+    );
+}
+
+// ── Error Toast Stack UI ────────────────────────────────────────────────────
+
+function ErrorToastStack({ errors, onDismiss }: { errors: ErrorToast[]; onDismiss: (id: string) => void }) {
+    if (errors.length === 0) return null;
+
+    return (
+        <div style={{
+            position: 'fixed', top: 20, right: 20, zIndex: 10001,
+            display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+            {errors.map(e => (
+                <ErrorToastItem key={e.id} item={e} onDismiss={() => onDismiss(e.id)} />
+            ))}
+        </div>
+    );
+}
+
+function ErrorToastItem({ item, onDismiss }: { item: ErrorToast; onDismiss: () => void }) {
+    const [retrying, setRetrying] = React.useState(false);
+    const handleRetry = async () => {
+        if (!item.onRetry || retrying) return;
+        setRetrying(true);
+        try { await item.onRetry(); }
+        finally { setRetrying(false); onDismiss(); }
+    };
+
+    return (
+        <div className="error-toast" role="alert">
+            <span aria-hidden="true" style={{ fontSize: 16 }}>⚠️</span>
+            <span className="error-toast-msg">{item.message}</span>
+            {item.onRetry && (
+                <button className="error-toast-retry" onClick={handleRetry} disabled={retrying}>
+                    {retrying ? 'Retrying…' : 'Retry'}
+                </button>
+            )}
+            <button className="error-toast-close" onClick={onDismiss} aria-label="Dismiss error">×</button>
         </div>
     );
 }

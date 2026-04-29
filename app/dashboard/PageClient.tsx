@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { getSalesDashboardAction } from '../../src/actions/dashboardActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { getDailyBriefingAction, regenerateDailyBriefingAction } from '../../src/actions/jarvisActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 import EditorTodayView from '../components/EditorTodayView';
+import { useUndoToast } from '../context/UndoToastContext';
 
 function fmt(n: number) {
     if (n >= 10000) return '$' + (n / 1000).toFixed(0) + 'k';
@@ -46,32 +47,46 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     const [d, setD] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [briefingSummary, setBriefingSummary] = useState<string | null>(null);
+    const [briefingLoading, setBriefingLoading] = useState(true);
     const [regenerating, setRegenerating] = useState(false);
     const [speaking, setSpeaking] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
+    const { showError } = useUndoToast();
 
-    useEffect(() => {
-        Promise.all([getCurrentUserAction(), getSalesDashboardAction()])
+    const loadDashboard = useCallback(() => {
+        setLoading(true);
+        return Promise.all([getCurrentUserAction(), getSalesDashboardAction()])
             .then(([u, dash]) => {
                 setName(u?.name?.split(' ')[0] || '');
                 setD(dash);
                 setLoading(false);
-            }).catch(() => setLoading(false));
-    }, []);
+            })
+            .catch((err) => {
+                setLoading(false);
+                showError("Couldn't load dashboard data. Check your connection.", { onRetry: loadDashboard });
+                console.error('[Dashboard] load failed', err);
+            });
+    }, [showError]);
+
+    useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
     // Load briefing in parallel — cached per-day so warm lambdas return instantly.
+    // While in-flight, briefingLoading is true; consumers show a "Jarvis is analyzing…" pulse.
     useEffect(() => {
         getDailyBriefingAction()
             .then(r => { if (r.success && r.briefing?.summary) setBriefingSummary(r.briefing.summary); })
-            .catch(() => { /* keep fallback bullets */ });
+            .catch(() => { /* keep fallback bullets */ })
+            .finally(() => setBriefingLoading(false));
     }, []);
 
     const handleRegenerate = async () => {
         if (regenerating) return;
         setRegenerating(true);
+        setBriefingLoading(true);
         const res = await regenerateDailyBriefingAction();
         setRegenerating(false);
+        setBriefingLoading(false);
         if (res.success && res.briefing?.summary) setBriefingSummary(res.briefing.summary);
         else alert(res.error || 'Failed to regenerate briefing');
     };
@@ -285,6 +300,9 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                     <div className="db-briefing-head">
                         <span style={{ color: 'var(--accent-ink)', display: 'inline-flex' }}>{ICON.spark}</span>
                         <span className="label">Jarvis · Daily briefing</span>
+                        {briefingLoading && !briefingSummary && (
+                            <span className="jarvis-thinking" aria-live="polite">analyzing today&apos;s data…</span>
+                        )}
                         <div className="actions">
                             <button
                                 className="jarvis-btn"

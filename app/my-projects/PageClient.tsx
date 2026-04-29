@@ -390,9 +390,16 @@ export default function MyProjectsPage() {
                         })}
 
                         {projects.length === 0 && (
-                            <div style={{ textAlign: 'center', padding: 48, color: 'var(--ink-muted)' }}>
-                                <div style={{ fontSize: 14, fontWeight: 500 }}>No projects yet</div>
-                                <div style={{ fontSize: 12, marginTop: 4 }}>Click "New project" to create one.</div>
+                            <div className="empty-state-v2">
+                                <div className="empty-illu" aria-hidden="true">
+                                    <Film size={26} />
+                                </div>
+                                <h3>No projects yet</h3>
+                                <p>Once you close a deal, the project will show up here so you can track edits, deliveries, and balances.</p>
+                                <button className="empty-cta" onClick={() => setShowAddModal(true)}>
+                                    <Plus size={14} style={{ marginRight: 4, verticalAlign: 'text-bottom' }} />
+                                    New project
+                                </button>
                             </div>
                         )}
                     </div>

@@ -3,11 +3,11 @@
 /* ─── Design Tokens ─────────────────────────────────────────────── */
 /* Centralized Loading & Skeleton System */
 .skeleton-box {
-    background: var(--surface);
+    background: var(--surface-2);
     background-image: linear-gradient(90deg,
-            var(--surface) 0px,
-            var(--surface-2) 40px,
-            var(--surface) 80px);
+            var(--surface-2) 0px,
+            var(--surface-hover) 40px,
+            var(--surface-2) 80px);
     background-size: 200px 100%;
     background-repeat: no-repeat;
     display: inline-block;
@@ -220,7 +220,7 @@
     --ink-2: oklch(0.32 0.008 280);
     --ink-muted: oklch(0.45 0.008 280);
     --ink-faint: oklch(0.55 0.008 280);
-    --ink-dim: oklch(0.6 0.008 280);
+    --ink-dim: oklch(0.5 0.008 280); /* sidebar group labels — bumped from 0.6 for readability */
     --shadow-shell: 0 30px 80px -30px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.05);
     --shadow-pop: 0 12px 40px -12px rgba(0,0,0,0.18), 0 1px 3px rgba(0,0,0,0.08);
     --accent-soft: oklch(0.92 0.05 295);
@@ -270,6 +270,206 @@
 /* ─── Reset ─────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
 html, body, #__next { height: 100%; }
+
+/* ─── Polish (Phase 5) ────────────────────────────────────────────
+   Universal fixes added 2026-04-29:
+   1. Keyboard focus ring — :focus-visible across all interactive elements
+   2. Touch targets — at least 36px min-height on coarse pointers
+   3. Tabular numerals on KPI / stat values so digits don't wiggle
+   4. Modal fade-in animation
+   5. Smooth global transitions
+*/
+
+/* (1) Focus-visible — accessible keyboard focus */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* (2) Touch targets — bump small buttons on coarse pointers (mobile / tablet) */
+@media (pointer: coarse) {
+    .sb-nav-item,
+    .ep-toolbar-btn,
+    .ep-row-action-btn,
+    .icon-btn,
+    .pj-panel-btn,
+    .epd-modal-cancel,
+    .epd-modal-submit,
+    .acct-modal-option-btn {
+        min-height: 36px;
+    }
+    .ep-pill {
+        min-height: 28px;
+    }
+}
+
+/* (3) Tabular nums on KPI / stat values */
+.kpi .v,
+.num,
+.ep-pag-info,
+.lp-stat-v,
+.lp-card-val,
+.lp-progress-pct,
+.fl-stat-v {
+    font-variant-numeric: tabular-nums;
+}
+
+/* (4) Modal fade-in — picked up by .acct-modal-overlay, .epd-modal-backdrop, .compose-scrim, etc. */
+@keyframes modalFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes modalSlideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.acct-modal-overlay,
+.epd-modal-backdrop,
+.compose-scrim,
+[class*="modal-backdrop"] {
+    animation: modalFadeIn 0.18s ease-out;
+}
+.acct-modal,
+.epd-modal,
+.compose,
+[class*="modal-content"]:not(.acct-modal-overlay):not(.epd-modal-backdrop) {
+    animation: modalSlideIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* (5) Subtle hover transition default for any anchor / button without explicit transition */
+button, a {
+    transition: opacity 0.12s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.12s ease;
+}
+button:active {
+    transform: scale(0.98);
+}
+button:disabled, button[aria-disabled="true"] {
+    transform: none;
+}
+
+/* (6) Briefing "thinking" pulse — used while Jarvis daily briefing is loading */
+@keyframes jarvisThinkingPulse {
+    0%, 100% { opacity: 0.5; }
+    50%      { opacity: 1; }
+}
+.jarvis-thinking {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--accent-ink);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    animation: jarvisThinkingPulse 1.6s ease-in-out infinite;
+}
+.jarvis-thinking::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px color-mix(in oklab, var(--accent), transparent 40%);
+}
+
+/* (7) Empty state — used by /my-projects, /accounts, etc. when 0 results */
+.empty-state-v2 {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 64px 24px;
+    text-align: center;
+    color: var(--ink-muted);
+}
+.empty-state-v2 .empty-illu {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--surface-2);
+    color: var(--ink-muted);
+    margin-bottom: 16px;
+    border: 1px solid var(--hairline);
+}
+.empty-state-v2 h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0 0 6px;
+}
+.empty-state-v2 p {
+    font-size: 13px;
+    color: var(--ink-muted);
+    margin: 0 0 16px;
+    max-width: 320px;
+    line-height: 1.5;
+}
+.empty-state-v2 .empty-cta {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    background: var(--ink);
+    color: var(--canvas);
+    border: none;
+    cursor: pointer;
+}
+
+/* (8) Error toast variant — sits in same stack as undo toast */
+@keyframes errorToastIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.error-toast {
+    background: var(--shell);
+    border: 1px solid var(--danger);
+    border-left: 3px solid var(--danger);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 12px 14px;
+    min-width: 320px;
+    max-width: 400px;
+    box-shadow: var(--shadow-pop);
+    animation: errorToastIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.error-toast-msg { flex: 1; font-size: 13px; }
+.error-toast-retry {
+    background: var(--danger);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.error-toast-retry:hover { opacity: 0.9; }
+.error-toast-close {
+    background: none;
+    border: none;
+    color: var(--ink-muted);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 4px;
+}
+
 
 button { font-family: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; font-size: inherit; }
 input, textarea { font-family: inherit; color: inherit; background: none; border: none; outline: none; font-size: inherit; }
