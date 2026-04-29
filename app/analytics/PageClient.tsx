@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getAnalyticsDataAction } from '../../src/actions/analyticsActions';
 import { useGlobalFilter } from '../context/FilterContext';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 import { RefreshCw } from 'lucide-react';
+import { useUndoToast } from '../context/UndoToastContext';
 
 const Spark = ({ points, color = 'var(--coach)' }: { points: number[]; color?: string }) => {
     const w = 64, h = 28;
@@ -36,16 +37,24 @@ export default function AnalyticsPage() {
         return { startDate: start.toISOString().split('T')[0]!, endDate: endStr };
     })();
 
-    useEffect(() => {
-        if (!isHydrated) return;
-        const load = async () => {
-            setLoading(true);
+    const { showError } = useUndoToast();
+    const loadAnalytics = useCallback(async () => {
+        setLoading(true);
+        try {
             const result = await getAnalyticsDataAction({ startDate, endDate, managerId: 'ALL', accountId: selectedAccountId });
             if (result.success) setData(result);
+            else showError(`Couldn't load analytics: ${result.error || 'unknown error'}`, { onRetry: loadAnalytics });
+        } catch (e: any) {
+            showError(`Couldn't load analytics: ${e?.message || 'network error'}`, { onRetry: loadAnalytics });
+        } finally {
             setLoading(false);
-        };
-        load();
-    }, [startDate, endDate, selectedAccountId, isHydrated]);
+        }
+    }, [startDate, endDate, selectedAccountId, showError]);
+
+    useEffect(() => {
+        if (!isHydrated) return;
+        loadAnalytics();
+    }, [isHydrated, loadAnalytics]);
 
     const stats = data?.stats;
 

@@ -43,6 +43,7 @@ interface GmailAccount {
 
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import { useHydrated } from '../utils/useHydration';
+import { useUndoToast } from '../context/UndoToastContext';
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CACHE_MAX_SIZE = 100; // Max entries before clearing
@@ -131,6 +132,7 @@ export default function AccountsPage() {
     const { selectedAccountId, setSelectedAccountId, accounts, refreshAccounts, isLoadingAccounts, setAccounts } = useGlobalFilter();
     const [isLoading, setIsLoading] = useState(() => accounts.length === 0);
     const { isComposeOpen, setComposeOpen } = useUI();
+    const { showError } = useUndoToast();
     const [isSyncing, setIsSyncing] = useState(false);
     const [showSelectionModal, setShowSelectionModal] = useState(false);
     const [showManualForm, setShowManualForm] = useState(false);
@@ -264,10 +266,14 @@ export default function AccountsPage() {
                 setManualEmail('');
                 setAppPassword('');
             } else {
-                setError(result.error || 'Connection failed');
+                const msg = result.error || 'Connection failed';
+                setError(msg);
+                showError(`Couldn't connect ${manualEmail}: ${msg}`);
             }
         } catch (err: any) {
-            setError(err.message);
+            const msg = err.message || 'Connection failed';
+            setError(msg);
+            showError(`Couldn't connect ${manualEmail}: ${msg}`);
         } finally {
             setIsConnecting(false);
         }

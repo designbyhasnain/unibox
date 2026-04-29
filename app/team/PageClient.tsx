@@ -8,12 +8,14 @@ import { sendInviteAction, listInvitesAction, revokeInviteAction, resendInviteAc
 import { getAccountsAction } from '../../src/actions/accountActions';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import { PageLoader } from '../components/LoadingStates';
+import { useUndoToast } from '../context/UndoToastContext';
 
 // Cache for instant team page load
 let teamCache: { users: any[]; invitations: any[]; accounts: any[] } | null = null;
 
 export default function TeamPage() {
     const router = useRouter();
+    const { showError } = useUndoToast();
     const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
     const [users, setUsers] = useState<any[]>([]);
     const [invitations, setInvitations] = useState<any[]>([]);
@@ -96,6 +98,10 @@ export default function TeamPage() {
         setInviteResult(result);
         if (result.success) {
             await loadData();
+        } else {
+            showError(`Couldn't send invite to ${inviteForm.email}: ${result.error || 'unknown error'}`, {
+                onRetry: handleSendInvite,
+            });
         }
         setActionLoading(null);
     };
@@ -557,7 +563,7 @@ export default function TeamPage() {
                             <div>
                                 <div style={{ background: 'var(--coach-soft)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
                                     <p style={{ color: 'var(--coach)', fontWeight: 500, marginBottom: 8 }}>Invitation sent!</p>
-                                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>Share this link if the email doesn't arrive:</p>
+                                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>Share this link if the email doesn&apos;t arrive:</p>
                                     <input type="text" readOnly value={inviteResult.inviteUrl || ''} onClick={(e) => { (e.target as HTMLInputElement).select(); navigator.clipboard.writeText(inviteResult.inviteUrl || ''); }}
                                         style={{ width: '100%', fontSize: 11, padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border-color, var(--hairline))', background: 'var(--bg-surface)', cursor: 'pointer' }} />
                                 </div>

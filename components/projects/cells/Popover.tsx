@@ -63,7 +63,7 @@ export default function Popover({ open, onClose, triggerRef, minWidth = 160, max
         // Run again next frame in case the panel's natural width changed (e.g., async list load).
         const id = requestAnimationFrame(reposition);
         return () => cancelAnimationFrame(id);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+         
     }, [open]);
 
     useEffect(() => {
@@ -86,7 +86,7 @@ export default function Popover({ open, onClose, triggerRef, minWidth = 160, max
             window.removeEventListener('scroll', reposition2, true);
             window.removeEventListener('resize', reposition2);
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+         
     }, [open]);
 
     if (!open || typeof document === 'undefined') return null;

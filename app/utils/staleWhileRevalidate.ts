@@ -79,7 +79,7 @@ export function useSWRData<T>(
             setIsLoading(true);
             refresh();
         }
-    }, [key, refresh, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [key, refresh, ...deps]);  
 
     return { data, isLoading, isStale, refresh };
 }

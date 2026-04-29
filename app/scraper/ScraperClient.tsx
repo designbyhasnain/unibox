@@ -86,7 +86,9 @@ export default function ScraperPage() {
         try {
             const res = await bulkEnrollScrapedLeadsAction([...selected], campaignId);
             if (!res.success) {
-                setEnrollMsg(`Enrollment failed: ${res.errors.join('; ')}`);
+                const summary = res.errors.join('; ');
+                setEnrollMsg(`Enrollment failed: ${summary}`);
+                showError(`Enrollment failed: ${summary || 'unknown error'}`, { onRetry: handleEnroll });
             } else {
                 const parts = [];
                 if (res.enrolled > 0) parts.push(`${res.enrolled} enrolled`);
@@ -99,7 +101,9 @@ export default function ScraperPage() {
                 if (selectedJobId) getScrapeResultsAction(selectedJobId).then(setResults);
             }
         } catch (e: any) {
-            setEnrollMsg(`Error: ${e?.message || 'Unknown error'}`);
+            const msg = e?.message || 'Unknown error';
+            setEnrollMsg(`Error: ${msg}`);
+            showError(`Enrollment failed: ${msg}`, { onRetry: handleEnroll });
         } finally {
             setEnrolling(false);
         }

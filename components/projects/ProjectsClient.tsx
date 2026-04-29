@@ -10,6 +10,7 @@ import ProjectTable from './table/ProjectTable';
 import BoardView from './views/BoardView';
 import ProjectDetailPanel from './project-detail/ProjectDetailPanel';
 import { ErrorBoundary } from '../../app/components/ErrorBoundary';
+import { useUndoToast } from '../../app/context/UndoToastContext';
 
 const PAGE_SIZE = 50;
 
@@ -87,12 +88,19 @@ export default function ProjectsClient({ userRole }: { userRole?: string }) {
   const LOCAL_ONLY_FIELDS = new Set(['assignedEditorName']);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
+  const { showError } = useUndoToast();
   const handleUpdate = useCallback(async (id: string, field: string, value: unknown) => {
     setProjects(prev => prev.map(p => p.id === id ? { ...p, [field]: value } as ProjectWithCommentCount : p));
     if (LOCAL_ONLY_FIELDS.has(field)) return;
     const res = await updateEditProject(id, { [field]: value });
-    if (!res.success) loadProjects(currentPage, true);
-  }, [loadProjects, currentPage]);
+    if (!res.success) {
+      // Roll back the optimistic change so the user sees the real DB state.
+      loadProjects(currentPage, true);
+      showError(`Couldn't update ${field}: ${('error' in res && res.error) || 'unknown error'}`, {
+        onRetry: () => updateEditProject(id, { [field]: value }).then(r => { if (r.success) loadProjects(currentPage, true); }),
+      });
+    }
+  }, [loadProjects, currentPage, showError]);
 
   const handleCreateNew = useCallback(async (progress?: ProjectProgress) => {
     const res = await createEditProject({ name: 'Untitled', ...(progress ? { progress } : {}) });

@@ -74,7 +74,7 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
             })
             .catch(() => { setEmailsLoaded(true); setEmailLoadError(true); })
             .finally(() => setLoadingEmails(false));
-    }, [isExpanded, action.contactId, accounts]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [isExpanded, action.contactId, accounts]);  
 
     useEffect(() => {
         if (isExpanded && emailsLoaded && textareaRef.current) {

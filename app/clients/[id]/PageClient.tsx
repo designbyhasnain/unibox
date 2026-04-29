@@ -216,7 +216,7 @@ export default function ContactDetailPage() {
                                                         <strong style={{ color: 'var(--text-primary)' }}>{h.to_name ? firstName(h.to_name) : <em>unassigned</em>}</strong>
                                                     </span>
                                                     <span style={{ color: 'var(--text-tertiary)' }}>· {sourceLabel(h.source as string)}</span>
-                                                    {h.reason && <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>· "{h.reason}"</span>}
+                                                    {h.reason && <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>· &ldquo;{h.reason}&rdquo;</span>}
                                                 </div>
                                             ))
                                             : <div style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>No transfers recorded yet.</div>}
@@ -414,7 +414,7 @@ export default function ContactDetailPage() {
                                             </span>
                                         );
                                     } else if (a.action === 'AM_CREDIT_OVERRIDE' && parsedNote) {
-                                        detail = <span>project AM override · "{parsedNote.reason || ''}"</span>;
+                                        detail = <span>project AM override · &ldquo;{parsedNote.reason || ''}&rdquo;</span>;
                                     } else if (parsedNote) {
                                         detail = <span>{JSON.stringify(parsedNote)}</span>;
                                     } else if (typeof raw === 'string') {

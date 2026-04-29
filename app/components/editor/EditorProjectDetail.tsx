@@ -217,7 +217,7 @@ export default function EditorProjectDetail({ projectId, onClose }: Props) {
                                                     <span className="epd-comment-author">{c.authorName}</span>
                                                     <span className="epd-comment-time">{relTime(c.createdAt)}</span>
                                                 </div>
-                                                <div className="epd-comment-body">"{c.content}"</div>
+                                                <div className="epd-comment-body">&ldquo;{c.content}&rdquo;</div>
                                             </div>
                                         ))}
                                     </div>

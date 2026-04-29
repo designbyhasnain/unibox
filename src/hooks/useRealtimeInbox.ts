@@ -46,7 +46,7 @@ export function useRealtimeInbox({
     // Stable key — only changes when the set of accountIds actually changes
     const accountIdsKey = useMemo(
         () => [...accountIds].sort().join(','),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+         
         [accountIds.length, accountIds.join(',')]
     );
 
@@ -173,7 +173,7 @@ export function useRealtimeInbox({
                 channelRef.current = null;
             }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+         
     }, [accountIdsKey]);
 
     // ───── Polling fallback & Tab Focus ──────────────────────────────────────
