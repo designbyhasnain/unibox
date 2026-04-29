@@ -40,8 +40,10 @@ const ICON = {
 };
 
 export default function Dashboard({ userRole }: { userRole?: string }) {
-    if (userRole === 'VIDEO_EDITOR') return <EditorTodayView />;
-
+    // Hooks MUST be called unconditionally on every render — the early return
+    // for VIDEO_EDITOR comes after all hooks below. (Caught by react-hooks/
+    // rules-of-hooks: returning a different component before hooks would
+    // change the hook count between renders if userRole ever changed.)
     const hydrated = useHydrated();
     const [name, setName] = useState('');
     const [d, setD] = useState<any>(null);
@@ -52,6 +54,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     const [speaking, setSpeaking] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
+    const isEditor = userRole === 'VIDEO_EDITOR';
     const { showError } = useUndoToast();
 
     const loadDashboard = useCallback(() => {
@@ -151,6 +154,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
         try { window.speechSynthesis?.cancel(); } catch {}
     }, []);
 
+    if (isEditor) return <EditorTodayView />;
     if (!hydrated || loading) return <PageLoader isLoading type="grid" count={6} context="dashboard"><div /></PageLoader>;
 
     const s = d?.stats || { sent: 0, replies: 0, newLeads: 0, replyRate: 0 };

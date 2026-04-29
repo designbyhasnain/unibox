@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useUI } from '../context/UIContext';
 import { useGlobalFilter } from '../context/FilterContext';
 import { usePrefetch } from '../hooks/usePrefetch';
@@ -16,6 +16,7 @@ interface ClientLayoutProps {
 
 export default function ClientLayout({ children }: ClientLayoutProps) {
     const pathname = usePathname();
+    const router = useRouter();
     const { isComposeOpen, setComposeOpen, composeDefaultTo, composeDefaultSubject, composeDefaultBody } = useUI();
     const { selectedAccountId } = useGlobalFilter();
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -27,6 +28,59 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
     useEffect(() => {
         setSidebarOpen(false);
     }, [pathname]);
+
+    // ── Global keyboard shortcuts ──
+    // ⌘K / Ctrl+K → focus global search.
+    // ⌘J / Ctrl+J → jump to Jarvis page.
+    // ⌘/ / Ctrl+/ → also focuses search (fallback when ⌘K is captured by browser).
+    // Shortcuts are intentionally suppressed when the user is already typing in
+    // an editable field unless they're explicitly Cmd/Ctrl-modified.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const cmd = e.metaKey || e.ctrlKey;
+            const target = e.target as HTMLElement | null;
+            const isInField = !!target && (
+                target.tagName === 'INPUT' ||
+                target.tagName === 'TEXTAREA' ||
+                target.isContentEditable
+            );
+
+            // ⌘K — focus search
+            if (cmd && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                const input = document.querySelector<HTMLInputElement>('.global-search-input');
+                if (input && !input.disabled) {
+                    input.focus();
+                    input.select();
+                }
+                return;
+            }
+
+            // ⌘J — go to Jarvis
+            if (cmd && e.key.toLowerCase() === 'j') {
+                e.preventDefault();
+                router.push('/jarvis');
+                return;
+            }
+
+            // ⌘/ — fallback search focus
+            if (cmd && e.key === '/') {
+                e.preventDefault();
+                const input = document.querySelector<HTMLInputElement>('.global-search-input');
+                if (input && !input.disabled) input.focus();
+                return;
+            }
+
+            // Bare "/" focuses search ONLY when not already in a field.
+            if (e.key === '/' && !isInField && !cmd && !e.altKey) {
+                e.preventDefault();
+                const input = document.querySelector<HTMLInputElement>('.global-search-input');
+                if (input && !input.disabled) input.focus();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [router]);
 
     // Login and invite pages get their own full-screen layout — no sidebar, compose modal, or trackers
     if (pathname === '/login' || pathname.startsWith('/invite')) {
