@@ -85,8 +85,23 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
             } catch {}
         };
         fetchCount();
-        const interval = setInterval(fetchCount, 60000);
-        return () => clearInterval(interval);
+        // Poll every 60s — but only while the tab is visible. Hidden tabs don't
+        // generate user-relevant changes; resuming on visibilitychange gives the
+        // user a fresh count immediately when they return.
+        let interval: ReturnType<typeof setInterval> | null = null;
+        const start = () => { if (!interval) interval = setInterval(fetchCount, 60000); };
+        const stop = () => { if (interval) { clearInterval(interval); interval = null; } };
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                fetchCount();
+                start();
+            } else {
+                stop();
+            }
+        };
+        if (document.visibilityState === 'visible') start();
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
     }, [userRole]);
 
     const confirmLogout = async () => { setShowLogoutConfirm(false); await logoutAction(); };
@@ -222,10 +237,17 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                             <span className="sb-nav-label">{isEditor ? 'Profile' : 'Settings'}</span>
                         </Link>
                         <button className="sb-nav-item" onClick={() => {
-                            const current = document.body.getAttribute('data-theme');
+                            const current = document.documentElement.getAttribute('data-theme');
                             const next = current === 'light' ? '' : 'light';
-                            if (next) { document.body.setAttribute('data-theme', next); localStorage.setItem('unibox_theme', next); }
-                            else { document.body.removeAttribute('data-theme'); localStorage.removeItem('unibox_theme'); }
+                            if (next) {
+                                document.documentElement.setAttribute('data-theme', next);
+                                document.body.setAttribute('data-theme', next);
+                                localStorage.setItem('unibox_theme', next);
+                            } else {
+                                document.documentElement.removeAttribute('data-theme');
+                                document.body.removeAttribute('data-theme');
+                                localStorage.removeItem('unibox_theme');
+                            }
                         }} title="Toggle theme">
                             <span className="sb-nav-icon">{Icon.sun}</span>
                             <span className="sb-nav-label">Theme</span>

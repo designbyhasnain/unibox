@@ -30,7 +30,10 @@ export const metadata: Metadata = {
     },
 }
 
-const themeScript = `(function(){try{var t=localStorage.getItem('unibox_theme');if(t==='light'){document.body.setAttribute('data-theme','light')}}catch(e){}})()`;
+// Apply on <html> first so the CSS cascade sees the right tokens BEFORE any
+// descendant paints — eliminates the brief dark→light flash. We also mirror
+// onto <body> for any selector still scoped that way.
+const themeScript = `(function(){try{var t=localStorage.getItem('unibox_theme');if(t==='light'){document.documentElement.setAttribute('data-theme','light');document.body&&document.body.setAttribute('data-theme','light')}}catch(e){}})()`;
 
 
 export default function RootLayout({

@@ -461,7 +461,83 @@ button:disabled, button[aria-disabled="true"] {
     }
 }
 
-/* (10) Error toast variant — sits in same stack as undo toast */
+/* (10) Global search history dropdown — sits inside .global-search-bar.
+   Visible only when the input is focused AND there's persisted history. */
+.global-search-bar { position: relative; }
+.global-search-history {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: var(--shell);
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    box-shadow: var(--shadow-pop);
+    padding: 6px;
+    z-index: 100;
+    animation: modalSlideIn 0.15s ease-out;
+    max-height: 320px;
+    overflow-y: auto;
+}
+.global-search-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px 6px;
+    border-bottom: 1px solid var(--hairline-soft);
+    margin-bottom: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-muted);
+}
+.global-search-history-clear {
+    background: none;
+    border: none;
+    color: var(--accent-ink);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: normal;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.12s;
+}
+.global-search-history-clear:hover { background: var(--surface-2); }
+.global-search-history-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s;
+}
+.global-search-history-item:hover {
+    background: var(--surface-hover);
+    color: var(--ink);
+}
+.global-search-history-item svg {
+    color: var(--ink-muted);
+    flex-shrink: 0;
+}
+.global-search-history-item span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+/* (11) Error toast variant — sits in same stack as undo toast */
 @keyframes errorToastIn {
     from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: translateY(0); }
