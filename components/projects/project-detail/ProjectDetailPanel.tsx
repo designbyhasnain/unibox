@@ -84,9 +84,9 @@ export default function ProjectDetailPanel({ projectId, onClose, onUpdate, onDup
         <div className="ep-detail-top">
           <button className="ep-detail-back" onClick={onClose}>← Back</button>
         </div>
-        <div className="ep-detail-loading" style={{ color: '#dc2626', padding: 20, textAlign: 'center' }}>
+        <div className="ep-detail-loading" style={{ color: 'var(--danger)', padding: 20, textAlign: 'center' }}>
           Failed to load project
-          <div style={{ fontSize: 12, marginTop: 8, color: '#64748b' }}>{loadError}</div>
+          <div style={{ fontSize: 12, marginTop: 8, color: 'var(--ink-muted)' }}>{loadError}</div>
         </div>
       </div>
     );

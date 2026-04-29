@@ -125,7 +125,7 @@ export default function LinkProjectsPage() {
 
 /* Tabs */
 .lp-tabs{display:flex;gap:2px;background:var(--surface-2);border-radius:10px;padding:3px;margin-bottom:24px;width:fit-content}
-.lp-tab{padding:8px 20px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;color:#737373;background:none;border:none;transition:all .15s}
+.lp-tab{padding:8px 20px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;color:var(--ink-muted);background:none;border:none;transition:all .15s}
 .lp-tab.active{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 
 /* Progress */
@@ -168,7 +168,7 @@ export default function LinkProjectsPage() {
 
 /* Contact item */
 .lp-contact{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;transition:background .1s;border:1px solid transparent}
-.lp-contact:hover{background:var(--hairline-soft);border-color:#d4d4d4}
+.lp-contact:hover{background:var(--hairline-soft);border-color:var(--hairline)}
 .lp-contact-av{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0}
 .lp-contact-info{flex:1;min-width:0}
 .lp-contact-name{font-size:12px;font-weight:600}
@@ -196,7 +196,7 @@ export default function LinkProjectsPage() {
 .lp-suspect-stat-l{font-size:9px;color:var(--ink-muted);text-transform:uppercase}
 .lp-suspect-action{flex-shrink:0}
 .lp-btn-danger{background:var(--danger-soft);color:var(--danger);border-color:var(--danger-soft)}
-.lp-btn-danger:hover{background:#fee2e2;color:var(--danger)}
+.lp-btn-danger:hover{background:color-mix(in oklab, var(--danger), transparent 78%);color:var(--danger)}
 
 /* Pagination */
 .lp-pag{display:flex;align-items:center;justify-content:space-between;margin-top:16px}
@@ -206,10 +206,10 @@ export default function LinkProjectsPage() {
 .lp-pag-btn:hover{background:var(--surface-2)}
 .lp-pag-btn:disabled{opacity:.3;cursor:not-allowed}
 
-.lp-done{text-align:center;padding:32px;background:var(--coach-soft);border:1px solid #bbf7d0;border-radius:12px}
+.lp-done{text-align:center;padding:32px;background:var(--coach-soft);border:1px solid var(--coach);border-radius:12px}
 .lp-done-icon{font-size:40px;margin-bottom:6px}
 .lp-done-text{font-size:15px;font-weight:600;color:var(--coach)}
-.lp-done-sub{font-size:12px;color:#86efac;margin-top:4px}
+.lp-done-sub{font-size:12px;color:var(--coach);opacity:.7;margin-top:4px}
         `}</style>
 
         <div className="lp"><div className="lp-in">
@@ -324,7 +324,7 @@ export default function LinkProjectsPage() {
                                                 ) : searchResults.length > 0 ? (
                                                     searchResults.map(c => (
                                                         <div key={c.id} className="lp-contact" onClick={() => handleLink(p.id, c.id)}>
-                                                            <div className="lp-contact-av" style={{ background: '#525252' }}>{ini(c.name)}</div>
+                                                            <div className="lp-contact-av" style={{ background: 'var(--ink-muted)' }}>{ini(c.name)}</div>
                                                             <div className="lp-contact-info">
                                                                 <div className="lp-contact-name">{c.name}</div>
                                                                 <div className="lp-contact-email">{c.email}{c.company ? ' \u00B7 ' + c.company : ''}{c.location ? ' \u00B7 ' + c.location : ''}</div>

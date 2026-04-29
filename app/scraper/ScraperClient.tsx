@@ -114,7 +114,7 @@ export default function ScraperPage() {
     return (
         <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
             <h1 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '16px' }}>Lead Scraper</h1>
-            <p style={{ color: '#6b7280', marginBottom: '16px', fontSize: '14px' }}>
+            <p style={{ color: 'var(--ink-muted)', marginBottom: '16px', fontSize: '14px' }}>
                 Paste up to 50 URLs (one per line). We&apos;ll fetch each page, extract contact info, and score
                 the lead. Use the checkboxes to enroll selected leads directly into a campaign.
             </p>
@@ -126,8 +126,9 @@ export default function ScraperPage() {
                 rows={8}
                 style={{
                     width: '100%', padding: '12px',
-                    border: '1px solid #e5e7eb', borderRadius: '8px',
+                    border: '1px solid var(--hairline)', borderRadius: '8px',
                     fontFamily: 'monospace', fontSize: '13px', resize: 'vertical',
+                    background: 'var(--shell)', color: 'var(--ink)',
                 }}
                 disabled={isPending}
             />
@@ -137,37 +138,38 @@ export default function ScraperPage() {
                     onClick={handleStart}
                     disabled={isPending || !urls.trim()}
                     style={{
-                        padding: '10px 20px', background: isPending ? '#9ca3af' : '#111827',
-                        color: 'white', border: 'none', borderRadius: '8px', fontWeight: 500,
+                        padding: '10px 20px', background: isPending ? 'var(--ink-muted)' : 'var(--ink)',
+                        color: 'var(--canvas)', border: 'none', borderRadius: '8px', fontWeight: 500,
                         cursor: isPending ? 'not-allowed' : 'pointer',
                     }}
                 >
                     {isPending ? 'Scraping...' : 'Start Scrape'}
                 </button>
-                {message && <span style={{ fontSize: '13px', color: '#6b7280' }}>{message}</span>}
+                {message && <span style={{ fontSize: '13px', color: 'var(--ink-muted)' }}>{message}</span>}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '24px', marginTop: '32px' }}>
                 <div>
                     <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Recent Jobs</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {jobs.length === 0 && <p style={{ fontSize: '13px', color: '#9ca3af' }}>No jobs yet</p>}
+                        {jobs.length === 0 && <p style={{ fontSize: '13px', color: 'var(--ink-muted)' }}>No jobs yet</p>}
                         {jobs.map((j) => (
                             <button
                                 key={j.id}
                                 onClick={() => setSelectedJobId(j.id)}
                                 style={{
                                     textAlign: 'left', padding: '10px',
-                                    border: `1px solid ${selectedJobId === j.id ? '#111827' : '#e5e7eb'}`,
+                                    border: `1px solid ${selectedJobId === j.id ? 'var(--ink)' : 'var(--hairline)'}`,
                                     borderRadius: '6px',
-                                    background: selectedJobId === j.id ? '#f9fafb' : 'white',
+                                    background: selectedJobId === j.id ? 'var(--surface-2)' : 'var(--shell)',
+                                    color: 'var(--ink)',
                                     cursor: 'pointer',
                                 }}
                             >
                                 <div style={{ fontSize: '12px', fontWeight: 500 }}>
                                     {j.status} &middot; {j.processedUrls}/{j.totalUrls}
                                 </div>
-                                <div style={{ fontSize: '11px', color: '#9ca3af' }}>
+                                <div style={{ fontSize: '11px', color: 'var(--ink-muted)' }}>
                                     {new Date(j.createdAt).toLocaleString()}
                                 </div>
                             </button>
@@ -179,7 +181,7 @@ export default function ScraperPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
                         <h3 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>
                             Results {selectedJobId ? `(${results.length})` : ''}
-                            {selected.size > 0 && <span style={{ color: '#111827', fontWeight: 500, fontSize: 13 }}> &middot; {selected.size} selected</span>}
+                            {selected.size > 0 && <span style={{ color: 'var(--ink)', fontWeight: 500, fontSize: 13 }}> &middot; {selected.size} selected</span>}
                         </h3>
 
                         {/* Bulk Enroll toolbar */}
@@ -190,8 +192,8 @@ export default function ScraperPage() {
                                     onChange={e => setCampaignId(e.target.value)}
                                     disabled={enrolling}
                                     style={{
-                                        padding: '7px 10px', borderRadius: 6, border: '1px solid #e5e7eb',
-                                        fontSize: 12, background: 'white', minWidth: 180,
+                                        padding: '7px 10px', borderRadius: 6, border: '1px solid var(--hairline)',
+                                        fontSize: 12, background: 'var(--shell)', color: 'var(--ink)', minWidth: 180,
                                     }}
                                 >
                                     <option value="">Select a campaign…</option>
@@ -206,8 +208,8 @@ export default function ScraperPage() {
                                     disabled={selected.size === 0 || !campaignId || enrolling}
                                     style={{
                                         padding: '8px 14px',
-                                        background: selected.size > 0 && campaignId && !enrolling ? '#2563eb' : '#9ca3af',
-                                        color: 'white', border: 'none', borderRadius: 6,
+                                        background: selected.size > 0 && campaignId && !enrolling ? 'var(--accent)' : 'var(--ink-muted)',
+                                        color: '#fff', border: 'none', borderRadius: 6,
                                         fontSize: 12, fontWeight: 600,
                                         cursor: selected.size > 0 && campaignId && !enrolling ? 'pointer' : 'not-allowed',
                                     }}
@@ -220,22 +222,22 @@ export default function ScraperPage() {
                     {enrollMsg && (
                         <div style={{
                             padding: '8px 12px', borderRadius: 6, marginBottom: 10,
-                            background: enrollMsg.includes('failed') || enrollMsg.includes('Error') ? '#fef2f2' : '#f0fdf4',
-                            color: enrollMsg.includes('failed') || enrollMsg.includes('Error') ? '#b91c1c' : '#15803d',
+                            background: enrollMsg.includes('failed') || enrollMsg.includes('Error') ? 'var(--danger-soft)' : 'var(--coach-soft)',
+                            color: enrollMsg.includes('failed') || enrollMsg.includes('Error') ? 'var(--danger)' : 'var(--coach)',
                             fontSize: 12, fontWeight: 500,
                         }}>
                             {enrollMsg}
                         </div>
                     )}
 
-                    {!selectedJobId && <p style={{ fontSize: '13px', color: '#9ca3af' }}>Select a job</p>}
+                    {!selectedJobId && <p style={{ fontSize: '13px', color: 'var(--ink-muted)' }}>Select a job</p>}
                     {selectedJobId && results.length === 0 && (
-                        <p style={{ fontSize: '13px', color: '#9ca3af' }}>No results</p>
+                        <p style={{ fontSize: '13px', color: 'var(--ink-muted)' }}>No results</p>
                     )}
                     {results.length > 0 && (
-                        <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+                        <div style={{ border: '1px solid var(--hairline)', borderRadius: '8px', overflow: 'hidden' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                                <thead style={{ background: '#f9fafb' }}>
+                                <thead style={{ background: 'var(--surface-2)' }}>
                                     <tr>
                                         <th style={{ padding: '10px', textAlign: 'left', width: 34 }}>
                                             <input
@@ -259,8 +261,8 @@ export default function ScraperPage() {
                                         const isSelected = selected.has(r.id);
                                         return (
                                             <tr key={r.id} style={{
-                                                borderTop: '1px solid #f3f4f6',
-                                                background: isSelected ? '#eff6ff' : 'transparent',
+                                                borderTop: '1px solid var(--hairline-soft)',
+                                                background: isSelected ? 'color-mix(in oklab, var(--accent), transparent 88%)' : 'transparent',
                                             }}>
                                                 <td style={{ padding: '10px' }}>
                                                     <input
@@ -275,7 +277,7 @@ export default function ScraperPage() {
                                                     <span style={{
                                                         display: 'inline-block', padding: '2px 8px',
                                                         background: badgeColor(r.scoreLabel),
-                                                        color: 'white', borderRadius: '10px',
+                                                        color: '#fff', borderRadius: '10px',
                                                         fontSize: '11px', fontWeight: 600,
                                                     }}>
                                                         {r.score} &middot; {r.scoreLabel || '\u2014'}
@@ -283,7 +285,7 @@ export default function ScraperPage() {
                                                 </td>
                                                 <td style={{ padding: '10px' }}>
                                                     <a href={r.url} target="_blank" rel="noreferrer"
-                                                        style={{ color: '#2563eb', textDecoration: 'none' }}>
+                                                        style={{ color: 'var(--info)', textDecoration: 'none' }}>
                                                         {r.domain || r.url}
                                                     </a>
                                                 </td>
@@ -295,13 +297,13 @@ export default function ScraperPage() {
                                                 </td>
                                                 <td style={{ padding: '10px' }}>
                                                     {r.status === 'APPROVED' ? (
-                                                        <span style={{ fontSize: 11, fontWeight: 600, color: '#15803d', padding: '2px 8px', borderRadius: 6, background: '#f0fdf4' }}>
+                                                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--coach)', padding: '2px 8px', borderRadius: 6, background: 'var(--coach-soft)' }}>
                                                             Enrolled
                                                         </span>
                                                     ) : r.status === 'REJECTED' ? (
-                                                        <span style={{ fontSize: 11, color: '#b91c1c' }}>Error</span>
+                                                        <span style={{ fontSize: 11, color: 'var(--danger)' }}>Error</span>
                                                     ) : (
-                                                        <span style={{ fontSize: 11, color: '#6b7280' }}>Pending</span>
+                                                        <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Pending</span>
                                                     )}
                                                 </td>
                                             </tr>

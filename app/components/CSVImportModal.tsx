@@ -101,9 +101,9 @@ export default function CSVImportModal({ isOpen, onClose, onImportComplete }: CS
                             onDrop={handleDrop}
                             onClick={() => fileRef.current?.click()}
                             style={{
-                                border: `2px dashed ${isDragging ? '#1a73e8' : 'var(--border-subtle)'}`,
+                                border: `2px dashed ${isDragging ? 'var(--accent)' : 'var(--border-subtle)'}`,
                                 borderRadius: 12, padding: '3rem', textAlign: 'center', cursor: 'pointer',
-                                background: isDragging ? 'rgba(26,115,232,0.05)' : 'transparent',
+                                background: isDragging ? 'color-mix(in oklab, var(--accent), transparent 92%)' : 'transparent',
                                 transition: 'all 0.2s',
                             }}
                         >
@@ -124,17 +124,17 @@ export default function CSVImportModal({ isOpen, onClose, onImportComplete }: CS
                     {step === 'preview' && preview && (
                         <>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-                                <div style={{ background: '#e6f4ea', borderRadius: 8, padding: 12, textAlign: 'center' }}>
-                                    <div style={{ fontSize: 24, fontWeight: 700, color: '#137333' }}>{preview.newCount}</div>
-                                    <div style={{ fontSize: 11, color: '#137333' }}>New Contacts</div>
+                                <div style={{ background: 'var(--coach-soft)', borderRadius: 8, padding: 12, textAlign: 'center' }}>
+                                    <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--coach)' }}>{preview.newCount}</div>
+                                    <div style={{ fontSize: 11, color: 'var(--coach)' }}>New Contacts</div>
                                 </div>
-                                <div style={{ background: '#fef7e0', borderRadius: 8, padding: 12, textAlign: 'center' }}>
-                                    <div style={{ fontSize: 24, fontWeight: 700, color: '#b06000' }}>{preview.duplicateCount}</div>
-                                    <div style={{ fontSize: 11, color: '#b06000' }}>Duplicates (skip)</div>
+                                <div style={{ background: 'var(--warn-soft)', borderRadius: 8, padding: 12, textAlign: 'center' }}>
+                                    <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--warn)' }}>{preview.duplicateCount}</div>
+                                    <div style={{ fontSize: 11, color: 'var(--warn)' }}>Duplicates (skip)</div>
                                 </div>
-                                <div style={{ background: '#fce8e6', borderRadius: 8, padding: 12, textAlign: 'center' }}>
-                                    <div style={{ fontSize: 24, fontWeight: 700, color: '#c5221f' }}>{preview.invalidCount}</div>
-                                    <div style={{ fontSize: 11, color: '#c5221f' }}>Invalid</div>
+                                <div style={{ background: 'var(--danger-soft)', borderRadius: 8, padding: 12, textAlign: 'center' }}>
+                                    <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--danger)' }}>{preview.invalidCount}</div>
+                                    <div style={{ fontSize: 11, color: 'var(--danger)' }}>Invalid</div>
                                 </div>
                             </div>
 
@@ -163,7 +163,7 @@ export default function CSVImportModal({ isOpen, onClose, onImportComplete }: CS
                         <div style={{ textAlign: 'center', padding: '2rem 0' }}>
                             <div style={{ fontSize: 14, marginBottom: 12, color: 'var(--text-primary)' }}>Importing contacts...</div>
                             <div style={{ background: 'var(--border-subtle)', borderRadius: 8, height: 8, overflow: 'hidden' }}>
-                                <div style={{ background: '#1a73e8', height: '100%', width: `${progress}%`, transition: 'width 0.3s', borderRadius: 8 }} />
+                                <div style={{ background: 'var(--accent)', height: '100%', width: `${progress}%`, transition: 'width 0.3s', borderRadius: 8 }} />
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8 }}>{progress}%</div>
                         </div>
@@ -171,7 +171,7 @@ export default function CSVImportModal({ isOpen, onClose, onImportComplete }: CS
 
                     {step === 'done' && result && (
                         <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" style={{ marginBottom: 12 }}>
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--coach)" strokeWidth="2" style={{ marginBottom: 12 }}>
                                 <path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
                             </svg>
                             <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>Import Complete</div>

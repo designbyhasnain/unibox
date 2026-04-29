@@ -41,19 +41,19 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                     justifyContent: 'center',
                     padding: '3rem 1.5rem',
                     gap: '0.75rem',
-                    color: 'var(--text-secondary, #666)',
+                    color: 'var(--ink-muted)',
                     minHeight: 200,
                 }}>
                     <div style={{
                         width: 48, height: 48,
                         borderRadius: '50%',
-                        background: 'var(--danger-bg, #fef2f2)',
+                        background: 'var(--danger-soft)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 22,
                     }}>
                         !
                     </div>
-                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary, #333)' }}>
+                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--ink)' }}>
                         {this.props.section
                             ? `Something went wrong in ${this.props.section}`
                             : 'Something went wrong'}
@@ -66,13 +66,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                         style={{
                             marginTop: 8,
                             padding: '8px 20px',
-                            border: '1px solid var(--border, #e0e0e0)',
+                            border: '1px solid var(--hairline)',
                             borderRadius: 8,
-                            background: 'var(--bg-surface, #fff)',
+                            background: 'var(--shell)',
                             cursor: 'pointer',
                             fontWeight: 500,
                             fontSize: 13,
-                            color: 'var(--text-primary, #333)',
+                            color: 'var(--ink)',
                         }}
                     >
                         Try again

@@ -28,7 +28,7 @@ export default function PriorityCell({ value, onChange }: {
       <Popover open={open} onClose={() => setOpen(false)} triggerRef={triggerRef} minWidth={140}>
         <div className="ep-dropdown-inner">
           {ALL_PRIORITY.map(p => {
-            const c = (PRIORITY_CONFIG as Record<string, { label: string; bg: string; color: string }>)[p] || { label: p, bg: '#eee', color: '#333' };
+            const c = (PRIORITY_CONFIG as Record<string, { label: string; bg: string; color: string }>)[p] || { label: p, bg: 'var(--surface-2)', color: 'var(--ink-2)' };
             return (
               <div key={p} className="ep-dropdown-item" onClick={e => { e.stopPropagation(); onChange(p); setOpen(false); }}>
                 <span className="ep-pill" style={{ background: c.bg, color: c.color }}>{c.label}</span>

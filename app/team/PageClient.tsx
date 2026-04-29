@@ -354,7 +354,7 @@ export default function TeamPage() {
                                 </thead>
                                 <tbody>
                                     {users.map((user, idx) => (
-                                        <tr key={user.id} style={{ borderBottom: '1px solid var(--border-color, var(--hairline))', background: idx % 2 === 1 ? 'var(--surface)' : '#fff' }}>
+                                        <tr key={user.id} style={{ borderBottom: '1px solid var(--hairline)', background: idx % 2 === 1 ? 'var(--surface)' : 'var(--shell)' }}>
                                             <td style={tdRowStyle}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                                     <div style={{
@@ -481,7 +481,7 @@ export default function TeamPage() {
                                             <td style={tdStyle}>
                                                 <span style={{
                                                     fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                                                    background: inv.role === 'ADMIN' ? 'var(--info-soft)' : inv.role === 'VIDEO_EDITOR' ? '#f5f3ff' : 'var(--warn-soft)',
+                                                    background: inv.role === 'ADMIN' ? 'var(--info-soft)' : inv.role === 'VIDEO_EDITOR' ? 'color-mix(in oklab, var(--accent), transparent 88%)' : 'var(--warn-soft)',
                                                     color: inv.role === 'ADMIN' ? 'var(--accent)' : inv.role === 'VIDEO_EDITOR' ? 'var(--accent)' : 'var(--warn)',
                                                 }}>{{ ADMIN: 'Admin', SALES: 'Sales', VIDEO_EDITOR: 'Video Editor' }[inv.role as string] || inv.role}</span>
                                             </td>

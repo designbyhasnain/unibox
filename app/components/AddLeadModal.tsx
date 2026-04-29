@@ -76,7 +76,7 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
 
                 <form onSubmit={handleSubmit} className="modal-form">
                     {error && (
-                        <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: 6, fontSize: '0.8125rem', marginBottom: 4 }}>
+                        <div style={{ padding: '8px 12px', background: 'var(--danger-soft)', color: 'var(--danger)', borderRadius: 6, fontSize: '0.8125rem', marginBottom: 4 }}>
                             {error}
                         </div>
                     )}

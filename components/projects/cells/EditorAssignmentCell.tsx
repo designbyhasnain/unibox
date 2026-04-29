@@ -88,7 +88,7 @@ export default function EditorAssignmentCell({ editorId, editorName, legacyName,
                         className={`ep-dropdown-item ep-editor-item${editorId === null ? ' ep-editor-active' : ''}`}
                         onClick={() => { onChange(null, null); setOpen(false); }}
                     >
-                        <span className="ep-editor-avatar" style={{ background: '#3a3a40' }}>?</span>
+                        <span className="ep-editor-avatar" style={{ background: 'var(--surface-2)', color: 'var(--ink-muted)' }}>?</span>
                         <span className="ep-editor-name" style={{ opacity: 0.7, fontStyle: 'italic' }}>Unassigned</span>
                     </div>
                     {!editors && <div className="ep-editor-loading">Loading editors…</div>}

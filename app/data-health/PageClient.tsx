@@ -57,7 +57,7 @@ export default function DataHealthPage() {
                 </div>
 
                     {lastRun && (
-                        <div style={{ background: 'var(--coach-soft)', border: '1px solid #a6d5b7', color: 'var(--coach)', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 13 }}>
+                        <div style={{ background: 'var(--coach-soft)', border: '1px solid var(--coach)', color: 'var(--coach)', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 13 }}>
                             Last check: {lastRun}
                         </div>
                     )}
@@ -88,7 +88,7 @@ export default function DataHealthPage() {
                                                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                                                     Recent failures
                                                 </div>
-                                                <div style={{ background: 'var(--bg-surface, #fff)', borderRadius: 10, border: '1px solid var(--border-color, var(--hairline-soft))', overflow: 'hidden' }}>
+                                                <div style={{ background: 'var(--shell)', borderRadius: 10, border: '1px solid var(--hairline-soft)', overflow: 'hidden' }}>
                                                     {gmail.recentlyFailed.map((r, idx) => (
                                                         <div key={r.email} style={{
                                                             padding: '10px 14px',
@@ -139,7 +139,7 @@ export default function DataHealthPage() {
 
 function Section({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
     return (
-        <section style={{ background: 'var(--bg-surface, #fff)', border: '1px solid var(--border-color, var(--hairline-soft))', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <section style={{ background: 'var(--shell)', border: '1px solid var(--hairline-soft)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                 <span style={{ color: 'var(--accent, var(--accent))', display: 'inline-flex' }}>{icon}</span>
                 <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-muted, var(--ink-muted))' }}>{title}</h2>
@@ -180,7 +180,7 @@ function EmptyNote({ children, ok }: { children: React.ReactNode; ok?: boolean }
         <div style={{
             background: ok ? 'var(--coach-soft)' : 'var(--surface)',
             color: ok ? 'var(--coach)' : 'var(--text-muted)',
-            border: `1px solid ${ok ? '#a6d5b7' : 'var(--border-color, var(--hairline-soft))'}`,
+            border: `1px solid ${ok ? 'var(--coach)' : 'var(--hairline-soft)'}`,
             borderRadius: 10, padding: '14px 18px', fontSize: 13, marginTop: 12,
             display: 'flex', alignItems: 'center', gap: 8,
         }}>

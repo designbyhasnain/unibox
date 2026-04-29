@@ -144,7 +144,7 @@ export default function SmartSelect(props: Props) {
             : (
                 <span className="ep-ss-trigger-multi">
                     {first.map(o => (
-                        <span key={o.value} className="ep-tag" style={{ borderColor: o.bg ?? '#888', color: o.bg ?? '#888' }}>{o.label}</span>
+                        <span key={o.value} className="ep-tag" style={{ borderColor: o.bg ?? 'var(--hairline)', color: o.bg ?? 'var(--ink-muted)' }}>{o.label}</span>
                     ))}
                     {more > 0 && <span className="ep-tag-more">+{more}</span>}
                 </span>
@@ -188,7 +188,7 @@ export default function SmartSelect(props: Props) {
                         {selectedValues.map(v => {
                             const o = optionByValue.get(v) ?? { value: v, label: v };
                             return (
-                                <span key={v} className="ep-tag ep-ss-chip" style={{ borderColor: o.bg ?? '#888', color: o.bg ?? '#888' }}>
+                                <span key={v} className="ep-tag ep-ss-chip" style={{ borderColor: o.bg ?? 'var(--hairline)', color: o.bg ?? 'var(--ink-muted)' }}>
                                     {o.label}
                                     <span className="ep-tag-x" onClick={(e) => { e.stopPropagation(); removeChip(v); }}>×</span>
                                 </span>
