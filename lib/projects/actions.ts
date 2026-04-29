@@ -138,12 +138,32 @@ export async function createEditProject(data: Record<string, unknown>) {
   // matches the Notion-style "+ New" UX where the row appears with today
   // already filled in (instead of an empty Date cell that needs editing).
   const today = new Date().toISOString();
-  const seeded = {
+
+  // Auto-fill account_manager for SALES users when not explicitly provided.
+  // edit_projects.account_manager is free-text — we use the user's display
+  // name. Admins keep the column empty by default since they typically
+  // create on behalf of someone else. Caller can still override by passing
+  // either snake_case `account_manager` or camelCase `accountManager`.
+  const callerProvidedAm =
+    (data as { account_manager?: unknown }).account_manager
+    ?? (data as { accountManager?: unknown }).accountManager;
+  let amDefault: string | undefined;
+  if (!callerProvidedAm) {
+    const { data: me } = await supabase
+      .from('users')
+      .select('name, role')
+      .eq('id', userId)
+      .single();
+    if (me && me.role === 'SALES' && me.name) amDefault = me.name as string;
+  }
+
+  const seeded: Record<string, unknown> = {
     ...data,
     user_id: userId,
     name: data.name || 'Untitled',
     date: data.date ?? today,
   };
+  if (amDefault && !seeded.account_manager) seeded.account_manager = amDefault;
 
   const { data: project, error } = await supabase
     .from('edit_projects')
