@@ -2,10 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import { getPipelineVisualizationAction, type PipelineStageSummary } from '../../src/actions/revenueActions';
-import { getClientsAction } from '../../src/actions/clientActions';
+import { getClientsAction, updateClientAction } from '../../src/actions/clientActions';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import { useGlobalFilter } from '../context/FilterContext';
+import { useUndoToast } from '../context/UndoToastContext';
+import {
+    DndContext,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    type DragEndEvent,
+    useDroppable,
+    useDraggable,
+} from '@dnd-kit/core';
 
 const pipelineCols = [
     { key: 'COLD_LEAD', label: 'Cold Lead', color: 'oklch(0.6 0.13 230)' },
@@ -35,12 +45,41 @@ const Spark = ({ points, color = 'var(--ink-muted)' }: { points: number[]; color
     return <svg className="kpi-spark" width={w} height={h} viewBox={`0 0 ${w} ${h}`}><path d={d} stroke={color} fill="none" strokeWidth="1.5" /></svg>;
 };
 
+// ── Drag handle: each kanban card is a draggable. ──────────────────────────
+function DraggableCard({ id, children }: { id: string; children: (props: { listeners: any; isDragging: boolean }) => React.ReactNode }) {
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
+    const style: React.CSSProperties = transform
+        ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, opacity: isDragging ? 0.6 : 1, zIndex: isDragging ? 50 : 'auto', cursor: 'grabbing' }
+        : { cursor: 'grab' };
+    return (
+        <div ref={setNodeRef} style={style} {...attributes}>
+            {children({ listeners, isDragging })}
+        </div>
+    );
+}
+
+// ── Drop target: each pipeline column accepts cards. ───────────────────────
+function DroppableColumn({ stageKey, children }: { stageKey: string; children: React.ReactNode }) {
+    const { setNodeRef, isOver } = useDroppable({ id: stageKey });
+    return (
+        <div ref={setNodeRef} className="kcol" data-stage={stageKey} style={isOver ? { background: 'color-mix(in oklab, var(--accent), transparent 92%)', borderColor: 'var(--accent)' } : undefined}>
+            {children}
+        </div>
+    );
+}
+
 export default function OpportunitiesPage() {
     const hydrated = useHydrated();
     const { selectedAccountId } = useGlobalFilter();
+    const { showError, showSuccess } = useUndoToast();
     const [pipeline, setPipeline] = useState<{ stages: PipelineStageSummary[]; totalValue: number; totalDeals: number } | null>(null);
     const [clients, setClients] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+
+    // 5px activation distance avoids the kanban swallowing plain clicks meant
+    // for the contact-detail panel — drag only kicks in once the pointer
+    // actually moves.
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
     useEffect(() => {
         Promise.all([
@@ -51,6 +90,35 @@ export default function OpportunitiesPage() {
             setClients(c.clients || []);
         }).catch(console.error).finally(() => setLoading(false));
     }, [selectedAccountId]);
+
+    const handleDragEnd = async (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over) return;
+        const contactId = String(active.id);
+        const newStage = String(over.id);
+        const card = clients.find(c => c.id === contactId);
+        if (!card) return;
+        const previousStage = card.pipeline_stage;
+        if (previousStage === newStage) return; // dropped in same column
+
+        // Optimistic: flip the card's stage locally so the UI moves instantly.
+        setClients(prev => prev.map(c => c.id === contactId ? { ...c, pipeline_stage: newStage } : c));
+
+        try {
+            const res = await updateClientAction(contactId, { pipeline_stage: newStage });
+            if (!res.success) {
+                // Revert
+                setClients(prev => prev.map(c => c.id === contactId ? { ...c, pipeline_stage: previousStage } : c));
+                showError(res.error || `Couldn't move "${card.name || card.email}" — reverted.`);
+                return;
+            }
+            const stageLabel = pipelineCols.find(p => p.key === newStage)?.label || newStage;
+            showSuccess(`Moved "${card.name || card.email}" → ${stageLabel}`);
+        } catch (err) {
+            setClients(prev => prev.map(c => c.id === contactId ? { ...c, pipeline_stage: previousStage } : c));
+            showError(`Couldn't reach the server — "${card.name || card.email}" reverted.`);
+        }
+    };
 
     if (!hydrated || loading) return <PageLoader isLoading type="grid" count={6} context="clients"><div /></PageLoader>;
 
@@ -72,12 +140,7 @@ export default function OpportunitiesPage() {
                 <div className="page-head">
                     <div>
                         <h2>Pipeline board</h2>
-                        {/* TODO(opportunities): wire @dnd-kit so cards can actually be dragged
-                            between stages. Until that ships, the subtitle MUST NOT advertise
-                            an interaction the page doesn't support. The cards still get
-                            cursor:grab styling on hover, but clicking and dragging won't
-                            move them — open a contact's detail to change its stage. */}
-                        <div className="sub">{openCount} open · {fmt(openValue)} in flight</div>
+                        <div className="sub">{openCount} open · {fmt(openValue)} in flight · drag a card to move it between stages</div>
                     </div>
                 </div>
 
@@ -88,38 +151,49 @@ export default function OpportunitiesPage() {
                     <div className="kpi"><div className="k">Win rate</div><div className="v">{winRate}%</div><div className="d" style={{ color: 'var(--ink-muted)' }}>all time</div><Spark points={[4,5,5,6,6,7,8]} color="var(--coach)" /></div>
                 </div>
 
-                <div className="kanban">
-                    {pipelineCols.map(col => (
-                        <div className="kcol" key={col.key}>
-                            <div className="kcol-head">
-                                <span className="dot" style={{ background: col.color }} />
-                                <span className="title">{col.label}</span>
-                                <span className="count">{(byStage[col.key] || []).length}</span>
-                            </div>
-                            {(byStage[col.key] || []).map((c, i) => {
-                                const av = avColors[(c.name || '').charCodeAt(0) % avColors.length];
-                                return (
-                                    <div className="kcard" key={c.id || i}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                            <div className={`avatar ${av}`} style={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 9, fontWeight: 600 }}>{ini(c.name)}</div>
-                                            <div style={{ minWidth: 0, flex: 1 }}>
-                                                <div className="name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || c.email}</div>
-                                                <div className="co" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.company || ''}</div>
-                                            </div>
-                                        </div>
-                                        <div className="foot">
-                                            <span className="val">{c.estimated_value ? fmt(c.estimated_value) : '—'}</span>
-                                            <span className="dates">{fmtDate(c.last_email_at)}</span>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {(byStage[col.key] || []).length === 0 && (
-                                <div style={{ padding: '10px 8px', fontSize: 11.5, color: 'var(--ink-muted)', textAlign: 'center', fontStyle: 'italic' }}>No deals here</div>
-                            )}
-                        </div>
-                    ))}
-                </div>
+                <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                    <div className="kanban">
+                        {pipelineCols.map(col => (
+                            <DroppableColumn key={col.key} stageKey={col.key}>
+                                <div className="kcol-head">
+                                    <span className="dot" style={{ background: col.color }} />
+                                    <span className="title">{col.label}</span>
+                                    <span className="count">{(byStage[col.key] || []).length}</span>
+                                </div>
+                                {(byStage[col.key] || []).map((c, i) => {
+                                    const av = avColors[(c.name || '').charCodeAt(0) % avColors.length];
+                                    return (
+                                        <DraggableCard key={c.id || i} id={c.id}>
+                                            {({ listeners, isDragging }) => (
+                                                <div
+                                                    className="kcard"
+                                                    {...listeners}
+                                                    aria-label={`Drag ${c.name || c.email} to a different stage`}
+                                                    style={{ pointerEvents: isDragging ? 'none' : undefined }}
+                                                >
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                                        <div className={`avatar ${av}`} style={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 9, fontWeight: 600 }}>{ini(c.name)}</div>
+                                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                                            <div className="name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || c.email}</div>
+                                                            <div className="co" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.company || ''}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="foot">
+                                                        <span className="val">{c.estimated_value ? fmt(c.estimated_value) : '—'}</span>
+                                                        <span className="dates">{fmtDate(c.last_email_at)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </DraggableCard>
+                                    );
+                                })}
+                                {(byStage[col.key] || []).length === 0 && (
+                                    <div style={{ padding: '10px 8px', fontSize: 11.5, color: 'var(--ink-muted)', textAlign: 'center', fontStyle: 'italic' }}>Drop a card here</div>
+                                )}
+                            </DroppableColumn>
+                        ))}
+                    </div>
+                </DndContext>
             </div>
 
             <style>{`
