@@ -12,9 +12,15 @@ export async function listUsersAction() {
         return { success: false, users: [], error: `Admin access required (your role: ${role})` };
     }
 
+    // SECURITY: explicitly enumerate columns. The previous select('*') shipped
+    // password (bcrypt hash), extension_api_key, and any future sensitive
+    // column directly to the admin browser. The Team page only needs identity
+    // + status fields; if other columns become necessary, add them here
+    // intentionally.
+    const safeUserSelect = 'id, name, email, role, crm_status, avatar_url, created_at, invited_by';
     const { data: users, error, count } = await supabase
         .from('users')
-        .select('*', { count: 'exact' });
+        .select(safeUserSelect, { count: 'exact' });
 
     if (error) {
         return { success: false, users: [], error: `DB error: ${error.message} (code: ${error.code})` };
