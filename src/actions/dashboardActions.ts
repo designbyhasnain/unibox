@@ -31,6 +31,80 @@ export async function getSalesDashboardAction() {
     const newLeads = newLeadsRes.count ?? 0;
     const replyRate = sent > 0 ? Math.round((replies / sent) * 100) : 0;
 
+    // ── Real KPI sparklines: last 9 days, bucketed per-day ───────────────
+    // Replaces the hardcoded sparkline arrays that lived in the dashboard
+    // PageClient. Three small fetches — limited to 5000 rows each so an
+    // admin with massive backlog doesn't pull the whole table.
+    const sparkStart = new Date(now.getTime() - 9 * 86400000);
+    const sparkStartIso = sparkStart.toISOString();
+    const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+
+    let sentTrendQ = supabase
+        .from('email_messages')
+        .select('sent_at')
+        .eq('direction', 'SENT')
+        .gte('sent_at', sparkStartIso)
+        .order('sent_at', { ascending: false })
+        .limit(5000);
+    if (accountIds) sentTrendQ = sentTrendQ.in('gmail_account_id', accountIds);
+
+    let replyTrendQ = supabase
+        .from('email_messages')
+        .select('sent_at')
+        .eq('direction', 'RECEIVED')
+        .gte('sent_at', sparkStartIso)
+        .order('sent_at', { ascending: false })
+        .limit(5000);
+    if (accountIds) replyTrendQ = replyTrendQ.in('gmail_account_id', accountIds);
+
+    let leadTrendQ = supabase
+        .from('contacts')
+        .select('created_at')
+        .gte('created_at', sparkStartIso)
+        .order('created_at', { ascending: false })
+        .limit(5000);
+    if (accountIds) leadTrendQ = leadTrendQ.eq('account_manager_id', userId);
+
+    const [sentTrendRes, replyTrendRes, leadTrendRes] = await Promise.all([sentTrendQ, replyTrendQ, leadTrendQ]);
+
+    const dayBuckets = (rows: { sent_at?: string; created_at?: string }[] | null, field: 'sent_at' | 'created_at') => {
+        const buckets: Record<string, number> = {};
+        for (let i = 8; i >= 0; i--) {
+            const d = new Date(now.getTime() - i * 86400000);
+            buckets[dayKey(d)] = 0;
+        }
+        for (const r of rows || []) {
+            const ts = r[field];
+            if (!ts) continue;
+            const k = dayKey(new Date(ts));
+            if (k in buckets) buckets[k] = (buckets[k] || 0) + 1;
+        }
+        return Object.values(buckets);
+    };
+
+    const sentTrend = dayBuckets(sentTrendRes.data, 'sent_at');
+    const replyTrend = dayBuckets(replyTrendRes.data, 'sent_at');
+    const leadTrend = dayBuckets(leadTrendRes.data, 'created_at');
+
+    // Today vs yesterday (last two buckets) for the KPI delta lines.
+    const sentToday = sentTrend[sentTrend.length - 1] || 0;
+    const sentYesterday = sentTrend[sentTrend.length - 2] || 0;
+    const repliesToday = replyTrend[replyTrend.length - 1] || 0;
+    const repliesYesterday = replyTrend[replyTrend.length - 2] || 0;
+    const leadsToday = leadTrend[leadTrend.length - 1] || 0;
+    const leadsYesterday = leadTrend[leadTrend.length - 2] || 0;
+
+    // 9-day reply-rate trend computed point-wise from sent/reply buckets.
+    const replyRateTrend = sentTrend.map((s, i) => {
+        const r = replyTrend[i] || 0;
+        return s > 0 ? Math.round((r / s) * 100) : 0;
+    });
+    const replyRateToday = replyRateTrend[replyRateTrend.length - 1] || 0;
+    const replyRateYesterday = replyRateTrend[replyRateTrend.length - 2] || 0;
+
+    // Most recently added lead (for the "new lead added X ago" KPI subtitle).
+    const newestLeadAt = (leadTrendRes.data || [])[0]?.created_at || null;
+
     // ── Revenue Data ────────────────────────────────────────────────────
     let projectsQuery = supabase.from('projects')
         .select('project_value, paid_status, project_date, client_id')
@@ -186,6 +260,19 @@ export async function getSalesDashboardAction() {
 
     return {
         stats: { sent, replies, newLeads, replyRate },
+        kpiTrends: {
+            sent: sentTrend,
+            replies: replyTrend,
+            leads: leadTrend,
+            replyRate: replyRateTrend,
+            todayVsYesterday: {
+                sent: { today: sentToday, yesterday: sentYesterday, delta: sentToday - sentYesterday },
+                replies: { today: repliesToday, yesterday: repliesYesterday, delta: repliesToday - repliesYesterday },
+                leads: { today: leadsToday, yesterday: leadsYesterday, delta: leadsToday - leadsYesterday },
+                replyRate: { today: replyRateToday, yesterday: replyRateYesterday, delta: replyRateToday - replyRateYesterday },
+            },
+            newestLeadAt,
+        },
         outreach,
         revenue: {
             total: totalRevenue,
@@ -258,8 +345,18 @@ async function buildQuery(
 }
 
 function emptyDashboard() {
+    const flatNine = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    const zeroDelta = { today: 0, yesterday: 0, delta: 0 };
     return {
         stats: { sent: 0, replies: 0, newLeads: 0, replyRate: 0 },
+        kpiTrends: {
+            sent: flatNine,
+            replies: flatNine,
+            leads: flatNine,
+            replyRate: flatNine,
+            todayVsYesterday: { sent: zeroDelta, replies: zeroDelta, leads: zeroDelta, replyRate: zeroDelta },
+            newestLeadAt: null as string | null,
+        },
         outreach: { today: 0, thisWeek: 0, thisMonth: 0 },
         revenue: { total: 0, paid: 0, unpaid: 0, projects: 0, collectionRate: 0, thisMonth: 0, lastMonth: 0, monthGrowth: 0, targetProgress: 0, monthlyTarget: 10000, chart: [] },
         pipeline: {}, pipelineTotal: 0, funnel: [],

@@ -173,11 +173,60 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     const funnelMax = Math.max(...funnelData.map(f => f.v), 1);
     const funnelColors = ['c1', 'c2', 'c3', 'c4', '', ''];
 
+    // Real KPI trends + deltas come from the server now (kpiTrends). No
+    // hardcoded sparklines or fake "+X vs yesterday" arithmetic.
+    const trends = d?.kpiTrends || { sent: [], replies: [], leads: [], replyRate: [], todayVsYesterday: {}, newestLeadAt: null };
+    const tvy = trends.todayVsYesterday || {};
+    const fmtDelta = (delta: number, suffix = '') => {
+        if (delta === 0) return `flat vs yesterday${suffix ? ' · ' + suffix : ''}`;
+        const sign = delta > 0 ? '+' : '';
+        return `${sign}${delta} vs yesterday${suffix ? ' · ' + suffix : ''}`;
+    };
+    const fmtPctDelta = (delta: number) => {
+        if (delta === 0) return 'flat vs yesterday';
+        return `${delta > 0 ? '+' : ''}${delta} pts vs yesterday`;
+    };
+    const sinceText = (iso: string | null) => {
+        if (!iso) return null;
+        const ms = Date.now() - new Date(iso).getTime();
+        const h = Math.floor(ms / 3_600_000);
+        if (h < 1) return 'just now';
+        if (h < 24) return `${h}h ago`;
+        const days = Math.floor(h / 24);
+        return `${days}d ago`;
+    };
+
     const kpis = [
-        { k: 'Sent today', v: String(s.sent || 0), d: s.sent > 0 ? `+${Math.round(s.sent * 0.12)} vs yesterday` : 'No emails yet', up: true, sp: [3,4,4,6,5,7,8,7,s.sent > 0 ? 9 : 3] },
-        { k: 'Replies', v: String(s.replies || 0), d: s.replies > 0 ? `${Math.round(s.replies * 0.3)} hot leads` : 'None yet', up: s.replies > 0, sp: [2,3,3,4,5,5,6,7,s.replies > 0 ? 8 : 2] },
-        { k: 'New leads', v: String(s.newLeads || 0), d: s.newLeads > 0 ? `+${Math.max(1, s.newLeads - 3)} vs avg` : 'Pipeline quiet', up: s.newLeads > 0, sp: [5,4,6,5,7,6,8,7,s.newLeads > 0 ? 9 : 4] },
-        { k: 'Reply rate', v: `${replyRate}%`, d: replyRate > 20 ? 'Above average' : 'Keep pushing', up: replyRate > 15, sp: [4,5,5,6,6,7,7,8,replyRate > 0 ? 9 : 4] },
+        {
+            k: 'Sent today',
+            v: String(tvy.sent?.today ?? 0),
+            d: fmtDelta(tvy.sent?.delta ?? 0),
+            up: (tvy.sent?.delta ?? 0) >= 0,
+            sp: trends.sent && trends.sent.length ? trends.sent : [0,0,0,0,0,0,0,0,0],
+        },
+        {
+            k: 'Replies today',
+            v: String(tvy.replies?.today ?? 0),
+            d: fmtDelta(tvy.replies?.delta ?? 0),
+            up: (tvy.replies?.delta ?? 0) >= 0,
+            sp: trends.replies && trends.replies.length ? trends.replies : [0,0,0,0,0,0,0,0,0],
+        },
+        {
+            k: 'New leads today',
+            v: String(tvy.leads?.today ?? 0),
+            d: trends.newestLeadAt
+                ? fmtDelta(tvy.leads?.delta ?? 0, `last added ${sinceText(trends.newestLeadAt)}`)
+                : (tvy.leads?.today ? fmtDelta(tvy.leads?.delta ?? 0) : 'Pipeline quiet'),
+            up: (tvy.leads?.delta ?? 0) >= 0,
+            sp: trends.leads && trends.leads.length ? trends.leads : [0,0,0,0,0,0,0,0,0],
+        },
+        {
+            k: 'Reply rate (week)',
+            v: `${replyRate}%`,
+            d: fmtPctDelta(tvy.replyRate?.delta ?? 0),
+            up: (tvy.replyRate?.delta ?? 0) >= 0,
+            sp: trends.replyRate && trends.replyRate.length ? trends.replyRate : [0,0,0,0,0,0,0,0,0],
+        },
     ];
 
     const needReplyRows = reply.slice(0, 4).map((r: any) => {
@@ -204,13 +253,23 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
         ? `${reply.length} actions need you today · ${s.replies} new replies · pipeline at ${funnelData.reduce((a, f) => a + f.v, 0).toLocaleString()} contacts`
         : `${reply.length} actions need you today · ${s.replies} new replies overnight`;
 
-    const revenueData = d?.revenue?.chart || [];
-    const revBars = revenueData.length > 0
-        ? revenueData.slice(-6).map((m: any) => [Math.min(100, Math.round((m.revenue || 0) / Math.max(...revenueData.map((x: any) => x.revenue || 1)) * 100)), Math.min(30, Math.round(((m.revenue || 0) * 0.2) / Math.max(...revenueData.map((x: any) => x.revenue || 1)) * 100))])
-        : [[42,12],[51,18],[38,9],[64,22],[78,18],[92,24]];
-    const revMonths = revenueData.length > 0
-        ? revenueData.slice(-6).map((m: any) => new Date(m.month + '-01').toLocaleDateString('en-US', { month: 'short' }))
-        : ['Nov','Dec','Jan','Feb','Mar','Apr'];
+    // Revenue chart — no hardcoded fallback; render an empty state instead
+    // when the server returned no closed projects in the last 6 months.
+    const revenueData: { month: string; revenue: number }[] = d?.revenue?.chart || [];
+    const hasRevenueData = revenueData.length > 0 && revenueData.some(m => (m.revenue || 0) > 0);
+    const revMaxValue = hasRevenueData ? Math.max(...revenueData.map(m => m.revenue || 1)) : 1;
+    const revBars: [number, number][] = hasRevenueData
+        ? revenueData.slice(-6).map((m): [number, number] => [
+            Math.min(100, Math.round((m.revenue || 0) / revMaxValue * 100)),
+            // unpaid bar height: scale by a fraction so it reads as a paired
+            // marker, not a real series. Will be replaced when we wire a real
+            // unpaid-by-month aggregation.
+            Math.min(30, Math.round(((m.revenue || 0) * 0.2) / revMaxValue * 100)),
+        ])
+        : [];
+    const revMonths = hasRevenueData
+        ? revenueData.slice(-6).map(m => new Date(m.month + '-01').toLocaleDateString('en-US', { month: 'short' }))
+        : [];
 
     return (
         <>
@@ -342,7 +401,9 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                                 {reply.length > 0 ? (
                                     <>
                                         <li>Reply to the <b>{Math.min(reply.length, 5)} outstanding emails</b> from yesterday&apos;s sent emails to maintain open communication with clients.</li>
-                                        <li>Send a follow-up to the new lead added <b>{s.newLeads > 0 ? '12 hours ago' : 'recently'}</b> to increase the chances of conversion.</li>
+                                        <li>{trends.newestLeadAt
+                                            ? <>Send a follow-up to the new lead added <b>{sinceText(trends.newestLeadAt)}</b> to increase the chances of conversion.</>
+                                            : <>Send a follow-up to your most recent lead — no new contacts in the last week.</>}</li>
                                         <li>Review and analyze the <b>{s.replies} replies</b> received in the last 24 hours to gauge customer sentiment and adjust strategies accordingly.</li>
                                     </>
                                 ) : (
@@ -373,17 +434,23 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14, marginBottom: 14 }}>
                     <div className="card">
                         <h3>Revenue <span className="sub">last 6 months · $ thousands</span><span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-muted)' }}>Closed · Unpaid</span></h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, height: 160, alignItems: 'end', padding: '10px 4px 0' }}>
-                            {revBars.map(([a, b]: [number, number], i: number) => (
-                                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                                    <div style={{ display: 'flex', alignItems: 'end', gap: 3, height: 130 }}>
-                                        <div style={{ width: 18, height: `${a}%`, background: 'var(--accent)', borderRadius: '4px 4px 0 0' }} title="Closed revenue" />
-                                        <div style={{ width: 18, height: `${b}%`, background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '4px 4px 0 0' }} title="Unpaid" />
+                        {hasRevenueData ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, height: 160, alignItems: 'end', padding: '10px 4px 0' }}>
+                                {revBars.map(([a, b], i) => (
+                                    <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                                        <div style={{ display: 'flex', alignItems: 'end', gap: 3, height: 130 }}>
+                                            <div style={{ width: 18, height: `${a}%`, background: 'var(--accent)', borderRadius: '4px 4px 0 0' }} title="Closed revenue" />
+                                            <div style={{ width: 18, height: `${b}%`, background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '4px 4px 0 0' }} title="Unpaid" />
+                                        </div>
+                                        <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{revMonths[i]}</span>
                                     </div>
-                                    <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{revMonths[i]}</span>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ height: 160, display: 'grid', placeItems: 'center', color: 'var(--ink-faint)', fontSize: 13 }}>
+                                No closed revenue in the last 6 months
+                            </div>
+                        )}
                     </div>
                     <div className="card">
                         <h3>Pipeline funnel <span className="sub">{isAdmin ? 'all accounts' : 'my clients'}</span></h3>
