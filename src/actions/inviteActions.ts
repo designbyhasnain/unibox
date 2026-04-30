@@ -7,6 +7,15 @@ import { ensureAuthenticated } from '../lib/safe-action';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// Invitation tokens: the URL token is a 64-char hex string. We store only the
+// SHA-256 hash in the DB so a stolen DB read can't be replayed against
+// /invite/accept. The plaintext token leaves the server exactly twice — in
+// the email body, and in the response of sendInvite/resendInvite (which the
+// admin UI uses to display "Copy invite link" once at send time).
+function hashInviteToken(rawToken: string): string {
+    return crypto.createHash('sha256').update(rawToken).digest('hex');
+}
+
 function buildInviteHtml(inviteUrl: string) {
     return `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -87,8 +96,11 @@ export async function sendInviteAction(params: {
         await supabase.from('invitations').delete().eq('id', existingInvite.id);
     }
 
-    // Generate token
-    const token = crypto.randomBytes(32).toString('hex');
+    // Generate token. The raw token is sent via email + returned to the admin
+    // UI for the "copy invite link" affordance; only the SHA-256 hash is
+    // persisted so a DB read can't be replayed.
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashInviteToken(rawToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: invitation, error } = await supabase
@@ -98,12 +110,12 @@ export async function sendInviteAction(params: {
             name,
             role: inviteRole,
             invited_by: userId,
-            token,
+            token: tokenHash,
             assigned_gmail_account_ids: assignedGmailAccountIds,
             expires_at: expiresAt,
             status: 'PENDING',
         })
-        .select()
+        .select('id, email, name, role, status, expires_at, created_at, invited_by, assigned_gmail_account_ids')
         .single();
 
     if (error) {
@@ -111,7 +123,7 @@ export async function sendInviteAction(params: {
         return { success: false, error: `Failed to create invitation: ${error.message}` };
     }
 
-    const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/invite/accept?token=${token}`;
+    const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/invite/accept?token=${rawToken}`;
 
     try {
         await sendInviteViaResend(normalizedEmail, inviteUrl);
@@ -130,9 +142,13 @@ export async function listInvitesAction() {
     const { role } = await ensureAuthenticated();
     if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, invitations: [], error: 'Admin access required' };
 
+    // SECURITY: Never return the `token` column to the browser — even hashed,
+    // the row is still useful for replay attacks if the DB column gets
+    // un-hashed in a regression. Explicitly enumerate safe fields.
+    const safeSelect = 'id, email, name, role, status, expires_at, accepted_at, created_at, invited_by, assigned_gmail_account_ids';
     const { data, error } = await supabase
         .from('invitations')
-        .select('*, users!invitations_invited_by_fkey(name, email)')
+        .select(`${safeSelect}, users!invitations_invited_by_fkey(name, email)`)
         .in('status', ['PENDING', 'EXPIRED'])
         .order('created_at', { ascending: false });
 
@@ -140,7 +156,7 @@ export async function listInvitesAction() {
         console.error('[inviteActions] listInvitesAction error:', error);
         const { data: fallbackData } = await supabase
             .from('invitations')
-            .select('*')
+            .select(safeSelect)
             .in('status', ['PENDING', 'EXPIRED'])
             .order('created_at', { ascending: false });
         return { success: true, invitations: fallbackData || [] };
@@ -198,19 +214,20 @@ export async function resendInviteAction(inviteId: string) {
     const { userId, role } = await ensureAuthenticated();
     if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') return { success: false, error: 'Admin access required' };
 
-    const newToken = crypto.randomBytes(32).toString('hex');
+    const newRawToken = crypto.randomBytes(32).toString('hex');
+    const newTokenHash = hashInviteToken(newRawToken);
     const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: invitation, error } = await supabase
         .from('invitations')
         .update({
-            token: newToken,
+            token: newTokenHash,
             expires_at: newExpiry,
             status: 'PENDING',
         })
         .eq('id', inviteId)
         .in('status', ['PENDING', 'EXPIRED'])
-        .select()
+        .select('id, email, name, role, status, expires_at')
         .single();
 
     if (error || !invitation) {
@@ -218,7 +235,7 @@ export async function resendInviteAction(inviteId: string) {
         return { success: false, error: 'Failed to resend invitation' };
     }
 
-    const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/invite/accept?token=${newToken}`;
+    const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/invite/accept?token=${newRawToken}`;
 
     try {
         await sendInviteViaResend(invitation.email, inviteUrl);
@@ -237,11 +254,26 @@ export async function validateInviteTokenAction(token: string) {
         return { valid: false, error: 'Invalid token' };
     }
 
-    const { data: invitation, error } = await supabase
+    // Match the SHA-256 hash of the URL token against the stored hash.
+    // Legacy fallback: if no row matches the hash, also try the raw token —
+    // this lets in-flight invites issued before the hash-at-rest migration
+    // continue to work until they expire (max 7 days).
+    const tokenHash = hashInviteToken(token);
+    let { data: invitation, error } = await supabase
         .from('invitations')
         .select('id, email, name, role, status, expires_at, invited_by')
-        .eq('token', token)
+        .eq('token', tokenHash)
         .maybeSingle();
+
+    if (!invitation) {
+        const legacy = await supabase
+            .from('invitations')
+            .select('id, email, name, role, status, expires_at, invited_by')
+            .eq('token', token)
+            .maybeSingle();
+        invitation = legacy.data;
+        error = legacy.error;
+    }
 
     if (error || !invitation) {
         return { valid: false, error: 'Invitation not found' };
