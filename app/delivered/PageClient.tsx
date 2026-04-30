@@ -81,10 +81,24 @@ export default function DeliveredClient() {
                                     {p.rating != null && (
                                         <div className="del-stat">
                                             <span className="del-stat-label">RATING</span>
-                                            <span className="del-stat-stars">
-                                                {Array.from({ length: 5 }, (_, i) => (
-                                                    <span key={i} style={{ color: i < Math.round(p.rating!) ? 'var(--warn)' : 'var(--hairline)' }}>{STAR}</span>
-                                                ))}
+                                            <span className="del-stat-stars" title={`${p.rating!.toFixed(1)} / 5`}>
+                                                {/* Half-star aware: full stars get warn colour, the
+                                                    fractional star gets a linear-gradient so a 4.5
+                                                    rating renders as 4 full + 1 half. */}
+                                                {Array.from({ length: 5 }, (_, i) => {
+                                                    const fill = Math.max(0, Math.min(1, p.rating! - i)); // 0..1 portion of this star
+                                                    if (fill >= 1) return <span key={i} style={{ color: 'var(--warn)' }}>{STAR}</span>;
+                                                    if (fill <= 0) return <span key={i} style={{ color: 'var(--hairline)' }}>{STAR}</span>;
+                                                    const pct = Math.round(fill * 100);
+                                                    return (
+                                                        <span key={i} style={{
+                                                            background: `linear-gradient(90deg, var(--warn) ${pct}%, var(--hairline) ${pct}%)`,
+                                                            WebkitBackgroundClip: 'text',
+                                                            backgroundClip: 'text',
+                                                            color: 'transparent',
+                                                        }}>{STAR}</span>
+                                                    );
+                                                })}
                                             </span>
                                         </div>
                                     )}
