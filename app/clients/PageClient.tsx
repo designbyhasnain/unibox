@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { getClientsAction, removeClientsAction } from '../../src/actions/clientActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { useGlobalFilter } from '../context/FilterContext';
@@ -47,13 +48,16 @@ function fmtDate(d: string) {
 
 export default function ClientsPage() {
     const hydrated = useHydrated();
+    const router = useRouter();
     const { selectedAccountId } = useGlobalFilter();
     const { setComposeOpen, setComposeDefaultTo } = useUI();
     const { showError } = useUndoToast();
     const confirm = useConfirm();
     const [clients, setClients] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState<'list' | 'grid' | 'board'>('list');
+    // Board view dropped — `/opportunities` already owns the kanban with DnD.
+    // Selecting "Board" now redirects there instead of showing a duplicate.
+    const [view, setView] = useState<'list' | 'grid'>('list');
     const [selected, setSelected] = useState<any>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [totalCount, setTotalCount] = useState(0);
@@ -63,6 +67,33 @@ export default function ClientsPage() {
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
     const menuWrapRef = useRef<HTMLDivElement | null>(null);
+
+    // ── Filter popover (Phase 3) ──────────────────────────────────────────
+    // Wires the existing `stageFilter` server-side param + adds client-side
+    // filters for owner / last-contact / has-unpaid (already-loaded data).
+    const [filterOpen, setFilterOpen] = useState(false);
+    const [stageFilter, setStageFilter] = useState<string>('');
+    const [recencyFilter, setRecencyFilter] = useState<'' | '7' | '30' | '90'>('');
+    const [hasUnpaidOnly, setHasUnpaidOnly] = useState(false);
+    const filterPopoverRef = useRef<HTMLDivElement | null>(null);
+
+    // ── Bulk select (Phase 3) ────────────────────────────────────────────
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [bulkDeleting, setBulkDeleting] = useState(false);
+    const toggleSelect = (id: string) => setSelectedIds(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
+    const clearSelection = () => setSelectedIds(new Set());
+    useEffect(() => {
+        if (!filterOpen) return;
+        const onDocClick = (e: MouseEvent) => {
+            if (filterPopoverRef.current && !filterPopoverRef.current.contains(e.target as Node)) setFilterOpen(false);
+        };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, [filterOpen]);
 
     // Debounce search: only refetch 300ms after user stops typing.
     useEffect(() => {
@@ -80,7 +111,7 @@ export default function ClientsPage() {
     const load = useCallback(async () => {
         try {
             const [result, user] = await Promise.all([
-                getClientsAction(selectedAccountId, 1, 100, debouncedSearch || undefined),
+                getClientsAction(selectedAccountId, 1, 100, debouncedSearch || undefined, undefined, stageFilter || undefined),
                 getCurrentUserAction(),
             ]);
             setClients(result.clients);
@@ -88,7 +119,7 @@ export default function ClientsPage() {
             setIsAdmin(user?.role === 'ADMIN' || user?.role === 'ACCOUNT_MANAGER');
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
-    }, [selectedAccountId, debouncedSearch]);
+    }, [selectedAccountId, debouncedSearch, stageFilter]);
 
     useEffect(() => { load(); }, [load]);
     useEffect(() => {
@@ -106,6 +137,29 @@ export default function ClientsPage() {
         document.addEventListener('mousedown', onDocClick);
         return () => document.removeEventListener('mousedown', onDocClick);
     }, [openMenuId]);
+
+    const handleBulkDelete = async () => {
+        const ids = Array.from(selectedIds);
+        if (ids.length === 0) return;
+        const ok = await confirm({
+            title: `Delete ${ids.length} contact${ids.length === 1 ? '' : 's'}?`,
+            message: 'Email history is preserved (messages stay in the inbox), but the contact rows and their project links will be removed.',
+            confirmLabel: `Delete ${ids.length}`,
+            danger: true,
+            requireType: ids.length >= 10 ? `delete ${ids.length}` : undefined,
+        });
+        if (!ok) return;
+        setBulkDeleting(true);
+        const res = await removeClientsAction(ids);
+        setBulkDeleting(false);
+        if (!res.success) {
+            showError(res.error || 'Bulk delete failed', { onRetry: handleBulkDelete });
+            return;
+        }
+        setClients(prev => prev.filter(c => !selectedIds.has(c.id)));
+        setTotalCount(t => Math.max(0, t - ids.length));
+        clearSelection();
+    };
 
     const handleDelete = async (contactId: string, name: string) => {
         const ok = await confirm({
@@ -134,9 +188,20 @@ export default function ClientsPage() {
     if (!hydrated || loading) return <PageLoader isLoading type="list" count={10} context="clients"><div /></PageLoader>;
 
     const avColors = ['av-a', 'av-b', 'av-c', 'av-d', 'av-e', 'av-f', 'av-g', 'av-h'];
-    const hotCount = clients.filter(c => c.pipeline_stage === 'LEAD' || c.pipeline_stage === 'OFFER_ACCEPTED').length;
-    const warmCount = clients.filter(c => c.pipeline_stage === 'WARM_LEAD').length;
-    const openPipeline = clients.reduce((s: number, c: any) => s + (c.estimated_value || 0), 0);
+    // Apply client-side filters on top of the server-filtered list.
+    const recencyCutoff = recencyFilter ? Date.now() - parseInt(recencyFilter, 10) * 86_400_000 : null;
+    const filteredClients = clients.filter((c: any) => {
+        if (recencyCutoff !== null) {
+            const t = c.last_email_at ? new Date(c.last_email_at).getTime() : 0;
+            if (!t || t < recencyCutoff) return false;
+        }
+        if (hasUnpaidOnly && !c.unpaid_amount) return false;
+        return true;
+    });
+    const activeFilterCount = (stageFilter ? 1 : 0) + (recencyFilter ? 1 : 0) + (hasUnpaidOnly ? 1 : 0);
+    const hotCount = filteredClients.filter(c => c.pipeline_stage === 'LEAD' || c.pipeline_stage === 'OFFER_ACCEPTED').length;
+    const warmCount = filteredClients.filter(c => c.pipeline_stage === 'WARM_LEAD').length;
+    const openPipeline = filteredClients.reduce((s: number, c: any) => s + (c.estimated_value || 0), 0);
 
     return (
         <>
@@ -151,40 +216,137 @@ export default function ClientsPage() {
                     </div>
                     <div style={{ flex: 1 }} />
                     <div className="tabs">
-                        {(['list', 'grid', 'board'] as const).map(v => (
+                        {(['list', 'grid'] as const).map(v => (
                             <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>{v.charAt(0).toUpperCase() + v.slice(1)}</button>
                         ))}
+                        <button onClick={() => router.push('/opportunities')} title="Open the pipeline kanban">Board</button>
                     </div>
-                    <button className="icon-btn" title="Filter">{ICON.filter}</button>
+                    <div ref={filterPopoverRef} style={{ position: 'relative' }}>
+                        <button className="icon-btn" title="Filter" aria-haspopup="menu" aria-expanded={filterOpen} onClick={() => setFilterOpen(o => !o)}>
+                            {ICON.filter}
+                            {activeFilterCount > 0 && <span style={{ marginLeft: 4, fontSize: 10, fontWeight: 600, color: 'var(--accent-ink)' }}>{activeFilterCount}</span>}
+                        </button>
+                        {filterOpen && (
+                            <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', minWidth: 240, background: 'var(--surface)', border: '1px solid var(--hairline-soft)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.18)', padding: 12, zIndex: 50 }}>
+                                <div style={{ fontSize: 11, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 600, marginBottom: 6 }}>Stage</div>
+                                <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} style={{ width: '100%', padding: '6px 8px', fontSize: 12.5, border: '1px solid var(--hairline)', borderRadius: 6, background: 'var(--canvas)', color: 'var(--ink)', marginBottom: 12 }}>
+                                    <option value="">All stages</option>
+                                    <option value="COLD_LEAD">Cold Lead</option>
+                                    <option value="CONTACTED">Contacted</option>
+                                    <option value="WARM_LEAD">Warm Lead</option>
+                                    <option value="LEAD">Lead</option>
+                                    <option value="OFFER_ACCEPTED">Offer</option>
+                                    <option value="CLOSED">Closed</option>
+                                    <option value="NOT_INTERESTED">Not interested</option>
+                                </select>
+                                <div style={{ fontSize: 11, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 600, marginBottom: 6 }}>Last contact</div>
+                                <select value={recencyFilter} onChange={e => setRecencyFilter(e.target.value as any)} style={{ width: '100%', padding: '6px 8px', fontSize: 12.5, border: '1px solid var(--hairline)', borderRadius: 6, background: 'var(--canvas)', color: 'var(--ink)', marginBottom: 12 }}>
+                                    <option value="">Any time</option>
+                                    <option value="7">Last 7 days</option>
+                                    <option value="30">Last 30 days</option>
+                                    <option value="90">Last 90 days</option>
+                                </select>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, marginBottom: 12, cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={hasUnpaidOnly} onChange={e => setHasUnpaidOnly(e.target.checked)} />
+                                    Has unpaid balance
+                                </label>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                                    <button
+                                        onClick={() => { setStageFilter(''); setRecencyFilter(''); setHasUnpaidOnly(false); }}
+                                        style={{ background: 'none', border: 'none', color: 'var(--ink-muted)', fontSize: 12, cursor: 'pointer' }}
+                                    >Clear</button>
+                                    <button
+                                        onClick={() => setFilterOpen(false)}
+                                        className="btn btn-dark"
+                                        style={{ padding: '5px 10px', fontSize: 12 }}
+                                    >Done</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                     <button className="btn btn-dark" onClick={() => setIsAddOpen(true)}>{ICON.plus} Add client</button>
                 </div>
+
+                {/* Bulk action bar */}
+                {selectedIds.size > 0 && (
+                    <div style={{
+                        position: 'sticky', top: 0, zIndex: 10,
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '10px 14px', marginBottom: 10,
+                        background: 'var(--surface)', border: '1px solid var(--accent)',
+                        borderRadius: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>
+                            {selectedIds.size} selected
+                        </span>
+                        <button
+                            className="btn btn-ghost"
+                            style={{ border: '1px solid var(--hairline-soft)', fontSize: 12 }}
+                            onClick={clearSelection}
+                            disabled={bulkDeleting}
+                        >Clear</button>
+                        <div style={{ flex: 1 }} />
+                        <button
+                            className="btn"
+                            style={{ background: 'var(--danger)', color: 'white', fontSize: 12 }}
+                            onClick={handleBulkDelete}
+                            disabled={bulkDeleting}
+                        >
+                            {bulkDeleting ? 'Deleting…' : `Delete ${selectedIds.size}`}
+                        </button>
+                    </div>
+                )}
 
                 {/* List view */}
                 {view === 'list' && (
                     <table className="table">
                         <thead>
                             <tr>
+                                <th style={{ width: 30 }}>
+                                    <input
+                                        type="checkbox"
+                                        aria-label="Select all visible"
+                                        checked={filteredClients.length > 0 && selectedIds.size > 0 && filteredClients.every(c => selectedIds.has(c.id))}
+                                        ref={el => {
+                                            if (el) el.indeterminate = selectedIds.size > 0 && !filteredClients.every(c => selectedIds.has(c.id));
+                                        }}
+                                        onChange={e => {
+                                            if (e.target.checked) setSelectedIds(new Set(filteredClients.map(c => c.id)));
+                                            else clearSelection();
+                                        }}
+                                        style={{ accentColor: 'var(--accent)' }}
+                                    />
+                                </th>
                                 <th>Client</th><th>Stage</th><th>Health</th><th className="num">Open value</th><th className="num">Deals</th><th className="num">LTV</th><th>Last contact</th><th>Account</th><th style={{ width: 1 }}></th>
                             </tr>
                         </thead>
                         <tbody>
-                            {clients.length === 0 && (
-                                <tr><td colSpan={9}>
+                            {filteredClients.length === 0 && (
+                                <tr><td colSpan={10}>
                                     <div className="empty-state-v2">
                                         <div className="empty-illu" aria-hidden="true">
                                             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                                         </div>
-                                        <h3>No clients yet</h3>
-                                        <p>Replies from cold outreach surface here as warm leads. Or add a client manually with the &ldquo;+ New&rdquo; button.</p>
+                                        <h3>{activeFilterCount > 0 ? 'No matches' : 'No clients yet'}</h3>
+                                        <p>{activeFilterCount > 0 ? 'Try removing or relaxing your filters.' : 'Replies from cold outreach surface here as warm leads. Or add a client manually with the “+ New” button.'}</p>
                                     </div>
                                 </td></tr>
                             )}
-                            {clients.map((c, i) => {
+                            {filteredClients.map((c, i) => {
                                 const av = avColors[(c.name || '').charCodeAt(0) % avColors.length];
                                 const stage = c.pipeline_stage || 'COLD_LEAD';
                                 const health = c.relationship_health || 'cold';
                                 return (
                                     <tr key={c.id || i} onClick={() => setSelected(c)} style={{ cursor: 'pointer' }}>
+                                        <td onClick={e => e.stopPropagation()} style={{ width: 30 }}>
+                                            <input
+                                                type="checkbox"
+                                                aria-label={`Select ${c.name || c.email}`}
+                                                checked={selectedIds.has(c.id)}
+                                                onChange={() => toggleSelect(c.id)}
+                                                style={{ accentColor: 'var(--accent)' }}
+                                            />
+                                        </td>
                                         <td>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                                 <div className={`avatar ${av}`} style={{ width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 10.5, fontWeight: 600 }}>{ini(c.name)}</div>
@@ -240,7 +402,7 @@ export default function ClientsPage() {
                 {/* Grid view */}
                 {view === 'grid' && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                        {clients.map((c, i) => {
+                        {filteredClients.map((c, i) => {
                             const av = avColors[(c.name || '').charCodeAt(0) % avColors.length];
                             const stage = c.pipeline_stage || 'COLD_LEAD';
                             const health = c.relationship_health || 'cold';
@@ -266,42 +428,7 @@ export default function ClientsPage() {
                     </div>
                 )}
 
-                {/* Board view */}
-                {view === 'board' && (
-                    <div className="kanban">
-                        {pipelineCols.map(col => {
-                            const colClients = clients.filter(c => c.pipeline_stage === col.dbKey);
-                            return (
-                                <div className="kcol" key={col.key}>
-                                    <div className="kcol-head">
-                                        <span className="dot" style={{ background: col.color }} />
-                                        <span className="title">{col.label}</span>
-                                        <span className="count">{colClients.length}</span>
-                                    </div>
-                                    {colClients.map((c, i) => {
-                                        const av = avColors[(c.name || '').charCodeAt(0) % avColors.length];
-                                        const health = c.relationship_health || 'cold';
-                                        return (
-                                            <div className="kcard" key={c.id || i} style={{ cursor: 'pointer' }} onClick={() => setSelected(c)}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                                    <div className={`avatar ${av}`} style={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 9, fontWeight: 600 }}>{ini(c.name)}</div>
-                                                    <div style={{ minWidth: 0, flex: 1 }}>
-                                                        <div className="name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || c.email}</div>
-                                                        <div className="co" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.company || ''}</div>
-                                                    </div>
-                                                </div>
-                                                <div className="foot">
-                                                    <span className="val">{c.estimated_value ? fmt(c.estimated_value) : '—'}</span>
-                                                    <span style={{ color: healthColor[health] || 'var(--ink-muted)' }}>● {health}</span>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
+                {/* Board view removed Phase 3 — `/opportunities` owns the pipeline kanban. */}
             </div>
         </div>
 
