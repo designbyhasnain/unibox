@@ -92,10 +92,10 @@ Unibox is a **high-performance, AI-driven, multi-account email CRM + outreach pl
 | HTML Sanitization | DOMPurify | 3.3.3 |
 | ZIP Archives | archiver | 7.0.1 |
 | Date Utilities | date-fns | 4.1.0 |
-| Session Encryption | AES-256-CBC (custom, `src/lib/auth.ts`) | — |
+| Session Encryption | AES-256-GCM (custom, `src/lib/auth.ts`) — authenticated-encryption format `iv:authTag:cipher` | — |
 | OAuth Token Encryption | AES-256-GCM (`src/utils/encryption.ts`) | — |
 | Password Hashing | bcryptjs (12 rounds) | 3.0.3 |
-| Linting | ESLint + eslint-config-next (**currently broken on Next 16**) | 9.27.0 |
+| Linting | ESLint 9 (flat config in `eslint.config.mjs`) + eslint-config-next | 9.27.0 |
 | Formatting | Prettier | 3.8.1 |
 
 ---
@@ -106,7 +106,7 @@ Unibox is a **high-performance, AI-driven, multi-account email CRM + outreach pl
 npm run dev              # Next.js dev server (Turbopack)
 npm run build            # Production build
 npm run start            # Start built app
-npm run lint             # next lint — BROKEN on Next 16, needs migration
+npm run lint             # ESLint 9 flat config — passes 0 warnings
 npm run format           # Prettier write
 npm run format:check     # Prettier check
 npx tsc --noEmit         # Type-check (RUN BEFORE EVERY COMMIT)
@@ -307,7 +307,7 @@ These are queried directly via Supabase but not yet modeled in Prisma. **Setup S
 
 ## File Structure
 
-### Pages (`app/`) — 25 routes
+### Pages (`app/`) — 31 routes (incl. editor workstation)
 
 ```
 app/
@@ -337,7 +337,15 @@ app/
 ├── team/page.tsx              # Team management (admin)
 ├── scraper/page.tsx           # Lead scraper (admin)
 ├── jarvis/page.tsx            # Jarvis chat
-└── settings/page.tsx
+├── settings/page.tsx
+│
+│  # Editor workstation (VIDEO_EDITOR + admin support pages)
+├── my-queue/page.tsx          # Editor's queue of assigned projects
+├── calendar/page.tsx          # Editor calendar / project schedule
+├── revisions/page.tsx         # In-revision projects
+├── delivered/page.tsx         # Delivered/completed projects
+├── footage-library/page.tsx   # Raw footage library (admin)
+└── brand-guides/page.tsx      # Brand guides reference
 ```
 
 ### Server Actions (`src/actions/`) — 23 files
@@ -403,6 +411,7 @@ app/
 |-------|--------|------|---------|
 | `/api/ping` | GET | none | Health check |
 | `/api/auth/login` | POST | none | Email + password login |
+| `/api/auth/refresh-session` | POST | session | Re-issue session cookie with fresh DB role (used after admin role change) |
 | `/api/auth/google/callback` | GET | session | Gmail account-connection OAuth callback (init is client-side — no separate `/api/auth/google` route) |
 | `/api/auth/crm/google` | GET | none | CRM login OAuth init |
 | `/api/auth/crm/google/callback` | GET | CSRF state | CRM login OAuth callback |
@@ -575,7 +584,7 @@ All cron routes accept both POST (QStash signed) and GET (Vercel Cron with `Bear
 6. **`users_ *_role* enum` in DB differs from Prisma enum** — the Prisma schema only has `ADMIN` + `SALES`, but the DB also stores `ACCOUNT_MANAGER` and `VIDEO_EDITOR` as valid strings. All code paths must handle all 4.
 7. **Jarvis system prompt embeds live business data** — revenue totals, top clients, team roster are hard-coded into `JARVIS_SYSTEM_PROMPT` in `jarvisService.ts`. When data shifts materially (new top clients, changed totals), update that string.
 8. **`console.log` is stripped in production** (keeps only `error`/`warn`) — via `next.config.js` compiler.
-9. **ESLint is broken on Next 16** — `eslint-config-next@16` needs a standalone ESLint config. Currently `npm run lint` exits with an error. Build still works because Vercel's `buildCommand` is `next build || true` — be careful: this masks real build failures too.
+9. **ESLint passes cleanly with the ESLint 9 flat config** in `eslint.config.mjs` (commit `f4bda8e`). `npm run lint` exits 0 with 0 warnings. The earlier note about lint being broken on Next 16 is **stale**. Vercel's `buildCommand` is `next build --experimental-build-mode=compile` (NOT `|| true`) — broken builds DO fail the deploy.
 10. **Sidebar polls `actionQueueActions` every 60 s** for the badge count — an idle page still triggers this work.
 11. **`jarvis_feedback` and `jarvis_knowledge` are raw Supabase tables**, not modeled in Prisma — queries use the Supabase client directly.
 12. **Supabase Storage `avatars` bucket is created lazily** on first persona upload via `ensureAvatarsBucket()` in `accountActions.ts`. It is **public** so email clients can fetch `<img>` URLs we stuff into HTML bodies. Images live under `personas/{ts}-{rand}.{ext}`. The bucket is not tracked in Prisma.
@@ -693,6 +702,10 @@ All server actions return `{ success: boolean; data?: T; error?: string }`. Pagi
 | `ELEVENLABS_API_KEY` | Jarvis TTS (optional — falls back to browser TTS) |
 | `ANTHROPIC_API_KEY` | Claude (via Gloy proxy) — primary for in-thread reply suggestions. Format: `sk-funpay-...` (proxy key, not real Anthropic key) |
 | `ANTHROPIC_BASE_URL` | Gloy proxy URL — defaults to `https://api.gloyai.fun` if unset |
+| `GMAIL_WEBHOOK_AUDIENCE` | OIDC audience configured on the Gmail Pub/Sub push subscription. Required to verify pushes; missing in production = `/api/webhooks/gmail` returns 401. |
+| `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | Optional. Pin webhook deliveries to a specific service-account email. Strongly recommended. |
+| `GMAIL_WEBHOOK_VERIFY` | Set to `false` in local dev to skip JWT verification. Anything else (or unset) enables verification. |
+| `NEXTAUTH_SECRET` | **Strictly required everywhere** as of the AES-GCM session migration — must be ≥ 32 chars. Any deploy without it throws at session create/read time. |
 
 ---
 
@@ -727,7 +740,21 @@ All server actions return `{ success: boolean; data?: T; error?: string }`. Pagi
 
 ---
 
-_Last audited: 2026-04-29 (theme integrity overhaul — legacy alias re-declaration in light theme + editor pages migrated to tokens). Previous audit: 2026-04-26 (AM credit & ownership separation — schema lock + transfer chokepoint + dual-ownership UI)._
+_Last audited: 2026-04-30 (Grand Discovery audit — see [`docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md`](docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md) — and Phase 1 critical fixes shipped). Previous: 2026-04-29 (theme integrity overhaul). 2026-04-26 (AM credit & ownership separation)._
+
+**Build 2026-04-30 — Phase 1 Launch-Ready security + dashboard truth fixes.** Full audit + fix plan in [`docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md`](docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md).
+- **Closed `getClientsAction` SALES fallthrough** ([`src/actions/clientActions.ts`](src/actions/clientActions.ts)): SALES users with empty Gmail assignments fell through to the admin branch and received the workspace-wide contact list. Now fail-closed. Same commit added `blockEditorAccess()` to `ensureContactAction`, `createClientAction`, and `checkDuplicateAction`, and stopped `createClientAction` honouring caller-supplied `account_manager_id` for SALES (mass-assignment guard).
+- **Login null-role no longer defaults to ADMIN** ([`app/api/auth/login/route.ts`](app/api/auth/login/route.ts)): `user.role || 'ADMIN'` was a silent privilege-escalation path. Now whitelists ADMIN/ACCOUNT_MANAGER/SALES/VIDEO_EDITOR and returns 403 otherwise.
+- **Session cookies migrated AES-CBC → AES-GCM** ([`src/lib/auth.ts`](src/lib/auth.ts)). The CBC scheme had no integrity check and was malleable. New format `iv:authTag:cipher` with 12-byte IV + 16-byte tag; tampered cookies fail at decrypt. `proxy.ts` validator updated to match. Also: dropped the dev-only-insecure-fallback secret — `NEXTAUTH_SECRET` is now strictly required everywhere. Migration impact: every existing session is invalidated once and forces a single re-login.
+- **Gmail webhook verifies OIDC JWT** ([`app/api/webhooks/gmail/route.ts`](app/api/webhooks/gmail/route.ts)): previously trusted any caller. Now verifies via `OAuth2Client.verifyIdToken` (transitive dep via `googleapis`). Required env: `GMAIL_WEBHOOK_AUDIENCE`. Optional pinning via `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL`. Local-dev escape hatch: `GMAIL_WEBHOOK_VERIFY=false`.
+- **Invitation tokens hashed at rest** ([`src/actions/inviteActions.ts`](src/actions/inviteActions.ts)): tokens are now stored as SHA-256 hashes, never returned by `listInvitesAction`. `validateInviteTokenAction` accepts both hashed and legacy plaintext (legacy fallback expires within 7 days).
+- **Reflected XSS in proxy 403 fixed** ([`proxy.ts`](proxy.ts)): the IP rendered in the "your IP X is not authorized" page was attacker-controlled (any HTTP header) and unescaped. Now HTML-escaped.
+- **Dashboard fake data removed** ([`app/dashboard/PageClient.tsx`](app/dashboard/PageClient.tsx) + [`src/actions/dashboardActions.ts`](src/actions/dashboardActions.ts)): the four KPI tiles previously rendered hardcoded sparkline arrays + 12%-of-today fake deltas + a literal "12 hours ago" string + a hardcoded `[42,12],[51,18]…` revenue fallback. `getSalesDashboardAction` now returns `kpiTrends` with real 9-day daily buckets for sent / replies / new-leads / reply-rate plus today-vs-yesterday deltas plus `newestLeadAt`. Revenue chart shows an empty state instead of fake bars.
+- **Pipeline-counts N+1 collapsed** ([`src/actions/dashboardActions.ts`](src/actions/dashboardActions.ts)): the 7 sequential `head:true` count queries are replaced by `get_pipeline_counts(p_user_id)` RPC (single GROUP BY). SQL in [`scripts/dashboard-pipeline-rpc.sql`](scripts/dashboard-pipeline-rpc.sql) — apply via Supabase SQL editor (idempotent). The action falls back to `Promise.all` of the 7 counts if the RPC isn't deployed yet (still ~6× faster than the old serial loop). Same migration adds the missing indexes flagged by the audit (`contacts(pipeline_stage)`, `contacts(account_manager_id, pipeline_stage)`, `projects(paid_status, project_date)`, `activity_logs(contact_id, created_at desc)`, `edit_projects(user_id, due_date)`).
+- **`/opportunities` "drag cards between stages" copy removed** ([`app/opportunities/PageClient.tsx`](app/opportunities/PageClient.tsx)) — there was no DnD wired. TODO left for the proper `@dnd-kit` wiring (tested in browser before merging).
+- **Native `alert()` swept across 13 user-facing surfaces** — replaced with `useUndoToast`'s new `showSuccess` + existing `showError` (with `onRetry`). Native `confirm()` left in place on 7 destructive paths with explicit `TODO(*-modal)` markers — proper styled confirmation modals are a follow-up.
+
+Also fixed a stale entry: the lint workflow has been on the ESLint 9 flat config since [`f4bda8e`](https://github.com/anthropics/.../commit/f4bda8e); `npm run lint` passes 0 warnings. Vercel's `buildCommand` is `next build --experimental-build-mode=compile`, NOT `next build || true` — broken builds fail the deploy now.
 
 **Build 2026-04-26 — AM Credit & Ownership separation. Full design in [`docs/AM-CREDIT-AND-OWNERSHIP-SCOPE.md`](docs/AM-CREDIT-AND-OWNERSHIP-SCOPE.md).**
 - **Principle**: Historical credit (`projects.account_manager_id`) is immutable once `paid_status='PAID'`. Current ownership (`contacts.account_manager_id`) is mutable and moves with reassignments. Two facts, two fields, never conflated.
