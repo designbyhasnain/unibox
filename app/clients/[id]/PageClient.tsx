@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import DOMPurify from 'dompurify';
 import Topbar from '../../components/Topbar';
 import {
     getContactDetailAction,
@@ -15,6 +16,26 @@ import { avatarColor, initials } from '../../utils/helpers';
 import { STAGE_LABELS, STAGE_COLORS } from '../../constants/stages';
 
 const firstName = (full?: string | null) => (full || '').trim().split(/\s+/)[0] || '';
+
+// Strict DOMPurify config for inline email-body rendering. Drops scripts,
+// event handlers, and any href/src that isn't http(s) or mailto. The previous
+// implementation used a regex strip of <script> tags only, which left
+// onerror=, javascript: URIs, iframe srcdoc, etc. as live XSS sinks against
+// any agent who expanded an email.
+function sanitizeEmailHtml(raw: string): string {
+    if (typeof window === 'undefined') return ''; // DOMPurify needs a DOM
+    return DOMPurify.sanitize(raw, {
+        ALLOWED_TAGS: [
+            'a', 'b', 'blockquote', 'br', 'code', 'div', 'em', 'h1', 'h2', 'h3', 'h4',
+            'hr', 'i', 'li', 'ol', 'p', 'pre', 'span', 'strong', 'table', 'tbody',
+            'td', 'th', 'thead', 'tr', 'u', 'ul', 'img',
+        ],
+        ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'style', 'class'],
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|cid):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'style'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'srcdoc'],
+    });
+}
 
 const sourceLabel = (s: string) => {
     switch (s) {
@@ -324,7 +345,7 @@ export default function ContactDetailPage() {
                                                             style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, cursor: 'pointer' }}
                                                         >
                                                             {expandedEmail === email.id
-                                                                ? <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-primary)', marginTop: 8, whiteSpace: 'pre-wrap' }} dangerouslySetInnerHTML={{ __html: email.body?.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').slice(0, 5000) || email.snippet || '' }} />
+                                                                ? <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-primary)', marginTop: 8, whiteSpace: 'pre-wrap' }} dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml((email.body || '').slice(0, 50_000)) || (email.snippet || '') }} />
                                                                 : (email.snippet?.slice(0, 120) || 'No preview')
                                                             }
                                                         </div>

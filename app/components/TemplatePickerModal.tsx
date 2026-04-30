@@ -1,7 +1,22 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 import { getTemplatesAction, incrementTemplateUsageAction, type TemplateData } from '../../src/actions/templateActions';
+
+// Templates can be marked is_shared and authored by anyone in the workspace,
+// so a malicious admin (or compromised account) could plant rich HTML
+// containing onerror= handlers. Sanitise before render.
+function sanitizeTemplateHtml(raw: string): string {
+    if (typeof window === 'undefined') return '';
+    return DOMPurify.sanitize(raw, {
+        ALLOWED_TAGS: ['a', 'b', 'br', 'div', 'em', 'h1', 'h2', 'h3', 'i', 'li', 'ol', 'p', 'span', 'strong', 'u', 'ul'],
+        ALLOWED_ATTR: ['href', 'style', 'class'],
+        ALLOWED_URI_REGEXP: /^(?:https?|mailto):/i,
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'img', 'style'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'srcdoc'],
+    });
+}
 
 const CATEGORIES = [
     { value: 'ALL', label: 'All' },
@@ -182,7 +197,7 @@ export default function TemplatePickerModal({
                             </div>
                             <div
                                 style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6 }}
-                                dangerouslySetInnerHTML={{ __html: previewTemplate.body }}
+                                dangerouslySetInnerHTML={{ __html: sanitizeTemplateHtml(previewTemplate.body) }}
                             />
                         </div>
                     )}
