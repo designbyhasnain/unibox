@@ -86,6 +86,25 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         refreshProfile();
     }, [refreshProfile]);
 
+    // Synthetic-workflow run found persona stayed stale after logout+login as
+    // a different user — sidebar still showed the previous role/name until
+    // the user manually called /api/auth/refresh-session. Two refresh
+    // triggers cover the realistic flows:
+    //   (a) pathname change — login redirects to /, /dashboard, etc.
+    //   (b) tab visibility flipping back to visible — covers the case where
+    //       another tab swapped the cookie or did a role change.
+    React.useEffect(() => {
+        if (!mounted) return;
+        refreshProfile();
+    }, [pathname, mounted, refreshProfile]);
+
+    React.useEffect(() => {
+        if (!mounted) return;
+        const onVis = () => { if (document.visibilityState === 'visible') refreshProfile(); };
+        document.addEventListener('visibilitychange', onVis);
+        return () => document.removeEventListener('visibilitychange', onVis);
+    }, [mounted, refreshProfile]);
+
     const [actionCount, setActionCount] = React.useState(0);
     React.useEffect(() => {
         // Editors don't have an Actions queue and the action throws EDITOR_FORBIDDEN —

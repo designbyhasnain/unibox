@@ -63,6 +63,11 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     usePerfMonitor('/dashboard');
 
     const loadDashboard = useCallback(() => {
+        // VIDEO_EDITOR has its own dashboard surface (EditorTodayView returned
+        // below). getSalesDashboardAction now blocks editors (Phase 3 commit
+        // a3bf0e5), so calling it here would always throw → red toast on the
+        // editor's Today page. Skip for editors.
+        if (isEditor) return Promise.resolve();
         setLoading(true);
         return Promise.all([getCurrentUserAction(), getSalesDashboardAction()])
             .then(([u, dash]) => {
@@ -75,18 +80,21 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                 showError("Couldn't load dashboard data. Check your connection.", { onRetry: loadDashboard });
                 console.error('[Dashboard] load failed', err);
             });
-    }, [showError]);
+    }, [showError, isEditor]);
 
     useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
     // Load briefing in parallel — cached per-day so warm lambdas return instantly.
     // While in-flight, briefingLoading is true; consumers show a "Jarvis is analyzing…" pulse.
+    // Editors don't see the briefing (their dashboard surface is EditorTodayView),
+    // so don't waste a Groq round-trip on their behalf.
     useEffect(() => {
+        if (isEditor) { setBriefingLoading(false); return; }
         getDailyBriefingAction()
             .then(r => { if (r.success && r.briefing?.summary) setBriefingSummary(r.briefing.summary); })
             .catch(() => { /* keep fallback bullets */ })
             .finally(() => setBriefingLoading(false));
-    }, []);
+    }, [isEditor]);
 
     const handleRegenerate = async () => {
         if (regenerating) return;

@@ -80,7 +80,7 @@ function extractSenderName(rawFrom: string): string {
 
 export default function InboxPage() {
     const isHydrated = useHydrated();
-    const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
+    const { selectedAccountId, setSelectedAccountId, accounts, isLoadingAccounts } = useGlobalFilter();
     const confirm = useConfirm();
     usePerfMonitor('/');
 
@@ -442,6 +442,21 @@ export default function InboxPage() {
 
                     {/* Email list */}
                     <div id="email-list-scroll" className="list-scroll">
+                        {/* Special case: user has no Gmail-account assignments at all.
+                            Without this branch the inbox sat on a perpetual "Checking
+                            your inbox\u2026" skeleton with no path forward \u2014 synthetic-
+                            workflow finding #5. */}
+                        {isHydrated && !isLoadingAccounts && accounts.length === 0 ? (
+                            <div className="inbox-empty">
+                                <div className="inbox-empty-icon"><Mail size={24} color="var(--ink-faint)" /></div>
+                                <div className="inbox-empty-title">No Gmail accounts assigned yet</div>
+                                <div className="inbox-empty-desc">
+                                    Your inbox is empty because you haven&apos;t been assigned any Gmail accounts.
+                                    Ask an admin to assign you one from the Team page, or connect your own
+                                    if you have admin rights.
+                                </div>
+                            </div>
+                        ) : (
                         <PageLoader isLoading={!isHydrated || isLoading} type="list" count={PAGE_SIZE} context={activeTab === 'sent' ? 'sent' : 'inbox'}>
                             {emails.length === 0 ? (
                                 <div className="inbox-empty">
@@ -545,6 +560,7 @@ export default function InboxPage() {
                                 })
                             )}
                         </PageLoader>
+                        )}
                     </div>
                 </div>
 
