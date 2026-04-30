@@ -267,6 +267,18 @@ export default function ProjectDetailPanel({ projectId, onClose, onUpdate, onDup
                 editorName={(p.assignedEditorName) as string | null ?? null}
                 legacyName={(p.editor as string) || null}
                 onChange={(id, name) => {
+                  // Synthetic-workflow run found the picker would save to DB
+                  // but the panel kept rendering "Unassigned" because onUpdate
+                  // is debounced (500 ms) AND calls upward to the parent
+                  // without touching local state. Optimistically merge into
+                  // both `editorId` and the legacy snake-case alias so the
+                  // pill re-renders immediately.
+                  setProject(prev => prev ? {
+                    ...prev,
+                    editorId: id,
+                    editor_id: id,
+                    assignedEditorName: name,
+                  } : prev);
                   onUpdate('editorId', id);
                   onUpdate('assignedEditorName', name);
                 }}
