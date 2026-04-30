@@ -72,7 +72,12 @@ export default function OpportunitiesPage() {
                 <div className="page-head">
                     <div>
                         <h2>Pipeline board</h2>
-                        <div className="sub">{openCount} open · {fmt(openValue)} in flight · drag cards between stages</div>
+                        {/* TODO(opportunities): wire @dnd-kit so cards can actually be dragged
+                            between stages. Until that ships, the subtitle MUST NOT advertise
+                            an interaction the page doesn't support. The cards still get
+                            cursor:grab styling on hover, but clicking and dragging won't
+                            move them — open a contact's detail to change its stage. */}
+                        <div className="sub">{openCount} open · {fmt(openValue)} in flight</div>
                     </div>
                 </div>
 
