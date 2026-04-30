@@ -200,7 +200,9 @@ export default function TemplatesPage() {
                                 </div>
                             ) : templates.map((tpl, i) => {
                                 const color = CAT_COLOR[tpl.category] || 'var(--ink-muted)';
-                                const replyRate = tpl.usage_count > 0 ? ((tpl.usage_count * 0.12) * 100 / tpl.usage_count).toFixed(1) : '0';
+                                // Reply-rate metric removed Phase 3: previous formula
+                                // (usage_count * 0.12) / usage_count was a hardcoded 12%.
+                                // Real per-template tracking requires send→reply joins.
                                 return (
                                     <div
                                         key={tpl.id}
@@ -222,7 +224,6 @@ export default function TemplatesPage() {
                                         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>{tpl.name}</div>
                                         <div style={{ display: 'flex', gap: 16, fontSize: 11.5, color: 'var(--ink-muted)' }}>
                                             <span>Used <b style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{tpl.usage_count.toLocaleString()}</b> times</span>
-                                            <span>Reply rate <b style={{ color: parseFloat(replyRate) > 15 ? 'var(--coach)' : 'var(--ink-2)', fontWeight: 600 }}>{replyRate}%</b></span>
                                         </div>
                                     </div>
                                 );
@@ -244,17 +245,15 @@ export default function TemplatesPage() {
 
                                 <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{t.name}</div>
 
-                                {/* Stats */}
+                                {/* Stats — reply-rate column dropped (was hardcoded 12%). */}
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
                                     <div>
                                         <div style={{ fontSize: 10.5, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Used</div>
                                         <div style={{ fontSize: 16, fontWeight: 600 }}>{t.usage_count.toLocaleString()}</div>
                                     </div>
                                     <div>
-                                        <div style={{ fontSize: 10.5, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Reply rate</div>
-                                        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>
-                                            {t.usage_count > 0 ? ((t.usage_count * 0.12) * 100 / t.usage_count).toFixed(1) : '0'}%
-                                        </div>
+                                        <div style={{ fontSize: 10.5, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Last updated</div>
+                                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-2)' }}>{relDate(t.updated_at || t.created_at)}</div>
                                     </div>
                                 </div>
 

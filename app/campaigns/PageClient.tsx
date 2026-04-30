@@ -118,11 +118,13 @@ export default function CampaignsPage() {
     const avgOpen = totalSent ? ((totalOpened / totalSent) * 100).toFixed(1) : '0';
     const avgReply = totalSent ? ((totalReplied / totalSent) * 100).toFixed(1) : '0';
 
+    // Sparklines removed Phase 3 — they were hardcoded mock arrays. Re-add
+    // when we have a per-day campaign aggregation table to back them.
     const kpis = [
-        { k: 'Active', v: String(running), d: `of ${campaigns.length} total`, sp: [3,4,5,5,6,6,7] },
-        { k: 'Sent this week', v: totalSent.toLocaleString(), d: 'all campaigns', sp: [4,5,6,7,6,8,9] },
-        { k: 'Open rate', v: `${avgOpen}%`, d: 'across campaigns', sp: [5,6,6,7,7,8,9] },
-        { k: 'Reply rate', v: `${avgReply}%`, d: 'top metric', sp: [3,4,5,6,6,7,8] },
+        { k: 'Active', v: String(running), d: `of ${campaigns.length} total` },
+        { k: 'Sent this week', v: totalSent.toLocaleString(), d: 'all campaigns' },
+        { k: 'Open rate', v: `${avgOpen}%`, d: 'across campaigns' },
+        { k: 'Reply rate', v: `${avgReply}%`, d: 'top metric' },
     ];
 
     return (
@@ -143,8 +145,7 @@ export default function CampaignsPage() {
                         <div className="kpi" key={i}>
                             <div className="k">{k.k}</div>
                             <div className="v">{k.v}</div>
-                            <div className="d"><span className="up">▲</span> {k.d}</div>
-                            <Spark points={k.sp} color="var(--coach)" />
+                            <div className="d">{k.d}</div>
                         </div>
                     ))}
                 </div>

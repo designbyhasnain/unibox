@@ -331,8 +331,11 @@ export default function CampaignDetailPage() {
                 padding: '1rem 1.5rem', flexShrink: 0,
             }}>
                 {[
+                    // "Delivered" used to alias to totalSent — misleading. Replaced
+                    // with a real Contacts count. True deliverability requires
+                    // delivered_at on email_messages and step-level fan-out.
                     { label: 'Sent', value: campaign.totalSent, color: 'var(--text-primary)' },
-                    { label: 'Delivered', value: campaign.totalSent, color: 'var(--text-primary)' },
+                    { label: 'Contacts', value: campaign.contacts?.length ?? 0, color: 'var(--text-primary)' },
                     { label: 'Opened', value: `${campaign.openRate}%`, color: campaign.openRate > 30 ? 'var(--success)' : 'var(--text-primary)' },
                     { label: 'Replied', value: `${campaign.replyRate}%`, color: campaign.replyRate > 10 ? 'var(--success)' : 'var(--text-primary)' },
                 ].map(kpi => (
