@@ -55,7 +55,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
     const isEditor = userRole === 'VIDEO_EDITOR';
-    const { showError } = useUndoToast();
+    const { showError, showSuccess } = useUndoToast();
 
     const loadDashboard = useCallback(() => {
         setLoading(true);
@@ -90,8 +90,12 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
         const res = await regenerateDailyBriefingAction();
         setRegenerating(false);
         setBriefingLoading(false);
-        if (res.success && res.briefing?.summary) setBriefingSummary(res.briefing.summary);
-        else alert(res.error || 'Failed to regenerate briefing');
+        if (res.success && res.briefing?.summary) {
+            setBriefingSummary(res.briefing.summary);
+            showSuccess('Briefing refreshed');
+        } else {
+            showError(res.error || 'Failed to regenerate briefing', { onRetry: handleRegenerate });
+        }
     };
 
     // Build the text we'll speak from the live briefing (if loaded) or the

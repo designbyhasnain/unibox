@@ -8,6 +8,7 @@ import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import { useUI } from '../context/UIContext';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
+import { useUndoToast } from '../context/UndoToastContext';
 import AddLeadModal from '../components/AddLeadModal';
 
 const ICON = {
@@ -47,6 +48,7 @@ export default function ClientsPage() {
     const hydrated = useHydrated();
     const { selectedAccountId } = useGlobalFilter();
     const { setComposeOpen, setComposeDefaultTo } = useUI();
+    const { showError } = useUndoToast();
     const [clients, setClients] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [view, setView] = useState<'list' | 'grid' | 'board'>('list');
@@ -104,6 +106,9 @@ export default function ClientsPage() {
     }, [openMenuId]);
 
     const handleDelete = async (contactId: string, name: string) => {
+        // TODO(clients-modal): replace native confirm() with a project-styled
+        // confirmation modal. Email history is preserved so this is recoverable
+        // by re-creating the contact, but the row + projects link is gone.
         if (!confirm(`Delete contact "${name}"? Email history will be preserved but the contact will be removed from the list.`)) {
             setOpenMenuId(null);
             return;
@@ -113,7 +118,7 @@ export default function ClientsPage() {
         const res = await removeClientsAction([contactId]);
         setDeletingId(null);
         if (!res.success) {
-            alert(res.error || 'Failed to delete contact');
+            showError(res.error || 'Failed to delete contact', { onRetry: () => handleDelete(contactId, name) });
             return;
         }
         setClients(prev => prev.filter(c => c.id !== contactId));

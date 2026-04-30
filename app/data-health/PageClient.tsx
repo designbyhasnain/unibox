@@ -4,10 +4,12 @@ import React, { useEffect, useState } from 'react';
 import { getDataHealthAction, getGmailSyncHealthAction, type DataHealthSnapshot, type GmailSyncHealth } from '../../src/actions/dataHealthActions';
 import { syncAllAccountsHealthAction } from '../../src/actions/accountActions';
 import { LoadingText } from '../components/LoadingStates';
+import { useUndoToast } from '../context/UndoToastContext';
 
 import { AlertTriangle, CheckCircle2, Mail, Database, Users, Briefcase, Clock, Zap } from 'lucide-react';
 
 export default function DataHealthPage() {
+    const { showError } = useUndoToast();
     const [db, setDb] = useState<DataHealthSnapshot | null>(null);
     const [gmail, setGmail] = useState<GmailSyncHealth | null>(null);
     const [loading, setLoading] = useState(true);
@@ -28,6 +30,8 @@ export default function DataHealthPage() {
     useEffect(() => { load(); }, []);
 
     const handleRunHealthCheck = async () => {
+        // TODO(data-health-modal): replace native confirm() with a project-styled
+        // confirmation modal. Read-only operation; doesn't send email.
         if (!confirm('Run a bulk health check on all accounts?\n\nThis refreshes OAuth tokens + re-tests manual credentials in batches of 5. It does not send any email.')) return;
         setRunning(true);
         const res = await syncAllAccountsHealthAction();
@@ -36,7 +40,7 @@ export default function DataHealthPage() {
             setLastRun(`Checked ${res.checked} · Recovered ${res.recovered} · Still failing ${res.stillFailing} · Permanently revoked ${res.permanent}`);
             load();
         } else {
-            alert(res.error || 'Health check failed');
+            showError(res.error || 'Health check failed', { onRetry: handleRunHealthCheck });
         }
     };
 

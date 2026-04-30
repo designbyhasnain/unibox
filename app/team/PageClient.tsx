@@ -15,7 +15,7 @@ let teamCache: { users: any[]; invitations: any[]; accounts: any[] } | null = nu
 
 export default function TeamPage() {
     const router = useRouter();
-    const { showError } = useUndoToast();
+    const { showError, showSuccess } = useUndoToast();
     const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
     const [users, setUsers] = useState<any[]>([]);
     const [invitations, setInvitations] = useState<any[]>([]);
@@ -109,13 +109,15 @@ export default function TeamPage() {
 
     // Optimistic: remove the row immediately; reload in background to reconcile.
     const handleRevokeInvite = async (id: string) => {
+        // TODO(team-modal): replace native confirm() with a project-styled
+        // confirmation modal. Reversible (resend re-issues a fresh token).
         if (!confirm('Revoke this invitation?')) return;
         const snapshot = invitations;
         setInvitations(prev => prev.filter(i => i.id !== id));
         const res = await revokeInviteAction(id);
         if (!res.success) {
             setInvitations(snapshot);
-            alert(res.error || 'Failed to revoke invitation');
+            showError(res.error || 'Failed to revoke invitation');
             return;
         }
         loadData();
@@ -130,10 +132,17 @@ export default function TeamPage() {
         setActionLoading(null);
         if (!result.success) {
             setInvitations(snapshot);
-            alert(result.error || 'Failed to resend invitation');
+            showError(result.error || 'Failed to resend invitation');
             return;
         }
-        if (result.inviteUrl) alert('Invitation resent! New link:\n' + result.inviteUrl);
+        // Note: result.inviteUrl is the one-time raw URL — surface it via the
+        // existing inviteResult panel rather than a blocking alert.
+        if (result.inviteUrl) {
+            setInviteResult({ success: true, inviteUrl: result.inviteUrl });
+            showSuccess('Invitation resent — new link copied to the panel');
+        } else {
+            showSuccess('Invitation resent');
+        }
         loadData();
     };
 
@@ -144,7 +153,7 @@ export default function TeamPage() {
         const res = await updateUserRoleAction(targetUserId, newRole);
         if (!res.success) {
             setUsers(snapshot);
-            alert(res.error || 'Failed to update role');
+            showError(res.error || 'Failed to update role');
             return;
         }
         loadData();
@@ -152,13 +161,15 @@ export default function TeamPage() {
 
     // Optimistic deactivate — flip crm_status locally, reload in background.
     const handleDeactivate = async (targetUserId: string) => {
+        // TODO(team-modal): replace native confirm() with a project-styled
+        // confirmation modal. Destructive but reversible (handleReactivate).
         if (!confirm('Deactivate this user? They will lose access.')) return;
         const snapshot = users;
         setUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, crm_status: 'REVOKED' } : u));
         const res = await deactivateUserAction(targetUserId);
         if (!res.success) {
             setUsers(snapshot);
-            alert(res.error || 'Failed to deactivate user');
+            showError(res.error || 'Failed to deactivate user');
             return;
         }
         loadData();
@@ -170,7 +181,7 @@ export default function TeamPage() {
         const res = await reactivateUserAction(targetUserId);
         if (!res.success) {
             setUsers(snapshot);
-            alert(res.error || 'Failed to reactivate user');
+            showError(res.error || 'Failed to reactivate user');
             return;
         }
         loadData();
@@ -181,6 +192,9 @@ export default function TeamPage() {
     // refetch (would risk the row reappearing on a stale read replica). pendingDeletesRef
     // also guards any unrelated loadData() that fires within 5s.
     const handleDeleteUser = async (targetUserId: string) => {
+        // TODO(team-modal): replace native confirm() with a project-styled
+        // confirmation modal — this delete is permanent + cascades to email
+        // assignments, so an explicit "type DELETE" affordance would help.
         if (!confirm('Are you sure you want to permanently remove this member? This action cannot be undone.')) return;
         const snapshot = users;
         const filtered = users.filter(u => u.id !== targetUserId);
@@ -203,11 +217,13 @@ export default function TeamPage() {
                 teamCache = { ...teamCache, users: snapshot };
                 saveToLocalCache('team_data', teamCache);
             }
-            alert(err?.message || 'Failed to delete user');
+            showError(err?.message || 'Failed to delete user');
         }
     };
 
     const handleDeleteInvitation = async (id: string) => {
+        // TODO(team-modal): replace native confirm() with a project-styled
+        // confirmation modal.
         if (!confirm('Are you sure you want to permanently remove this invitation? This action cannot be undone.')) return;
         const snapshot = invitations;
         const filtered = invitations.filter(i => i.id !== id);
@@ -230,7 +246,7 @@ export default function TeamPage() {
                 teamCache = { ...teamCache, invitations: snapshot };
                 saveToLocalCache('team_data', teamCache);
             }
-            alert(err?.message || 'Failed to delete invitation');
+            showError(err?.message || 'Failed to delete invitation');
         }
     };
 
@@ -255,7 +271,7 @@ export default function TeamPage() {
             : await assignGmailToUserAction(targetUserId, gmailAccountId);
         if (!res.success) {
             setUsers(snapshot);
-            alert(res.error || 'Failed to update account assignment');
+            showError(res.error || 'Failed to update account assignment');
             return;
         }
         loadData();

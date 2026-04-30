@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction } from '../../src/actions/emailActions';
 import { useGlobalFilter } from '../context/FilterContext';
+import { useUndoToast } from '../context/UndoToastContext';
 import { Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered, ChevronDown, Smile, Link, Globe, Lock, Trash2, MoreVertical, Highlighter, Strikethrough, Quote, Eraser, Outdent, Indent, Search, X, Shield, Send, User } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { EMOJI_CATEGORIES } from '../constants/emojis';
@@ -27,6 +28,7 @@ interface InlineReplyProps {
 
 export default function InlineReply({ threadId, to, subject, accountId, onSuccess, onCancel, onOptimisticAppend, onOptimisticRollback, initialBody, initialBodyKey }: InlineReplyProps) {
     const { accounts: ctxAccounts } = useGlobalFilter();
+    const { showError } = useUndoToast();
     const [body, setBody] = useState('');
     const [isSending, setIsSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -219,7 +221,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                 // Roll back the optimistic append
                 if (onOptimisticAppend && onOptimisticRollback) {
                     onOptimisticRollback(optimisticId);
-                    alert(result.error || 'Failed to send reply. Please try again.');
+                    showError(result.error || 'Failed to send reply. Please try again.', { onRetry: handleSend });
                 } else {
                     setError(result.error || 'Failed to send reply.');
                     setIsSending(false);
@@ -229,7 +231,7 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
         } catch (err: any) {
             if (onOptimisticAppend && onOptimisticRollback) {
                 onOptimisticRollback(optimisticId);
-                alert(err?.message || 'An unexpected error occurred.');
+                showError(err?.message || 'An unexpected error occurred.', { onRetry: handleSend });
             } else {
                 setError(err?.message || 'An unexpected error occurred.');
                 setIsSending(false);

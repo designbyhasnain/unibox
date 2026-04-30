@@ -132,7 +132,7 @@ export default function AccountsPage() {
     const { selectedAccountId, setSelectedAccountId, accounts, refreshAccounts, isLoadingAccounts, setAccounts } = useGlobalFilter();
     const [isLoading, setIsLoading] = useState(() => accounts.length === 0);
     const { isComposeOpen, setComposeOpen } = useUI();
-    const { showError } = useUndoToast();
+    const { showError, showSuccess, showInfo } = useUndoToast();
     const [isSyncing, setIsSyncing] = useState(false);
     const [showSelectionModal, setShowSelectionModal] = useState(false);
     const [showManualForm, setShowManualForm] = useState(false);
@@ -244,7 +244,7 @@ export default function AccountsPage() {
             const url = await getGoogleAuthUrlAction();
             window.location.href = url;
         } catch (err: any) {
-            alert('Failed to initiate Google OAuth: ' + err.message);
+            showError('Failed to initiate Google OAuth: ' + err.message, { onRetry: handleOAuthFlow });
         }
     };
 
@@ -285,7 +285,7 @@ export default function AccountsPage() {
         try {
             const result = await reSyncAccountAction(account.id, account.connection_method);
             if (!result.success) {
-                alert('Failed to sync: ' + result.error);
+                showError('Failed to sync: ' + result.error, { onRetry: () => handleReSync(account) });
                 setAccounts((prev: any[]) => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
             }
             // Don't refetch — local state already shows SYNCING and the
@@ -311,6 +311,8 @@ export default function AccountsPage() {
     };
 
     const handleStopSync = async (account: GmailAccount) => {
+        // TODO(accounts-modal): replace native confirm() with a project-styled
+        // confirmation modal. Reversible (re-sync resumes from saved progress).
         if (!confirm('Are you sure you want to stop syncing? Progress will be saved but the process will end.')) return;
         setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: 'ACTIVE' as AccountStatus } : a));
         try {
@@ -330,38 +332,38 @@ export default function AccountsPage() {
             const result = await retestManualAccountAction(account.id);
             if (result.success) {
                 setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: 'ACTIVE', last_error_message: null } : a));
-                alert('Connection OK — IMAP + SMTP verified.');
+                showSuccess('Connection OK — IMAP + SMTP verified.');
             } else {
                 setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status, last_error_message: result.error || 'Test failed' } : a));
-                alert('Re-test failed: ' + (result.error || 'Unknown error'));
+                showError('Re-test failed: ' + (result.error || 'Unknown error'), { onRetry: () => handleRetestManual(account) });
             }
         } catch (err: any) {
             setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: account.status } : a));
-            alert('Re-test failed: ' + (err?.message || 'Unknown error'));
+            showError('Re-test failed: ' + (err?.message || 'Unknown error'), { onRetry: () => handleRetestManual(account) });
         }
     };
 
     const [isCheckingHealth, setIsCheckingHealth] = useState(false);
     const handleSyncAllHealth = async () => {
+        // TODO(accounts-modal): replace native confirm() with a project-styled
+        // confirmation modal. Read-only operation; doesn't send email.
         if (!confirm(`Run a bulk health check on all ${accounts.length} accounts?\n\nThis refreshes OAuth tokens + re-tests manual credentials in batches of 5. It does not send any email.`)) return;
         setIsCheckingHealth(true);
         try {
             const result = await syncAllAccountsHealthAction();
             if (result.success) {
-                alert(
-                    `Health check complete.\n` +
-                    `Checked: ${result.checked}\n` +
-                    `Recovered: ${result.recovered}\n` +
-                    `Still failing: ${result.stillFailing}\n` +
-                    `Permanently revoked: ${result.permanent}\n\n` +
-                    (result.failures.length > 0 ? 'First few failures:\n' + result.failures.slice(0, 8).map(f => `• ${f.email}: ${f.reason}`).join('\n') : '')
-                );
+                const summary = `Health check complete — checked ${result.checked}, recovered ${result.recovered}, still failing ${result.stillFailing}, revoked ${result.permanent}.`;
+                if (result.failures.length > 0) {
+                    showInfo(summary + ' See accounts table for failure details.', { autoDismissMs: 8000 });
+                } else {
+                    showSuccess(summary);
+                }
                 fetchAccounts();
             } else {
-                alert('Health check failed: ' + (result.error || 'Unknown error'));
+                showError('Health check failed: ' + (result.error || 'Unknown error'), { onRetry: handleSyncAllHealth });
             }
         } catch (err: any) {
-            alert('Health check failed: ' + (err?.message || 'Unknown error'));
+            showError('Health check failed: ' + (err?.message || 'Unknown error'), { onRetry: handleSyncAllHealth });
         } finally {
             setIsCheckingHealth(false);
         }
@@ -373,7 +375,7 @@ export default function AccountsPage() {
             if (result.success) {
                 setAccounts((prev: any[]) => prev.filter(acc => acc.id !== accountId));
             } else {
-                alert('Failed to remove account: ' + result.error);
+                showError('Failed to remove account: ' + result.error);
             }
         } catch (err: any) {
             console.error(err);
@@ -471,19 +473,24 @@ export default function AccountsPage() {
                                     <button
                                         className="icon-btn"
                                         onClick={async () => {
+                                            // TODO(accounts-modal): replace native confirm() with a project-styled
+                                            // confirmation modal. Read-only operation.
                                             if (!confirm('Renew Gmail push notification watches for all accounts?')) return;
                                             setIsRenewingWatches(true);
                                             try {
                                                 const result = await renewAllWatchesAction();
                                                 if (result.success) {
-                                                    const msg = `Renewed: ${result.renewed}, Failed: ${result.failed}` +
-                                                        (result.errors && result.errors.length > 0
-                                                            ? `\n\nErrors:\n${result.errors.join('\n')}`
-                                                            : '');
-                                                    alert(msg);
+                                                    const failed = result.failed ?? 0;
+                                                    const renewed = result.renewed ?? 0;
+                                                    if (failed > 0) {
+                                                        showInfo(`Renewed ${renewed} watches; ${failed} failed. See console for errors.`, { autoDismissMs: 8000 });
+                                                        if (result.errors?.length) console.warn('[accounts] renew watches errors:', result.errors);
+                                                    } else {
+                                                        showSuccess(`Renewed ${renewed} Gmail watches`);
+                                                    }
                                                     await fetchAccounts();
                                                 } else {
-                                                    alert(result.error || 'Failed to renew watches');
+                                                    showError(result.error || 'Failed to renew watches');
                                                 }
                                             } finally {
                                                 setIsRenewingWatches(false);

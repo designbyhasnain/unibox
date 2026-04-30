@@ -18,6 +18,8 @@ interface ErrorToast {
     message: string;
     onRetry?: () => void | Promise<void>;
     autoDismissMs?: number;
+    /** Visual variant — defaults to error; success/info change icon + accent. */
+    variant?: 'error' | 'success' | 'info';
 }
 
 interface UndoToastContextType {
@@ -33,6 +35,10 @@ interface UndoToastContextType {
     pending: PendingDelete[];
     /** Show a friendly error toast with an optional Retry button. Returns the toast id. */
     showError: (message: string, opts?: { onRetry?: () => void | Promise<void>; autoDismissMs?: number }) => string;
+    /** Show a success toast — auto-dismisses in 3.5s by default. */
+    showSuccess: (message: string, opts?: { autoDismissMs?: number }) => string;
+    /** Show a neutral info toast — auto-dismisses in 4.5s by default. */
+    showInfo: (message: string, opts?: { autoDismissMs?: number }) => string;
     dismissError: (id: string) => void;
     errors: ErrorToast[];
 }
@@ -90,7 +96,7 @@ export function UndoToastProvider({ children }: { children: ReactNode }) {
 
     const showError = useCallback((message: string, opts?: { onRetry?: () => void | Promise<void>; autoDismissMs?: number }) => {
         const id = `err-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const toast: ErrorToast = { id, message, onRetry: opts?.onRetry, autoDismissMs: opts?.autoDismissMs };
+        const toast: ErrorToast = { id, message, onRetry: opts?.onRetry, autoDismissMs: opts?.autoDismissMs, variant: 'error' };
         errorsRef.current = [...errorsRef.current, toast];
         setErrors([...errorsRef.current]);
 
@@ -102,8 +108,28 @@ export function UndoToastProvider({ children }: { children: ReactNode }) {
         return id;
     }, [dismissError]);
 
+    const showSuccess = useCallback((message: string, opts?: { autoDismissMs?: number }) => {
+        const id = `ok-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const toast: ErrorToast = { id, message, autoDismissMs: opts?.autoDismissMs, variant: 'success' };
+        errorsRef.current = [...errorsRef.current, toast];
+        setErrors([...errorsRef.current]);
+        const ms = opts?.autoDismissMs ?? 3500;
+        setTimeout(() => dismissError(id), ms);
+        return id;
+    }, [dismissError]);
+
+    const showInfo = useCallback((message: string, opts?: { autoDismissMs?: number }) => {
+        const id = `info-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const toast: ErrorToast = { id, message, autoDismissMs: opts?.autoDismissMs, variant: 'info' };
+        errorsRef.current = [...errorsRef.current, toast];
+        setErrors([...errorsRef.current]);
+        const ms = opts?.autoDismissMs ?? 4500;
+        setTimeout(() => dismissError(id), ms);
+        return id;
+    }, [dismissError]);
+
     return (
-        <UndoToastContext.Provider value={{ scheduleDelete, undoDelete, pending, showError, dismissError, errors }}>
+        <UndoToastContext.Provider value={{ scheduleDelete, undoDelete, pending, showError, showSuccess, showInfo, dismissError, errors }}>
             {children}
             <UndoToastStack pending={pending} onUndo={undoDelete} />
             <ErrorToastStack errors={errors} onDismiss={dismissError} />
@@ -207,16 +233,20 @@ function ErrorToastItem({ item, onDismiss }: { item: ErrorToast; onDismiss: () =
         finally { setRetrying(false); onDismiss(); }
     };
 
+    const variant = item.variant ?? 'error';
+    const icon = variant === 'success' ? '✓' : variant === 'info' ? 'ℹ' : '⚠️';
+    const role = variant === 'error' ? 'alert' : 'status';
+
     return (
-        <div className="error-toast" role="alert">
-            <span aria-hidden="true" style={{ fontSize: 16 }}>⚠️</span>
+        <div className={`error-toast error-toast--${variant}`} role={role}>
+            <span aria-hidden="true" style={{ fontSize: 16 }}>{icon}</span>
             <span className="error-toast-msg">{item.message}</span>
             {item.onRetry && (
                 <button className="error-toast-retry" onClick={handleRetry} disabled={retrying}>
                     {retrying ? 'Retrying…' : 'Retry'}
                 </button>
             )}
-            <button className="error-toast-close" onClick={onDismiss} aria-label="Dismiss error">×</button>
+            <button className="error-toast-close" onClick={onDismiss} aria-label="Dismiss notification">×</button>
         </div>
     );
 }

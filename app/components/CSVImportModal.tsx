@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { previewCSVImportAction, importCSVAction, type ImportRow, type ImportPreview } from '../../src/actions/importActions';
+import { useUndoToast } from '../context/UndoToastContext';
 
 interface CSVImportModalProps {
     isOpen: boolean;
@@ -33,6 +34,7 @@ function mapToImportRows(rows: Record<string, string>[]): ImportRow[] {
 }
 
 export default function CSVImportModal({ isOpen, onClose, onImportComplete }: CSVImportModalProps) {
+    const { showError } = useUndoToast();
     const [step, setStep] = useState<'upload' | 'preview' | 'importing' | 'done'>('upload');
     const [preview, setPreview] = useState<ImportPreview | null>(null);
     const [result, setResult] = useState<{ imported: number; skipped: number; errors: number } | null>(null);
@@ -44,12 +46,12 @@ export default function CSVImportModal({ isOpen, onClose, onImportComplete }: CS
         const text = await file.text();
         const parsed = parseCSV(text);
         const rows = mapToImportRows(parsed);
-        if (rows.length === 0) { alert('No valid rows found'); return; }
+        if (rows.length === 0) { showError('No valid rows found in CSV — check that the email column is populated.'); return; }
 
         setStep('preview');
         const previewData = await previewCSVImportAction(rows);
         setPreview(previewData);
-    }, []);
+    }, [showError]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault(); setIsDragging(false);

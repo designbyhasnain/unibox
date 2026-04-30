@@ -78,13 +78,14 @@ export default function EditorProjectDetail({ projectId, onClose }: Props) {
         if (!detail) return;
         // Try the explicit raw data URL first (it's a true URL field), fall back
         // to hard_drive in case the editor stored a URL there. If neither is a
-        // URL, show a clear message instead of a silent dead-click.
+        // URL, surface a clear message via the existing actionError banner
+        // instead of a blocking alert.
         const candidates = [detail.rawDataUrl, detail.hardDrive].filter(Boolean) as string[];
         const url = candidates.find(u => /^https?:\/\//i.test(u));
         if (url) {
             window.open(url, '_blank', 'noopener,noreferrer');
         } else {
-            alert('No drive URL set for this project yet — ask the admin to add one.');
+            setActionError('No drive URL set for this project yet — ask the admin to add one.');
         }
     }
 

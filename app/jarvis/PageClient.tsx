@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useHydrated } from '../utils/useHydration';
+import { useUndoToast } from '../context/UndoToastContext';
 
 type Message = {
     role: 'user' | 'assistant';
@@ -31,6 +32,7 @@ const AGENT_SUGGESTIONS = [
 
 export default function JarvisPage() {
     const isHydrated = useHydrated();
+    const { showError } = useUndoToast();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -61,7 +63,7 @@ export default function JarvisPage() {
     // ── Web Speech API (STT) ──────────────────────────────────────────────
     const startListening = useCallback(() => {
         if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-            alert('Speech recognition not supported. Use Chrome.');
+            showError('Voice input requires Chrome — your browser doesn\'t support speech recognition.');
             return;
         }
 
@@ -95,7 +97,7 @@ export default function JarvisPage() {
 
         recognitionRef.current = recognition;
         recognition.start();
-    }, []);
+    }, [showError]);
 
     const stopListening = useCallback(() => {
         recognitionRef.current?.stop();

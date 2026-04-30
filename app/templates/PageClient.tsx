@@ -111,6 +111,9 @@ export default function TemplatesPage() {
     }
 
     async function handleBulkMine() {
+        // TODO(templates-modal): replace native confirm() with a project-styled
+        // confirmation modal. The button trigger already includes the
+        // explanation, so this guard is mostly accidental-click protection.
         if (!confirm('Auto-generate templates from your best sent emails using AI?\n\nThis analyzes your sent emails, finds ones that got replies, and creates reusable templates.')) return;
         setIsMining(true);
         setMineResult(null);

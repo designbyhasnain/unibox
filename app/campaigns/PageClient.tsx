@@ -7,6 +7,7 @@ import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import { getCampaignsAction, deleteCampaignAction } from '../../src/actions/campaignActions';
 import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
+import { useUndoToast } from '../context/UndoToastContext';
 
 const ICON = {
     filter: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
@@ -41,6 +42,7 @@ const statusLabel: Record<string, string> = { RUNNING: 'running', PAUSED: 'pause
 export default function CampaignsPage() {
     const hydrated = useHydrated();
     const router = useRouter();
+    const { showError } = useUndoToast();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [loading, setLoading] = useState(true);
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -75,6 +77,8 @@ export default function CampaignsPage() {
     }, [openMenuId]);
 
     const handleDelete = async (campaignId: string, name: string) => {
+        // TODO(campaigns-modal): replace native confirm() with a project-styled
+        // confirmation modal. Soft-archive — recoverable via direct DB update.
         if (!confirm(`Delete campaign "${name}"? It will be archived and removed from the active list. This cannot be undone from the UI.`)) {
             setOpenMenuId(null);
             return;
@@ -84,7 +88,7 @@ export default function CampaignsPage() {
         const res = await deleteCampaignAction(campaignId);
         setDeletingId(null);
         if (!res.success) {
-            alert(res.error || 'Failed to delete campaign');
+            showError(res.error || 'Failed to delete campaign', { onRetry: () => handleDelete(campaignId, name) });
             return;
         }
         setCampaigns(prev => prev.filter(c => c.id !== campaignId));

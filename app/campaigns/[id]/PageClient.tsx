@@ -87,7 +87,7 @@ function formatShortDate(dateStr: string | null) {
 export default function CampaignDetailPage() {
     const { id } = useParams();
     const router = useRouter();
-    const { scheduleDelete } = useUndoToast();
+    const { scheduleDelete, showError, showSuccess, showInfo } = useUndoToast();
     const isHydrated = useHydrated();
 
     const [campaign, setCampaign] = useState<CampaignDetail | null>(null);
@@ -447,7 +447,18 @@ export default function CampaignDetailPage() {
                                 if (result.issues?.length) lines.push('ISSUES:\n' + result.issues.map((i: string) => '  - ' + i).join('\n'));
                                 if (result.warnings?.length) lines.push('WARNINGS:\n' + result.warnings.map((w: string) => '  - ' + w).join('\n'));
                                 if (result.stats) lines.push('STATS:\n' + Object.entries(result.stats).map(([k, v]) => `  ${k}: ${v}`).join('\n'));
-                                alert(lines.join('\n\n') || 'Everything looks good!');
+                                if (lines.length === 0) {
+                                    showSuccess('Diagnosis: everything looks good');
+                                } else {
+                                    // Multi-line diagnosis is too long for a toast — log full output
+                                    // for the admin and show a summary line.
+                                    console.warn('[campaigns/diagnose]', lines.join('\n\n'));
+                                    const issueCount = result.issues?.length || 0;
+                                    const warnCount = result.warnings?.length || 0;
+                                    const summary = `Diagnosis: ${issueCount} issue${issueCount === 1 ? '' : 's'}, ${warnCount} warning${warnCount === 1 ? '' : 's'}. See console for details.`;
+                                    if (issueCount > 0) showError(summary);
+                                    else showInfo(summary, { autoDismissMs: 8000 });
+                                }
                             }}
                             style={{
                                 marginTop: '1.5rem', padding: '0.5rem 1rem', fontSize: 'var(--text-sm)',
@@ -515,10 +526,15 @@ export default function CampaignDetailPage() {
                                     const { importLeadsFromCSVAction } = await import('../../../src/actions/campaignActions');
                                     const result = await importLeadsFromCSVAction(campaign.id, text);
                                     if (result.success) {
-                                        alert(`Imported: ${result.imported}, Skipped: ${result.skipped}${result.errors?.length ? '\nErrors:\n' + result.errors.join('\n') : ''}`);
+                                        if (result.errors?.length) {
+                                            console.warn('[campaigns/import] errors:', result.errors);
+                                            showInfo(`Imported ${result.imported}, skipped ${result.skipped}, ${result.errors.length} errors logged.`, { autoDismissMs: 8000 });
+                                        } else {
+                                            showSuccess(`Imported ${result.imported} contacts; ${result.skipped} skipped.`);
+                                        }
                                         window.location.reload();
                                     } else {
-                                        alert(result.error || 'Import failed');
+                                        showError(result.error || 'Import failed');
                                     }
                                     e.target.value = '';
                                 }} />

@@ -580,6 +580,16 @@ button:disabled, button[aria-disabled="true"] {
     padding: 0 4px;
 }
 
+/* Variants — share layout with .error-toast, swap accent + accent border. */
+.error-toast--success {
+    border-color: var(--coach);
+    border-left-color: var(--coach);
+}
+.error-toast--info {
+    border-color: var(--accent);
+    border-left-color: var(--accent);
+}
+
 
 button { font-family: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; font-size: inherit; }
 input, textarea { font-family: inherit; color: inherit; background: none; border: none; outline: none; font-size: inherit; }

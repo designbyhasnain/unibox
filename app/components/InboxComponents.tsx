@@ -6,6 +6,7 @@ import { avatarColor, formatDate, cleanPreview } from '../utils/helpers';
 import AddProjectModal from './AddProjectModal';
 import { useHydrated } from '../utils/useHydration';
 import { ensureContactAction } from '../../src/actions/clientActions';
+import { useUndoToast } from '../context/UndoToastContext';
 
 import { STAGE_COLORS, STAGE_LABELS, STAGE_OPTIONS } from '../constants/stages';
 
@@ -722,6 +723,7 @@ export function EmailDetail({
     totalCount = 0,
 }: EmailDetailProps) {
     const isHydrated = useHydrated();
+    const { showError, showSuccess } = useUndoToast();
     const [showAllIntermediate, setShowAllIntermediate] = React.useState(false);
     const [collapsedThreads, setCollapsedThreads] = React.useState<Set<string>>(new Set());
     const [isAllExpanded, setIsAllExpanded] = React.useState(false);
@@ -790,7 +792,7 @@ export function EmailDetail({
             setTargetClient(contact);
             setIsAddProjectOpen(true);
         } else {
-            alert("Could not find or create a contact for this project.");
+            showError("Could not find or create a contact for this project.");
         }
     };
 
@@ -1188,7 +1190,7 @@ export function EmailDetail({
                     onClose={() => setIsAddProjectOpen(false)}
                     onCreated={() => {
                         setIsAddProjectOpen(false);
-                        alert("Project created successfully!");
+                        showSuccess("Project created successfully");
                     }}
                 />
             )}
