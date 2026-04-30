@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, X, Check, Camera, Loader2 } from 'lucide-react';
 import { updateOwnNameAction, changeOwnPasswordAction, uploadOwnAvatarAction, getCurrentUserAction } from '../../src/actions/authActions';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useDialogShell } from '../hooks/useDialogShell';
 
 interface Props {
     onClose: () => void;
@@ -28,6 +29,7 @@ const cachedAvatar = (): string | null => {
 export default function AccountSettingsModal({ onClose, onUpdated, initialName, initialAvatarUrl }: Props) {
     const { showError } = useUndoToast();
     const [tab, setTab] = useState<Tab>('profile');
+    const { dialogRef } = useDialogShell({ onClose });
 
     // Profile — seeded from props → localStorage → '' so the inputs are
     // populated on first render. The server fetch then overwrites with fresh data.
@@ -170,6 +172,10 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
             onClick={onClose}
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="account-settings-title"
                 onClick={e => e.stopPropagation()}
                 style={{
                     background: 'var(--shell)', color: 'var(--ink)',
@@ -186,7 +192,7 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
                     padding: '16px 20px', borderBottom: '1px solid var(--hairline-soft)',
                 }}>
                     <div>
-                        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>Account settings</h2>
+                        <h2 id="account-settings-title" style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>Account settings</h2>
                         <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: '2px 0 0' }}>{email}</p>
                     </div>
                     <button onClick={onClose} aria-label="Close" style={{

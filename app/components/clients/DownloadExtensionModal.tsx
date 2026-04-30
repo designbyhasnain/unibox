@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useDialogShell } from '../../hooks/useDialogShell';
 
 interface Props {
     onClose: () => void;
@@ -11,6 +12,7 @@ export default function DownloadExtensionModal({ onClose }: Props) {
     const [generating, setGenerating] = useState(false);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState('');
+    const { dialogRef } = useDialogShell({ onClose });
 
     const generateKey = async () => {
         setGenerating(true);
@@ -39,9 +41,9 @@ export default function DownloadExtensionModal({ onClose }: Props) {
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-overlay)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={onClose}>
-            <div style={{ background: 'var(--shell)', color: 'var(--ink)', borderRadius: 16, width: 480, maxHeight: '80vh', overflow: 'auto', padding: 32, border: '1px solid var(--hairline)' }} onClick={e => e.stopPropagation()}>
+            <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="download-extension-title" style={{ background: 'var(--shell)', color: 'var(--ink)', borderRadius: 16, width: 480, maxHeight: '80vh', overflow: 'auto', padding: 32, border: '1px solid var(--hairline)' }} onClick={e => e.stopPropagation()}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>Install Unibox Prospector v2 — Antigravity</h2>
+                    <h2 id="download-extension-title" style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>Install Unibox Prospector v2 — Antigravity</h2>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--ink-muted)' }}>&times;</button>
                 </div>
                 <p style={{ color: 'var(--ink-muted)', fontSize: 14, marginBottom: 24 }}>Dynamic Island lead capture with auto-scraping, scoring & FB fallback</p>
