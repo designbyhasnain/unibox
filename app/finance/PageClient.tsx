@@ -60,8 +60,8 @@ export default function FinancePage() {
                                             { label: 'Paid', value: formatCurrency(data.stats?.paidRevenue), color: 'var(--coach)' },
                                             { label: 'Outstanding', value: formatCurrency(data.stats?.pipelineValue), color: 'var(--warn)' },
                                             { label: 'Avg Deal Size', value: formatCurrency(data.stats?.avgDealSize), color: 'var(--accent)' },
-                                            { label: 'Collection Rate', value: data.stats?.collectionRate, color: '#06B6D4' },
-                                            { label: 'Total Projects', value: data.stats?.totalProjects, color: '#6366F1' },
+                                            { label: 'Collection Rate', value: data.stats?.collectionRate, color: 'var(--info)' },
+                                            { label: 'Total Projects', value: data.stats?.totalProjects, color: 'var(--accent-ink)' },
                                         ].map(kpi => (
                                             <div key={kpi.label} style={{
                                                 background: 'var(--bg-secondary)', borderRadius: 12, padding: '1.25rem',

@@ -3,8 +3,8 @@ import { useState, useEffect } from 'react';
 import { getEditorDeliveredData, type EditorDeliveredProject } from '../../lib/projects/editorStats';
 
 const TAG_COLORS: Record<string, string> = {
-    WEDDING: '#7c3aed', TEASER: '#0891b2', BRAND: '#059669', REEL: '#db2777',
-    HIGHLIGHT: '#d97706', FILM: '#dc2626',
+    WEDDING: 'oklch(0.55 0.18 295)', TEASER: 'oklch(0.62 0.13 200)', BRAND: 'oklch(0.62 0.14 160)', REEL: 'oklch(0.62 0.20 340)',
+    HIGHLIGHT: 'oklch(0.65 0.16 60)', FILM: 'oklch(0.60 0.20 25)',
 };
 function tagLabel(p: EditorDeliveredProject) {
     const t = p.tags?.[0]?.toUpperCase();
@@ -59,7 +59,7 @@ export default function DeliveredClient() {
             <div className="del-grid">
                 {projects.map(p => {
                     const tag = tagLabel(p);
-                    const tagColor = TAG_COLORS[tag] || '#6b7280';
+                    const tagColor = TAG_COLORS[tag] || 'var(--ink-muted)';
                     return (
                         <div key={p.id} className="del-card">
                             <div className="del-card-thumb">
@@ -83,7 +83,7 @@ export default function DeliveredClient() {
                                             <span className="del-stat-label">RATING</span>
                                             <span className="del-stat-stars">
                                                 {Array.from({ length: 5 }, (_, i) => (
-                                                    <span key={i} style={{ color: i < Math.round(p.rating!) ? '#f59e0b' : '#374151' }}>{STAR}</span>
+                                                    <span key={i} style={{ color: i < Math.round(p.rating!) ? 'var(--warn)' : 'var(--hairline)' }}>{STAR}</span>
                                                 ))}
                                             </span>
                                         </div>

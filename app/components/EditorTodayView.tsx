@@ -7,21 +7,34 @@ import EditorProjectDetail from './editor/EditorProjectDetail';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
+// Theme-aware tokens — `--accent` (purple) drives editing, `--warn` (orange)
+// drives revisions, `--coach` (green) drives delivery/approval/done, `--ink-muted`
+// drives on-hold. Using oklch tokens keeps both light + dark themes in sync.
 export const STATUS_MAP: Record<string, { label: string; dot: string; bar: string }> = {
-    IN_PROGRESS: { label: 'EDITING',   dot: '#a78bfa', bar: 'linear-gradient(90deg, #8b5cf6 0%, #f97316 100%)' },
-    IN_REVISION: { label: 'REVISIONS', dot: '#f97316', bar: '#f97316' },
-    DOWNLOADING: { label: 'DELIVERY',  dot: '#22c55e', bar: '#22c55e' },
-    DOWNLOADED:  { label: 'DELIVERY',  dot: '#22c55e', bar: '#22c55e' },
-    ON_HOLD:     { label: 'ON HOLD',   dot: '#6b7280', bar: '#6b7280' },
-    APPROVED:    { label: 'APPROVED',  dot: '#22c55e', bar: '#22c55e' },
-    DONE:        { label: 'DONE',      dot: '#14b8a6', bar: '#14b8a6' },
+    IN_PROGRESS: { label: 'EDITING',   dot: 'var(--accent)',    bar: 'linear-gradient(90deg, var(--accent) 0%, var(--warn) 100%)' },
+    IN_REVISION: { label: 'REVISIONS', dot: 'var(--warn)',      bar: 'var(--warn)' },
+    DOWNLOADING: { label: 'DELIVERY',  dot: 'var(--coach)',     bar: 'var(--coach)' },
+    DOWNLOADED:  { label: 'DELIVERY',  dot: 'var(--coach)',     bar: 'var(--coach)' },
+    ON_HOLD:     { label: 'ON HOLD',   dot: 'var(--ink-muted)', bar: 'var(--ink-muted)' },
+    APPROVED:    { label: 'APPROVED',  dot: 'var(--coach)',     bar: 'var(--coach)' },
+    DONE:        { label: 'DONE',      dot: 'var(--info)',      bar: 'var(--info)' },
 };
 
 export function avatarColor(s: string) {
-    const palette = ['#7c3aed', '#0891b2', '#d97706', '#dc2626', '#059669', '#db2777', '#0284c7'];
+    // Avatar palette is intentionally chromatic and theme-stable so initials
+    // remain visually distinct in both light & dark.
+    const palette = [
+        'oklch(0.55 0.18 295)', // purple
+        'oklch(0.62 0.13 200)', // cyan-blue
+        'oklch(0.65 0.16 60)',  // amber
+        'oklch(0.60 0.20 25)',  // red
+        'oklch(0.62 0.14 160)', // green
+        'oklch(0.62 0.20 340)', // pink
+        'oklch(0.62 0.16 230)', // sky blue
+    ];
     let h = 0;
     for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h);
-    return palette[Math.abs(h) % palette.length];
+    return palette[Math.abs(h) % palette.length]!;
 }
 
 export function initials(s: string) {
@@ -84,7 +97,7 @@ function WeekStrip({ weekProjects }: { weekProjects: EditorTodayData['weekProjec
                             <span className="ed-week-num">{d.getDate()}</span>
                             {events.length > 0 && events[0] && (
                                 <div className="ed-week-events">
-                                    <span className="ed-week-dot" style={{ background: STATUS_MAP[events[0].progress]?.dot || '#f97316' }} />
+                                    <span className="ed-week-dot" style={{ background: STATUS_MAP[events[0].progress]?.dot || 'var(--warn)' }} />
                                     <span className="ed-week-event-name" title={events[0].name}>{events[0].name}</span>
                                 </div>
                             )}
@@ -107,7 +120,7 @@ function DeskCard({
     isSelected: boolean;
     onSelect: () => void;
 }) {
-    const status  = STATUS_MAP[project.progress] ?? { label: project.progress, dot: '#6b7280', bar: '#6b7280' };
+    const status  = STATUS_MAP[project.progress] ?? { label: project.progress, dot: 'var(--ink-muted)', bar: 'var(--ink-muted)' };
     const badge   = dueBadge(project.dueDate);
     const pct     = Math.min(100, Math.max(0, project.formulaPercent));
     const clrBg   = avatarColor(project.clientName || project.name);

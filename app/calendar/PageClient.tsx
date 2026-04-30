@@ -4,12 +4,13 @@ import { getEditorMyQueueData, type EditorQueueProject } from '../../lib/project
 import Link from 'next/link';
 
 // Priority drives the card accent in the design ("Color = priority").
+// Migrated from hardcoded hex to theme tokens so light/dark modes stay in sync.
 const PRIORITY_ACCENT: Record<string, string> = {
-    HIGH:   '#a78bfa',
-    MEDIUM: '#f59e0b',
-    LOW:    '#9ca3af',
+    HIGH:   'var(--accent)',
+    MEDIUM: 'var(--warn)',
+    LOW:    'var(--ink-muted)',
 };
-const DEFAULT_ACCENT = '#a78bfa'; // Purple — the design's editor-workstation accent
+const DEFAULT_ACCENT = 'var(--accent)'; // Editor-workstation accent
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
