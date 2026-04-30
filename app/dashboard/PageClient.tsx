@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { getSalesDashboardAction } from '../../src/actions/dashboardActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { getDailyBriefingAction, regenerateDailyBriefingAction } from '../../src/actions/jarvisActions';
@@ -46,6 +47,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     // rules-of-hooks: returning a different component before hooks would
     // change the hook count between renders if userRole ever changed.)
     const hydrated = useHydrated();
+    const router = useRouter();
     const [name, setName] = useState('');
     const [d, setD] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -236,12 +238,19 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     ];
 
     const needReplyRows = reply.slice(0, 4).map((r: any) => {
-        const days = Math.max(1, Math.floor((Date.now() - new Date(r.lastEmailAt || r.sent_at).getTime()) / 86400000));
-        return { n: r.contactName || r.name || 'Unknown', s: r.subject || r.lastSubject || '', d: `${days}d`, p: days >= 7 ? 'high' : days >= 3 ? 'med' : 'low' };
+        const days = Math.max(1, Math.floor((Date.now() - new Date(r.lastEmailAt || r.sent_at || r.last_email_at || Date.now()).getTime()) / 86400000));
+        return {
+            id: r.id || r.contactId || null,
+            n: r.contactName || r.name || 'Unknown',
+            s: r.subject || r.lastSubject || '',
+            d: `${days}d`,
+            p: days >= 7 ? 'high' : days >= 3 ? 'med' : 'low',
+        };
     });
 
     const closers = d?.topClosers || d?.topClients || [];
     const closerRows = closers.slice(0, 4).map((c: any, i: number) => ({
+        id: c.id || c.contactId || null,
         n: c.name || c.contactName || 'Unknown',
         d: c.dealCount || c.deals || c.total_projects || 0,
         v: fmt(c.revenue || c.total_revenue || 0),
@@ -359,8 +368,8 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                         <div className="sub">{sub}</div>
                     </div>
                     <div className="spacer" />
-                    <button className="refresh-btn" onClick={() => window.location.reload()}>
-                        {ICON.refresh} Refresh
+                    <button className="refresh-btn" onClick={() => loadDashboard()} disabled={loading}>
+                        {ICON.refresh} {loading ? 'Refreshing…' : 'Refresh'}
                     </button>
                 </div>
 
@@ -482,7 +491,12 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                             <table className="table">
                                 <tbody>
                                     {needReplyRows.map((row: any, i: number) => (
-                                        <tr key={i}>
+                                        <tr
+                                            key={i}
+                                            onClick={() => row.id && router.push(`/clients/${row.id}`)}
+                                            style={{ cursor: row.id ? 'pointer' : 'default' }}
+                                            title={row.id ? `Open ${row.n}` : undefined}
+                                        >
                                             <td style={{ width: 140 }}><b>{row.n}</b></td>
                                             <td style={{ color: 'var(--ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{row.s}</td>
                                             <td className="num" style={{ textAlign: 'right', width: 60 }}>
@@ -502,7 +516,12 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                             <table className="table">
                                 <tbody>
                                     {closerRows.map((row: any, i: number) => (
-                                        <tr key={i}>
+                                        <tr
+                                            key={i}
+                                            onClick={() => row.id && router.push(`/clients/${row.id}`)}
+                                            style={{ cursor: row.id ? 'pointer' : 'default' }}
+                                            title={row.id ? `Open ${row.n}` : undefined}
+                                        >
                                             <td style={{ width: 210 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                                     <div className={`avatar ${row.av}`} style={{ width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 10, fontWeight: 600 }}>

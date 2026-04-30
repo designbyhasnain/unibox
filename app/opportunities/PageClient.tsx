@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { getPipelineVisualizationAction, type PipelineStageSummary } from '../../src/actions/revenueActions';
 import { getClientsAction, updateClientAction } from '../../src/actions/clientActions';
 import { useHydrated } from '../utils/useHydration';
@@ -11,6 +12,7 @@ import { usePerfMonitor } from '../hooks/usePerfMonitor';
 import {
     DndContext,
     PointerSensor,
+    KeyboardSensor,
     useSensor,
     useSensors,
     type DragEndEvent,
@@ -71,6 +73,7 @@ function DroppableColumn({ stageKey, children }: { stageKey: string; children: R
 
 export default function OpportunitiesPage() {
     const hydrated = useHydrated();
+    const router = useRouter();
     const { selectedAccountId } = useGlobalFilter();
     const { showError, showSuccess } = useUndoToast();
     usePerfMonitor('/opportunities');
@@ -80,8 +83,13 @@ export default function OpportunitiesPage() {
 
     // 5px activation distance avoids the kanban swallowing plain clicks meant
     // for the contact-detail panel — drag only kicks in once the pointer
-    // actually moves.
-    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+    // actually moves. KeyboardSensor is the accessibility complement: focus a
+    // card and press Space/Enter to pick up, arrow keys to move, then Space
+    // again to drop.
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(KeyboardSensor),
+    );
 
     useEffect(() => {
         Promise.all([
@@ -134,7 +142,14 @@ export default function OpportunitiesPage() {
     const closedValue = (byStage['CLOSED'] || []).reduce((s: number, c: any) => s + (c.estimated_value || 0), 0);
     const stageProb: Record<string, number> = { COLD_LEAD: 0.05, CONTACTED: 0.15, WARM_LEAD: 0.35, LEAD: 0.5, OFFER_ACCEPTED: 0.75 };
     const forecast = openStages.reduce((s, k) => s + (byStage[k] || []).reduce((ss: number, c: any) => ss + (c.estimated_value || 0) * (stageProb[k] || 0.1), 0), 0);
-    const winRate = pipeline ? Math.round((pipeline.stages.find(s => s.stage === 'CLOSED')?.count || 0) / Math.max(pipeline.totalDeals, 1) * 100) : 0;
+    // Recompute winRate from the optimistic client state so KPIs update
+    // instantly after a card drag. Falls back to the server snapshot only when
+    // we have no local data yet.
+    const localTotalDeals = clients.length;
+    const localClosedCount = (byStage['CLOSED'] || []).length;
+    const winRate = localTotalDeals > 0
+        ? Math.round((localClosedCount / localTotalDeals) * 100)
+        : (pipeline ? Math.round((pipeline.stages.find(s => s.stage === 'CLOSED')?.count || 0) / Math.max(pipeline.totalDeals, 1) * 100) : 0);
 
     return (
         <div className="op-page">
@@ -142,7 +157,12 @@ export default function OpportunitiesPage() {
                 <div className="page-head">
                     <div>
                         <h2>Pipeline board</h2>
-                        <div className="sub">{openCount} open · {fmt(openValue)} in flight · drag a card to move it between stages</div>
+                        <div className="sub">{openCount} open · {fmt(openValue)} in flight · drag a card or press Space to move between stages</div>
+                        {pipeline && pipeline.totalDeals > clients.length && (
+                            <div className="sub" style={{ color: 'var(--warn)', marginTop: 2 }}>
+                                Showing {clients.length} of {pipeline.totalDeals.toLocaleString()} contacts — narrow by account or open `/clients` for the full list.
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -170,7 +190,18 @@ export default function OpportunitiesPage() {
                                                 <div
                                                     className="kcard"
                                                     {...listeners}
-                                                    aria-label={`Drag ${c.name || c.email} to a different stage`}
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    aria-label={`${c.name || c.email}. Click to open contact, drag to move stage`}
+                                                    // Click → contact detail. PointerSensor uses a 5px activation
+                                                    // distance, so simple clicks (no drag) still bubble here.
+                                                    onClick={() => { if (!isDragging) router.push(`/clients/${c.id}`); }}
+                                                    onKeyDown={(e) => {
+                                                        if ((e.key === 'Enter' || e.key === ' ') && !isDragging) {
+                                                            e.preventDefault();
+                                                            router.push(`/clients/${c.id}`);
+                                                        }
+                                                    }}
                                                     style={{ pointerEvents: isDragging ? 'none' : undefined }}
                                                 >
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
