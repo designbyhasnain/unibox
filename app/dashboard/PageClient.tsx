@@ -8,6 +8,7 @@ import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 import EditorTodayView from '../components/EditorTodayView';
 import { useUndoToast } from '../context/UndoToastContext';
+import { usePerfMonitor } from '../hooks/usePerfMonitor';
 
 function fmt(n: number) {
     if (n >= 10000) return '$' + (n / 1000).toFixed(0) + 'k';
@@ -56,6 +57,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
     const isAdmin = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
     const isEditor = userRole === 'VIDEO_EDITOR';
     const { showError, showSuccess } = useUndoToast();
+    usePerfMonitor('/dashboard');
 
     const loadDashboard = useCallback(() => {
         setLoading(true);

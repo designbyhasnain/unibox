@@ -7,29 +7,53 @@ import { LoadingText } from '../components/LoadingStates';
 import { useUndoToast } from '../context/UndoToastContext';
 import { useConfirm } from '../context/ConfirmContext';
 
-import { AlertTriangle, CheckCircle2, Mail, Database, Users, Briefcase, Clock, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Mail, Database, Users, Briefcase, Clock, Zap, Activity } from 'lucide-react';
+
+interface PerfRouteStats {
+    route: string;
+    n: number;
+    p50: number;
+    p95: number;
+    max: number;
+    recent: number[];
+    breachesSlo: boolean;
+}
 
 export default function DataHealthPage() {
     const { showError } = useUndoToast();
     const confirm = useConfirm();
     const [db, setDb] = useState<DataHealthSnapshot | null>(null);
     const [gmail, setGmail] = useState<GmailSyncHealth | null>(null);
+    const [perf, setPerf] = useState<PerfRouteStats[] | null>(null);
     const [loading, setLoading] = useState(true);
     const [running, setRunning] = useState(false);
     const [lastRun, setLastRun] = useState<string | null>(null);
 
     const load = async () => {
         setLoading(true);
-        const [dbRes, gmailRes] = await Promise.all([
+        const [dbRes, gmailRes, perfRes] = await Promise.all([
             getDataHealthAction(),
             getGmailSyncHealthAction(),
+            fetch('/api/perf/stats').then(r => r.ok ? r.json() : { stats: [] }).catch(() => ({ stats: [] })),
         ]);
         if (dbRes.success && dbRes.data) setDb(dbRes.data);
         if (gmailRes.success && gmailRes.data) setGmail(gmailRes.data);
+        setPerf(perfRes.stats || []);
         setLoading(false);
     };
 
-    useEffect(() => { load(); }, []);
+    useEffect(() => {
+        load();
+        // Refresh perf stats every 30s while the page is open so an admin
+        // watching the dashboard SLO sees fresh data.
+        const interval = setInterval(() => {
+            fetch('/api/perf/stats')
+                .then(r => r.ok ? r.json() : null)
+                .then(data => { if (data?.stats) setPerf(data.stats); })
+                .catch(() => { /* ignore */ });
+        }, 30_000);
+        return () => clearInterval(interval);
+    }, []);
 
     const handleRunHealthCheck = async () => {
         const ok = await confirm({
@@ -77,6 +101,11 @@ export default function DataHealthPage() {
                         </div>
                     ) : (
                         <>
+                            {/* Performance Monitor — page-load timings reported by usePerfMonitor */}
+                            <Section title="Performance" icon={<Activity size={16} />}>
+                                <PerfTable rows={perf || []} />
+                            </Section>
+
                             {/* Gmail Sync Health */}
                             <Section title="Gmail Sync" icon={<Mail size={16} />}>
                                 {gmail ? (
@@ -142,6 +171,54 @@ export default function DataHealthPage() {
                         </>
                     )}
             </div>
+        </div>
+    );
+}
+
+function PerfTable({ rows }: { rows: PerfRouteStats[] }) {
+    if (rows.length === 0) {
+        return (
+            <div style={{ padding: '20px 0', color: 'var(--ink-muted)', fontSize: 13 }}>
+                No samples yet — load the dashboard / inbox / opportunities pages to start collecting timings.
+            </div>
+        );
+    }
+    return (
+        <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 80px 80px 80px 80px 1fr', gap: 12, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-muted)', paddingBottom: 6, borderBottom: '1px solid var(--hairline-soft)' }}>
+                <span>Route</span>
+                <span style={{ textAlign: 'right' }}>Samples</span>
+                <span style={{ textAlign: 'right' }}>p50</span>
+                <span style={{ textAlign: 'right' }}>p95</span>
+                <span style={{ textAlign: 'right' }}>Max</span>
+                <span style={{ paddingLeft: 8 }}>Recent (last 20)</span>
+            </div>
+            {rows.map((r) => {
+                const sloLabel = r.route === '/dashboard' ? '<1000ms' : '<1500ms';
+                const sparkMax = Math.max(1, ...r.recent);
+                return (
+                    <div key={r.route} style={{ display: 'grid', gridTemplateColumns: '1.4fr 80px 80px 80px 80px 1fr', gap: 12, alignItems: 'center', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--hairline-soft)' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <code style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5 }}>{r.route}</code>
+                            {r.breachesSlo && <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: 'color-mix(in oklab, var(--danger), transparent 85%)', color: 'var(--danger)' }} title={`SLO ${sloLabel} breached at p95`}>SLO</span>}
+                        </span>
+                        <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-muted)' }}>{r.n}</span>
+                        <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.p50}<span style={{ color: 'var(--ink-muted)', fontSize: 10 }}>ms</span></span>
+                        <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: r.breachesSlo ? 'var(--danger)' : undefined }}>{r.p95}<span style={{ color: 'var(--ink-muted)', fontSize: 10 }}>ms</span></span>
+                        <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-muted)' }}>{r.max}<span style={{ fontSize: 10 }}>ms</span></span>
+                        <svg width="100%" height="22" viewBox="0 0 200 22" preserveAspectRatio="none" style={{ paddingLeft: 8 }} aria-hidden="true">
+                            {r.recent.length > 1 && (
+                                <polyline
+                                    fill="none"
+                                    stroke={r.breachesSlo ? 'var(--danger)' : 'var(--coach)'}
+                                    strokeWidth="1.5"
+                                    points={r.recent.map((v, i) => `${(i / Math.max(1, r.recent.length - 1)) * 200},${22 - (v / sparkMax) * 22}`).join(' ')}
+                                />
+                            )}
+                        </svg>
+                    </div>
+                );
+            })}
         </div>
     );
 }

@@ -7,6 +7,7 @@ import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import { useGlobalFilter } from '../context/FilterContext';
 import { useUndoToast } from '../context/UndoToastContext';
+import { usePerfMonitor } from '../hooks/usePerfMonitor';
 import {
     DndContext,
     PointerSensor,
@@ -72,6 +73,7 @@ export default function OpportunitiesPage() {
     const hydrated = useHydrated();
     const { selectedAccountId } = useGlobalFilter();
     const { showError, showSuccess } = useUndoToast();
+    usePerfMonitor('/opportunities');
     const [pipeline, setPipeline] = useState<{ stages: PipelineStageSummary[]; totalValue: number; totalDeals: number } | null>(null);
     const [clients, setClients] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);

@@ -26,6 +26,7 @@ import { RefreshCw, Mail, Send, Trash2, Eye, EyeOff, CheckCheck } from 'lucide-r
 import ClientIntelligencePanel from './components/ClientIntelligencePanel';
 import OwnerPicker from './components/OwnerPicker';
 import { useConfirm } from './context/ConfirmContext';
+import { usePerfMonitor } from './hooks/usePerfMonitor';
 import { getClientIntelligenceAction } from '../src/actions/clientIntelligenceAction';
 import type { ClientIntelligenceProfile } from '../src/types/clientIntelligence';
 
@@ -79,6 +80,7 @@ export default function InboxPage() {
     const isHydrated = useHydrated();
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
     const confirm = useConfirm();
+    usePerfMonitor('/');
 
     const [activeTab, setActiveTab] = useState<'inbox' | 'sent'>('inbox');
     const [searchTerm, setSearchTerm] = useState('');
