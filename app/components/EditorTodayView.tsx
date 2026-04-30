@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getEditorTodayData, type EditorTodayData, type EditorTodayProject } from '../../lib/projects/editorStats';
 import EditorProjectDetail from './editor/EditorProjectDetail';
+import { firstName } from '../utils/nameDisplay';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -222,7 +223,7 @@ export default function EditorTodayView() {
 
     const now      = new Date();
     const hour     = now.getHours();
-    const greeting = `Good ${hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}, ${data.userName.split(' ')[0]}`;
+    const greeting = `Good ${hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}, ${firstName(data.userName) || 'there'}`;
     const dayStr   = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     const jobCount = data.activeProjects.length;
     const noteCount = data.feedbackItems.length;
