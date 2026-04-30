@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useHydrated } from '../utils/useHydration';
 import { useUndoToast } from '../context/UndoToastContext';
+import { getJarvisQuickStatsAction } from '../../src/actions/jarvisActions';
 
 type Message = {
     role: 'user' | 'assistant';
@@ -47,10 +48,22 @@ export default function JarvisPage() {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const recognitionRef = useRef<any>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    // Live contact count for the splash copy. Falls back to a generic line
+    // when stats aren't loaded yet so we never ship a hardcoded number again.
+    const [contactCount, setContactCount] = useState<number | null>(null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    useEffect(() => {
+        let cancelled = false;
+        getJarvisQuickStatsAction().then(r => {
+            if (cancelled) return;
+            if (r.success && r.stats) setContactCount(r.stats.contactCount);
+        }).catch(() => {});
+        return () => { cancelled = true; };
+    }, []);
 
     // Pre-load browser voices
     useEffect(() => {
@@ -463,7 +476,7 @@ export default function JarvisPage() {
                             <div style={{ fontSize: 56 }}>{'\u{1F916}'}</div>
                             <div className="jv-empty-title">How can I help?</div>
                             <div className="jv-empty-sub">
-                                I&apos;m your AI executive assistant with full CRM access &mdash; 12,695 contacts, revenue data, pipeline stats. Ask me anything, or tap the mic to talk.
+                                I&apos;m your AI executive assistant with full CRM access &mdash; {contactCount !== null ? `${contactCount.toLocaleString()} contacts` : 'live CRM data'}, revenue data, pipeline stats. Ask me anything, or tap the mic to talk.
                             </div>
                             <div className="jv-chips">
                                 {(mode === 'agent' ? AGENT_SUGGESTIONS : CHAT_SUGGESTIONS).map((s: string) => (

@@ -229,6 +229,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                                     href={it.href}
                                     prefetch={true}
                                     className={`sb-nav-item${pathname === it.href ? ' active' : ''}`}
+                                    title={it.label}
                                     onClick={() => {
                                         onClose?.();
                                         if (pathname === it.href) window.dispatchEvent(new CustomEvent('nav-reset'));

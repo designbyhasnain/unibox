@@ -42,6 +42,31 @@ export async function getDailyBriefingAction(): Promise<{ success: boolean; brie
     }
 }
 
+// Lightweight stats for the Jarvis chat empty-state ("12,695 contacts...").
+// Pulls live counts from Supabase so the welcome copy never goes stale. Cached
+// per-process for 5 minutes — this is the chat splash, not analytics.
+type JarvisQuickStats = { contactCount: number; cached: boolean };
+let _quickStatsCache: { value: JarvisQuickStats; exp: number } | null = null;
+export async function getJarvisQuickStatsAction(): Promise<{ success: boolean; stats?: JarvisQuickStats; error?: string }> {
+    try {
+        await ensureAuthenticated();
+        const now = Date.now();
+        if (_quickStatsCache && _quickStatsCache.exp > now) {
+            return { success: true, stats: { ...(_quickStatsCache.value), cached: true } };
+        }
+        // RBAC-agnostic: this is a global headline number for the splash.
+        const { count, error } = await supabase
+            .from('contacts')
+            .select('id', { count: 'exact', head: true });
+        if (error) return { success: false, error: error.message };
+        const stats: JarvisQuickStats = { contactCount: count ?? 0, cached: false };
+        _quickStatsCache = { value: stats, exp: now + 5 * 60 * 1000 };
+        return { success: true, stats };
+    } catch (e: any) {
+        return { success: false, error: e?.message || 'Failed to load stats' };
+    }
+}
+
 // Force-refresh path for the "Regenerate" button — bypasses cache and
 // overwrites today's entry with a fresh result.
 export async function regenerateDailyBriefingAction(): Promise<{ success: boolean; briefing?: DailyBriefing; error?: string }> {
