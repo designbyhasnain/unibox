@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '../../../src/lib/supabase';
+import { parseUnsubscribeToken } from '../../../src/utils/unsubscribe';
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -10,16 +11,11 @@ export async function GET(request: Request) {
         return new NextResponse('Invalid request', { status: 400 });
     }
 
-    let email: string;
-    try {
-        email = Buffer.from(token, 'base64url').toString('utf-8');
-    } catch {
+    const parsed = parseUnsubscribeToken(token);
+    if (!parsed) {
         return new NextResponse('Invalid token', { status: 400 });
     }
-
-    if (!email.includes('@')) {
-        return new NextResponse('Invalid email', { status: 400 });
-    }
+    const { email } = parsed;
 
     // Add to global unsubscribe list
     await supabase
