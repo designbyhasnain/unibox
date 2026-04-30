@@ -5,6 +5,7 @@ import { Button } from './ui/Button';
 import { FormField, FormInput, FormSelect } from './ui/FormField';
 import { createClientAction } from '../../src/actions/clientActions';
 import { getManagersAction } from '../../src/actions/projectActions';
+import { getCurrentUserAction } from '../../src/actions/authActions';
 import { useDialogShell } from '../hooks/useDialogShell';
 
 interface AddLeadModalProps {
@@ -26,9 +27,17 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
     const [managers, setManagers] = useState<{ id: string; name: string }[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
+    // SALES users can't pick another user as the AM (server enforces via the
+    // mass-assignment guard in commit 2ef18b6); hide the dropdown for them
+    // entirely so the team roster doesn't leak client-side.
+    const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
     useEffect(() => {
-        getManagersAction().then(setManagers).catch(console.error);
+        getCurrentUserAction().then((u: any) => {
+            const admin = u?.role === 'ADMIN' || u?.role === 'ACCOUNT_MANAGER';
+            setIsAdmin(admin);
+            if (admin) getManagersAction().then(setManagers).catch(console.error);
+        }).catch(() => setIsAdmin(false));
     }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -107,8 +116,13 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
                     <div className="form-row">
                         <FormField label="STATUS">
                             <FormSelect value={pipelineStage} onChange={e => setPipelineStage(e.target.value)}>
-                                <option value="LEAD">Lead</option>
+                                {/* All 7 PipelineStage enum values from prisma/schema.prisma —
+                                    CONTACTED and WARM_LEAD were missing before, leaving two
+                                    real stages unreachable from the create flow. */}
                                 <option value="COLD_LEAD">Cold Lead</option>
+                                <option value="CONTACTED">Contacted</option>
+                                <option value="WARM_LEAD">Warm Lead</option>
+                                <option value="LEAD">Lead</option>
                                 <option value="OFFER_ACCEPTED">Offer Accepted</option>
                                 <option value="CLOSED">Closed</option>
                                 <option value="NOT_INTERESTED">Not Interested</option>
@@ -135,15 +149,20 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
                         </FormField>
                     </div>
 
-                    {/* Row 5: Account Manager */}
-                    <FormField label="ACCOUNT MANAGER">
-                        <FormSelect value={accountManagerId} onChange={e => setAccountManagerId(e.target.value)}>
-                            <option value="">Auto-assign (me)</option>
-                            {managers.map(m => (
-                                <option key={m.id} value={m.id}>{m.name}</option>
-                            ))}
-                        </FormSelect>
-                    </FormField>
+                    {/* Row 5: Account Manager — admin-only.
+                        SALES users are forced to themselves server-side
+                        (see commit 2ef18b6 mass-assignment guard); showing
+                        the dropdown to them just leaks the team roster. */}
+                    {isAdmin && (
+                        <FormField label="ACCOUNT MANAGER">
+                            <FormSelect value={accountManagerId} onChange={e => setAccountManagerId(e.target.value)}>
+                                <option value="">Auto-assign (me)</option>
+                                {managers.map(m => (
+                                    <option key={m.id} value={m.id}>{m.name}</option>
+                                ))}
+                            </FormSelect>
+                        </FormField>
+                    )}
 
                     <div className="modal-actions">
                         <Button type="button" variant="secondary" onClick={onClose} className="modal-btn-cancel">
