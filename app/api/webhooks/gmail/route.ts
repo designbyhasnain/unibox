@@ -99,9 +99,28 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ ok: true });
         }
 
-        // Sync immediately — don't defer to cron
+        // Sync immediately — don't defer to cron. If it throws, persist to
+        // webhook_events as PENDING so the 2-min retry cron picks it up
+        // (instead of silently swallowing the failure and dropping the
+        // history-id, which would leave the inbox out of sync until the
+        // next ad-hoc sync).
         if (account.status === 'ACTIVE') {
-            await syncAccountHistory(account.id, String(newHistoryId));
+            try {
+                await syncAccountHistory(account.id, String(newHistoryId));
+            } catch (syncErr: unknown) {
+                const msg = syncErr instanceof Error ? syncErr.message : 'sync failed';
+                console.error('[Webhook] sync failed, queuing for retry:', msg);
+                await supabase.from('webhook_events').insert({
+                    gmail_account_id: account.id,
+                    email_address: normalizedEmail,
+                    history_id: String(newHistoryId),
+                    status: 'PENDING',
+                    attempts: 0,
+                    last_error: msg.slice(0, 500),
+                });
+                // Still 200 to Pub/Sub so it doesn't retry — we own the retry
+                // pipeline now via /api/cron/process-webhooks.
+            }
         }
 
         return NextResponse.json({ success: true });
