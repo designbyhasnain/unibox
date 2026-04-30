@@ -207,7 +207,7 @@ export default function EditorProjectDetail({ projectId, onClose }: Props) {
                             {/* Comments */}
                             {detail.comments.length > 0 && (
                                 <div className="epd-comments-section">
-                                    <div className="epd-section-label">Client feedback ({detail.comments.length})</div>
+                                    <div className="epd-section-label">Activity ({detail.comments.length})</div>
                                     <div className="epd-comments-list">
                                         {detail.comments.map(c => (
                                             <div key={c.id} className="epd-comment">

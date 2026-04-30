@@ -91,7 +91,7 @@ export default function MyQueueClient() {
         <div className="mq-page">
             <div className="mq-header">
                 <div>
-                    <h1 className="mq-title">Your queue <span className="mq-count">· {visible.length} job{visible.length === 1 ? '' : 's'}</span></h1>
+                    <h1 className="mq-title">Your queue {loading ? <span className="mq-count">· loading…</span> : <span className="mq-count">· {visible.length} job{visible.length === 1 ? '' : 's'}</span>}</h1>
                     <p className="mq-subtitle">Sorted by due date · scoped to jobs assigned to you</p>
                 </div>
                 <div className="mq-header-actions">

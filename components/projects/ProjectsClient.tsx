@@ -161,8 +161,8 @@ export default function ProjectsClient({ userRole }: { userRole?: string }) {
         <div className="ep-page-emoji">🎬</div>
         <h1 className="ep-page-title">Projects</h1>
         <p className="ep-page-desc">
-          Welcome to our dedicated CRM Edits Page, exclusively designed for our Wedits team.
-          This behind-the-scenes hub is where we work our editing magic and bring dreams to life.
+          The post-production hub. Track edit jobs from intake through delivery,
+          assign editors, and keep client-facing milestones in one place.
         </p>
       </div>
 
