@@ -8,6 +8,7 @@ import { useGlobalFilter } from '../context/FilterContext';
 import { ChevronDown, LayoutTemplate, Sparkles, Send, X, Maximize2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import TemplatePickerModal from './TemplatePickerModal';
+import { useDialogShell } from '../hooks/useDialogShell';
 
 interface ComposeModalProps {
     onClose: () => void;
@@ -47,6 +48,8 @@ function avatarColor(str: string) {
 }
 
 export default function ComposeModal({ onClose, defaultTo = '', defaultSubject = '', defaultBody = '', threadId = '' }: ComposeModalProps) {
+    // autoFocus disabled — the To field has its own focus management below.
+    const { dialogRef } = useDialogShell({ onClose, autoFocus: false });
     const [recipients, setRecipients] = useState<string[]>(defaultTo ? defaultTo.split(',').map(e => e.trim()).filter(Boolean) : []);
     const [toInput, setToInput] = useState('');
     const [subject, setSubject] = useState(defaultSubject);
@@ -202,7 +205,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     return (
         <>
             <div className="compose-scrim" onClick={onClose} />
-            <div className="compose" onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown} role="dialog" aria-modal="true">
+            <div ref={dialogRef} className="compose" onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown} role="dialog" aria-modal="true">
                 <div className="compose-head">
                     <div className="title">New email</div>
                     <div className="spacer" />

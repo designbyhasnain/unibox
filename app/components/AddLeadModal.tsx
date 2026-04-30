@@ -5,6 +5,7 @@ import { Button } from './ui/Button';
 import { FormField, FormInput, FormSelect } from './ui/FormField';
 import { createClientAction } from '../../src/actions/clientActions';
 import { getManagersAction } from '../../src/actions/projectActions';
+import { useDialogShell } from '../hooks/useDialogShell';
 
 interface AddLeadModalProps {
     onClose: () => void;
@@ -12,6 +13,7 @@ interface AddLeadModalProps {
 }
 
 export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) {
+    const { dialogRef } = useDialogShell({ onClose });
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [company, setCompany] = useState('');
@@ -61,13 +63,13 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
     };
 
     return (
-        <div className="modal-overlay">
-            <div className="modal-container" style={{ maxWidth: 540 }}>
+        <div className="modal-overlay" onClick={onClose}>
+            <div ref={dialogRef} className="modal-container" role="dialog" aria-modal="true" aria-labelledby="add-lead-title" style={{ maxWidth: 540 }} onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <div>
-                        <h2 className="modal-title">New Client</h2>
+                        <h2 className="modal-title" id="add-lead-title">New Client</h2>
                     </div>
-                    <button type="button" onClick={onClose} className="modal-close-btn">
+                    <button type="button" onClick={onClose} className="modal-close-btn" aria-label="Close">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
                         </svg>

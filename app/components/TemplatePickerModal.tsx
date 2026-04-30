@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import { getTemplatesAction, incrementTemplateUsageAction, type TemplateData } from '../../src/actions/templateActions';
+import { useDialogShell } from '../hooks/useDialogShell';
 
 // Templates can be marked is_shared and authored by anyone in the workspace,
 // so a malicious admin (or compromised account) could plant rich HTML
@@ -38,12 +39,17 @@ function stripHtml(html: string): string {
     return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-export default function TemplatePickerModal({
-    isOpen,
+export default function TemplatePickerModal(props: TemplatePickerModalProps) {
+    if (!props.isOpen) return null;
+    return <TemplatePickerModalBody {...props} />;
+}
+
+function TemplatePickerModalBody({
     onClose,
     onSelect,
     defaultCategory,
 }: TemplatePickerModalProps) {
+    const { dialogRef } = useDialogShell({ onClose });
     const [templates, setTemplates] = useState<TemplateData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -51,19 +57,16 @@ export default function TemplatePickerModal({
     const [previewId, setPreviewId] = useState<string | null>(null);
 
     useEffect(() => {
-        if (isOpen) {
-            setIsLoading(true);
-            setSearch('');
-            setPreviewId(null);
-            if (defaultCategory) setCategory(defaultCategory);
-            getTemplatesAction().then(data => {
-                setTemplates(data);
-                setIsLoading(false);
-            });
-        }
-    }, [isOpen]);
-
-    if (!isOpen) return null;
+        setIsLoading(true);
+        setSearch('');
+        setPreviewId(null);
+        if (defaultCategory) setCategory(defaultCategory);
+        getTemplatesAction().then(data => {
+            setTemplates(data);
+            setIsLoading(false);
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const filtered = templates.filter(t => {
         if (category !== 'ALL' && t.category !== category) return false;
@@ -90,6 +93,10 @@ export default function TemplatePickerModal({
             onClick={onClose}
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="template-picker-title"
                 style={{
                     background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)',
                     width: previewTemplate ? '800px' : '500px', maxHeight: '80vh',
@@ -100,8 +107,8 @@ export default function TemplatePickerModal({
                 onClick={e => e.stopPropagation()}
             >
                 <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ margin: 0, fontSize: 'var(--text-base)', fontWeight: 600 }}>Choose Template</h3>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                    <h3 id="template-picker-title" style={{ margin: 0, fontSize: 'var(--text-base)', fontWeight: 600 }}>Choose Template</h3>
+                    <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M18 6L6 18" /><path d="M6 6l12 12" />
                         </svg>

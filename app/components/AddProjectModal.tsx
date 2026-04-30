@@ -6,6 +6,7 @@ import { DEFAULT_USER_ID } from '../constants/config';
 import { Button } from './ui/Button';
 import { FormField, FormInput, FormSelect, FormTextarea } from './ui/FormField';
 import { ErrorAlert } from './ui/ErrorAlert';
+import { useDialogShell } from '../hooks/useDialogShell';
 
 interface AddProjectModalProps {
     client?: { id: string; name: string; email: string } | null;
@@ -17,6 +18,7 @@ interface AddProjectModalProps {
 }
 
 export default function AddProjectModal({ client, clients = [], onClose, onCreated, initialProjectName, sourceEmailId }: AddProjectModalProps) {
+    const { dialogRef } = useDialogShell({ onClose });
     const [projectName, setProjectName] = useState(initialProjectName || '');
     const [projectDate, setProjectDate] = useState(new Date().toISOString().split('T')[0]);
     const [dueDate, setDueDate] = useState('');
@@ -39,8 +41,14 @@ export default function AddProjectModal({ client, clients = [], onClose, onCreat
         async function load() {
             const data = await getManagersAction();
             setManagers(data);
+            // If the default-from-env was a stale ID (and managers don't include
+            // it), pick the first manager as a sensible default.
+            if (data.length > 0 && !data.some((m: any) => m.id === accountManagerId)) {
+                setAccountManagerId(data[0]!.id);
+            }
         }
         load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -78,18 +86,18 @@ export default function AddProjectModal({ client, clients = [], onClose, onCreat
     };
 
     return (
-        <div className="modal-overlay">
-            <div className="modal-container apm-modal-expanded">
+        <div className="modal-overlay" onClick={onClose}>
+            <div ref={dialogRef} className="modal-container apm-modal-expanded" role="dialog" aria-modal="true" aria-labelledby="add-project-title" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <div>
-                        <h2 className="modal-title">New Project</h2>
+                        <h2 className="modal-title" id="add-project-title">New Project</h2>
                         {client && (
                             <p className="modal-subtitle">
                                 for {client.name || client.email}
                             </p>
                         )}
                     </div>
-                    <button onClick={onClose} className="modal-close-btn">
+                    <button onClick={onClose} className="modal-close-btn" aria-label="Close">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
                         </svg>
