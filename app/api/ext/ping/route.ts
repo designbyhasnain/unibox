@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '../../../../src/lib/supabase';
+import { authenticateExtension } from '../../../../src/lib/extensionAuth';
 
 // CORS: only echo back chrome-extension:// origins. See add-lead/route.ts.
 function corsHeaders(req: NextRequest) {
@@ -19,11 +19,7 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const cors = corsHeaders(req);
-  const apiKey = req.headers.get('authorization')?.replace('Bearer ', '');
-  if (!apiKey) return NextResponse.json({ error: 'Missing API key' }, { status: 401, headers: cors });
-
-  const { data: user } = await supabase.from('users').select('id, name').eq('extension_api_key', apiKey).single();
-  if (!user) return NextResponse.json({ error: 'Invalid API key' }, { status: 401, headers: cors });
-
-  return NextResponse.json({ ok: true, user: user.name }, { headers: cors });
+  const auth = await authenticateExtension(req);
+  if (!auth) return NextResponse.json({ error: 'Invalid API key' }, { status: 401, headers: cors });
+  return NextResponse.json({ ok: true, user: auth.user.name }, { headers: cors });
 }

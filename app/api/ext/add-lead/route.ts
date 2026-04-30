@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '../../../../src/lib/supabase';
+import { authenticateExtension } from '../../../../src/lib/extensionAuth';
 
 // CORS: only echo back chrome-extension:// origins. The Chrome extension is
 // the only intended caller — locking the Allow-Origin response header to the
@@ -23,11 +24,12 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
     const cors = corsHeaders(req);
-  const apiKey = req.headers.get('authorization')?.replace('Bearer ', '');
-  if (!apiKey) return NextResponse.json({ error: 'Missing API key' }, { status: 401, headers: cors });
-
-  const { data: user } = await supabase.from('users').select('id').eq('extension_api_key', apiKey).single();
-  if (!user) return NextResponse.json({ error: 'Invalid API key' }, { status: 401, headers: cors });
+  const auth = await authenticateExtension(req);
+  if (!auth) return NextResponse.json({ error: 'Invalid API key' }, { status: 401, headers: cors });
+  const user = auth.user;
+  if (user.role === 'VIDEO_EDITOR') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+  }
 
   const body = await req.json();
   const { name, email, phone, location, website, domain, pricing, suggestedEditPrice, social, prospectScore, source } = body;

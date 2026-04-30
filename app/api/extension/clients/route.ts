@@ -1,20 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '../../../../src/lib/supabase';
-
-async function authenticateExtension(request: NextRequest) {
-    const auth = request.headers.get('authorization');
-    if (!auth?.startsWith('Bearer unibox_ext_')) return null;
-    const { data } = await supabase
-        .from('users')
-        .select('id, name, email, role')
-        .eq('extension_api_key', auth.slice(7))
-        .maybeSingle();
-    return data;
-}
+import { authenticateExtension, applyContactScope } from '../../../../src/lib/extensionAuth';
 
 export async function GET(request: NextRequest) {
-    const user = await authenticateExtension(request);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = await authenticateExtension(request);
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { searchParams } = new URL(request.url);
     const email = searchParams.get('email');
@@ -33,7 +23,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Provide email, phone, or name' }, { status: 400 });
     }
 
-    const { data, error } = await query.maybeSingle();
+    // Phase 5 RBAC: scope contacts to the caller's accessible set so a SALES
+    // user with one Gmail inbox can no longer dump every contact in the org.
+    const scoped = applyContactScope(query, auth);
+    if (!scoped) return NextResponse.json({ exists: false });
+
+    const { data, error } = await scoped.maybeSingle();
     if (error) {
         console.error('[extension/clients GET]', error);
         return NextResponse.json({ error: 'Query failed' }, { status: 500 });
@@ -43,8 +38,13 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-    const user = await authenticateExtension(request);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = await authenticateExtension(request);
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = auth.user;
+    // Editors cannot create contacts via the extension.
+    if (user.role === 'VIDEO_EDITOR') {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     const body = await request.json();
     const { name, email, phone, company, source, sourceUrl, notes } = body;

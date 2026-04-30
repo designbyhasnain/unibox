@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '../../../../src/lib/supabase';
+import { authenticateExtension, applyContactScope } from '../../../../src/lib/extensionAuth';
 
 // CORS: only echo back chrome-extension:// origins. See add-lead/route.ts.
 function corsHeaders(req: NextRequest) {
@@ -19,32 +20,44 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const cors = corsHeaders(req);
-  const apiKey = req.headers.get('authorization')?.replace('Bearer ', '');
-  if (!apiKey) return NextResponse.json({ error: 'Missing API key' }, { status: 401, headers: cors });
-
-  const { data: user } = await supabase.from('users').select('id').eq('extension_api_key', apiKey).single();
-  if (!user) return NextResponse.json({ error: 'Invalid API key' }, { status: 401, headers: cors });
+  const auth = await authenticateExtension(req);
+  if (!auth) return NextResponse.json({ error: 'Invalid API key' }, { status: 401, headers: cors });
 
   const { email, phone, domain, scrapedLocation, scrapedPhone, scrapedName } = await req.json();
 
-  // Find contact by email, phone, or domain
+  // Find contact by email, phone, or domain — RBAC-scoped.
   const fields = 'id, name, email, phone, company, location, pipeline_stage, lead_score, relationship_health, created_at, last_email_at, next_followup_at, open_count, reply_speed_hours, total_emails_sent, total_emails_received, days_since_last_contact, notes, source_url, estimated_value';
   let contact: any = null;
 
+  const scopedQ = (col: 'email' | 'phone') => {
+    const q = supabase.from('contacts').select(fields);
+    return applyContactScope(q, auth);
+  };
+
   if (email) {
-    const { data } = await supabase.from('contacts').select(fields).ilike('email', email).limit(1).single();
-    if (data) contact = data;
-  }
-  if (!contact && phone) {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length >= 7) {
-      const { data } = await supabase.from('contacts').select(fields).ilike('phone', `%${digits.slice(-7)}%`).limit(1).single();
+    const q = scopedQ('email');
+    if (q) {
+      const { data } = await q.ilike('email', email).limit(1).single();
       if (data) contact = data;
     }
   }
+  if (!contact && phone) {
+    const digits = phone.replace(/\D/g, '');
+    // Tightened from last-7 digits to last-10 to reduce false positives.
+    if (digits.length >= 10) {
+      const q = scopedQ('phone');
+      if (q) {
+        const { data } = await q.ilike('phone', `%${digits.slice(-10)}%`).limit(1).single();
+        if (data) contact = data;
+      }
+    }
+  }
   if (!contact && domain) {
-    const { data } = await supabase.from('contacts').select(fields).ilike('email', `%@${domain}`).limit(1).single();
-    if (data) contact = data;
+    const q = scopedQ('email');
+    if (q) {
+      const { data } = await q.ilike('email', `%@${domain}`).limit(1).single();
+      if (data) contact = data;
+    }
   }
 
   if (!contact) {
