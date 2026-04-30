@@ -4,6 +4,7 @@ import './globals.css'
 import { FilterProvider } from './context/FilterContext'
 import { UIProvider } from './context/UIContext'
 import { UndoToastProvider } from './context/UndoToastContext'
+import { ConfirmProvider } from './context/ConfirmContext'
 import { GlobalSearchProvider } from './context/GlobalSearchContext'
 import ClientLayout from './components/ClientLayout'
 
@@ -48,13 +49,15 @@ export default function RootLayout({
                 <FilterProvider>
                     <UIProvider>
                         <UndoToastProvider>
-                            <GlobalSearchProvider>
-                                <div className="layout-container">
-                                    <ClientLayout>
-                                        {children}
-                                    </ClientLayout>
-                                </div>
-                            </GlobalSearchProvider>
+                            <ConfirmProvider>
+                                <GlobalSearchProvider>
+                                    <div className="layout-container">
+                                        <ClientLayout>
+                                            {children}
+                                        </ClientLayout>
+                                    </div>
+                                </GlobalSearchProvider>
+                            </ConfirmProvider>
                         </UndoToastProvider>
                     </UIProvider>
                 </FilterProvider>
