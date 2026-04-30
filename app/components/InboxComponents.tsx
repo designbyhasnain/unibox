@@ -7,6 +7,7 @@ import AddProjectModal from './AddProjectModal';
 import { useHydrated } from '../utils/useHydration';
 import { ensureContactAction } from '../../src/actions/clientActions';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 
 import { STAGE_COLORS, STAGE_LABELS, STAGE_OPTIONS } from '../constants/stages';
 
@@ -724,6 +725,7 @@ export function EmailDetail({
 }: EmailDetailProps) {
     const isHydrated = useHydrated();
     const { showError, showSuccess } = useUndoToast();
+    const confirm = useConfirm();
     const [showAllIntermediate, setShowAllIntermediate] = React.useState(false);
     const [collapsedThreads, setCollapsedThreads] = React.useState<Set<string>>(new Set());
     const [isAllExpanded, setIsAllExpanded] = React.useState(false);
@@ -806,7 +808,13 @@ export function EmailDetail({
                     </button>
 
                     <button className="gmail-toolbar-btn" title="Delete" aria-label="Delete email" onClick={async () => {
-                        if (window.confirm('Delete this email?')) {
+                        const ok = await confirm({
+                            title: 'Delete this email?',
+                            message: 'The message is removed from your inbox view. Gmail keeps the original in Trash for 30 days.',
+                            confirmLabel: 'Delete',
+                            danger: true,
+                        });
+                        if (ok) {
                             const { deleteEmailAction } = await import('../../src/actions/emailActions');
                             await deleteEmailAction(email.id);
                             onBack();
@@ -1066,7 +1074,13 @@ export function EmailDetail({
                                                                 Mark as unread
                                                             </div>
                                                             <div className="popover-action-item" onClick={async () => {
-                                                                if (confirm('Delete this message?')) {
+                                                                const ok = await confirm({
+                                                                    title: 'Delete this message?',
+                                                                    message: 'Removed from this thread\'s view. Gmail keeps the original in Trash for 30 days.',
+                                                                    confirmLabel: 'Delete',
+                                                                    danger: true,
+                                                                });
+                                                                if (ok) {
                                                                     const { deleteEmailAction } = await import('../../src/actions/emailActions');
                                                                     await deleteEmailAction(msg.id);
                                                                     setOpenMoreId(null);

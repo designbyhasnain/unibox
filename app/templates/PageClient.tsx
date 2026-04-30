@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 import { Search, Plus, Pencil, MoreVertical, Sparkles } from 'lucide-react';
 import {
     getTemplatesAction,
@@ -49,6 +50,7 @@ function extractVariables(body: string): string[] {
 export default function TemplatesPage() {
     const isHydrated = useHydrated();
     const { scheduleDelete } = useUndoToast();
+    const confirm = useConfirm();
     const [templates, setTemplates] = useState<TemplateData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selected, setSelected] = useState(0);
@@ -111,10 +113,12 @@ export default function TemplatesPage() {
     }
 
     async function handleBulkMine() {
-        // TODO(templates-modal): replace native confirm() with a project-styled
-        // confirmation modal. The button trigger already includes the
-        // explanation, so this guard is mostly accidental-click protection.
-        if (!confirm('Auto-generate templates from your best sent emails using AI?\n\nThis analyzes your sent emails, finds ones that got replies, and creates reusable templates.')) return;
+        const ok = await confirm({
+            title: 'Auto-generate templates from sent emails?',
+            message: 'Jarvis analyses your sent emails, finds ones that got replies, and creates reusable templates. This sends no email and is read-only against the inbox.',
+            confirmLabel: 'Generate templates',
+        });
+        if (!ok) return;
         setIsMining(true);
         setMineResult(null);
         try {

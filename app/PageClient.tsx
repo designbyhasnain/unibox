@@ -25,6 +25,7 @@ import { getAvatarSrc, getAvatarBg } from './utils/avatars';
 import { RefreshCw, Mail, Send, Trash2, Eye, EyeOff, CheckCheck } from 'lucide-react';
 import ClientIntelligencePanel from './components/ClientIntelligencePanel';
 import OwnerPicker from './components/OwnerPicker';
+import { useConfirm } from './context/ConfirmContext';
 import { getClientIntelligenceAction } from '../src/actions/clientIntelligenceAction';
 import type { ClientIntelligenceProfile } from '../src/types/clientIntelligence';
 
@@ -77,6 +78,7 @@ function extractSenderName(rawFrom: string): string {
 export default function InboxPage() {
     const isHydrated = useHydrated();
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
+    const confirm = useConfirm();
 
     const [activeTab, setActiveTab] = useState<'inbox' | 'sent'>('inbox');
     const [searchTerm, setSearchTerm] = useState('');
@@ -554,7 +556,13 @@ export default function InboxPage() {
                             <button className="icon-btn" title="Flag">{ICONS.flag}</button>
                             <button className="icon-btn" title="Archive">{ICONS.archive}</button>
                             <button className="icon-btn" title="Delete" onClick={async () => {
-                                if (window.confirm('Delete this email?')) {
+                                const ok = await confirm({
+                                    title: 'Delete this email?',
+                                    message: 'The message is removed from your inbox view. Gmail keeps the original in Trash for 30 days.',
+                                    confirmLabel: 'Delete',
+                                    danger: true,
+                                });
+                                if (ok) {
                                     const { deleteEmailAction } = await import('../src/actions/emailActions');
                                     await deleteEmailAction(selectedEmail.id);
                                     setSelectedEmail(null);

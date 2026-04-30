@@ -8,6 +8,7 @@ import { PageLoader } from '../components/LoadingStates';
 import { getCampaignsAction, deleteCampaignAction } from '../../src/actions/campaignActions';
 import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 
 const ICON = {
     filter: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
@@ -43,6 +44,7 @@ export default function CampaignsPage() {
     const hydrated = useHydrated();
     const router = useRouter();
     const { showError } = useUndoToast();
+    const confirm = useConfirm();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [loading, setLoading] = useState(true);
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -77,9 +79,13 @@ export default function CampaignsPage() {
     }, [openMenuId]);
 
     const handleDelete = async (campaignId: string, name: string) => {
-        // TODO(campaigns-modal): replace native confirm() with a project-styled
-        // confirmation modal. Soft-archive — recoverable via direct DB update.
-        if (!confirm(`Delete campaign "${name}"? It will be archived and removed from the active list. This cannot be undone from the UI.`)) {
+        const ok = await confirm({
+            title: `Delete campaign "${name}"?`,
+            message: 'It will be archived and removed from the active list. Sent emails and analytics are preserved. Recovery is via direct DB only.',
+            confirmLabel: 'Delete campaign',
+            danger: true,
+        });
+        if (!ok) {
             setOpenMenuId(null);
             return;
         }

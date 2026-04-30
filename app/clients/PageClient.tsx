@@ -9,6 +9,7 @@ import { useUI } from '../context/UIContext';
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 import AddLeadModal from '../components/AddLeadModal';
 
 const ICON = {
@@ -49,6 +50,7 @@ export default function ClientsPage() {
     const { selectedAccountId } = useGlobalFilter();
     const { setComposeOpen, setComposeDefaultTo } = useUI();
     const { showError } = useUndoToast();
+    const confirm = useConfirm();
     const [clients, setClients] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [view, setView] = useState<'list' | 'grid' | 'board'>('list');
@@ -106,10 +108,13 @@ export default function ClientsPage() {
     }, [openMenuId]);
 
     const handleDelete = async (contactId: string, name: string) => {
-        // TODO(clients-modal): replace native confirm() with a project-styled
-        // confirmation modal. Email history is preserved so this is recoverable
-        // by re-creating the contact, but the row + projects link is gone.
-        if (!confirm(`Delete contact "${name}"? Email history will be preserved but the contact will be removed from the list.`)) {
+        const ok = await confirm({
+            title: `Delete contact "${name}"?`,
+            message: 'Email history is preserved (messages stay in the inbox), but the contact row and any project links will be removed.',
+            confirmLabel: 'Delete contact',
+            danger: true,
+        });
+        if (!ok) {
             setOpenMenuId(null);
             return;
         }

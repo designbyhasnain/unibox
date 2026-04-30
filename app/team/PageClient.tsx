@@ -9,6 +9,7 @@ import { getAccountsAction } from '../../src/actions/accountActions';
 import { saveToLocalCache, getFromLocalCache } from '../utils/localCache';
 import { PageLoader } from '../components/LoadingStates';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 
 // Cache for instant team page load
 let teamCache: { users: any[]; invitations: any[]; accounts: any[] } | null = null;
@@ -16,6 +17,7 @@ let teamCache: { users: any[]; invitations: any[]; accounts: any[] } | null = nu
 export default function TeamPage() {
     const router = useRouter();
     const { showError, showSuccess } = useUndoToast();
+    const confirm = useConfirm();
     const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
     const [users, setUsers] = useState<any[]>([]);
     const [invitations, setInvitations] = useState<any[]>([]);
@@ -109,9 +111,13 @@ export default function TeamPage() {
 
     // Optimistic: remove the row immediately; reload in background to reconcile.
     const handleRevokeInvite = async (id: string) => {
-        // TODO(team-modal): replace native confirm() with a project-styled
-        // confirmation modal. Reversible (resend re-issues a fresh token).
-        if (!confirm('Revoke this invitation?')) return;
+        const ok = await confirm({
+            title: 'Revoke this invitation?',
+            message: 'The pending invite link will stop working. You can always send a fresh invite from the Invitations tab.',
+            confirmLabel: 'Revoke',
+            danger: true,
+        });
+        if (!ok) return;
         const snapshot = invitations;
         setInvitations(prev => prev.filter(i => i.id !== id));
         const res = await revokeInviteAction(id);
@@ -161,9 +167,13 @@ export default function TeamPage() {
 
     // Optimistic deactivate — flip crm_status locally, reload in background.
     const handleDeactivate = async (targetUserId: string) => {
-        // TODO(team-modal): replace native confirm() with a project-styled
-        // confirmation modal. Destructive but reversible (handleReactivate).
-        if (!confirm('Deactivate this user? They will lose access.')) return;
+        const ok = await confirm({
+            title: 'Deactivate this user?',
+            message: 'They will lose access immediately. You can reactivate them later from the Members tab.',
+            confirmLabel: 'Deactivate',
+            danger: true,
+        });
+        if (!ok) return;
         const snapshot = users;
         setUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, crm_status: 'REVOKED' } : u));
         const res = await deactivateUserAction(targetUserId);
@@ -192,10 +202,14 @@ export default function TeamPage() {
     // refetch (would risk the row reappearing on a stale read replica). pendingDeletesRef
     // also guards any unrelated loadData() that fires within 5s.
     const handleDeleteUser = async (targetUserId: string) => {
-        // TODO(team-modal): replace native confirm() with a project-styled
-        // confirmation modal — this delete is permanent + cascades to email
-        // assignments, so an explicit "type DELETE" affordance would help.
-        if (!confirm('Are you sure you want to permanently remove this member? This action cannot be undone.')) return;
+        const ok = await confirm({
+            title: 'Permanently remove this member?',
+            message: 'Their email assignments and outbound campaigns will be reassigned to you. The user row is deleted from the database — this cannot be undone from the UI.',
+            confirmLabel: 'Delete member',
+            danger: true,
+            requireType: 'DELETE',
+        });
+        if (!ok) return;
         const snapshot = users;
         const filtered = users.filter(u => u.id !== targetUserId);
 
@@ -222,9 +236,13 @@ export default function TeamPage() {
     };
 
     const handleDeleteInvitation = async (id: string) => {
-        // TODO(team-modal): replace native confirm() with a project-styled
-        // confirmation modal.
-        if (!confirm('Are you sure you want to permanently remove this invitation? This action cannot be undone.')) return;
+        const ok = await confirm({
+            title: 'Permanently remove this invitation?',
+            message: 'The row is deleted from the database. If you want the recipient back, you\'ll need to send a fresh invite.',
+            confirmLabel: 'Delete invitation',
+            danger: true,
+        });
+        if (!ok) return;
         const snapshot = invitations;
         const filtered = invitations.filter(i => i.id !== id);
 

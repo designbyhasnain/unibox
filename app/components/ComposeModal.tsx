@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction, searchContactsForComposeAction } from '../../src/actions/emailActions';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 import { useGlobalFilter } from '../context/FilterContext';
 import { ChevronDown, LayoutTemplate, Sparkles, Send, X, Maximize2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
@@ -156,6 +157,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     };
 
     const { showError } = useUndoToast();
+    const confirm = useConfirm();
     const sendingRef = useRef(false);
     const handleSend = async () => {
         const toStr = recipients.join(', ');
@@ -356,9 +358,17 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
             <TemplatePickerModal
                 isOpen={showTemplatePicker}
                 onClose={() => setShowTemplatePicker(false)}
-                onSelect={(tmpl) => {
+                onSelect={async (tmpl) => {
                     const hasContent = subject.trim() || body.trim();
-                    if (hasContent && !confirm('Replace current content with template?')) return;
+                    if (hasContent) {
+                        const ok = await confirm({
+                            title: 'Replace current content with template?',
+                            message: 'Your draft subject and body will be overwritten by this template.',
+                            confirmLabel: 'Replace',
+                            danger: true,
+                        });
+                        if (!ok) return;
+                    }
                     setSubject(tmpl.subject);
                     setBody(tmpl.body);
                     if (editorRef.current) {

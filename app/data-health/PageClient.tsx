@@ -5,11 +5,13 @@ import { getDataHealthAction, getGmailSyncHealthAction, type DataHealthSnapshot,
 import { syncAllAccountsHealthAction } from '../../src/actions/accountActions';
 import { LoadingText } from '../components/LoadingStates';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 
 import { AlertTriangle, CheckCircle2, Mail, Database, Users, Briefcase, Clock, Zap } from 'lucide-react';
 
 export default function DataHealthPage() {
     const { showError } = useUndoToast();
+    const confirm = useConfirm();
     const [db, setDb] = useState<DataHealthSnapshot | null>(null);
     const [gmail, setGmail] = useState<GmailSyncHealth | null>(null);
     const [loading, setLoading] = useState(true);
@@ -30,9 +32,12 @@ export default function DataHealthPage() {
     useEffect(() => { load(); }, []);
 
     const handleRunHealthCheck = async () => {
-        // TODO(data-health-modal): replace native confirm() with a project-styled
-        // confirmation modal. Read-only operation; doesn't send email.
-        if (!confirm('Run a bulk health check on all accounts?\n\nThis refreshes OAuth tokens + re-tests manual credentials in batches of 5. It does not send any email.')) return;
+        const ok = await confirm({
+            title: 'Run a bulk health check on all accounts?',
+            message: 'Refreshes OAuth tokens and re-tests manual credentials in batches of 5. Read-only — no email is sent.',
+            confirmLabel: 'Run health check',
+        });
+        if (!ok) return;
         setRunning(true);
         const res = await syncAllAccountsHealthAction();
         setRunning(false);

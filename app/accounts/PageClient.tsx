@@ -21,6 +21,7 @@ import {
 } from '../../src/actions/accountActions';
 import { PageLoader } from '../components/LoadingStates';
 import { getCurrentUserAction } from '../../src/actions/authActions';
+import { useConfirm } from '../context/ConfirmContext';
 
 type AccountStatus = 'ACTIVE' | 'ERROR' | 'DISCONNECTED' | 'SYNCING' | 'PAUSED';
 type ConnectionMethod = 'OAUTH' | 'MANUAL';
@@ -133,6 +134,7 @@ export default function AccountsPage() {
     const [isLoading, setIsLoading] = useState(() => accounts.length === 0);
     const { isComposeOpen, setComposeOpen } = useUI();
     const { showError, showSuccess, showInfo } = useUndoToast();
+    const confirm = useConfirm();
     const [isSyncing, setIsSyncing] = useState(false);
     const [showSelectionModal, setShowSelectionModal] = useState(false);
     const [showManualForm, setShowManualForm] = useState(false);
@@ -311,9 +313,12 @@ export default function AccountsPage() {
     };
 
     const handleStopSync = async (account: GmailAccount) => {
-        // TODO(accounts-modal): replace native confirm() with a project-styled
-        // confirmation modal. Reversible (re-sync resumes from saved progress).
-        if (!confirm('Are you sure you want to stop syncing? Progress will be saved but the process will end.')) return;
+        const ok = await confirm({
+            title: 'Stop syncing this account?',
+            message: 'Progress is saved on the server. You can re-sync any time and pick up where it left off.',
+            confirmLabel: 'Stop sync',
+        });
+        if (!ok) return;
         setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, status: 'ACTIVE' as AccountStatus } : a));
         try {
             const result = await stopSyncingAction(account.id);
@@ -345,9 +350,12 @@ export default function AccountsPage() {
 
     const [isCheckingHealth, setIsCheckingHealth] = useState(false);
     const handleSyncAllHealth = async () => {
-        // TODO(accounts-modal): replace native confirm() with a project-styled
-        // confirmation modal. Read-only operation; doesn't send email.
-        if (!confirm(`Run a bulk health check on all ${accounts.length} accounts?\n\nThis refreshes OAuth tokens + re-tests manual credentials in batches of 5. It does not send any email.`)) return;
+        const ok = await confirm({
+            title: `Run a bulk health check on all ${accounts.length} accounts?`,
+            message: 'Refreshes OAuth tokens and re-tests manual credentials in batches of 5. It does not send any email.',
+            confirmLabel: 'Run health check',
+        });
+        if (!ok) return;
         setIsCheckingHealth(true);
         try {
             const result = await syncAllAccountsHealthAction();
@@ -473,9 +481,12 @@ export default function AccountsPage() {
                                     <button
                                         className="icon-btn"
                                         onClick={async () => {
-                                            // TODO(accounts-modal): replace native confirm() with a project-styled
-                                            // confirmation modal. Read-only operation.
-                                            if (!confirm('Renew Gmail push notification watches for all accounts?')) return;
+                                            const ok = await confirm({
+                                                title: 'Renew Gmail push notifications?',
+                                                message: 'Re-registers the Pub/Sub watch for every connected Gmail account so push deliveries keep flowing past their 7-day expiry. Read-only.',
+                                                confirmLabel: 'Renew all',
+                                            });
+                                            if (!ok) return;
                                             setIsRenewingWatches(true);
                                             try {
                                                 const result = await renewAllWatchesAction();
