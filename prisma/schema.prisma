@@ -197,6 +197,8 @@ model Contact {
   @@index([isLead])
   @@index([isClient])
   @@index([lastEmailAt])
+  @@index([pipelineStage])
+  @@index([accountManagerId, pipelineStage])
   @@map("contacts")
 }
 
@@ -379,6 +381,7 @@ model Project {
   @@index([clientId])
   @@index([accountManagerId])
   @@index([createdAt])
+  @@index([paidStatus, projectDate(sort: Desc)])
   @@map("projects")
 }
 
@@ -399,6 +402,7 @@ model ActivityLog {
   @@index([createdAt])
   @@index([contactId])
   @@index([projectId])
+  @@index([contactId, createdAt(sort: Desc)])
   @@map("activity_logs")
 }
 
@@ -844,6 +848,7 @@ model EditProject {
   @@index([editorId])
   @@index([progress])
   @@index([createdAt])
+  @@index([userId, dueDate])
   @@map("edit_projects")
 }
 

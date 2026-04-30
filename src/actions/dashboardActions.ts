@@ -144,13 +144,29 @@ export async function getSalesDashboardAction() {
     }));
 
     // ── Pipeline Stats ──────────────────────────────────────────────────
+    // Was: 7 sequential head:true count queries (one per stage), ~250-400ms.
+    // First, try the get_pipeline_counts RPC (single GROUP BY). If the
+    // function isn't deployed yet (migration in scripts/dashboard-pipeline-rpc.sql),
+    // fall back to running the 7 counts in parallel — still ~6-7x faster
+    // than sequential.
     const stages = ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED', 'NOT_INTERESTED'];
-    const pipelineCounts: Record<string, number> = {};
-    for (const stage of stages) {
-        let q = supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('pipeline_stage', stage);
-        if (accountIds) q = q.eq('account_manager_id', userId);
-        const { count } = await q;
-        pipelineCounts[stage] = count ?? 0;
+    let pipelineCounts: Record<string, number> = {};
+
+    const rpcArgs = { p_user_id: accountIds ? userId : null };
+    const { data: rpcRows, error: rpcErr } = await supabase.rpc('get_pipeline_counts', rpcArgs);
+    if (!rpcErr && Array.isArray(rpcRows)) {
+        for (const stage of stages) pipelineCounts[stage] = 0;
+        for (const row of rpcRows as { pipeline_stage: string; count: number }[]) {
+            if (row.pipeline_stage in pipelineCounts) pipelineCounts[row.pipeline_stage] = Number(row.count) || 0;
+        }
+    } else {
+        const counts = await Promise.all(stages.map(async (stage) => {
+            let q = supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('pipeline_stage', stage);
+            if (accountIds) q = q.eq('account_manager_id', userId);
+            const { count } = await q;
+            return [stage, count ?? 0] as const;
+        }));
+        pipelineCounts = Object.fromEntries(counts);
     }
     const totalContacts = Object.values(pipelineCounts).reduce((s, n) => s + n, 0);
 
