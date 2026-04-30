@@ -77,6 +77,18 @@ function getClientIP(request: NextRequest): string {
     return '0.0.0.0';
 }
 
+// Escape HTML metacharacters so an attacker-controlled X-Forwarded-For value
+// can't inject markup or scripts into the 403 response body (reflected XSS).
+function escapeHtml(s: string): string {
+    return s.replace(/[&<>"']/g, (c) => (
+        c === '&' ? '&amp;' :
+        c === '<' ? '&lt;' :
+        c === '>' ? '&gt;' :
+        c === '"' ? '&quot;' :
+        '&#39;'
+    ));
+}
+
 // ── Auth Public Paths (no session required) ──────────────────────────────────
 const PUBLIC_PATHS = [
     '/login',
@@ -89,11 +101,12 @@ export function proxy(request: NextRequest) {
     // ── Step 1: IP Whitelist Check ───────────────────────────────────────────
     const clientIP = getClientIP(request);
     if (!isAllowedIP(clientIP)) {
+        const safeIP = escapeHtml(clientIP);
         return new NextResponse(
             `<!DOCTYPE html><html><head><title>Access Denied</title></head>` +
             `<body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0a0a0a">` +
             `<div style="text-align:center"><h1 style="color:#e53e3e;font-size:2rem">403 — Access Denied</h1>` +
-            `<p style="color:#888">Your IP <code style="color:#fff;background:#222;padding:2px 8px;border-radius:4px">${clientIP}</code> is not authorized.</p></div></body></html>`,
+            `<p style="color:#888">Your IP <code style="color:#fff;background:#222;padding:2px 8px;border-radius:4px">${safeIP}</code> is not authorized.</p></div></body></html>`,
             { status: 403, headers: { 'Content-Type': 'text/html' } }
         );
     }
@@ -114,16 +127,25 @@ export function proxy(request: NextRequest) {
         return response;
     }
 
-    // Validate session token is actually decryptable and not expired
-    // (lightweight check: verify the IV is valid hex and ciphertext is non-empty)
+    // Lightweight session-cookie format check. The full decrypt + auth-tag
+    // verification happens server-side via getSession() — proxy.ts can't run
+    // node:crypto in the edge runtime. The format is now AES-256-GCM:
+    //   ivHex(24) : authTagHex(32) : cipherHex(>=16), all lowercase hex.
+    // Anything that doesn't match is treated as a stale/tampered cookie and
+    // redirected to /login (which clears it).
     const parts = sessionToken.split(':');
     const ivHex = parts[0] ?? '';
-    const cipherHex = parts[1] ?? '';
+    const authTagHex = parts[1] ?? '';
+    const cipherHex = parts[2] ?? '';
+    const validHex = /^[0-9a-f]+$/i;
     if (
-        ivHex.length !== 32 ||           // AES IV = 16 bytes = 32 hex chars
-        !/^[0-9a-f]+$/i.test(ivHex) ||   // Must be valid hex
-        cipherHex.length < 16 ||          // Ciphertext must be non-trivial
-        !/^[0-9a-f]+$/i.test(cipherHex)   // Must be valid hex
+        parts.length !== 3 ||
+        ivHex.length !== 24 ||           // 12-byte IV (GCM)
+        authTagHex.length !== 32 ||       // 16-byte auth tag
+        cipherHex.length < 16 ||
+        !validHex.test(ivHex) ||
+        !validHex.test(authTagHex) ||
+        !validHex.test(cipherHex)
     ) {
         const loginUrl = new URL('/login', request.url);
         loginUrl.searchParams.set('callbackUrl', pathname);
