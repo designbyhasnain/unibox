@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '../../../../src/lib/supabase';
 
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+// CORS: only echo back chrome-extension:// origins. See add-lead/route.ts.
+function corsHeaders(req: NextRequest) {
+    const origin = req.headers.get('origin') || '';
+    const allowed = origin.startsWith('chrome-extension://') ? origin : 'null';
+    return {
+        'Access-Control-Allow-Origin': allowed,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Vary': 'Origin',
+    };
+}
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: cors });
+export async function OPTIONS(req: NextRequest) {
+    return NextResponse.json({}, { headers: corsHeaders(req) });
 }
 
 export async function POST(req: NextRequest) {
+  const cors = corsHeaders(req);
   const apiKey = req.headers.get('authorization')?.replace('Bearer ', '');
   if (!apiKey) return NextResponse.json({ error: 'Missing API key' }, { status: 401, headers: cors });
 

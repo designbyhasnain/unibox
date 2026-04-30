@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
+import { getSession } from '../../../../src/lib/auth';
 
 function crc32(buf: Buffer): number {
   let crc = 0xFFFFFFFF;
@@ -73,6 +74,16 @@ function collectFiles(dir: string, prefix = ''): { name: string; data: Buffer }[
 }
 
 export async function GET() {
+  // SECURITY: require an authenticated session before returning the extension
+  // binary. Previously anyone hitting the URL could download the chrome-
+  // extension/ tree from disk — useful for fingerprinting and reverse-
+  // engineering the integration. This is an internal tool; only authenticated
+  // staff should be able to install the extension.
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
   try {
     const files = collectFiles(join(process.cwd(), 'chrome-extension'));
     if (files.length === 0) return NextResponse.json({ error: 'Extension not found' }, { status: 404 });
