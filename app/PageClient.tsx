@@ -14,6 +14,7 @@ import {
     bulkUpdateStageAction,
     bulkMarkReadAction,
     bulkMarkUnreadAction,
+    markEmailAsUnreadAction,
 } from '../src/actions/emailActions';
 import { useMailbox, isNoiseEmail } from './hooks/useMailbox';
 import { useGlobalFilter } from './context/FilterContext';
@@ -420,7 +421,12 @@ export default function InboxPage() {
                                 )}
                                 <button className="icon-btn" onClick={handleBulkRead} disabled={bulkLoading} title="Mark read"><Eye size={13} /></button>
                                 <button className="icon-btn" onClick={handleBulkUnread} disabled={bulkLoading} title="Mark unread"><EyeOff size={13} /></button>
-                                <button className="icon-btn" onClick={() => handleBulkDelete?.()} disabled={bulkLoading} title="Delete"><Trash2 size={13} /></button>
+                                <button className="icon-btn" onClick={() => handleBulkDelete?.(async () => confirm({
+                                    title: `Delete ${selectedEmailIds.size} message${selectedEmailIds.size === 1 ? '' : 's'}?`,
+                                    message: 'Removed from your inbox view. Gmail keeps the originals in Trash for 30 days.',
+                                    confirmLabel: 'Delete',
+                                    danger: true,
+                                }))} disabled={bulkLoading} title="Delete"><Trash2 size={13} /></button>
                             </div>
                         )}
 
@@ -554,9 +560,13 @@ export default function InboxPage() {
                             <span className="title" style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {selectedEmail.subject || '(No Subject)'}
                             </span>
-                            <button className="icon-btn" title="Mark unread">{ICONS.eye}</button>
-                            <button className="icon-btn" title="Flag">{ICONS.flag}</button>
-                            <button className="icon-btn" title="Archive">{ICONS.archive}</button>
+                            <button className="icon-btn" title="Mark unread" onClick={async () => {
+                                await markEmailAsUnreadAction(selectedEmail.id);
+                                setSelectedEmail(null);
+                                loadEmails(currentPage);
+                            }}>{ICONS.eye}</button>
+                            {/* Flag + Archive aren't backed by schema today.
+                                Keeping a single Move/stage entry only; full archive is a Phase 4 follow-up. */}
                             <button className="icon-btn" title="Delete" onClick={async () => {
                                 const ok = await confirm({
                                     title: 'Delete this email?',

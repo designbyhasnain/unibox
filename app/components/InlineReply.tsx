@@ -50,11 +50,37 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
         if (ctxAccounts.length > 0) setAccounts(ctxAccounts);
     }, [ctxAccounts]);
 
+    // ── Per-thread draft persistence (Phase 3) ────────────────────────────
+    // Save typed body to localStorage so closing the panel or switching threads
+    // doesn't destroy work. Cleared on successful send.
+    const draftKey = `unibox_inline_draft_${threadId}`;
     useEffect(() => {
-        if (editorRef.current) {
-            editorRef.current.focus();
-        }
-    }, []);
+        if (!editorRef.current) return;
+        try {
+            const saved = localStorage.getItem(draftKey);
+            if (saved && !initialBody) {
+                const safe = DOMPurify.sanitize(saved);
+                editorRef.current.innerHTML = safe;
+                setBody(safe);
+            }
+        } catch { /* localStorage may be disabled */ }
+        editorRef.current.focus();
+        // We only want this on first mount per thread.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [threadId]);
+
+    // Debounced save on body change.
+    useEffect(() => {
+        if (!body) return;
+        const id = setTimeout(() => {
+            try { localStorage.setItem(draftKey, body); } catch {}
+        }, 400);
+        return () => clearTimeout(id);
+    }, [body, draftKey]);
+
+    const clearDraft = () => {
+        try { localStorage.removeItem(draftKey); } catch {}
+    };
 
     // Seed editor with a Jarvis suggestion when requested.
     useEffect(() => {
@@ -153,11 +179,24 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
         }
     };
 
+    // URL prompt — replaces native prompt() with an inline overlay so it
+    // matches the project's modal styling (see ConfirmModal).
+    const [linkPromptOpen, setLinkPromptOpen] = useState(false);
+    const [linkUrl, setLinkUrl] = useState('');
+    const linkInputRef = useRef<HTMLInputElement>(null);
     const handleInsertLink = () => {
-        const url = prompt('Enter URL:');
-        if (url) {
-            execCommand('createLink', url);
-        }
+        // Selection must be saved BEFORE the prompt steals focus, otherwise
+        // execCommand won't have a range to wrap.
+        saveSelection();
+        setLinkUrl('');
+        setLinkPromptOpen(true);
+        // Focus the input on next paint.
+        setTimeout(() => linkInputRef.current?.focus(), 0);
+    };
+    const submitLink = () => {
+        const url = linkUrl.trim();
+        setLinkPromptOpen(false);
+        if (url) execCommand('createLink', url);
     };
 
     const handleInsertSignature = () => {
@@ -206,37 +245,36 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
             _optimistic: true,
         };
 
+        // Append the optimistic message to the visible thread immediately, but
+        // KEEP the composer open until the server confirms. Closing on send
+        // failure used to destroy the user's typed body (rollback hides the
+        // pending message but the editor is already unmounted) — see Phase 3.
         if (onOptimisticAppend) {
             onOptimisticAppend(optimisticMsg);
-            // Close the composer instantly — the thread shows the new message.
-            onSuccess();
         }
 
         try {
             const result = await sendEmailAction({ to, subject: replySubject, body, accountId: selectedAccountId, threadId }) as { success: boolean, error?: string, messageId?: string };
             if (result.success) {
-                // Only close here when we didn't already close optimistically
-                if (!onOptimisticAppend) onSuccess();
+                clearDraft();
+                onSuccess();
             } else {
-                // Roll back the optimistic append
                 if (onOptimisticAppend && onOptimisticRollback) {
                     onOptimisticRollback(optimisticId);
-                    showError(result.error || 'Failed to send reply. Please try again.', { onRetry: handleSend });
-                } else {
-                    setError(result.error || 'Failed to send reply.');
-                    setIsSending(false);
-                    sendingRef.current = false;
                 }
+                setError(result.error || 'Failed to send reply.');
+                showError(result.error || 'Failed to send reply. Please try again.', { onRetry: handleSend });
+                setIsSending(false);
+                sendingRef.current = false;
             }
         } catch (err: any) {
             if (onOptimisticAppend && onOptimisticRollback) {
                 onOptimisticRollback(optimisticId);
-                showError(err?.message || 'An unexpected error occurred.', { onRetry: handleSend });
-            } else {
-                setError(err?.message || 'An unexpected error occurred.');
-                setIsSending(false);
-                sendingRef.current = false;
             }
+            setError(err?.message || 'An unexpected error occurred.');
+            showError(err?.message || 'An unexpected error occurred.', { onRetry: handleSend });
+            setIsSending(false);
+            sendingRef.current = false;
         }
     };
 
@@ -574,11 +612,42 @@ export default function InlineReply({ threadId, to, subject, accountId, onSucces
                             </div>
                         )}
                     </div>
-                    <button className="compose-icon-btn" onClick={onCancel} title="Discard draft">
+                    <button className="compose-icon-btn" onClick={() => { clearDraft(); onCancel(); }} title="Discard draft">
                         <Trash2 size={20} />
                     </button>
                 </div>
             </div>
+
+            {/* Inline URL prompt — replaces native window.prompt() */}
+            {linkPromptOpen && (
+                <div className="modal-overlay" onClick={() => setLinkPromptOpen(false)}>
+                    <div className="modal-box confirm-modal" role="dialog" aria-modal="true" aria-labelledby="link-prompt-title" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+                        <div className="modal-title" id="link-prompt-title">Insert link</div>
+                        <div style={{ marginTop: 8 }}>
+                            <input
+                                ref={linkInputRef}
+                                type="url"
+                                value={linkUrl}
+                                onChange={e => setLinkUrl(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') { e.preventDefault(); submitLink(); }
+                                    if (e.key === 'Escape') { e.preventDefault(); setLinkPromptOpen(false); }
+                                }}
+                                placeholder="https://example.com"
+                                style={{
+                                    width: '100%', padding: '8px 10px',
+                                    border: '1px solid var(--hairline)', borderRadius: 6,
+                                    background: 'var(--surface)', color: 'var(--ink)', fontSize: 13,
+                                }}
+                            />
+                        </div>
+                        <div className="modal-actions" style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button className="btn-secondary" onClick={() => setLinkPromptOpen(false)}>Cancel</button>
+                            <button className="btn-primary" onClick={submitLink} disabled={!linkUrl.trim()}>Insert</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

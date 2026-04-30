@@ -840,16 +840,22 @@ export function useMailbox({ type, activeStage, clientEmail, searchTerm, selecte
         }
     }, [selectedEmailIds, emails]);
 
-    const handleDelete = useCallback(async (id: string) => {
-        if (!confirm('Delete this message?')) return;
+    // confirmFn lets the caller swap in a project-styled modal (useConfirm)
+    // instead of native window.confirm. Defaults to native for legacy callers
+    // but the inbox PageClient passes its own.
+    const handleDelete = useCallback(async (id: string, confirmFn?: () => Promise<boolean> | boolean) => {
+        const ok = confirmFn ? await confirmFn() : window.confirm('Delete this message?');
+        if (!ok) return;
         handleEmailDeleted(id);
         const res = await deleteEmailAction(id);
         if (!res.success) loadEmails(currentPage);
     }, [handleEmailDeleted, loadEmails, currentPage]);
 
-    const handleBulkDelete = useCallback(async () => {
+    const handleBulkDelete = useCallback(async (confirmFn?: () => Promise<boolean> | boolean) => {
         const ids = Array.from(selectedEmailIds);
-        if (!ids.length || !confirm(`Delete ${ids.length} messages?`)) return;
+        if (!ids.length) return;
+        const ok = confirmFn ? await confirmFn() : window.confirm(`Delete ${ids.length} messages?`);
+        if (!ok) return;
         dispatch({
             type: 'UPDATE_EMAILS',
             updater: (prev) => prev.filter(e => !selectedEmailIds.has(e.id)),
