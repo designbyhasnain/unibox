@@ -4,7 +4,9 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
 import { getAllProjectsAction, createProjectAction } from '../../src/actions/projectActions';
+import { getClientsAction } from '../../src/actions/clientActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
+import { useUndoToast } from '../context/UndoToastContext';
 import { Filter, Plus, X, MessageSquare, CirclePlus, CheckCircle2, Circle, Clock, FileText, Film } from 'lucide-react';
 
 type Project = any;
@@ -240,20 +242,48 @@ function ProjectDetailPanel({ project, onClose }: { project: Project; onClose: (
 
 export default function MyProjectsPage() {
     const hydrated = useHydrated();
+    const { showError, showSuccess } = useUndoToast();
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
     const [totalCount, setTotalCount] = useState(0);
     const [isAdmin, setIsAdmin] = useState(false);
     const [showAddModal, setShowAddModal] = useState(false);
-    const [newProject, setNewProject] = useState({ name: '', value: '' });
+    // newProject now carries the picked client too. Synthetic-workflow run
+    // showed the old modal sent `clientId: ''` which violated the projects
+    // FK and caused a silent fail with the modal stuck open.
+    const [newProject, setNewProject] = useState({ name: '', value: '', clientId: '' });
     const [saving, setSaving] = useState(false);
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+    const [clientOptions, setClientOptions] = useState<{ id: string; name: string; email: string }[]>([]);
+    const [loadingClients, setLoadingClients] = useState(false);
 
     useEffect(() => {
         getCurrentUserAction().then((u: any) => {
             if (u?.role === 'ADMIN' || u?.role === 'ACCOUNT_MANAGER') setIsAdmin(true);
         });
     }, []);
+
+    // Lazy-load the client picker on modal open. Pulls the first 100 clients
+    // visible to the current user via the existing scoped getClientsAction.
+    useEffect(() => {
+        if (!showAddModal) return;
+        let cancelled = false;
+        setLoadingClients(true);
+        getClientsAction(undefined, 1, 100)
+            .then(res => {
+                if (cancelled) return;
+                setClientOptions((res.clients || []).map((c: any) => ({
+                    id: c.id, name: c.name || c.email || 'Unknown', email: c.email || '',
+                })));
+            })
+            .catch(err => {
+                if (cancelled) return;
+                console.error('[my-projects] load clients failed', err);
+                showError('Could not load your clients. Try again.');
+            })
+            .finally(() => { if (!cancelled) setLoadingClients(false); });
+        return () => { cancelled = true; };
+    }, [showAddModal, showError]);
 
     const loadProjects = useCallback(async () => {
         setLoading(true);
@@ -286,25 +316,37 @@ export default function MyProjectsPage() {
 
     const handleAdd = async () => {
         if (!newProject.name.trim()) return;
-        setSaving(true);
-        const user = await getCurrentUserAction();
-        const today = new Date().toISOString().split('T')[0];
-        const due = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-        const res = await createProjectAction({
-            clientId: '' as string,
-            projectName: newProject.name,
-            projectDate: today as string,
-            dueDate: due as string,
-            accountManagerId: (user as any)?.userId || '' as string,
-            projectValue: parseFloat(newProject.value) || 0,
-            paidStatus: 'UNPAID',
-        });
-        if (res.success) {
-            setShowAddModal(false);
-            setNewProject({ name: '', value: '' });
-            loadProjects();
+        if (!newProject.clientId) {
+            showError('Pick a client before creating the project.');
+            return;
         }
-        setSaving(false);
+        setSaving(true);
+        try {
+            const user = await getCurrentUserAction();
+            const today = new Date().toISOString().split('T')[0];
+            const due = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+            const res = await createProjectAction({
+                clientId: newProject.clientId,
+                projectName: newProject.name.trim(),
+                projectDate: today as string,
+                dueDate: due as string,
+                accountManagerId: (user as any)?.userId || '',
+                projectValue: parseFloat(newProject.value) || 0,
+                paidStatus: 'UNPAID',
+            });
+            if (res.success) {
+                setShowAddModal(false);
+                setNewProject({ name: '', value: '', clientId: '' });
+                showSuccess('Project created');
+                loadProjects();
+            } else {
+                showError(res.error || 'Could not create project. Try again.', { onRetry: handleAdd });
+            }
+        } catch (err: any) {
+            showError(err?.message || 'Could not create project. Try again.', { onRetry: handleAdd });
+        } finally {
+            setSaving(false);
+        }
     };
 
     if (!hydrated || loading) return <PageLoader isLoading type="list" count={5}><div /></PageLoader>;
@@ -433,6 +475,22 @@ export default function MyProjectsPage() {
                                 />
                             </div>
                             <div style={{ marginBottom: 16 }}>
+                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--ink-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Client</label>
+                                <select
+                                    value={newProject.clientId}
+                                    onChange={e => setNewProject(p => ({ ...p, clientId: e.target.value }))}
+                                    disabled={loadingClients}
+                                    style={{ width: '100%', border: '1px solid var(--hairline-soft)', borderRadius: 8, padding: '10px 14px', fontSize: 14, outline: 'none', background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'var(--font-ui)' }}
+                                >
+                                    <option value="">{loadingClients ? 'Loading clients…' : (clientOptions.length === 0 ? 'No clients yet — add one from /clients' : 'Pick a client…')}</option>
+                                    {clientOptions.map(c => (
+                                        <option key={c.id} value={c.id}>
+                                            {c.name}{c.email ? ` · ${c.email}` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div style={{ marginBottom: 16 }}>
                                 <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--ink-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Budget ($)</label>
                                 <input
                                     type="number"
@@ -444,7 +502,7 @@ export default function MyProjectsPage() {
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                                 <button className="btn" onClick={() => setShowAddModal(false)} style={{ background: 'var(--surface)', border: '1px solid var(--hairline-soft)', color: 'var(--ink-2)' }}>Cancel</button>
-                                <button className="btn btn-dark" onClick={handleAdd} disabled={saving || !newProject.name.trim()}>
+                                <button className="btn btn-dark" onClick={handleAdd} disabled={saving || !newProject.name.trim() || !newProject.clientId}>
                                     {saving ? 'Creating…' : 'Create Project'}
                                 </button>
                             </div>
