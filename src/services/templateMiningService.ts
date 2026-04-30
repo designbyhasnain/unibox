@@ -13,7 +13,7 @@ async function callGroqForTemplates(prompt: string, temperature = 0.3, maxTokens
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
+                model: 'llama-3.1-8b-instant',
                 messages: [
                     { role: 'system', content: TEMPLATE_SYSTEM_PROMPT },
                     { role: 'user', content: prompt },

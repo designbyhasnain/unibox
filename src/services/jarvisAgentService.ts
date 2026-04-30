@@ -113,7 +113,7 @@ Create a detailed plan to achieve this goal. Use the JSON format specified. Thin
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: 'llama-3.1-8b-instant',
             messages: [
                 { role: 'system', content: AGENT_SYSTEM_PROMPT },
                 { role: 'user', content: contextMessage },
@@ -197,7 +197,7 @@ Execute this step by calling the appropriate tools. Be thorough and specific.`;
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
+                model: 'llama-3.1-8b-instant',
                 messages,
                 tools: JARVIS_TOOLS,
                 tool_choice: 'auto',
@@ -299,7 +299,7 @@ export async function runAgentSync(goal: string): Promise<{
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: 'llama-3.1-8b-instant',
             messages: [
                 { role: 'system', content: 'You are JARVIS. Summarize the agent execution results concisely. Include: what was done, key findings, recommended next actions.' },
                 { role: 'user', content: `GOAL: ${goal}\n\nESTIMATED IMPACT: ${estimatedImpact}\n\nRESULTS:\n${results.join('\n\n')}` },

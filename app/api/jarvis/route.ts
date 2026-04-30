@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    model: 'llama-3.3-70b-versatile',
+                    model: 'llama-3.1-8b-instant',
                     messages: currentMessages,
                     tools: JARVIS_TOOLS,
                     tool_choice: 'auto',
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            model: 'llama-3.3-70b-versatile',
+                            model: 'llama-3.1-8b-instant',
                             messages: [
                                 { role: 'system', content: 'You are Jarvis, an AI executive assistant for Wedits (wedding video editing company). Summarize the following data in a natural, conversational way. Be concise and insightful. Speak as if briefing a CEO.' },
                                 { role: 'user', content: `The user asked: "${recentMessages[recentMessages.length - 1]?.content || 'briefing'}"\n\nHere is the data from our CRM tools:\n\n${toolResults}` },
