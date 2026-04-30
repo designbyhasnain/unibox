@@ -1,9 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import * as crypto from 'crypto';
 import { validateOAuthState } from '../../../../../../src/services/googleAuthService';
 import { verifyCrmAuth } from '../../../../../../src/services/crmAuthService';
 import { createSession } from '../../../../../../src/lib/auth';
 import { supabase } from '../../../../../../src/lib/supabase';
+
+// Phase 1 (commit e9cb263) migrated invitation tokens to SHA-256 at rest.
+// Both `validateInviteTokenAction` and this callback must hash the URL
+// token before looking it up. Legacy plaintext rows still in the table
+// will match via the secondary fallback below until they expire.
+function hashInviteToken(rawToken: string): string {
+    return crypto.createHash('sha256').update(rawToken).digest('hex');
+}
+
+const ALLOWED_ROLES = new Set(['ADMIN', 'ACCOUNT_MANAGER', 'SALES', 'VIDEO_EDITOR']);
+
+// Failure-branch logging helper — tail server logs to see exactly which
+// branch redirected to /login?error=auth_failed. The user-facing message
+// stays generic ("Could not verify your Google account") so we don't leak
+// internals in the URL bar.
+function fail(reason: string, context: Record<string, unknown> = {}): NextResponse {
+    console.error('[CRM OAuth callback] auth_failed —', reason, context);
+    return NextResponse.redirect(new URL('/login?error=auth_failed', context.requestUrl as string || '/login'));
+}
 
 export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
@@ -24,32 +44,43 @@ export async function GET(request: NextRequest) {
 
     // 1. Validate state (compare base state without invite token)
     if (!validateOAuthState(baseState, expectedState || null)) {
-        return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+        return fail('state mismatch', { requestUrl: request.url, hasState: !!state, hasExpected: !!expectedState });
     }
 
     // Cleanup cookies
     cookieStore.delete('crm_oauth_state');
 
     if (!code) {
-        return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+        return fail('missing code param', { requestUrl: request.url });
     }
 
     try {
         // 2. Verify Google Token
         const googleUser = await verifyCrmAuth(code);
         if (!googleUser || !googleUser.email) {
-            return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+            return fail('verifyCrmAuth returned no email', { requestUrl: request.url, hasGoogleUser: !!googleUser });
         }
 
         // 3. Handle invite acceptance
         if (inviteToken) {
-            // Validate invitation
-            const { data: invitation } = await supabase
+            // Look up invitation by hashed token (Phase 1 migration). Fall back
+            // to raw token for any legacy plaintext rows still in the table.
+            const tokenHash = hashInviteToken(inviteToken);
+            let { data: invitation } = await supabase
                 .from('invitations')
                 .select('*')
-                .eq('token', inviteToken)
+                .eq('token', tokenHash)
                 .eq('status', 'PENDING')
                 .maybeSingle();
+            if (!invitation) {
+                const legacy = await supabase
+                    .from('invitations')
+                    .select('*')
+                    .eq('token', inviteToken)
+                    .eq('status', 'PENDING')
+                    .maybeSingle();
+                invitation = legacy.data;
+            }
 
             if (!invitation) {
                 return NextResponse.redirect(new URL('/invite/accept?error=Invalid+or+expired+invitation', request.url));
@@ -98,10 +129,14 @@ export async function GET(request: NextRequest) {
                     .single();
 
                 if (createError || !newUser) {
-                    console.error('[CRM Auth] Failed to create user:', createError);
-                    return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+                    return fail('failed to create invited user', { requestUrl: request.url, dbError: createError?.message });
                 }
                 userId = newUser.id;
+            }
+
+            // Validate the invitation's role before issuing a session.
+            if (!ALLOWED_ROLES.has(invitation.role)) {
+                return fail('invitation has unknown role', { requestUrl: request.url, role: invitation.role });
             }
 
             // Create Gmail assignments
@@ -165,8 +200,7 @@ export async function GET(request: NextRequest) {
                     .single();
 
                 if (createErr || !newUser) {
-                    console.error('[CRM Auth] Failed to create invited user:', createErr);
-                    return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+                    return fail('failed to create user from pending invite', { requestUrl: request.url, dbError: createErr?.message });
                 }
 
                 // Create Gmail assignments
@@ -206,17 +240,24 @@ export async function GET(request: NextRequest) {
             await supabase.from('users').update({ avatar_url: googleUser.avatar }).eq('id', user.id);
         }
 
+        // SECURITY: same null-role fail-closed guard as the email-login route
+        // (commit 844506d). The previous default `user.role || 'ADMIN'` would
+        // silently promote any DB row with a NULL or unknown role string.
+        if (!user.role || !ALLOWED_ROLES.has(user.role)) {
+            return fail('user has no valid role assigned', { requestUrl: request.url, userId: user.id, role: user.role });
+        }
+
         // Create session
         await createSession({
             id: user.id,
             email: user.email,
             name: user.name || googleUser.name,
-            role: user.role || 'ADMIN',
+            role: user.role,
         });
 
         return NextResponse.redirect(new URL('/', request.url));
     } catch (error) {
-        console.error('[CRM Auth Callback] Error:', error);
-        return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+        const message = error instanceof Error ? error.message : String(error);
+        return fail('uncaught exception in callback', { requestUrl: request.url, message });
     }
 }

@@ -13,11 +13,16 @@ const AUTH_TAG_LENGTH = 16;
 
 function getAuthSecret(): string {
     const secret = process.env.NEXTAUTH_SECRET;
-    if (!secret || secret.length < 32) {
-        // Fail closed in every environment. The previous "dev-only fallback"
-        // string meant any preview/staging deploy that forgot to set the env
-        // var would have a publicly-known secret.
-        throw new Error('NEXTAUTH_SECRET is required and must be at least 32 characters.');
+    if (!secret) {
+        throw new Error('NEXTAUTH_SECRET is required.');
+    }
+    // The secret is run through SHA-256 to produce a 32-byte AES-256 key, so
+    // any reasonable length works cryptographically. We require 16+ chars as
+    // a sanity floor (128 bits of entropy if randomly generated). The earlier
+    // 32-char floor broke production deploys whose existing secret happened
+    // to be 16-31 chars — losing AES-GCM integrity for no real security gain.
+    if (secret.length < 16) {
+        throw new Error('NEXTAUTH_SECRET must be at least 16 characters.');
     }
     return secret;
 }
