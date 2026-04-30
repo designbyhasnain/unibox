@@ -148,21 +148,25 @@ export async function getClientsAction(
         accountIds = accessible;
     }
 
-    // SECURITY: SALES with no Gmail assignments must NOT fall through to the
-    // admin branch below — that would leak the entire workspace. The previous
-    // code only entered the SALES path when `accountIds.length > 0`, so an empty
-    // array silently bypassed the filter. Fail closed.
-    if (accessible !== 'ALL' && (!accountIds || accountIds.length === 0)) {
-        return { clients: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
-    }
-
-    // For SALES users (accountIds is set), use direct query — RPC doesn't filter by account
-    if (accountIds && accountIds.length > 0) {
+    // SALES branch — sees contacts where they're the assigned account_manager_id
+    // OR where the contact's last_gmail_account_id is one of their assigned
+    // inboxes. Phase 1 commit 2ef18b6 closed the leak where SALES with no
+    // assignments fell through to the admin branch; the synthetic-workflow
+    // run found this was *too* aggressive — a SALES user who creates a new
+    // contact (no email yet → no last_gmail_account_id) couldn't see it in
+    // their own list. Now we always include account_manager_id matches as a
+    // secondary path. ADMINs continue to use the unconstrained branch below.
+    if (accessible !== 'ALL') {
         const offset = (page - 1) * clampedPageSize;
+        const orParts: string[] = [`account_manager_id.eq.${userId}`];
+        if (accountIds && accountIds.length > 0) {
+            orParts.push(`last_gmail_account_id.in.(${accountIds.join(',')})`);
+        }
+
         let query = supabase
             .from('contacts')
             .select('id, name, email, phone, company, location, source, pipeline_stage, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at, total_revenue, paid_revenue, unpaid_amount, total_projects, avg_project_value, client_since, client_tier', { count: 'exact' })
-            .in('last_gmail_account_id', accountIds);
+            .or(orParts.join(','));
 
         if (search?.trim()) {
             const s = search.trim().replace(/[%_\\]/g, '\\$&');
