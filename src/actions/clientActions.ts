@@ -10,6 +10,7 @@ import { transferContactAction } from './contactDetailActions';
 // 9.0 — Ensure a contact exists for a given email address
 export async function ensureContactAction(email: string, name?: string) {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!email || typeof email !== 'string') return null;
     const cleanMail = normalizeEmail(email);
 
@@ -61,6 +62,7 @@ export type CreateClientPayload = {
 
 export async function createClientAction(payload: CreateClientPayload) {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!payload.email || !payload.name) return { success: false, error: 'Name and email are required' };
 
     const cleanMail = normalizeEmail(payload.email);
@@ -74,11 +76,16 @@ export async function createClientAction(payload: CreateClientPayload) {
 
     if (existing) return { success: false, error: 'A contact with this email already exists' };
 
+    // Mass-assignment guard: SALES cannot assign ownership to another user.
+    // Admins may set account_manager_id explicitly; SALES is forced to themselves.
+    const requestedAm = payload.account_manager_id;
+    const finalAm = isAdmin(role) ? (requestedAm || userId) : userId;
+
     const insertData: Record<string, any> = {
         email: cleanMail,
         name: payload.name,
         pipeline_stage: payload.pipeline_stage || 'LEAD',
-        account_manager_id: payload.account_manager_id || userId,
+        account_manager_id: finalAm,
         updated_at: new Date().toISOString(),
     };
 
@@ -125,6 +132,7 @@ export async function getClientsAction(
     stageFilter?: string,
 ): Promise<PaginatedClientsResult> {
     const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     const accessible = await getAccessibleGmailAccountIds(userId, role);
 
     const clampedPageSize = Math.min(Math.max(pageSize, 10), 100);
@@ -138,6 +146,14 @@ export async function getClientsAction(
         accountIds = [gmailAccountId];
     } else if (accessible !== 'ALL') {
         accountIds = accessible;
+    }
+
+    // SECURITY: SALES with no Gmail assignments must NOT fall through to the
+    // admin branch below — that would leak the entire workspace. The previous
+    // code only entered the SALES path when `accountIds.length > 0`, so an empty
+    // array silently bypassed the filter. Fail closed.
+    if (accessible !== 'ALL' && (!accountIds || accountIds.length === 0)) {
+        return { clients: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
     }
 
     // For SALES users (accountIds is set), use direct query — RPC doesn't filter by account
@@ -249,23 +265,32 @@ export async function checkDuplicateAction(
     name?: string,
     company?: string
 ): Promise<{ isDuplicate: boolean; matches: DuplicateMatch[] }> {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!email) return { isDuplicate: false, matches: [] };
 
     const cleanEmail = normalizeEmail(email);
+    const ownerFilter = getOwnerFilter(userId, role);
 
-    const { data, error } = await supabase.rpc('check_contact_duplicates', {
-        p_email: cleanEmail,
-        p_name: name || null,
-        p_company: company || null,
-    });
+    // SALES users skip the workspace-wide RPC entirely — it returns matches
+    // across the whole tenant including other AMs' clients. Use the scoped
+    // fallback path that filters by account_manager_id.
+    const { data, error } = ownerFilter
+        ? { data: null, error: { message: 'sales-scoped-path' } as any }
+        : await supabase.rpc('check_contact_duplicates', {
+            p_email: cleanEmail,
+            p_name: name || null,
+            p_company: company || null,
+        });
 
     if (error) {
-        const { data: exact } = await supabase
+        // Fallback path scopes by owner so SALES cannot enumerate cross-team contacts.
+        let exactQ = supabase
             .from('contacts')
             .select('id, name, email, company, account_manager_id')
-            .eq('email', cleanEmail)
-            .maybeSingle();
+            .eq('email', cleanEmail);
+        if (ownerFilter) exactQ = exactQ.eq('account_manager_id', ownerFilter);
+        const { data: exact } = await exactQ.maybeSingle();
 
         if (exact) {
             return {
