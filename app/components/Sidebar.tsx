@@ -330,6 +330,8 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                 <AccountSettingsModal
                     onClose={() => setShowAccountSettings(false)}
                     onUpdated={refreshProfile}
+                    initialName={userName}
+                    initialAvatarUrl={userAvatarUrl}
                 />
             )}
 

@@ -8,19 +8,36 @@ import { useUndoToast } from '../context/UndoToastContext';
 interface Props {
     onClose: () => void;
     onUpdated?: () => void;
+    /** Pre-fill from caller (sidebar) so the modal renders populated immediately
+     *  instead of blank-then-flash. The server fetch still runs to refresh. */
+    initialName?: string;
+    initialAvatarUrl?: string | null;
 }
 
 type Tab = 'profile' | 'password';
 
-export default function AccountSettingsModal({ onClose, onUpdated }: Props) {
+// Hydrate from the sidebar's localStorage cache so the first paint is never
+// blank. Falls back to '' / null when keys are missing or storage is disabled.
+const cachedName = (): string => {
+    try { return localStorage.getItem('unibox_user_name') || ''; } catch { return ''; }
+};
+const cachedAvatar = (): string | null => {
+    try { return localStorage.getItem('unibox_user_avatar') || null; } catch { return null; }
+};
+
+export default function AccountSettingsModal({ onClose, onUpdated, initialName, initialAvatarUrl }: Props) {
     const { showError } = useUndoToast();
     const [tab, setTab] = useState<Tab>('profile');
 
-    // Profile
-    const [name, setName] = useState('');
-    const [originalName, setOriginalName] = useState('');
+    // Profile — seeded from props → localStorage → '' so the inputs are
+    // populated on first render. The server fetch then overwrites with fresh data.
+    const seededName = initialName ?? cachedName();
+    const seededAvatar = initialAvatarUrl !== undefined ? initialAvatarUrl : cachedAvatar();
+    const [name, setName] = useState(seededName);
+    const [originalName, setOriginalName] = useState(seededName);
     const [email, setEmail] = useState('');
-    const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+    const [avatarUrl, setAvatarUrl] = useState<string | null>(seededAvatar);
+    const [loadingProfile, setLoadingProfile] = useState(true);
     const [savingName, setSavingName] = useState(false);
     const [nameSaved, setNameSaved] = useState(false);
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -38,15 +55,28 @@ export default function AccountSettingsModal({ onClose, onUpdated }: Props) {
     const [passwordError, setPasswordError] = useState('');
 
     useEffect(() => {
-        getCurrentUserAction().then(u => {
-            if (u) {
-                setName(u.name || '');
-                setOriginalName(u.name || '');
-                setEmail(u.email || '');
-                setAvatarUrl(u.avatarUrl || null);
-            }
-        });
-    }, []);
+        let cancelled = false;
+        setLoadingProfile(true);
+        getCurrentUserAction()
+            .then(u => {
+                if (cancelled) return;
+                if (u) {
+                    setName(u.name || '');
+                    setOriginalName(u.name || '');
+                    setEmail(u.email || '');
+                    setAvatarUrl(u.avatarUrl || null);
+                } else {
+                    showError("Couldn't load your profile — your session may have expired.");
+                }
+            })
+            .catch((err) => {
+                if (cancelled) return;
+                console.error('[AccountSettings] load failed', err);
+                showError("Couldn't load your profile. Check your connection.");
+            })
+            .finally(() => { if (!cancelled) setLoadingProfile(false); });
+        return () => { cancelled = true; };
+    }, [showError]);
 
     const initials = (name || email || '?').split(/[ @]/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 
@@ -275,12 +305,27 @@ export default function AccountSettingsModal({ onClose, onUpdated }: Props) {
                                 />
                             </Field>
                             <Field label="Email">
-                                <input
-                                    type="email"
-                                    value={email}
-                                    disabled
-                                    style={{ ...inputStyle, color: 'var(--ink-muted)', cursor: 'not-allowed' }}
-                                />
+                                <div style={{ position: 'relative' }}>
+                                    <input
+                                        type="email"
+                                        value={email}
+                                        disabled
+                                        placeholder={loadingProfile ? 'Loading…' : ''}
+                                        style={{ ...inputStyle, color: 'var(--ink-muted)', cursor: 'not-allowed', paddingRight: loadingProfile ? 36 : 12 }}
+                                    />
+                                    {loadingProfile && (
+                                        <Loader2
+                                            size={14}
+                                            style={{
+                                                position: 'absolute', right: 10, top: '50%',
+                                                transform: 'translateY(-50%)',
+                                                color: 'var(--ink-muted)',
+                                                animation: 'jarvis-spin 0.9s linear infinite',
+                                            }}
+                                            aria-label="Loading profile"
+                                        />
+                                    )}
+                                </div>
                                 <span style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 4, display: 'block' }}>
                                     Email is set on the User record and can&apos;t be changed here. Contact an admin if you need to change it.
                                 </span>
