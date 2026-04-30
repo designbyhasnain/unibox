@@ -1,3 +1,4 @@
+import 'server-only';
 /**
  * AI-Powered Relationship Audit
  *

@@ -1,5 +1,4 @@
-// TODO: Add `import 'server-only';` after running `npm install` to install the server-only package.
-// This prevents accidental client-side imports that could leak secrets.
+import 'server-only';
 import { google } from 'googleapis';
 import { supabase } from '../lib/supabase';
 import { handleEmailSent } from './emailSyncLogic';
