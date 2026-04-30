@@ -36,12 +36,21 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
         }
 
+        // SECURITY: Fail closed when the user row is missing a role. Previously
+        // the code defaulted to 'ADMIN' on a null role, which silently
+        // promoted any user with a NULL/blank role column to admin.
+        const ALLOWED_ROLES = new Set(['ADMIN', 'ACCOUNT_MANAGER', 'SALES', 'VIDEO_EDITOR']);
+        if (!user.role || !ALLOWED_ROLES.has(user.role)) {
+            console.error('[Email Login] User has no valid role assigned:', user.id);
+            return NextResponse.json({ error: 'Account is not configured. Contact your admin.' }, { status: 403 });
+        }
+
         // Create session — same structure as Google login
         await createSession({
             id: user.id,
             email: user.email,
             name: user.name,
-            role: user.role || 'ADMIN',
+            role: user.role,
         });
 
         return NextResponse.json({ success: true });
