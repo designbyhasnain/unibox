@@ -55,8 +55,13 @@ export async function sendGmailEmail(params: {
 
         // Build MIME message manually to avoid bulky dependencies if possible,
         // but ensure it's robust for UTF-8.
+        // Caveat: for OAuth sends to gmail.com / Workspace, Gmail may rewrite
+        // the From display name to match the account's Google profile name
+        // unless a "Send mail as" alias with a custom name is configured.
+        // Custom-domain (MANUAL/SMTP) sends do not have this constraint.
         const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
         const fromHeader = formatFromHeader(account.display_name, account.email);
+        console.log(`[Gmail Send] from=${fromHeader} to=${to} subject=${subject.slice(0, 60)}`);
         const messageParts = [
             `From: ${fromHeader}`,
             `To: ${to}`,

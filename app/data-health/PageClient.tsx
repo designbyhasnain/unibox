@@ -75,7 +75,7 @@ export default function DataHealthPage() {
 
     return (
         <div style={{ height: '100%', overflow: 'auto', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
-            <div style={{ padding: '22px 26px', maxWidth: 1100 }}>
+            <div style={{ padding: '22px 26px' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 18 }}>
                     <div>
                         <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>Database hygiene</h2>
@@ -237,7 +237,7 @@ function Section({ title, icon, children }: { title: string; icon?: React.ReactN
 
 function Kpis({ children }: { children: React.ReactNode }) {
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
             {children}
         </div>
     );

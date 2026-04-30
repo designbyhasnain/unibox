@@ -98,8 +98,10 @@ export async function sendManualEmail(params: {
     });
 
     const displayName = (account.display_name ?? '').trim();
+    const fromField = displayName ? { name: displayName, address: account.email } : account.email;
+    console.log(`[SMTP Send] from=${typeof fromField === 'string' ? fromField : `${fromField.name} <${fromField.address}>`} to=${to} subject=${subject.slice(0, 60)}`);
     const info = await transporter.sendMail({
-        from: displayName ? { name: displayName, address: account.email } : account.email,
+        from: fromField,
         to,
         ...(cc ? { cc } : {}),
         ...(bcc ? { bcc } : {}),
