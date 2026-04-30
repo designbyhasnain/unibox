@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { requireAdmin } from '../utils/accessControl';
+import { requireAdmin, isAdmin } from '../utils/accessControl';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,7 +128,11 @@ export async function updateTemplateAction(id: string, updates: {
             .single();
 
         if (!existing) return { success: false, error: 'Template not found' };
-        if (existing.created_by_id !== userId && role !== 'ADMIN') {
+        // Treat ACCOUNT_MANAGER as admin for template overrides — matches the
+        // rest of the codebase. The previous role==='ADMIN' check meant
+        // ACCOUNT_MANAGER users couldn't edit other reps' templates even
+        // though they have admin-equivalent rights everywhere else.
+        if (existing.created_by_id !== userId && !isAdmin(role)) {
             return { success: false, error: 'You can only edit your own templates' };
         }
 
@@ -173,7 +177,7 @@ export async function deleteTemplateAction(id: string) {
             .single();
 
         if (!existing) return { success: false, error: 'Template not found' };
-        if (existing.created_by_id !== userId && role !== 'ADMIN') {
+        if (existing.created_by_id !== userId && !isAdmin(role)) {
             return { success: false, error: 'Only the creator or admin can delete templates' };
         }
 

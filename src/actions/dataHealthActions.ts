@@ -2,12 +2,9 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-
-function requireAdmin(role: string) {
-    if (role !== 'ADMIN' && role !== 'ACCOUNT_MANAGER') {
-        throw new Error('Admin access required');
-    }
-}
+import { requireAdmin } from '../utils/accessControl';
+// Local re-implementation removed — drift risk if accessControl's isAdmin/
+// requireAdmin definitions change. Use the shared helper.
 
 export type DataHealthSnapshot = {
     totalEmails: number;
