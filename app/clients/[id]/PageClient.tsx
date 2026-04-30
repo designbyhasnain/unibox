@@ -14,8 +14,7 @@ import { generateAISummaryAction } from '../../../src/actions/summaryActions';
 import OwnerPicker from '../../components/OwnerPicker';
 import { avatarColor, initials } from '../../utils/helpers';
 import { STAGE_LABELS, STAGE_COLORS } from '../../constants/stages';
-
-const firstName = (full?: string | null) => (full || '').trim().split(/\s+/)[0] || '';
+import { firstName } from '../../utils/nameDisplay';
 
 // Strict DOMPurify config for inline email-body rendering. Drops scripts,
 // event handlers, and any href/src that isn't http(s) or mailto. The previous
@@ -363,7 +362,13 @@ export default function ContactDetailPage() {
                     {activeTab === 'projects' && (
                         <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
                             {data.projects.length === 0 ? (
-                                <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>No projects linked</div>
+                                <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+                                    <span>No projects linked</span>
+                                    <a
+                                        href={`/my-projects?clientId=${data.contact.id}`}
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, background: 'var(--accent)', color: '#fff', textDecoration: 'none' }}
+                                    >+ New project for this client</a>
+                                </div>
                             ) : (
                                 <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                                     <thead>

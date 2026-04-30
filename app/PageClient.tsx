@@ -28,6 +28,7 @@ import ClientIntelligencePanel from './components/ClientIntelligencePanel';
 import OwnerPicker from './components/OwnerPicker';
 import { useConfirm } from './context/ConfirmContext';
 import { usePerfMonitor } from './hooks/usePerfMonitor';
+import { firstName } from './utils/nameDisplay';
 import { getClientIntelligenceAction } from '../src/actions/clientIntelligenceAction';
 import type { ClientIntelligenceProfile } from '../src/types/clientIntelligence';
 
@@ -485,7 +486,7 @@ export default function InboxPage() {
                                     const accountProfileImage: string = email.account_profile_image || '';
                                     const amName: string | null = email.account_manager_name || null;
                                     const amEmail: string = email.account_manager_email || '';
-                                    const amFirst = amName ? amName.trim().split(/\s+/)[0] : null;
+                                    const amFirst = amName ? firstName(amName) : null;
                                     const amLabel = amFirst || (email.contact_id ? 'Unassigned' : '—');
                                     const dateStr = formatDate(email.sent_at);
                                     const initials = senderName.charAt(0).toUpperCase();
@@ -607,7 +608,7 @@ export default function InboxPage() {
                                     <>
                                         <span>·</span>
                                         <span title={`${selectedEmail.account_manager_name}${selectedEmail.account_manager_email ? ` <${selectedEmail.account_manager_email}>` : ''}`}>
-                                            {selectedEmail.account_manager_name.trim().split(/\s+/)[0]}
+                                            {firstName(selectedEmail.account_manager_name)}
                                         </span>
                                     </>
                                 )}
@@ -753,7 +754,7 @@ export default function InboxPage() {
                                                 const tooltip = displayName ? `${displayName}${selectedEmail.account_manager_email ? ` <${selectedEmail.account_manager_email}>` : ''}` : 'Unassigned';
                                                 return (
                                                     <span className="v" title={tooltip} style={displayName ? undefined : { fontStyle: 'italic', opacity: 0.7 }}>
-                                                        {displayName ? displayName.trim().split(/\s+/)[0] : 'Unassigned'}
+                                                        {displayName ? firstName(displayName) : 'Unassigned'}
                                                     </span>
                                                 );
                                             })()}
@@ -807,7 +808,7 @@ export default function InboxPage() {
                                         onSendReminder={() => {
                                             if (!clientProfile) return;
                                             const to = clientProfile.email;
-                                            const name = clientProfile.name.split(' ')[0];
+                                            const name = firstName(clientProfile.name);
                                             setComposeDefaultTo(to);
                                             setComposeDefaultSubject(`Following up — ${clientProfile.finance.unpaidAmount > 0 ? 'Invoice reminder' : 'Checking in'}`);
                                             setComposeDefaultBody(`Hi ${name},\n\nJust wanted to follow up...\n\n`);
@@ -816,7 +817,7 @@ export default function InboxPage() {
                                         onInvoice={() => {
                                             if (!clientProfile) return;
                                             const to = clientProfile.email;
-                                            const name = clientProfile.name.split(' ')[0];
+                                            const name = firstName(clientProfile.name);
                                             const project = clientProfile.production.primaryProject?.name || 'your project';
                                             setComposeDefaultTo(to);
                                             setComposeDefaultSubject(`Invoice — ${project}`);

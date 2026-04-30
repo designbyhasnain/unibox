@@ -3,8 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { transferContactAction } from '../../src/actions/contactDetailActions';
 import { getManagersAction } from '../../src/actions/projectActions';
-
-const firstName = (full?: string | null) => (full || '').trim().split(/\s+/)[0] || '';
+import { firstName } from '../utils/nameDisplay';
 
 export type OwnerPickerProps = {
     contactId: string;
@@ -88,7 +87,7 @@ export default function OwnerPicker({
         if (!currentOwnerName) return;
         if (managers.length === 0) return;
         const target = currentOwnerName.trim().toLowerCase();
-        const firstWord = target.split(/\s+/)[0] || target;
+        const firstWord = firstName(target).toLowerCase() || target;
         const match = managers.find(m => m.name.trim().toLowerCase() === target)
             || managers.find(m => m.name.trim().toLowerCase().startsWith(firstWord));
         if (match) setSelection(match.id);

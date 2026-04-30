@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useGlobalFilter } from '../context/FilterContext';
 import { logoutAction, getCurrentUserAction } from '../../src/actions/authActions';
 import AccountSettingsModal from './AccountSettingsModal';
+import { initials as nameInitials } from '../utils/nameDisplay';
 
 /* ── 15×15 SVG icons matching design prototype ── */
 const Icon = {
@@ -181,7 +182,11 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                 items: [
                     { href: '/footage-library',  label: 'Footage Library', icon: Icon.footage },
                     { href: '/brand-guides',     label: 'Brand Guides',    icon: Icon.brand },
-                    { href: '/jarvis',           label: 'Jarvis AI',       icon: Icon.spark },
+                    // Jarvis AI dropped from the editor sidebar — /api/jarvis,
+                    // /api/jarvis/agent, and /api/jarvis/tts all reject
+                    // VIDEO_EDITOR (Phase 2 commit a3bf0e5). Showing the link
+                    // produced a 403 spiral. Add back when editors get their
+                    // own scoped Jarvis tool surface.
                 ],
             },
           ]
@@ -192,7 +197,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
             ...(adminItems.length > 0 ? [{ name: 'Admin', items: adminItems }] : []),
         ];
 
-    const initials = userName ? userName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : 'U';
+    const initials = nameInitials(userName, 'U');
     const accountLabel = isAdminLike ? `${accounts.length} accounts · Admin` : isSales ? `${accounts.length} accounts · Sales` : 'Editor';
 
     return (

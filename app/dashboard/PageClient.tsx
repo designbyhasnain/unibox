@@ -10,6 +10,7 @@ import { useHydrated } from '../utils/useHydration';
 import EditorTodayView from '../components/EditorTodayView';
 import { useUndoToast } from '../context/UndoToastContext';
 import { usePerfMonitor } from '../hooks/usePerfMonitor';
+import { firstName } from '../utils/nameDisplay';
 
 function fmt(n: number) {
     if (n >= 10000) return '$' + (n / 1000).toFixed(0) + 'k';
@@ -65,7 +66,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
         setLoading(true);
         return Promise.all([getCurrentUserAction(), getSalesDashboardAction()])
             .then(([u, dash]) => {
-                setName(u?.name?.split(' ')[0] || '');
+                setName(firstName(u?.name));
                 setD(dash);
                 setLoading(false);
             })
