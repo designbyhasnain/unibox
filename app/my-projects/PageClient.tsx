@@ -263,6 +263,20 @@ export default function MyProjectsPage() {
         });
     }, []);
 
+    // Cross-page deep-link: /my-projects?clientId=<uuid> auto-opens the New
+    // Project modal with that client pre-selected. Used by the contact-detail
+    // Projects tab "+ New project for this client" CTA so users don't have to
+    // re-pick the client they were already viewing.
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const params = new URLSearchParams(window.location.search);
+        const cid = params.get('clientId');
+        if (cid) {
+            setNewProject(p => ({ ...p, clientId: cid }));
+            setShowAddModal(true);
+        }
+    }, []);
+
     // Lazy-load the client picker on modal open. Pulls the first 100 clients
     // visible to the current user via the existing scoped getClientsAction.
     useEffect(() => {
