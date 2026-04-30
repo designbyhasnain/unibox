@@ -5,6 +5,11 @@ import { JARVIS_TOOLS, JARVIS_SYSTEM_PROMPT, executeJarvisTool } from '../../../
 export async function POST(req: NextRequest) {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Jarvis tools expose business data (revenue, top clients, AM performance,
+    // pipeline). VIDEO_EDITOR has no business reason to query them.
+    if (session.role === 'VIDEO_EDITOR') {
+        return NextResponse.json({ error: 'Jarvis is not available for this role' }, { status: 403 });
+    }
 
     const { messages } = await req.json();
 

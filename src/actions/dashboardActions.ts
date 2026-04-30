@@ -2,10 +2,15 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, blockEditorAccess } from '../utils/accessControl';
 
 export async function getSalesDashboardAction() {
     const { userId, role } = await ensureAuthenticated();
+    // Defense-in-depth: VIDEO_EDITOR has its own dashboard surface
+    // (EditorTodayView). It should never call this action; the page-level
+    // guard already redirects them, but if someone reaches the action via
+    // direct invocation we fail closed here too.
+    blockEditorAccess(role);
     const accessible = await getAccessibleGmailAccountIds(userId, role);
     const accountIds = accessible === 'ALL' ? null : accessible;
 

@@ -5,6 +5,9 @@ import { runAgentSync } from '../../../../src/services/jarvisAgentService';
 export async function POST(req: NextRequest) {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (session.role === 'VIDEO_EDITOR') {
+        return NextResponse.json({ error: 'Agent is not available for this role' }, { status: 403 });
+    }
 
     const { goal } = await req.json();
     if (!goal?.trim()) return NextResponse.json({ error: 'Goal is required' }, { status: 400 });

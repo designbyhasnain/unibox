@@ -2,7 +2,7 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getOwnerFilter, blockEditorAccess } from '../utils/accessControl';
+import { getOwnerFilter, blockEditorAccess, getAccessibleGmailAccountIds } from '../utils/accessControl';
 
 export type ContactSummary = {
     contactName: string;
@@ -104,14 +104,25 @@ export async function generateAISummaryAction(contactId: string): Promise<string
 
     if (!contact) return 'Contact not found.';
 
-    // Get FULL email bodies (not just snippets) for proper AI analysis
+    // SECURITY: scope email lookup by accessible Gmail accounts. Without this,
+    // a SALES user viewing one of their own contacts could see emails the
+    // contact exchanged with OTHER reps' inboxes (the `to_email`/`from_email`
+    // ILIKE branch matches anything with the contact's address in either field
+    // regardless of which inbox received it).
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) {
+        return 'No accessible accounts.';
+    }
+
     const email = contact.email.toLowerCase();
-    const { data: emails } = await supabase
+    let emailsQuery = supabase
         .from('email_messages')
         .select('direction, subject, body, snippet, sent_at, from_email, to_email')
         .or(`contact_id.eq.${contactId},from_email.ilike.%${email.replace(/[%_\\]/g, '\\$&')}%,to_email.ilike.%${email.replace(/[%_\\]/g, '\\$&')}%`)
         .order('sent_at', { ascending: true })
         .limit(100);
+    if (accessible !== 'ALL') emailsQuery = emailsQuery.in('gmail_account_id', accessible);
+    const { data: emails } = await emailsQuery;
 
     if (!emails || emails.length === 0) return 'No email history found for this contact.';
 

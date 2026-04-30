@@ -2,7 +2,7 @@
 
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, blockEditorAccess } from '../utils/accessControl';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -45,6 +45,8 @@ export async function getAnalyticsDataAction(params: {
     accountId: string;
 }) {
     const { userId, role } = await ensureAuthenticated();
+    // Defense-in-depth: VIDEO_EDITOR has no analytics surface; reject early.
+    blockEditorAccess(role);
     try {
         let { startDate, endDate, managerId, accountId } = params;
         if (!startDate || !endDate || !managerId || !accountId) {

@@ -7,6 +7,11 @@ const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
 export async function POST(req: NextRequest) {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // VIDEO_EDITOR doesn't use Jarvis TTS — gate to avoid burning ElevenLabs
+    // credits on accidental calls from a misrouted page.
+    if (session.role === 'VIDEO_EDITOR') {
+        return NextResponse.json({ error: 'TTS not available for this role' }, { status: 403 });
+    }
 
     const apiKey = process.env.ELEVENLABS_API_KEY;
     if (!apiKey) {

@@ -13,7 +13,7 @@ import { transformEmailRow, transformJoinedEmailRow } from '../utils/emailTransf
 import { clampPageSize } from '../utils/pagination';
 import { PAGINATION } from '../constants/limits';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds, canAccessGmailAccount, blockEditorAccess } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, canAccessGmailAccount, blockEditorAccess, getOwnerFilter } from '../utils/accessControl';
 
 const PAGE_SIZE = PAGINATION.DEFAULT_PAGE_SIZE;
 
@@ -597,15 +597,26 @@ export async function getSentEmailsAction(
 // ─── Client Emails ────────────────────────────────────────────────────────────
 
 export async function markClientEmailsAsReadAction(clientEmail: string) {
+    // SECURITY: previously this action did not call ensureAuthenticated, so an
+    // anonymous caller could pre-scan email_messages by email address. Even
+    // though the downstream bulkMarkAsReadAction filters by accessibility,
+    // the initial enumeration step itself was unauthenticated.
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!clientEmail || typeof clientEmail !== 'string' || clientEmail.length > 254) return { success: false };
 
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    if (Array.isArray(accessible) && accessible.length === 0) return { success: true };
+
     const normalizedEmail_ = normalizeEmail(clientEmail);
-    const { data: messages } = await supabase
+    let scanQuery = supabase
         .from('email_messages')
         .select('id')
         .or(`from_email.ilike.%${escapeIlike(normalizedEmail_)}%,to_email.ilike.%${escapeIlike(normalizedEmail_)}%`)
         .eq('is_unread', true)
         .limit(500);
+    if (accessible !== 'ALL') scanQuery = scanQuery.in('gmail_account_id', accessible);
+    const { data: messages } = await scanQuery;
 
     if (messages && messages.length > 0) {
         const ids = messages.map(m => m.id);
@@ -1356,13 +1367,20 @@ export async function bulkMarkUnreadAction(messageIds: string[]) {
 }
 
 export async function searchContactsForComposeAction(query: string) {
-    await ensureAuthenticated();
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
     if (!query || query.trim().length < 1) return [];
     const q = query.trim().replace(/[%_\\]/g, '\\$&');
-    const { data } = await supabase
+    const ownerFilter = getOwnerFilter(userId, role);
+    let searchQuery = supabase
         .from('contacts')
         .select('id, name, email, company')
         .or(`name.ilike.%${q}%,email.ilike.%${q}%,company.ilike.%${q}%`)
         .limit(8);
+    // SECURITY: SALES users may only autocomplete against their own contacts.
+    // Without this filter the compose modal acted as a global contact
+    // directory across the whole tenant.
+    if (ownerFilter) searchQuery = searchQuery.eq('account_manager_id', ownerFilter);
+    const { data } = await searchQuery;
     return data || [];
 }
