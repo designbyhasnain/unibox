@@ -57,3 +57,7 @@ match-projects.js
 deploy-summary-rpc.js
 clean_orphans.mjs
 cleanup-*.js
+
+# Claude Code per-developer state — chat history, memory, settings.
+# This MUST stay private to each developer; do not remove or share.
+.claude/
