@@ -154,17 +154,44 @@ Verdict: **🟢 GREEN — Wedits team can start full-time on `main`.**
 
 ---
 
-## Section 5 — 🗑 Removal List (TBD — agent still running)
+## Section 5 — 🗑 Removal List (Removal Agent)
 
-This section will be filled once the Removal Agent reports. Preliminary
-items already documented in CLAUDE.md "Orphan files" section:
-`automationActions.ts`, `relationshipActions.ts`, `pipelineLogic.ts`,
-`RevenueChart.tsx`, `RevenueBarChart.tsx`, `OnboardingWizard.tsx`,
-`JarvisDailyBriefing.tsx`. Plus Phase 5's transitional shims:
-- `users.extension_api_key` plaintext column — drop after 30 days.
-- Legacy single-part unsubscribe token path — drop after 90 days.
-- `webhookProcessorService.ts` — confirm whether it's actually invoked
-  by the cron route.
+**16 immediate removals + 2 timed removals** (~500 lines of dead code).
+
+### Safe to delete now (16 items)
+
+| Type | Path | Why dead |
+|---|---|---|
+| Action | `src/actions/automationActions.ts` | Zero imports outside CLAUDE.md |
+| Action | `src/actions/relationshipActions.ts` | Zero imports outside CLAUDE.md |
+| Service | `src/services/pipelineLogic.ts` | Auto-transitions moved to `emailSyncLogic.ts` |
+| Component | `app/components/RevenueChart.tsx` | Zero refs; analytics uses Recharts inline |
+| Component | `app/components/RevenueBarChart.tsx` | Companion to above |
+| Component | `app/components/OnboardingWizard.tsx` | Login doesn't invoke |
+| Component | `app/components/JarvisDailyBriefing.tsx` | Dashboard calls action directly |
+| Utility | `app/utils/staleWhileRevalidate.ts` | Zero imports — abandoned SWR experiment |
+| Utility | `app/utils/useHydration.ts` | Zero imports |
+| TODO | `src/actions/emailActions.ts:160` | "Add last_send_date column" — 30+ days stale |
+| TODO | `src/services/emailSyncLogic.ts` (top) | "Add import 'server-only'" — already present |
+| Env var | `DEFAULT_USER_ID` / `NEXT_PUBLIC_DEFAULT_USER_ID` (in `.env.example`) | Only used by one-off backfill in `migrationHelpers.ts` |
+| Env var | `NEXTAUTH_URL` (in `.env.example`) | Replace with `NEXT_PUBLIC_APP_URL` (already used elsewhere) |
+| npm | `puppeteer` (devDeps) | Zero imports; not used by lead scraper |
+| Doc | `docs/ACTION-PAGE-REDESIGN.md` | Refers to closed Phase 1-3 work as open |
+| Doc | (multiple) Stale planning docs in `docs/superpowers/plans/` | Phase 5 closed |
+
+### Timed removals (don't touch yet)
+
+| Path | Drop after | Reason |
+|---|---|---|
+| `users.extension_api_key` plaintext column + backward-compat fallback in `src/lib/extensionAuth.ts:51-66` | **2026-06-01** (30 days post-Phase-5) | Allows existing keys to keep working; migration backfills hashes opportunistically |
+| Single-part legacy unsubscribe token path in `src/utils/unsubscribe.ts:79-88` | **2026-07-30** (90 days post-Phase-5) | Allows already-delivered email links in customers' inboxes to keep working |
+
+### Keep — flagged but not orphan
+
+| Path | Why kept |
+|---|---|
+| `app/utils/helpers.ts` | Consolidation point — `avatarColor()`, `initials()`, `formatDate()` used in 4+ places |
+| `webhookProcessorService.ts` | Now actually used (Phase 5 wired it as the retry path on Pub/Sub failures) |
 
 ---
 
