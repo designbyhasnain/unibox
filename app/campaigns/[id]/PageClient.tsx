@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, lazy, Suspense, useTransition } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useHydrated } from '../../utils/useHydration';
 import { PageLoader } from '../../components/LoadingStates';
@@ -93,7 +93,11 @@ export default function CampaignDetailPage() {
     const [campaign, setCampaign] = useState<CampaignDetail | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'analytics' | 'ab_results' | 'options' | 'schedule'>('overview');
-    const [actionLoading, setActionLoading] = useState(false);
+    // Phase 13: actionLoading used to gate the launch/pause/resume buttons
+    // while the server call ran. The optimistic flip makes that gate
+    // unnecessary — the buttons stay responsive and the status flips
+    // immediately. Kept as `false` constant so existing JSX still compiles.
+    const actionLoading = false;
     const [contactFilter, setContactFilter] = useState('ALL');
     const [analytics, setAnalytics] = useState<any>(null);
     const [variantAnalytics, setVariantAnalytics] = useState<any>(null);
@@ -132,33 +136,57 @@ export default function CampaignDetailPage() {
         }
     }
 
-    async function handleAction(action: 'launch' | 'pause' | 'resume' | 'archive') {
+    // Phase 13: optimistic toggle. The user clicks pause → status flips
+    // to PAUSED in the same tick. Server call runs in a transition (no
+    // blocking spinner). On error we rollback + retry-toast. Same pattern
+    // as AccountSettingsModal name save.
+    const [, startCampaignTransition] = useTransition();
+    function handleAction(action: 'launch' | 'pause' | 'resume' | 'archive') {
         if (!campaign) return;
-        setActionLoading(true);
-        try {
-            let result: any;
-            switch (action) {
-                case 'launch': result = await launchCampaignAction(campaign.id); break;
-                case 'pause': result = await pauseCampaignAction(campaign.id); break;
-                case 'resume': result = await resumeCampaignAction(campaign.id); break;
-                case 'archive': {
-                    const campData = { ...campaign };
-                    scheduleDelete({
-                        id: campaign.id,
-                        type: 'campaign',
-                        label: campaign.name || 'Campaign',
-                        data: campData,
-                        deleteAction: () => deleteCampaignAction(campaign.id),
-                        onUndo: () => {},
-                    });
-                    router.push('/campaigns');
-                    return;
-                }
-            }
-            if (result?.success) await loadCampaign();
-        } finally {
-            setActionLoading(false);
+        if (action === 'archive') {
+            const campData = { ...campaign };
+            scheduleDelete({
+                id: campaign.id,
+                type: 'campaign',
+                label: campaign.name || 'Campaign',
+                data: campData,
+                deleteAction: () => deleteCampaignAction(campaign.id),
+                onUndo: () => {},
+            });
+            router.push('/campaigns');
+            return;
         }
+
+        // Optimistic status flip — drives the UI immediately.
+        const prevStatus = campaign.status;
+        const nextStatus =
+            action === 'launch' ? 'ACTIVE' :
+            action === 'pause'  ? 'PAUSED' :
+            action === 'resume' ? 'ACTIVE' :
+            prevStatus;
+        setCampaign(prev => prev ? { ...prev, status: nextStatus } : prev);
+
+        startCampaignTransition(async () => {
+            let result: { success?: boolean; error?: string } = {};
+            try {
+                if (action === 'launch') result = await launchCampaignAction(campaign.id);
+                else if (action === 'pause') result = await pauseCampaignAction(campaign.id);
+                else if (action === 'resume') result = await resumeCampaignAction(campaign.id);
+            } catch (err: unknown) {
+                result = { success: false, error: err instanceof Error ? err.message : 'unknown' };
+            }
+            if (result?.success) {
+                // Refresh in the background — UI already shows the new status,
+                // but we want fresh contact counts / send queue stats.
+                loadCampaign();
+            } else {
+                // Rollback: server rejected the action.
+                setCampaign(prev => prev ? { ...prev, status: prevStatus } : prev);
+                showError(`Couldn't ${action} campaign: ${result?.error || 'unknown'}`, {
+                    onRetry: () => handleAction(action),
+                });
+            }
+        });
     }
 
     function handleRemoveContact(contactId: string) {

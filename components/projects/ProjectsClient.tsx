@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useTransition } from 'react';
 import type { ProjectWithCommentCount, ProjectSortField, ProjectProgress } from '../../lib/projects/types';
 import type { ViewId } from '../../lib/projects/constants';
 import { getEditProjects, createEditProject, updateEditProject, deleteEditProject, deleteMultipleEditProjects, duplicateEditProject } from '../../lib/projects/actions';
@@ -89,17 +89,27 @@ export default function ProjectsClient({ userRole }: { userRole?: string }) {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const { showError } = useUndoToast();
-  const handleUpdate = useCallback(async (id: string, field: string, value: unknown) => {
+  // Phase 13: useTransition tells React the server write is non-urgent so
+  // it never blocks input handlers or visible updates. The optimistic flip
+  // happens BEFORE the transition starts (urgent), the network call happens
+  // INSIDE (non-urgent) — the user never feels a hitch.
+  const [, startUpdateTransition] = useTransition();
+  const handleUpdate = useCallback((id: string, field: string, value: unknown) => {
+    // 1. Optimistic flip — synchronous, urgent.
     setProjects(prev => prev.map(p => p.id === id ? { ...p, [field]: value } as ProjectWithCommentCount : p));
     if (LOCAL_ONLY_FIELDS.has(field)) return;
-    const res = await updateEditProject(id, { [field]: value });
-    if (!res.success) {
-      // Roll back the optimistic change so the user sees the real DB state.
-      loadProjects(currentPage, true);
-      showError(`Couldn't update ${field}: ${('error' in res && res.error) || 'unknown error'}`, {
-        onRetry: () => updateEditProject(id, { [field]: value }).then(r => { if (r.success) loadProjects(currentPage, true); }),
-      });
-    }
+
+    // 2. Server write — non-urgent transition. UI is already up to date.
+    startUpdateTransition(async () => {
+      const res = await updateEditProject(id, { [field]: value });
+      if (!res.success) {
+        // Roll back the optimistic change so the user sees the real DB state.
+        loadProjects(currentPage, true);
+        showError(`Couldn't update ${field}: ${('error' in res && res.error) || 'unknown error'}`, {
+          onRetry: () => updateEditProject(id, { [field]: value }).then(r => { if (r.success) loadProjects(currentPage, true); }),
+        });
+      }
+    });
   }, [loadProjects, currentPage, showError]);
 
   const handleCreateNew = useCallback(async (progress?: ProjectProgress) => {
