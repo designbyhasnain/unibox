@@ -11,12 +11,12 @@
 | 1a | Removal sweep — dead files / TODOs / env / npm | ✅ shipped | `6ee68d1` |
 | 1b | Downgrade 12 OAuth-derived ADMINs → SALES (DB-only) | ✅ shipped | `b5a3699` (script + scripts/downgrade-admins.mjs) |
 | 1c | OAuth callback no-auto-admin invariant + delete migrate helper | ✅ shipped | `b5a3699` |
-| 2a | `/actions` RPC | ⏳ pending |  |
-| 2b | `/finance` RPC | ⏳ pending |  |
-| 2c | Sidebar skeleton | ⏳ pending |  |
-| 3  | Avatar Force — honest implementation | ⚠ scoped |  |
-| 4a | A/B Auto-Promote cron | ⏳ pending |  |
-| 4b | Brand voice sweep | ⏳ pending |  |
+| 2a | `/actions` RPC (50×3 N+1 → 1 batched + 30s cache) | ✅ shipped | `1620c5d` |
+| 2b | `/finance` RPC v2 + 60s cache + VACUUM ANALYZE | ✅ shipped | `059d277` |
+| 2c | Sidebar skeleton | ✅ shipped | `c10eaf5` |
+| 3  | Avatar Force — honest UI (Gmail vs Gravatar paths) | ✅ shipped | `64b8f10` |
+| 4a | A/B Auto-Promote cron + service | ✅ shipped | `fdea1d6` |
+| 4b | Brand voice sweep (6 fixes inline) | ✅ shipped | `9447944` |
 | 5  | Browser-verify + docs | 🔁 in progress |  |
 
 ---
