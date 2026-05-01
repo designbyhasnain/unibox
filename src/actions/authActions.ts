@@ -6,6 +6,25 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import bcrypt from 'bcryptjs';
 
+/**
+ * Phase 10: instant session payload — NO DB hit, NO awaits beyond
+ * cookie decryption. Returns email/name/role/userId straight from the
+ * signed cookie. Use this for any surface that needs to render
+ * IMMEDIATELY (Account Settings modal email field, sidebar persona on
+ * cold mount). Pair with `getCurrentUserAction()` for fresh DB-backed
+ * data in the background.
+ */
+export async function getSessionPayloadAction() {
+    const session = await getSession();
+    if (!session) return null;
+    return {
+        userId: session.userId,
+        email: session.email,
+        name: session.name,
+        role: session.role,
+    };
+}
+
 export async function getCurrentUserAction() {
     const session = await getSession();
     if (!session) return null;

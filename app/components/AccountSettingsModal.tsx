@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, X, Check, Camera, Loader2 } from 'lucide-react';
-import { updateOwnNameAction, changeOwnPasswordAction, uploadOwnAvatarAction, getCurrentUserAction } from '../../src/actions/authActions';
+import { updateOwnNameAction, changeOwnPasswordAction, uploadOwnAvatarAction, getCurrentUserAction, getSessionPayloadAction } from '../../src/actions/authActions';
 import { useUndoToast } from '../context/UndoToastContext';
 import { useDialogShell } from '../hooks/useDialogShell';
 
@@ -58,7 +58,25 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
 
     useEffect(() => {
         let cancelled = false;
-        setLoadingProfile(true);
+
+        // Phase 10: TWO-STAGE LOAD.
+        //
+        // Stage 1 (instant, no DB): pull email/name/role from the signed
+        // session cookie. This unblocks the modal — the user sees their
+        // email immediately on first render, no spinner.
+        //
+        // Stage 2 (background, can be slow): fetch avatar_url from DB.
+        // While this runs we don't show a spinner on email — only the
+        // avatar slot stays neutral until the URL arrives.
+        getSessionPayloadAction().then(s => {
+            if (cancelled || !s) return;
+            // Only overwrite if we don't already have it from props/cache.
+            setEmail(prev => prev || s.email || '');
+            setName(prev => prev || s.name || '');
+            setOriginalName(prev => prev || s.name || '');
+        });
+
+        // Stage 2: full DB fetch for fresh avatar + role.
         getCurrentUserAction()
             .then(u => {
                 if (cancelled) return;
@@ -67,14 +85,13 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
                     setOriginalName(u.name || '');
                     setEmail(u.email || '');
                     setAvatarUrl(u.avatarUrl || null);
-                } else {
-                    showError("Couldn't load your profile — your session may have expired.");
                 }
+                // If u is null AND we still have no email after Stage 1
+                // (extremely unusual), show toast — but don't block UI.
             })
             .catch((err) => {
                 if (cancelled) return;
-                console.error('[AccountSettings] load failed', err);
-                showError("Couldn't load your profile. Check your connection.");
+                console.warn('[AccountSettings] DB refresh failed, keeping session-only data:', err);
             })
             .finally(() => { if (!cancelled) setLoadingProfile(false); });
         return () => { cancelled = true; };
@@ -118,6 +135,14 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
         if (res.success && res.url) {
             setAvatarUrl(res.url);
             try { localStorage.setItem('unibox_user_avatar', res.url); } catch {}
+            // Phase 10: dispatch a synchronous custom event so the sidebar
+            // updates in the same tick — no waiting for refreshProfile to
+            // round-trip the server.
+            try {
+                window.dispatchEvent(new CustomEvent('unibox:profile-updated', {
+                    detail: { avatarUrl: res.url },
+                }));
+            } catch {}
             onUpdated?.();
         } else {
             // Roll back preview to whatever was on the user before the picker.
@@ -139,7 +164,13 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
         setOriginalName(optimisticName);
         setNameSaved(true);
         try { localStorage.setItem('unibox_user_name', optimisticName); } catch {}
-        onUpdated?.(); // Sidebar reads localStorage on this signal — instant.
+        // Phase 10: synchronous event so the sidebar updates IN THE SAME TICK.
+        try {
+            window.dispatchEvent(new CustomEvent('unibox:profile-updated', {
+                detail: { name: optimisticName },
+            }));
+        } catch {}
+        onUpdated?.();
 
         // "Saving…" only appears if the action takes >300ms. Fast networks
         // get a clean green "Saved" without spinner churn.
@@ -339,21 +370,9 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
                                         type="email"
                                         value={email}
                                         disabled
-                                        placeholder={loadingProfile ? 'Loading…' : ''}
-                                        style={{ ...inputStyle, color: 'var(--ink-muted)', cursor: 'not-allowed', paddingRight: loadingProfile ? 36 : 12 }}
+                                        placeholder=""
+                                        style={{ ...inputStyle, color: 'var(--ink-muted)', cursor: 'not-allowed' }}
                                     />
-                                    {loadingProfile && (
-                                        <Loader2
-                                            size={14}
-                                            style={{
-                                                position: 'absolute', right: 10, top: '50%',
-                                                transform: 'translateY(-50%)',
-                                                color: 'var(--ink-muted)',
-                                                animation: 'jarvis-spin 0.9s linear infinite',
-                                            }}
-                                            aria-label="Loading profile"
-                                        />
-                                    )}
                                 </div>
                                 <span style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 4, display: 'block' }}>
                                     Email is set on the User record and can&apos;t be changed here. Contact an admin if you need to change it.

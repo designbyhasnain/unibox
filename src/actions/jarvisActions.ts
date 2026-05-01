@@ -26,16 +26,55 @@ function evictIfFull() {
     if (firstKey) briefingCache.delete(firstKey);
 }
 
+// Phase 10: how stale a pre-computed briefing can be before we regenerate.
+// 90 minutes — the cron runs hourly so this gives a 30-minute grace
+// window even if the cron run is delayed. Lower this if the team wants
+// fresher numbers; raise it if the Groq quota gets pinched.
+const PRECOMPUTED_TTL_MINUTES = 90;
+
 export async function getDailyBriefingAction(): Promise<{ success: boolean; briefing?: DailyBriefing; error?: string; cached?: boolean }> {
     try {
         const { userId, role } = await ensureAuthenticated();
+
+        // Phase 10: in-memory cache wins first if present (same-process repeat).
         const key = todayKey(userId);
         const hit = briefingCache.get(key);
         if (hit) return { success: true, briefing: hit.briefing, cached: true };
 
+        // Phase 10: pre-computed table wins second. If the row is fresher
+        // than PRECOMPUTED_TTL_MINUTES, return it without calling Groq.
+        // ~50ms for the dashboard instead of ~5s.
+        const { data: precomputed } = await supabase
+            .from('user_briefings')
+            .select('briefing, generated_at')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (precomputed && precomputed.briefing) {
+            const ageMinutes = (Date.now() - new Date(precomputed.generated_at).getTime()) / 60_000;
+            if (ageMinutes < PRECOMPUTED_TTL_MINUTES) {
+                briefingCache.set(key, { briefing: precomputed.briefing as DailyBriefing, key });
+                evictIfFull();
+                return { success: true, briefing: precomputed.briefing as DailyBriefing, cached: true };
+            }
+        }
+
+        // Stale or missing — generate live, then upsert into the table for
+        // future requests / other process instances.
         const briefing = await generateDailyBriefing(userId, role);
         briefingCache.set(key, { briefing, key });
         evictIfFull();
+
+        // Fire-and-forget upsert; don't block the user on it.
+        void supabase.from('user_briefings').upsert({
+            user_id: userId,
+            role,
+            briefing: briefing as unknown as Record<string, unknown>,
+            generated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' }).then(({ error }) => {
+            if (error) console.error('[getDailyBriefingAction] upsert failed:', error.message);
+        });
+
         return { success: true, briefing, cached: false };
     } catch (e: any) {
         return { success: false, error: e?.message || 'Failed to generate briefing' };

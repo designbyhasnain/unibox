@@ -94,6 +94,19 @@ async function setupSchedules() {
   });
   console.log(`A/B auto-promote cron created: ${abPromote.scheduleId}`);
 
+  // Pre-compute Jarvis daily briefings — hourly at :15 (offset from
+  // ab-auto-promote so we don't queue-bomb the same minute). Phase 10:
+  // closes ARCH-17 (dashboard ~5s Groq wait). Dashboard reads from
+  // user_briefings (~50ms) instead.
+  const precompute = await client.schedules.create({
+    destination: `${BASE_URL}/api/cron/precompute-briefings`,
+    cron: "15 * * * *",
+    method: "POST",
+    body: JSON.stringify({ source: "qstash" }),
+    headers: { "Content-Type": "application/json" },
+  });
+  console.log(`Briefing pre-compute cron created: ${precompute.scheduleId}`);
+
   console.log("\n✅ QStash schedules setup complete!");
 }
 

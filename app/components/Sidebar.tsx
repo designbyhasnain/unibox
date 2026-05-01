@@ -123,23 +123,37 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         return () => document.removeEventListener('visibilitychange', onVis);
     }, [mounted, refreshProfile]);
 
-    // Phase 9: live-sync from the Account Settings modal. The modal writes
-    // unibox_user_name + unibox_user_avatar to localStorage on save; this
-    // effect mirrors those values into our state immediately so the sidebar
-    // updates without waiting for the server roundtrip.
+    // Phase 9 + 10: live-sync from the Account Settings modal.
     //
-    // Same-tab updates: 'storage' doesn't fire in the originating tab, so the
-    // modal's onUpdated() callback (which calls refreshProfile here) covers
-    // that path. Cross-tab updates use the 'storage' event below.
+    // Two channels:
+    //   1. 'unibox:profile-updated' — synchronous CustomEvent dispatched by
+    //      the modal in the same tick as the optimistic state flip. Carries
+    //      the new name / avatarUrl in event.detail. THIS is the 0ms path
+    //      for same-tab updates.
+    //   2. 'storage' — only fires in OTHER tabs, so this covers cross-tab
+    //      sync (open settings in tab B → sidebar in tab A updates).
     React.useEffect(() => {
         if (!mounted) return;
+
+        const onProfileUpdated = (e: Event) => {
+            const detail = (e as CustomEvent<{ name?: string; avatarUrl?: string | null; role?: string }>).detail || {};
+            if (typeof detail.name === 'string') setUserName(detail.name);
+            if (detail.avatarUrl !== undefined) setUserAvatarUrl(detail.avatarUrl);
+            if (typeof detail.role === 'string') setUserRole(detail.role);
+        };
+        window.addEventListener('unibox:profile-updated', onProfileUpdated);
+
         const onStorage = (e: StorageEvent) => {
             if (e.key === 'unibox_user_name' && e.newValue !== null) setUserName(e.newValue);
             if (e.key === 'unibox_user_avatar') setUserAvatarUrl(e.newValue || null);
             if (e.key === 'unibox_user_role' && e.newValue !== null) setUserRole(e.newValue);
         };
         window.addEventListener('storage', onStorage);
-        return () => window.removeEventListener('storage', onStorage);
+
+        return () => {
+            window.removeEventListener('unibox:profile-updated', onProfileUpdated);
+            window.removeEventListener('storage', onStorage);
+        };
     }, [mounted]);
 
     const [actionCount, setActionCount] = React.useState(0);
