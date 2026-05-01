@@ -8,6 +8,7 @@ import {
     clearPersonaAction,
     pushPersonaToGmailAction,
 } from '../../src/actions/accountActions';
+import BrandingMagicLinks from './BrandingMagicLinks';
 
 export interface PersonaTarget {
     id: string;
@@ -274,6 +275,14 @@ export default function ManagePersonaModal({ target, bulkTargets, onClose, onApp
                         </div>
                     );
                 })()}
+
+                {/* Phase 15: 1-click magic links to the right photo destination
+                    per address type. Replaces the "wait, where do I go?" tax. */}
+                {!isBulk && target && (
+                    <div style={{ marginTop: 12 }}>
+                        <BrandingMagicLinks email={target.email} senderName={displayName} />
+                    </div>
+                )}
 
                 {/* Phase 14: push to Gmail Send-Mail-As (OAuth-only, single-account mode).
                     This updates the displayName + signature INSIDE Gmail itself —

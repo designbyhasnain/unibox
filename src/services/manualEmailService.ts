@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
 import { decrypt } from '../utils/encryption';
 import { prepareTrackedEmail } from './trackingService';
+import { injectIdentitySchema, buildUnsubscribeHeaders } from '../utils/identitySchema';
 
 /**
  * Test IMAP and SMTP connection with provided credentials
@@ -100,13 +101,28 @@ export async function sendManualEmail(params: {
     const displayName = (account.display_name ?? '').trim();
     const fromField = displayName ? { name: displayName, address: account.email } : account.email;
     console.log(`[SMTP Send] from=${typeof fromField === 'string' ? fromField : `${fromField.name} <${fromField.address}>`} to=${to} subject=${subject.slice(0, 60)}`);
+
+    // Phase 15: identity metadata. Same logic as the Gmail path.
+    const enrichedHtml = injectIdentitySchema(body, {
+        senderName: displayName || account.email,
+        senderEmail: account.email,
+        profileImageUrl: account.profile_image,
+        organization: 'Wedits',
+        organizationUrl: 'https://wedits.com',
+    });
+    const unsubHeaders = trackingId && process.env.NEXT_PUBLIC_APP_URL ? buildUnsubscribeHeaders({
+        mailto: `unsubscribe@${(account.email.split('@')[1] || 'wedits.com')}`,
+        httpUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/unsubscribe?t=${trackingId}`,
+    }) : {};
+
     const info = await transporter.sendMail({
         from: fromField,
         to,
         ...(cc ? { cc } : {}),
         ...(bcc ? { bcc } : {}),
         subject,
-        html: body,
+        html: enrichedHtml,
+        ...(Object.keys(unsubHeaders).length > 0 ? { headers: unsubHeaders } : {}),
     });
 
     const finalThreadId = threadId || info.messageId.replace(/[<>]/g, '');
