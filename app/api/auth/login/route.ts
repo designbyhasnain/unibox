@@ -54,14 +54,20 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
         }
 
-        // Find user by email
+        // Find user by email. Case-insensitive (Phase 9) — DB rows can creep
+        // in mixed-case from imports. Surface query errors as 503 so we don't
+        // mask a transient pooler/schema-cache failure as "wrong credentials".
         const { data: user, error } = await supabase
             .from('users')
             .select('id, email, name, role, password, crm_status')
-            .eq('email', email.toLowerCase().trim())
+            .ilike('email', email.toLowerCase().trim())
             .maybeSingle();
 
-        if (error || !user) {
+        if (error) {
+            console.error('[Email Login] users lookup error:', error.message);
+            return NextResponse.json({ error: 'Authentication service is unavailable. Please retry.' }, { status: 503 });
+        }
+        if (!user) {
             return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
         }
 

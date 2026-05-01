@@ -180,12 +180,27 @@ export async function GET(request: NextRequest) {
             return NextResponse.redirect(new URL('/', request.url));
         }
 
-        // 4. Regular login - check if user exists
-        let { data: user } = await supabase
+        // 4. Regular login - check if user exists.
+        // Phase 9 fix: case-insensitive lookup (defence in depth — DB rows
+        // can creep in mixed-case from various import paths) AND surface
+        // any query error explicitly. Without this, a stale PostgREST schema
+        // cache or transient pooler error silently returned data=null, the
+        // code fell through to the "no_invite" branch, and existing users
+        // (e.g. abdulbari@txb.com.pk, role=VIDEO_EDITOR, status=ACTIVE) saw
+        // "Invite Required" even though their account was perfectly valid.
+        const lookupEmail = googleUser.email.toLowerCase().trim();
+        const userQuery = await supabase
             .from('users')
             .select('*')
-            .eq('email', googleUser.email.toLowerCase())
+            .ilike('email', lookupEmail)
             .maybeSingle();
+
+        if (userQuery.error) {
+            console.error('[CRM OAuth callback] users lookup error:', userQuery.error.message, { email: lookupEmail });
+            return NextResponse.redirect(new URL('/login?error=server&retry=1', request.url));
+        }
+
+        let user = userQuery.data;
 
         if (!user) {
             // Check if there's a pending invitation for this email (auto-accept)

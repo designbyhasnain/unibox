@@ -84,6 +84,12 @@ function LoginContent() {
                             <p>You need an invitation to access this app. Contact your admin to get invited.</p>
                         </div>
                     )}
+                    {error === 'server' && (
+                        <div className="login-error-box">
+                            <strong>Authentication service hiccup</strong>
+                            <p>The login service is temporarily unavailable. Please try again in a few seconds. If this keeps happening, contact your admin.</p>
+                        </div>
+                    )}
 
                     <button
                         className="google-login-btn"
