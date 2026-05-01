@@ -299,8 +299,27 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
 
                 {/* User profile card — shows the LOGGED-IN USER's name + avatar
                     from the users table, NOT a Gmail persona. Click opens the
-                    Account Settings modal (display name + change password). */}
-                {mounted && (
+                    Account Settings modal (display name + change password).
+
+                    Phase 7 Step 2c: render a skeleton row before mount AND
+                    while userRole is still resolving. The previous code
+                    rendered nothing pre-mount, then briefly showed cached
+                    name with no role badge, then snapped to fresh data —
+                    creating a 1-2 frame "flicker" of layout. The skeleton
+                    holds the same height + shape so nothing shifts. */}
+                {!mounted || !userRole ? (
+                    <div
+                        className="sb-account-filter"
+                        aria-label="Loading profile"
+                        style={{ pointerEvents: 'none' }}
+                    >
+                        <div className="sb-avatar sb-avatar-skeleton" aria-hidden="true" />
+                        <div className="sb-meta">
+                            <div className="sb-name sb-skeleton-line" aria-hidden="true" style={{ width: '70%' }} />
+                            <div className="sb-sub sb-skeleton-line" aria-hidden="true" style={{ width: '50%' }} />
+                        </div>
+                    </div>
+                ) : (
                     <button
                         type="button"
                         className="sb-account-filter"
