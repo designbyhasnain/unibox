@@ -1,5 +1,4 @@
-// TODO: Add `import 'server-only';` after running `npm install` to install the server-only package.
-// This prevents accidental client-side imports that could leak secrets.
+import 'server-only';
 import { supabase } from '../lib/supabase';
 import { classifySentEmail, classifyReceivedEmail } from './emailClassificationService';
 import { extractPhoneFromText } from '../utils/phoneExtractor';

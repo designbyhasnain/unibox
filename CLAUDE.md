@@ -495,18 +495,10 @@ Code: `backfill-warmup-badges.mjs`, `db-maintenance.mjs`, `import-revenue.ts`, `
 Data inputs: `Edit_revenue_for_web_app.csv`, `not-found-projects.csv`.
 
 ### `docs/`
-`ACTION-PAGE-REDESIGN.md`, `ACTION-QUEUE-ARCHITECTURE.md`, `DEEP-DIVE.md`, `DESIGN-IMPLEMENTATION-PLAN.md`, `DEVELOPER_GUIDE.md`, `JARVIS-TRAINING-PLAN.md`, `SALES-AGENT-PLAYBOOK.md`, `UNIBOX-SOP.md`, plus `docs/qa/` (build-config-qa, database-qa, architecture-dry-qa) and `docs/superpowers/plans/`.
+`ACTION-QUEUE-ARCHITECTURE.md`, `DEEP-DIVE.md`, `DESIGN-IMPLEMENTATION-PLAN.md`, `DEVELOPER_GUIDE.md`, `JARVIS-TRAINING-PLAN.md`, `SALES-AGENT-PLAYBOOK.md`, `UNIBOX-SOP.md`, plus `docs/qa/` (build-config-qa, database-qa, architecture-dry-qa) and `docs/superpowers/plans/`. Audit & lockdown trail: `UNIBOX-ULTIMATE-AUDIT.md`, `UNIBOX-AUDIT-PHASE6-2026-05-01.md`, `PHASE5-LOCKDOWN-2026-04-30.md`, `PRE-LAUNCH-VERIFICATION-2026-04-30.md`, `SYNTHETIC-WORKFLOW-2026-04-30.md`.
 
 ### Chrome Extension (`chrome-extension/`)
-Self-contained extension with `background/`, `content/`, `popup/`, `fallbacks/`, `utils/`, `manifest.json` (v3), own `package.json`, `build.js`, `zip.js`, and `dist/`. Talks to `/api/ext/*` and `/api/extension/*`.
-
-### Orphan files (verified 2026-04-21, candidates for removal)
-- `src/actions/automationActions.ts`
-- `src/actions/relationshipActions.ts`
-- `src/services/pipelineLogic.ts`
-- `app/components/RevenueChart.tsx`, `app/components/RevenueBarChart.tsx`
-- `app/components/OnboardingWizard.tsx`
-- `app/components/JarvisDailyBriefing.tsx` *(dashboard calls the action directly, not the component)*
+Self-contained extension with `background/`, `content/`, `popup/`, `fallbacks/`, `utils/`, `manifest.json` (v3), own `package.json`, `build.js`, `zip.js`, and `dist/`. Talks to `/api/ext/*` and `/api/extension/*`. **Auth**: API key now stored as SHA-256 hash in `users.extension_api_key_hash` (Phase 5 commit `5f1894a`); legacy plaintext `users.extension_api_key` kept until 2026-06-01. Helper at `src/lib/extensionAuth.ts`.
 
 ---
 
