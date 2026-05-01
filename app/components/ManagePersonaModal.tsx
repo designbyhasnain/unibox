@@ -186,40 +186,88 @@ export default function ManagePersonaModal({ target, bulkTargets, onClose, onApp
                     </span>
                 </label>
 
-                {/* Gravatar hint */}
-                <div className="persona-gravatar">
-                    <div className="persona-gravatar-title">Make the photo show in recipients&apos; inboxes</div>
-                    <div className="persona-gravatar-body">
-                        Gmail and Outlook only display sender photos published to <strong>Gravatar</strong>.
-                        Upload the same image at gravatar.com using the email below so external inboxes see it too.
-                    </div>
-                    <div className="persona-gravatar-emails">
-                        {gravatarEmails.slice(0, 3).map(em => (
-                            <button
-                                key={em}
-                                type="button"
-                                className="persona-email-chip"
-                                onClick={() => navigator.clipboard?.writeText(em)}
-                                title="Copy email"
-                            >
-                                {em}
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <rect x="9" y="9" width="13" height="13" rx="2" />
-                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                </svg>
-                            </button>
-                        ))}
-                        {gravatarEmails.length > 3 && <span className="persona-email-more">+{gravatarEmails.length - 3} more</span>}
-                    </div>
-                    <a
-                        href="https://gravatar.com/profile/avatars"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="persona-gravatar-link"
-                    >
-                        Open Gravatar →
-                    </a>
-                </div>
+                {/* Avatar reality hint — Phase 7 honesty pass.
+                    The photo + display name we set here are used for in-app
+                    display and the From-header on outbound MIME. Whether the
+                    RECIPIENT actually sees the photo depends on the address: */}
+                {(() => {
+                    const isGmailAddr = (em: string) => /@(gmail\.com|googlemail\.com)$/i.test(em);
+                    const allGmail = gravatarEmails.every(isGmailAddr);
+                    const allCustom = gravatarEmails.every(em => !isGmailAddr(em));
+                    return (
+                        <div className="persona-gravatar">
+                            <div className="persona-gravatar-title">How recipients see the photo</div>
+                            <div className="persona-gravatar-body" style={{ marginBottom: 8 }}>
+                                {allGmail && (
+                                    <>
+                                        These addresses are on <strong>@gmail.com</strong>. Gmail uses the photo
+                                        on the sender&apos;s own Google profile — <strong>not</strong> our upload.
+                                        Each owner needs to upload the same image at{' '}
+                                        <a href="https://myaccount.google.com/personal-info" target="_blank" rel="noopener noreferrer">myaccount.google.com</a>.
+                                    </>
+                                )}
+                                {allCustom && (
+                                    <>
+                                        These are custom-domain addresses. Most non-Gmail clients (Apple Mail,
+                                        Outlook on the web, Yahoo) read sender photos from <strong>Gravatar</strong>.
+                                        Upload the image at gravatar.com using the address(es) below so those inboxes show it too.
+                                    </>
+                                )}
+                                {!allGmail && !allCustom && (
+                                    <>
+                                        Mixed Gmail + custom-domain addresses. Gmail addresses need their photo
+                                        set at <a href="https://myaccount.google.com/personal-info" target="_blank" rel="noopener noreferrer">myaccount.google.com</a>;
+                                        custom domains need <strong>Gravatar</strong>. Click an address below to copy it.
+                                    </>
+                                )}
+                            </div>
+                            <div className="persona-gravatar-emails">
+                                {gravatarEmails.slice(0, 3).map(em => (
+                                    <button
+                                        key={em}
+                                        type="button"
+                                        className="persona-email-chip"
+                                        onClick={() => navigator.clipboard?.writeText(em)}
+                                        title={isGmailAddr(em) ? 'Copy email — set photo at myaccount.google.com' : 'Copy email — register at gravatar.com'}
+                                    >
+                                        {em}
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                        </svg>
+                                    </button>
+                                ))}
+                                {gravatarEmails.length > 3 && <span className="persona-email-more">+{gravatarEmails.length - 3} more</span>}
+                            </div>
+                            <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+                                {!allGmail && (
+                                    <a
+                                        href="https://gravatar.com/profile/avatars"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="persona-gravatar-link"
+                                    >
+                                        Open Gravatar →
+                                    </a>
+                                )}
+                                {!allCustom && (
+                                    <a
+                                        href="https://myaccount.google.com/personal-info"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="persona-gravatar-link"
+                                    >
+                                        Open Google profile →
+                                    </a>
+                                )}
+                            </div>
+                            <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-faint)', lineHeight: 1.5 }}>
+                                Note: there&apos;s no Google API that lets us push a profile photo for you.
+                                The owner has to set it themselves.
+                            </div>
+                        </div>
+                    );
+                })()}
 
                 {error && <div className="persona-error">{error}</div>}
 
