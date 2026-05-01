@@ -6,6 +6,7 @@ import {
     updateAccountPersonaAction,
     bulkApplyPersonaAction,
     clearPersonaAction,
+    pushPersonaToGmailAction,
 } from '../../src/actions/accountActions';
 
 export interface PersonaTarget {
@@ -36,6 +37,11 @@ export default function ManagePersonaModal({ target, bulkTargets, onClose, onApp
     const [error, setError] = useState<string | null>(null);
     const [dragActive, setDragActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Phase 14: track Gmail SendAs push state per-account so the user
+    // sees real success/failure feedback. NOT shown for bulk mode (no
+    // single accountId).
+    const [pushingToGmail, setPushingToGmail] = useState(false);
+    const [pushResult, setPushResult] = useState<string | null>(null);
 
     useEffect(() => {
         setDisplayName(target?.displayName ?? '');
@@ -268,6 +274,56 @@ export default function ManagePersonaModal({ target, bulkTargets, onClose, onApp
                         </div>
                     );
                 })()}
+
+                {/* Phase 14: push to Gmail Send-Mail-As (OAuth-only, single-account mode).
+                    This updates the displayName + signature INSIDE Gmail itself —
+                    so when the owner sends from mail.google.com directly, the same
+                    name appears. Does NOT change the Google profile photo (no API
+                    for that — see footnote above). */}
+                {!isBulk && /@(gmail\.com|googlemail\.com)$/i.test(target!.email) && target!.displayName && (
+                    <div style={{ marginTop: 12, padding: 10, background: 'var(--surface-2)', borderRadius: 8, fontSize: 12 }}>
+                        <div style={{ marginBottom: 6, color: 'var(--ink-2)' }}>
+                            <strong>Sync to Gmail &quot;Send Mail As&quot;</strong>
+                        </div>
+                        <div style={{ marginBottom: 8, color: 'var(--ink-muted)', lineHeight: 1.5 }}>
+                            Pushes <strong>{target!.displayName}</strong> + the photo as an inline signature
+                            into Gmail&apos;s own settings. The owner&apos;s Gmail compose window will use this
+                            name. <em>Does NOT change the Google profile photo</em> — that requires the owner
+                            to upload it themselves at myaccount.google.com.
+                        </div>
+                        <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={pushingToGmail}
+                            onClick={async () => {
+                                setPushingToGmail(true);
+                                setPushResult(null);
+                                try {
+                                    const r = await pushPersonaToGmailAction(target!.id);
+                                    if (r.success) {
+                                        setPushResult(
+                                            r.displayNameUpdated || r.signatureUpdated
+                                                ? '✓ Synced to Gmail Send-Mail-As'
+                                                : '✓ Already in sync'
+                                        );
+                                    } else {
+                                        setPushResult(`✗ ${r.error || 'Failed'}`);
+                                    }
+                                } catch (e: unknown) {
+                                    setPushResult(`✗ ${e instanceof Error ? e.message : 'Failed'}`);
+                                }
+                                setPushingToGmail(false);
+                            }}
+                        >
+                            {pushingToGmail ? 'Pushing to Gmail…' : 'Push to Gmail'}
+                        </button>
+                        {pushResult && (
+                            <div style={{ marginTop: 6, color: pushResult.startsWith('✓') ? 'var(--coach)' : 'var(--danger)' }}>
+                                {pushResult}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {error && <div className="persona-error">{error}</div>}
 

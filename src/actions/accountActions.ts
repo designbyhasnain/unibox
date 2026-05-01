@@ -11,6 +11,7 @@ import { syncManualEmails } from '../services/manualEmailService';
 import { normalizeEmail } from '../utils/emailNormalizer';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { requireAdmin, getAccessibleGmailAccountIds } from '../utils/accessControl';
+import { syncOAuthPersonaToSendAs, syncAllOAuthPersonasToSendAs } from '../services/gmailSendAsService';
 
 export async function getGoogleAuthUrlAction(): Promise<string> {
     const { role } = await ensureAuthenticated();
@@ -729,3 +730,27 @@ export async function syncGoogleProfilesAction(): Promise<{
 
     return { success: true, processed: accounts.length, updated, failed };
 }
+
+
+// ─── Push persona to Gmail Send-Mail-As (Phase 14) ────────────────────────
+//
+// Honest scope: this updates the Gmail "Send Mail As" displayName + HTML
+// signature for the OAuth account. It does NOT change the Google profile
+// photo (no API for that exists; see src/services/gmailSendAsService.ts
+// header for the full reasoning). It DOES make the displayName consistent
+// when the owner sends from Gmail directly, and embeds the persona image
+// inline in the signature so recipients at least see it in the body.
+
+export async function pushPersonaToGmailAction(accountId: string) {
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
+    if (!accountId) return { success: false as const, error: "accountId required" };
+    return await syncOAuthPersonaToSendAs(accountId);
+}
+
+export async function pushAllPersonasToGmailAction() {
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
+    return await syncAllOAuthPersonasToSendAs();
+}
+
