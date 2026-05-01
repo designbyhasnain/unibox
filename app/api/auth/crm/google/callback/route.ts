@@ -16,6 +16,17 @@ function hashInviteToken(rawToken: string): string {
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'ACCOUNT_MANAGER', 'SALES', 'VIDEO_EDITOR']);
 
+// Phase 7 invariant: new users via Google OAuth NEVER auto-default to ADMIN.
+// Two enforcement points below — keep them both:
+//   1. Line ~232: no-invite logins are rejected (?error=no_invite).
+//   2. Lines ~189–225: pending-invite auto-accept inherits invitation.role,
+//      which the admin set explicitly when creating the invite.
+// If you add a new user-creation path here, the role MUST come from an
+// invitation row OR default to 'SALES' — never 'ADMIN'. The 12 historical
+// OAuth-derived ADMINs were created by a migration helper that has been
+// deleted (Phase 7, commit 6ee68d1+ adjacent).
+const NEW_USER_DEFAULT_ROLE = 'SALES' as const;
+
 // Failure-branch logging helper — tail server logs to see exactly which
 // branch redirected to /login?error=auth_failed. The user-facing message
 // stays generic ("Could not verify your Google account") so we don't leak
