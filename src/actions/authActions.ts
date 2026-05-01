@@ -35,15 +35,26 @@ export async function getCurrentUserAction() {
     // Phase 9 fix: when the DB query errors (stale PostgREST schema cache,
     // pooler hiccup, transient timeout), don't return null — fall back to
     // the session data so the consumer (Account Settings modal, Sidebar)
-    // can still render email + cookie-baked name. Returning null was
-    // collapsing the modal's email field into a permanent "Loading…" spinner
-    // and triggering a "Couldn't load your profile" toast even though the
-    // session was perfectly valid.
-    const { data: user, error } = await supabase
+    // can still render email + cookie-baked name.
+    //
+    // Phase 11: self-healing retry. When PostgREST returns a "schema cache"
+    // error (transient, recovers in ~1s after a NOTIFY pgrst reload), wait
+    // 500ms and retry once before falling back. Eliminates the user-visible
+    // hiccup banner entirely for the common transient case.
+    const lookup = async () => supabase
         .from('users')
         .select('role, name, avatar_url')
         .eq('id', session.userId)
         .maybeSingle();
+
+    let { data: user, error } = await lookup();
+    if (error && /schema cache|schema mismatch|Could not query/i.test(error.message)) {
+        console.warn('[getCurrentUserAction] schema cache miss, retrying in 500ms...');
+        await new Promise(r => setTimeout(r, 500));
+        const retry = await lookup();
+        user = retry.data;
+        error = retry.error;
+    }
 
     if (error) {
         console.error('[getCurrentUserAction] users lookup error — falling back to session:', error.message);

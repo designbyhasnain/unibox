@@ -55,13 +55,26 @@ export async function POST(request: NextRequest) {
         }
 
         // Find user by email. Case-insensitive (Phase 9) — DB rows can creep
-        // in mixed-case from imports. Surface query errors as 503 so we don't
-        // mask a transient pooler/schema-cache failure as "wrong credentials".
-        const { data: user, error } = await supabase
+        // in mixed-case from imports. Phase 11: self-healing retry — when
+        // PostgREST returns a "schema cache" error (transient, recovers in
+        // ~1s after a NOTIFY pgrst reload), wait 500ms and retry once before
+        // surfacing 503. This eliminates the user-visible hiccup banner
+        // entirely for the common transient case.
+        const lookupEmail = email.toLowerCase().trim();
+        const lookupUser = async () => supabase
             .from('users')
             .select('id, email, name, role, password, crm_status')
-            .ilike('email', email.toLowerCase().trim())
+            .ilike('email', lookupEmail)
             .maybeSingle();
+
+        let { data: user, error } = await lookupUser();
+        if (error && /schema cache|schema mismatch|Could not query/i.test(error.message)) {
+            console.warn('[Email Login] schema cache miss, retrying in 500ms...');
+            await new Promise(r => setTimeout(r, 500));
+            const retry = await lookupUser();
+            user = retry.data;
+            error = retry.error;
+        }
 
         if (error) {
             console.error('[Email Login] users lookup error:', error.message);

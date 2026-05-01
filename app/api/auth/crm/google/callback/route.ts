@@ -189,11 +189,21 @@ export async function GET(request: NextRequest) {
         // (e.g. abdulbari@txb.com.pk, role=VIDEO_EDITOR, status=ACTIVE) saw
         // "Invite Required" even though their account was perfectly valid.
         const lookupEmail = googleUser.email.toLowerCase().trim();
-        const userQuery = await supabase
+        const lookupUser = async () => supabase
             .from('users')
             .select('*')
             .ilike('email', lookupEmail)
             .maybeSingle();
+
+        // Phase 11: self-healing retry on transient PostgREST schema cache
+        // errors. Without this, a stale cache after schema migrations
+        // surfaced as "Authentication service hiccup" to the user.
+        let userQuery = await lookupUser();
+        if (userQuery.error && /schema cache|schema mismatch|Could not query/i.test(userQuery.error.message)) {
+            console.warn('[CRM OAuth callback] schema cache miss, retrying in 500ms...');
+            await new Promise(r => setTimeout(r, 500));
+            userQuery = await lookupUser();
+        }
 
         if (userQuery.error) {
             console.error('[CRM OAuth callback] users lookup error:', userQuery.error.message, { email: lookupEmail });
