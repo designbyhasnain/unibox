@@ -537,7 +537,7 @@ export default function CampaignDetailPage() {
                                         }
                                         window.location.reload();
                                     } else {
-                                        showError(result.error || 'Import failed');
+                                        showError(result.error || 'CSV import failed. Check that emails are valid and unique, then retry.');
                                     }
                                     e.target.value = '';
                                 }} />

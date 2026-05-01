@@ -82,6 +82,18 @@ async function setupSchedules() {
   });
   console.log(`IMAP sync cron created: ${imapSync.scheduleId}`);
 
+  // A/B auto-promote — hourly (Phase 7 Step 4a). For each campaign step
+  // with multiple variants: when one beats the other by ≥8pp open rate
+  // for ≥48h with ≥100 sends each, set winner.weight=100 and loser.weight=0.
+  const abPromote = await client.schedules.create({
+    destination: `${BASE_URL}/api/cron/ab-auto-promote`,
+    cron: "0 * * * *",
+    method: "POST",
+    body: JSON.stringify({ source: "qstash" }),
+    headers: { "Content-Type": "application/json" },
+  });
+  console.log(`A/B auto-promote cron created: ${abPromote.scheduleId}`);
+
   console.log("\n✅ QStash schedules setup complete!");
 }
 

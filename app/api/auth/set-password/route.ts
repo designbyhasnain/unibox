@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { supabase } from '../../../../src/lib/supabase';
 import { createSession } from '../../../../src/lib/auth';
+
+// Phase 1 (commit e9cb263) hashed invitation tokens at rest. The OAuth callback
+// at app/api/auth/crm/google/callback/route.ts hashes the URL token before
+// lookup; this route did NOT. Phase 8 fix — hash first, fall back to plaintext
+// for any legacy rows still in the table during the transition.
+function hashInviteToken(rawToken: string): string {
+    return crypto.createHash('sha256').update(rawToken).digest('hex');
+}
+
+const INVITATION_FIELDS = 'id, email, name, role, status, expires_at, invited_by, assigned_gmail_account_ids';
 
 export async function POST(request: NextRequest) {
     try {
@@ -20,12 +31,24 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Invitation token is required' }, { status: 400 });
         }
 
-        const { data: invitation } = await supabase
+        // Look up by hash first; legacy plaintext fallback for unmigrated rows.
+        const tokenHash = hashInviteToken(inviteToken);
+        let { data: invitation } = await supabase
             .from('invitations')
-            .select('*')
-            .eq('token', inviteToken)
+            .select(INVITATION_FIELDS)
+            .eq('token', tokenHash)
             .eq('status', 'PENDING')
             .maybeSingle();
+
+        if (!invitation) {
+            const legacy = await supabase
+                .from('invitations')
+                .select(INVITATION_FIELDS)
+                .eq('token', inviteToken)
+                .eq('status', 'PENDING')
+                .maybeSingle();
+            invitation = legacy.data;
+        }
 
         if (!invitation) {
             return NextResponse.json({ error: 'Invalid or expired invitation' }, { status: 400 });

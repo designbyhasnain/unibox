@@ -267,7 +267,7 @@ export default function EditorTodayView() {
                     </div>
                     {data.activeProjects.length === 0 ? (
                         <div className="ed-empty">
-                            All clear — no active projects.{' '}
+                            No edits in your queue. Your account manager will assign work here.{' '}
                             <button className="ed-link" onClick={() => router.push('/my-queue')}>Check queue →</button>
                         </div>
                     ) : (
