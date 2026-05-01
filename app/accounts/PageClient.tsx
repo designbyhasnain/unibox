@@ -270,12 +270,12 @@ export default function AccountsPage() {
             } else {
                 const msg = result.error || 'Connection failed';
                 setError(msg);
-                showError(`Couldn't connect ${manualEmail}: ${msg}`);
+                showError(`Failed to connect ${manualEmail}. ${msg}. Check credentials or retry via OAuth.`);
             }
         } catch (err: any) {
             const msg = err.message || 'Connection failed';
             setError(msg);
-            showError(`Couldn't connect ${manualEmail}: ${msg}`);
+            showError(`Failed to connect ${manualEmail}. ${msg}. Check credentials or retry via OAuth.`);
         } finally {
             setIsConnecting(false);
         }
@@ -368,10 +368,10 @@ export default function AccountsPage() {
                 }
                 fetchAccounts();
             } else {
-                showError('Health check failed: ' + (result.error || 'Unknown error'), { onRetry: handleSyncAllHealth });
+                showError(`Health check failed. ${result.error || 'Unknown error'}. Re-test IMAP + SMTP credentials, or switch the account to OAuth.`, { onRetry: handleSyncAllHealth });
             }
         } catch (err: any) {
-            showError('Health check failed: ' + (err?.message || 'Unknown error'), { onRetry: handleSyncAllHealth });
+            showError(`Health check failed. ${err?.message || 'Unknown error'}. Re-test IMAP + SMTP credentials, or switch the account to OAuth.`, { onRetry: handleSyncAllHealth });
         } finally {
             setIsCheckingHealth(false);
         }

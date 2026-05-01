@@ -161,7 +161,7 @@ export default function CampaignsPage() {
                     <tbody>
                         {filteredCampaigns.length === 0 && searchTerm && (
                             <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '24px' }}>
-                                No campaigns match &ldquo;{searchTerm}&rdquo;
+                                No campaigns match &ldquo;{searchTerm}&rdquo;. Create a new campaign or adjust the search.
                             </td></tr>
                         )}
                         {filteredCampaigns.length === 0 && !searchTerm && (
@@ -171,7 +171,7 @@ export default function CampaignsPage() {
                                         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
                                     </div>
                                     <h3>No campaigns yet</h3>
-                                    <p>Sequenced cold outreach with A/B testing, account rotation, and warm-up. Start with a goal and add steps.</p>
+                                    <p>Pick a goal — cold outreach, follow-up, or retargeting — then build a sequence. Account rotation and warm-up pacing are handled automatically.</p>
                                 </div>
                             </td></tr>
                         )}

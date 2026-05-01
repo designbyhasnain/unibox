@@ -138,7 +138,7 @@ export default function MyQueueClient() {
                                     </div>
                                     <h3>{projects.length === 0 ? 'No active jobs' : 'Nothing matches that filter'}</h3>
                                     <p>{projects.length === 0
-                                        ? 'When an editor is assigned to your work, the queue fills up here. Check back soon.'
+                                        ? 'When work is assigned to you, the queue fills up here. Check back soon.'
                                         : 'Try clearing the filter or jump back to the full queue.'}</p>
                                 </div>
                             </td></tr>
