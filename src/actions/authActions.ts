@@ -10,21 +10,46 @@ export async function getCurrentUserAction() {
     const session = await getSession();
     if (!session) return null;
 
-    // Always fetch fresh role + profile from DB (the cookie has stale name/avatar
-    // when the user updates their settings).
-    const { data: user } = await supabase
+    // Always try to fetch fresh role + profile from DB. The session cookie
+    // can have stale name/avatar after a profile update.
+    //
+    // Phase 9 fix: when the DB query errors (stale PostgREST schema cache,
+    // pooler hiccup, transient timeout), don't return null — fall back to
+    // the session data so the consumer (Account Settings modal, Sidebar)
+    // can still render email + cookie-baked name. Returning null was
+    // collapsing the modal's email field into a permanent "Loading…" spinner
+    // and triggering a "Couldn't load your profile" toast even though the
+    // session was perfectly valid.
+    const { data: user, error } = await supabase
         .from('users')
         .select('role, name, avatar_url')
         .eq('id', session.userId)
         .maybeSingle();
 
-    if (!user) return null;
+    if (error) {
+        console.error('[getCurrentUserAction] users lookup error — falling back to session:', error.message);
+        return {
+            ...session,
+            role: session.role,
+            name: session.name,
+            avatarUrl: null,
+            stale: true as const,
+        };
+    }
+
+    if (!user) {
+        // User row deleted while session still valid — clear session signal
+        // is the consumer's call (some screens want to keep the cookie alive
+        // for the user to retry, others should logout).
+        return null;
+    }
 
     return {
         ...session,
         role: user.role,
         name: user.name || session.name,
         avatarUrl: user.avatar_url || null,
+        stale: false as const,
     };
 }
 

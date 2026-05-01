@@ -63,6 +63,19 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
     const [showAccountSettings, setShowAccountSettings] = React.useState(false);
 
     const refreshProfile = React.useCallback(() => {
+        // Phase 9: read localStorage SYNCHRONOUSLY first so the sidebar reflects
+        // any modal-side update instantly (the modal writes unibox_user_name
+        // and unibox_user_avatar before this fires). The server call still runs
+        // and overwrites with fresh data, but the user never waits.
+        try {
+            const cachedName = localStorage.getItem('unibox_user_name');
+            if (cachedName !== null) setUserName(cachedName);
+        } catch {}
+        try {
+            const cachedAvatar = localStorage.getItem('unibox_user_avatar');
+            setUserAvatarUrl(cachedAvatar || null);
+        } catch {}
+
         getCurrentUserAction().then(session => {
             if (session) {
                 setUserRole(session.role);
@@ -75,6 +88,11 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                     else localStorage.removeItem('unibox_user_avatar');
                 } catch {}
             }
+        }).catch(err => {
+            // If the server fetch fails (transient pooler hiccup), the
+            // synchronous localStorage read above keeps the sidebar in sync.
+            // Log so we have observability into how often this happens.
+            console.warn('[Sidebar] refreshProfile failed, keeping cached values:', err?.message);
         });
     }, []);
 
@@ -104,6 +122,25 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         document.addEventListener('visibilitychange', onVis);
         return () => document.removeEventListener('visibilitychange', onVis);
     }, [mounted, refreshProfile]);
+
+    // Phase 9: live-sync from the Account Settings modal. The modal writes
+    // unibox_user_name + unibox_user_avatar to localStorage on save; this
+    // effect mirrors those values into our state immediately so the sidebar
+    // updates without waiting for the server roundtrip.
+    //
+    // Same-tab updates: 'storage' doesn't fire in the originating tab, so the
+    // modal's onUpdated() callback (which calls refreshProfile here) covers
+    // that path. Cross-tab updates use the 'storage' event below.
+    React.useEffect(() => {
+        if (!mounted) return;
+        const onStorage = (e: StorageEvent) => {
+            if (e.key === 'unibox_user_name' && e.newValue !== null) setUserName(e.newValue);
+            if (e.key === 'unibox_user_avatar') setUserAvatarUrl(e.newValue || null);
+            if (e.key === 'unibox_user_role' && e.newValue !== null) setUserRole(e.newValue);
+        };
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
+    }, [mounted]);
 
     const [actionCount, setActionCount] = React.useState(0);
     React.useEffect(() => {

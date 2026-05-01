@@ -131,17 +131,40 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
 
     const handleSaveName = async () => {
         if (!name.trim() || name === originalName) return;
-        setSavingName(true);
-        const res = await updateOwnNameAction(name);
-        setSavingName(false);
-        if (res.success) {
-            setOriginalName(name);
-            setNameSaved(true);
-            setTimeout(() => setNameSaved(false), 2000);
-            try { localStorage.setItem('unibox_user_name', res.name); } catch {}
-            onUpdated?.();
-        } else {
-            showError(`Couldn't update name: ${res.error}`, { onRetry: handleSaveName });
+        // Optimistic UI: flip immediately so the user sees instant
+        // success — the sidebar avatar/name + Saved badge update right
+        // away. Only reverse if the server rejects.
+        const optimisticName = name;
+        const previousOriginal = originalName;
+        setOriginalName(optimisticName);
+        setNameSaved(true);
+        try { localStorage.setItem('unibox_user_name', optimisticName); } catch {}
+        onUpdated?.(); // Sidebar reads localStorage on this signal — instant.
+
+        // "Saving…" only appears if the action takes >300ms. Fast networks
+        // get a clean green "Saved" without spinner churn.
+        const slowTimer = setTimeout(() => setSavingName(true), 300);
+
+        try {
+            const res = await updateOwnNameAction(optimisticName);
+            clearTimeout(slowTimer);
+            setSavingName(false);
+            if (res.success) {
+                setTimeout(() => setNameSaved(false), 2000);
+            } else {
+                // Rollback the optimistic flip
+                setOriginalName(previousOriginal);
+                setNameSaved(false);
+                try { localStorage.setItem('unibox_user_name', previousOriginal); } catch {}
+                showError(`Couldn't update name: ${res.error}`, { onRetry: handleSaveName });
+            }
+        } catch (err: unknown) {
+            clearTimeout(slowTimer);
+            setSavingName(false);
+            setOriginalName(previousOriginal);
+            setNameSaved(false);
+            try { localStorage.setItem('unibox_user_name', previousOriginal); } catch {}
+            showError("Couldn't update name. Check your connection.", { onRetry: handleSaveName });
         }
     };
 
