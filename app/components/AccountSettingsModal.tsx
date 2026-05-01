@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useTransition } from 'react';
 import { Eye, EyeOff, X, Check, Camera, Loader2 } from 'lucide-react';
 import { updateOwnNameAction, changeOwnPasswordAction, uploadOwnAvatarAction, getCurrentUserAction, getSessionPayloadAction } from '../../src/actions/authActions';
 import { useUndoToast } from '../context/UndoToastContext';
@@ -12,6 +12,7 @@ interface Props {
     /** Pre-fill from caller (sidebar) so the modal renders populated immediately
      *  instead of blank-then-flash. The server fetch still runs to refresh. */
     initialName?: string;
+    initialEmail?: string;
     initialAvatarUrl?: string | null;
 }
 
@@ -22,25 +23,33 @@ type Tab = 'profile' | 'password';
 const cachedName = (): string => {
     try { return localStorage.getItem('unibox_user_name') || ''; } catch { return ''; }
 };
+const cachedEmail = (): string => {
+    try { return localStorage.getItem('unibox_user_email') || ''; } catch { return ''; }
+};
 const cachedAvatar = (): string | null => {
     try { return localStorage.getItem('unibox_user_avatar') || null; } catch { return null; }
 };
 
-export default function AccountSettingsModal({ onClose, onUpdated, initialName, initialAvatarUrl }: Props) {
+export default function AccountSettingsModal({ onClose, onUpdated, initialName, initialEmail, initialAvatarUrl }: Props) {
     const { showError } = useUndoToast();
     const [tab, setTab] = useState<Tab>('profile');
     const { dialogRef } = useDialogShell({ onClose });
 
     // Profile — seeded from props → localStorage → '' so the inputs are
-    // populated on first render. The server fetch then overwrites with fresh data.
+    // populated on first render with ZERO server roundtrip. The Stage 2
+    // DB fetch only runs to pick up a fresh avatar.
     const seededName = initialName ?? cachedName();
+    const seededEmail = initialEmail ?? cachedEmail();
     const seededAvatar = initialAvatarUrl !== undefined ? initialAvatarUrl : cachedAvatar();
     const [name, setName] = useState(seededName);
     const [originalName, setOriginalName] = useState(seededName);
-    const [email, setEmail] = useState('');
+    const [email, setEmail] = useState(seededEmail);
     const [avatarUrl, setAvatarUrl] = useState<string | null>(seededAvatar);
-    const [loadingProfile, setLoadingProfile] = useState(true);
-    const [savingName, setSavingName] = useState(false);
+    // Phase 11: useTransition for non-blocking server writes. The user never
+    // sees a "Saving…" spinner on the optimistic path — they see the green
+    // Saved checkmark IMMEDIATELY. The transition runs the server call in
+    // the background; isPending is only used for the rollback-on-error UX.
+    const [, startNameTransition] = useTransition();
     const [nameSaved, setNameSaved] = useState(false);
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -59,43 +68,47 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
     useEffect(() => {
         let cancelled = false;
 
-        // Phase 10: TWO-STAGE LOAD.
+        // Phase 11: TWO-STAGE LOAD that NEVER clobbers seeded values.
         //
-        // Stage 1 (instant, no DB): pull email/name/role from the signed
-        // session cookie. This unblocks the modal — the user sees their
-        // email immediately on first render, no spinner.
+        // Stage 1 (instant): pull email/name from the signed session cookie.
+        // Only overwrites our state when we DON'T already have a value from
+        // props or cache — so a sidebar that already passed initialEmail
+        // never sees its value get blanked then refilled.
         //
-        // Stage 2 (background, can be slow): fetch avatar_url from DB.
-        // While this runs we don't show a spinner on email — only the
-        // avatar slot stays neutral until the URL arrives.
+        // Stage 2 (background): refresh avatar_url from DB. Errors here are
+        // silent — the seeded values stay.
         getSessionPayloadAction().then(s => {
             if (cancelled || !s) return;
-            // Only overwrite if we don't already have it from props/cache.
             setEmail(prev => prev || s.email || '');
             setName(prev => prev || s.name || '');
             setOriginalName(prev => prev || s.name || '');
+            // Persist email locally too so future modal opens are fully
+            // populated even before this effect runs.
+            try { if (s.email) localStorage.setItem('unibox_user_email', s.email); } catch {}
         });
 
-        // Stage 2: full DB fetch for fresh avatar + role.
         getCurrentUserAction()
             .then(u => {
-                if (cancelled) return;
-                if (u) {
-                    setName(u.name || '');
-                    setOriginalName(u.name || '');
-                    setEmail(u.email || '');
-                    setAvatarUrl(u.avatarUrl || null);
+                if (cancelled || !u) return;
+                // Only overwrite if the DB has DIFFERENT data than what we
+                // already have — prevents the "blank for 1 frame, then fill"
+                // flicker when the seed was already correct.
+                if (u.name && u.name !== name) {
+                    setName(u.name);
+                    setOriginalName(u.name);
                 }
-                // If u is null AND we still have no email after Stage 1
-                // (extremely unusual), show toast — but don't block UI.
+                if (u.email && u.email !== email) setEmail(u.email);
+                if (u.avatarUrl !== undefined && u.avatarUrl !== avatarUrl) {
+                    setAvatarUrl(u.avatarUrl);
+                }
             })
             .catch((err) => {
                 if (cancelled) return;
                 console.warn('[AccountSettings] DB refresh failed, keeping session-only data:', err);
-            })
-            .finally(() => { if (!cancelled) setLoadingProfile(false); });
+            });
         return () => { cancelled = true; };
-    }, [showError]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const initials = (name || email || '?').split(/[ @]/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 
@@ -154,17 +167,19 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    const handleSaveName = async () => {
+    const handleSaveName = () => {
         if (!name.trim() || name === originalName) return;
-        // Optimistic UI: flip immediately so the user sees instant
-        // success — the sidebar avatar/name + Saved badge update right
-        // away. Only reverse if the server rejects.
+
+        // Phase 11: PURELY OPTIMISTIC. The user sees Saved ✓ immediately.
+        // No "Saving…" state — the server write runs in a background
+        // transition. On error we rollback + show a retry toast.
         const optimisticName = name;
         const previousOriginal = originalName;
+
+        // 1. Synchronous UI flip — Saved badge, sidebar event, localStorage.
         setOriginalName(optimisticName);
         setNameSaved(true);
         try { localStorage.setItem('unibox_user_name', optimisticName); } catch {}
-        // Phase 10: synchronous event so the sidebar updates IN THE SAME TICK.
         try {
             window.dispatchEvent(new CustomEvent('unibox:profile-updated', {
                 detail: { name: optimisticName },
@@ -172,31 +187,38 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
         } catch {}
         onUpdated?.();
 
-        // "Saving…" only appears if the action takes >300ms. Fast networks
-        // get a clean green "Saved" without spinner churn.
-        const slowTimer = setTimeout(() => setSavingName(true), 300);
+        // 2. Schedule the Saved badge to fade after 2s — this is independent
+        //    of the server response. Even on a slow network, the user sees
+        //    a clean "Saved → fade" interaction.
+        setTimeout(() => setNameSaved(false), 2000);
 
-        try {
-            const res = await updateOwnNameAction(optimisticName);
-            clearTimeout(slowTimer);
-            setSavingName(false);
-            if (res.success) {
-                setTimeout(() => setNameSaved(false), 2000);
-            } else {
-                // Rollback the optimistic flip
+        // 3. Background server write via useTransition — never blocks the UI.
+        startNameTransition(async () => {
+            try {
+                const res = await updateOwnNameAction(optimisticName);
+                if (!res.success) {
+                    setOriginalName(previousOriginal);
+                    setName(previousOriginal);
+                    try { localStorage.setItem('unibox_user_name', previousOriginal); } catch {}
+                    try {
+                        window.dispatchEvent(new CustomEvent('unibox:profile-updated', {
+                            detail: { name: previousOriginal },
+                        }));
+                    } catch {}
+                    showError(`Couldn't update name: ${res.error}`, { onRetry: handleSaveName });
+                }
+            } catch (err: unknown) {
                 setOriginalName(previousOriginal);
-                setNameSaved(false);
+                setName(previousOriginal);
                 try { localStorage.setItem('unibox_user_name', previousOriginal); } catch {}
-                showError(`Couldn't update name: ${res.error}`, { onRetry: handleSaveName });
+                try {
+                    window.dispatchEvent(new CustomEvent('unibox:profile-updated', {
+                        detail: { name: previousOriginal },
+                    }));
+                } catch {}
+                showError("Couldn't update name. Check your connection.", { onRetry: handleSaveName });
             }
-        } catch (err: unknown) {
-            clearTimeout(slowTimer);
-            setSavingName(false);
-            setOriginalName(previousOriginal);
-            setNameSaved(false);
-            try { localStorage.setItem('unibox_user_name', previousOriginal); } catch {}
-            showError("Couldn't update name. Check your connection.", { onRetry: handleSaveName });
-        }
+        });
     };
 
     const handleChangePassword = async () => {
@@ -386,10 +408,10 @@ export default function AccountSettingsModal({ onClose, onUpdated, initialName, 
                                 )}
                                 <button
                                     onClick={handleSaveName}
-                                    disabled={savingName || !name.trim() || name === originalName}
-                                    style={primaryBtn(savingName || !name.trim() || name === originalName)}
+                                    disabled={!name.trim() || name === originalName}
+                                    style={primaryBtn(!name.trim() || name === originalName)}
                                 >
-                                    {savingName ? 'Saving…' : 'Save name'}
+                                    Save name
                                 </button>
                             </div>
                         </>

@@ -57,6 +57,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
     const { selectedAccountId, setSelectedAccountId, accounts } = useGlobalFilter();
     const [userRole, setUserRole] = React.useState<string | null>(null);
     const [userName, setUserName] = React.useState('');
+    const [userEmail, setUserEmail] = React.useState('');
     const [userAvatarUrl, setUserAvatarUrl] = React.useState<string | null>(null);
     const [mounted, setMounted] = React.useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
@@ -72,6 +73,10 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
             if (cachedName !== null) setUserName(cachedName);
         } catch {}
         try {
+            const cachedEmail = localStorage.getItem('unibox_user_email');
+            if (cachedEmail) setUserEmail(cachedEmail);
+        } catch {}
+        try {
             const cachedAvatar = localStorage.getItem('unibox_user_avatar');
             setUserAvatarUrl(cachedAvatar || null);
         } catch {}
@@ -80,9 +85,11 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
             if (session) {
                 setUserRole(session.role);
                 setUserName(session.name || '');
+                setUserEmail(session.email || '');
                 setUserAvatarUrl(session.avatarUrl || null);
                 try { localStorage.setItem('unibox_user_role', session.role); } catch {}
                 try { localStorage.setItem('unibox_user_name', session.name || ''); } catch {}
+                try { if (session.email) localStorage.setItem('unibox_user_email', session.email); } catch {}
                 try {
                     if (session.avatarUrl) localStorage.setItem('unibox_user_avatar', session.avatarUrl);
                     else localStorage.removeItem('unibox_user_avatar');
@@ -100,6 +107,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         setMounted(true);
         try { const cached = localStorage.getItem('unibox_user_role'); if (cached) setUserRole(cached); } catch {}
         try { const cached = localStorage.getItem('unibox_user_name'); if (cached) setUserName(cached); } catch {}
+        try { const cached = localStorage.getItem('unibox_user_email'); if (cached) setUserEmail(cached); } catch {}
         try { const cached = localStorage.getItem('unibox_user_avatar'); if (cached) setUserAvatarUrl(cached); } catch {}
         refreshProfile();
     }, [refreshProfile]);
@@ -401,6 +409,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                     onClose={() => setShowAccountSettings(false)}
                     onUpdated={refreshProfile}
                     initialName={userName}
+                    initialEmail={userEmail}
                     initialAvatarUrl={userAvatarUrl}
                 />
             )}
