@@ -4,6 +4,14 @@ import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { requireAdmin } from '../utils/accessControl';
 
+// Phase 7 Speed Sprint: in-memory cache. Finance numbers don't move
+// every second — 60s freshness is fine and saves the heavy CTE roll-up
+// when a user reloads the page or pages through a date range. Cache
+// lives per-server-instance; on Vercel that's per-warm-lambda. Acceptable.
+type CacheEntry = { data: any; expiresAt: number };
+const cache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 60_000;
+
 export async function getFinanceOverviewAction(startDate: string, endDate: string) {
     const { role } = await ensureAuthenticated();
     // Workspace-wide revenue is admin-only — matches the /finance page gate.
@@ -12,6 +20,13 @@ export async function getFinanceOverviewAction(startDate: string, endDate: strin
         requireAdmin(role);
     } catch {
         return { success: false, error: 'Admin access required' };
+    }
+
+    // Cache key includes the date range so distinct ranges cache separately.
+    const cacheKey = `${startDate}|${endDate}`;
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.data;
     }
 
     const { data, error } = await supabase.rpc('get_finance_summary', {
@@ -29,7 +44,7 @@ export async function getFinanceOverviewAction(startDate: string, endDate: strin
     const paidRevenue = d.paidRevenue || 0;
     const totalProjects = d.totalProjects || 0;
 
-    return {
+    const result = {
         success: true,
         stats: {
             totalRevenue,
@@ -56,4 +71,7 @@ export async function getFinanceOverviewAction(startDate: string, endDate: strin
             { name: 'Unpaid', value: d.unpaidCount || 0, color: '#EF4444' },
         ],
     };
+
+    cache.set(cacheKey, { data: result, expiresAt: Date.now() + CACHE_TTL_MS });
+    return result;
 }
