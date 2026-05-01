@@ -4,6 +4,13 @@ import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { getAccessibleGmailAccountIds, getOwnerFilter, blockEditorAccess, isAdmin } from '../utils/accessControl';
 
+// Phase 7 Speed Sprint: in-memory cache. Action queue is recomputed every
+// 60s by the sidebar badge poller anyway — a 30s cache cuts that polling
+// load in half + makes the page-load instant on second navigation.
+type CacheEntry = { data: unknown; expiresAt: number };
+const queueCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 30_000;
+
 export type ActionItem = {
     id: string;
     contactId: string;
@@ -35,6 +42,13 @@ export async function getActionQueueAction(): Promise<{
     blockEditorAccess(role);
 
     try {
+    // Cache key per-user — different users see different scoped action sets.
+    const cacheKey = `${userId}|${role}`;
+    const cached = queueCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.data as { actions: ActionItem[]; counts: { critical: number; high: number; medium: number; low: number; total: number } };
+    }
+
     const accessible = await getAccessibleGmailAccountIds(userId, role);
     const accountIds = accessible === 'ALL' ? null : accessible;
 
@@ -66,75 +80,50 @@ export async function getActionQueueAction(): Promise<{
     if (accountIds) replyQuery = replyQuery.eq('account_manager_id', userId);
     const { data: rawReply } = await replyQuery;
 
-    // ── Validate Reply Now against actual email_messages (2-tier + fail closed) ──
-    // Cached last_message_direction goes stale. We validate each candidate
-    // against the real latest email. If we can't determine truth, EXCLUDE
-    // the contact (fail closed — false negative beats false positive).
-    const validated = await Promise.all(
-        (rawReply || []).map(async (c): Promise<{ contact: typeof c; valid: boolean; healDirection?: string; healContactId?: string; healEmailId?: string }> => {
-            // TIER 1: Fast path — check by indexed contact_id
-            const { data: tier1 } = await supabase
-                .from('email_messages')
-                .select('direction, id')
-                .eq('contact_id', c.id)
-                .order('sent_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-            if (tier1) {
-                if (tier1.direction === 'RECEIVED') return { contact: c, valid: true };
-                return { contact: c, valid: false, healDirection: 'SENT' };
+    // ── Validate Reply Now against actual email_messages — single batched query ──
+    // Phase 7 Speed Sprint: was 50 contacts × 3 queries (tier-1 + tier-2-from
+    // + tier-2-to) = 150 round-trips. Now a single .in('contact_id', ids)
+    // query, then validate in JS. The tier-2 ILIKE fallback was a
+    // self-healing path that Phase 5 C2 (orphan-email cleanup) made
+    // obsolete — all 16,559 orphans were NULLed or re-linked.
+    //
+    // Stale-data self-heal moved to a background path: we update
+    // last_message_direction inline only for the candidates we have data
+    // on. We don't attempt to backfill contact_id from ILIKE matches here
+    // anymore — that's slow and Phase 5 already did the bulk repair.
+    const candidateIds = (rawReply || []).map(c => c.id);
+    const directionByContactId = new Map<string, { direction: string; id: string }>();
+    if (candidateIds.length > 0) {
+        const { data: latestPerContact } = await supabase
+            .from('email_messages')
+            .select('contact_id, direction, id, sent_at')
+            .in('contact_id', candidateIds)
+            .order('sent_at', { ascending: false });
+        // Walk in descending order; first seen per contact_id wins.
+        for (const m of latestPerContact || []) {
+            if (m.contact_id && !directionByContactId.has(m.contact_id)) {
+                directionByContactId.set(m.contact_id, { direction: m.direction, id: m.id });
             }
+        }
+    }
 
-            // TIER 2: Fallback — check by email address (ILIKE on raw headers)
-            if (!c.email) return { contact: c, valid: false };
-
-            const emailPattern = `%${c.email}%`;
-            const [fromRes, toRes] = await Promise.all([
-                supabase.from('email_messages').select('direction, id')
-                    .ilike('from_email', emailPattern)
-                    .order('sent_at', { ascending: false }).limit(1).maybeSingle(),
-                supabase.from('email_messages').select('direction, id')
-                    .ilike('to_email', emailPattern)
-                    .order('sent_at', { ascending: false }).limit(1).maybeSingle(),
-            ]);
-
-            // Pick the newer of the two results
-            const candidates = [fromRes.data, toRes.data].filter(Boolean) as { direction: string; id: string }[];
-            if (candidates.length === 0) {
-                // No emails found at all — shouldn't be in Reply Now
-                return { contact: c, valid: false, healDirection: 'zero' };
-            }
-
-            const latest = candidates[0]!;
-            if (latest.direction === 'RECEIVED') {
-                // Valid — also self-heal by linking this email to the contact
-                return { contact: c, valid: true, healContactId: c.id, healEmailId: latest.id };
-            }
-            return { contact: c, valid: false, healDirection: 'SENT' };
-        })
-    );
+    const validated = (rawReply || []).map(c => {
+        const m = directionByContactId.get(c.id);
+        if (!m) return { contact: c, valid: false, healDirection: 'zero' as const };
+        if (m.direction === 'RECEIVED') return { contact: c, valid: true };
+        return { contact: c, valid: false, healDirection: 'SENT' as const };
+    });
 
     const needReply = validated.filter(v => v.valid).map(v => v.contact).slice(0, 30);
 
-    // ── Self-heal stale data found during validation ──
-    // Fix last_message_direction on contacts we filtered out
+    // ── Self-heal stale data inline (fire-and-forget) ──
     const staleIds = validated.filter(v => !v.valid && v.healDirection === 'SENT').map(v => v.contact.id);
     if (staleIds.length > 0) {
         void supabase.from('contacts').update({ last_message_direction: 'SENT' }).in('id', staleIds).then();
     }
-
-    // Zero out stats on contacts with no emails at all
     const zeroIds = validated.filter(v => !v.valid && v.healDirection === 'zero').map(v => v.contact.id);
     if (zeroIds.length > 0) {
         void supabase.from('contacts').update({ total_emails_received: 0, last_message_direction: null }).in('id', zeroIds).then();
-    }
-
-    // Backfill contact_id on orphan emails found via ILIKE
-    for (const v of validated) {
-        if (v.healContactId && v.healEmailId) {
-            void supabase.from('email_messages').update({ contact_id: v.healContactId }).eq('id', v.healEmailId).is('contact_id', null).then();
-        }
     }
 
     // 2. NEW_LEAD: Added in last 48h, never emailed
@@ -288,7 +277,9 @@ export async function getActionQueueAction(): Promise<{
         total: actions.length,
     };
 
-    return { actions, counts };
+    const result = { actions, counts };
+    queueCache.set(cacheKey, { data: result, expiresAt: Date.now() + CACHE_TTL_MS });
+    return result;
 
     } catch (error) {
         console.error('getActionQueueAction error:', error);
