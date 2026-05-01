@@ -26,6 +26,7 @@ const nextConfig = {
         'imapflow',
         'mailparser',
         'googleapis',
+        'cheerio',
     ],
 
     // ─── Compiler ────────────────────────────────────────────────────────────
