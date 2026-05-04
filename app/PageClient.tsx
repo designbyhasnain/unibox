@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
 import { useUI } from './context/UIContext';
 import InlineReply from './components/InlineReply';
 import JarvisSuggestionBox from './components/JarvisSuggestionBox';
@@ -290,31 +290,73 @@ export default function InboxPage() {
         if (el) el.scrollTop = 0;
     };
 
-    const handleChangeStage = async (messageId: string, newStage: string) => {
-        try {
-            await updateEmailStageAction(messageId, newStage);
-            loadEmails(currentPage);
-        } catch (err) {
-            console.error('Stage change failed:', err);
-            const toastId = `error-${Date.now()}`;
-            setToasts(prev => [...prev, { id: toastId, subject: 'Failed to change stage', from: 'Please try again' }]);
-            const timer = setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 4000);
-            toastTimerRef.current.set(toastId, timer);
+    // Phase-1 optimistic UI: rows that the user has just stage-changed or
+    // marked-not-interested are hidden from the current view immediately.
+    // The server action runs in the background via useTransition. On success
+    // the next reload removes the row naturally; on failure we roll back.
+    const [, startMutation] = useTransition();
+    const [optimisticHiddenIds, setOptimisticHiddenIds] = useState<Set<string>>(new Set());
+
+    const hideOptimistically = useCallback((id: string) => {
+        setOptimisticHiddenIds(prev => {
+            if (prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.add(id);
+            return next;
+        });
+    }, []);
+    const unhideOptimistically = useCallback((id: string) => {
+        setOptimisticHiddenIds(prev => {
+            if (!prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+        });
+    }, []);
+
+    const showErrorToast = useCallback((subject: string, from = 'Please try again') => {
+        const toastId = `error-${Date.now()}`;
+        setToasts(prev => [...prev, { id: toastId, subject, from }]);
+        const timer = setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 4000);
+        toastTimerRef.current.set(toastId, timer);
+    }, []);
+
+    const handleChangeStage = (messageId: string, newStage: string) => {
+        // Optimistic: hide the row instantly so the click feels free.
+        hideOptimistically(messageId);
+        if (selectedEmail?.id === messageId) {
+            // Close the open thread panel — its stage just changed under it.
+            setSelectedEmail(null);
         }
+        startMutation(async () => {
+            try {
+                await updateEmailStageAction(messageId, newStage);
+                loadEmails(currentPage);
+            } catch (err) {
+                console.error('Stage change failed:', err);
+                unhideOptimistically(messageId);
+                showErrorToast('Failed to change stage');
+            }
+        });
     };
 
-    const handleNotInterested = async (senderEmail: string) => {
+    const handleNotInterested = (senderEmail: string) => {
         if (!senderEmail) return;
-        try {
-            await markAsNotInterestedAction(senderEmail);
-            loadEmails(currentPage);
-        } catch (err) {
-            console.error('Mark not interested failed:', err);
-            const toastId = `error-${Date.now()}`;
-            setToasts(prev => [...prev, { id: toastId, subject: 'Failed to mark as not interested', from: 'Please try again' }]);
-            const timer = setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 4000);
-            toastTimerRef.current.set(toastId, timer);
-        }
+        // Optimistic: hide every row from this sender in the current view.
+        const matchedIds = emails
+            .filter((e: any) => (e.from_email || '').toLowerCase().includes(senderEmail.toLowerCase()))
+            .map((e: any) => e.id as string);
+        matchedIds.forEach(hideOptimistically);
+        startMutation(async () => {
+            try {
+                await markAsNotInterestedAction(senderEmail);
+                loadEmails(currentPage);
+            } catch (err) {
+                console.error('Mark not interested failed:', err);
+                matchedIds.forEach(unhideOptimistically);
+                showErrorToast('Failed to mark as not interested');
+            }
+        });
     };
 
     const dismissToast = (toastId: string) => {
@@ -338,6 +380,22 @@ export default function InboxPage() {
             setUnreadCount(emails.filter((e: any) => e.is_unread).length);
         }
     }, [emails, activeTab, isSearchResults, isHydrated]);
+
+    // After every refetch, drop any optimistic-hide entries whose IDs are no
+    // longer in the source list. Either the server already removed them
+    // (success path) or the row migrated to a different stage tab and won't
+    // come back here. Guards against unbounded growth across many actions.
+    useEffect(() => {
+        if (optimisticHiddenIds.size === 0) return;
+        const present = new Set(emails.map((e: any) => e.id as string));
+        let changed = false;
+        const next = new Set<string>();
+        for (const id of optimisticHiddenIds) {
+            if (present.has(id)) next.add(id);
+            else changed = true;
+        }
+        if (changed) setOptimisticHiddenIds(next);
+    }, [emails]);
 
     const hasEmail = !!selectedEmail;
 
@@ -480,7 +538,7 @@ export default function InboxPage() {
                                     )}
                                 </div>
                             ) : (
-                                emails.filter((e: any) => !isNoiseEmail(e)).map((email: any) => {
+                                emails.filter((e: any) => !isNoiseEmail(e) && !optimisticHiddenIds.has(e.id)).map((email: any) => {
                                     const isSelected = selectedEmail?.id === email.id;
                                     const isUnread = email.is_unread;
                                     const isSent = email.direction === 'SENT';

@@ -42,6 +42,11 @@ export function useRealtimeInbox({
     const latestTimestampRef = useRef<string>(new Date().toISOString());
     const inFlightRef = useRef(false);
     const abortControllerRef = useRef<AbortController | null>(null);
+    // True once the Supabase Realtime channel is in SUBSCRIBED state. While
+    // true, the periodic poll skips its fetch — Realtime push delivers the
+    // same data instantly. The interval is kept armed so if the channel drops
+    // (CLOSED / CHANNEL_ERROR) we resume polling without re-running effects.
+    const realtimeConnectedRef = useRef(false);
 
     // Stable key — only changes when the set of accountIds actually changes
     const accountIdsKey = useMemo(
@@ -62,6 +67,9 @@ export function useRealtimeInbox({
     const pollForNewEmails = useCallback(async () => {
         if (!accountIds || accountIds.length === 0) return;
         if (inFlightRef.current) return; // Skip if previous poll still running
+        // Realtime is the source of truth when connected — skip the poll. We
+        // still arm the timer above so we resume polling on a drop.
+        if (realtimeConnectedRef.current) return;
 
         inFlightRef.current = true;
         try {
@@ -161,7 +169,11 @@ export function useRealtimeInbox({
             .subscribe((status) => {
                 console.log(`[Realtime] Tracking status for ${accountIdsKey.slice(0,8)}...: ${status}`);
                 if (status === 'SUBSCRIBED') {
-                    console.log('[Realtime] Successfully connected to email_messages');
+                    realtimeConnectedRef.current = true;
+                    console.log('[Realtime] Successfully connected to email_messages — polling fallback is now silent');
+                } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
+                    realtimeConnectedRef.current = false;
+                    console.warn(`[Realtime] Channel ${status} — polling fallback resumes`);
                 }
             });
 
