@@ -1,6 +1,6 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, unstable_cache } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { sendGmailEmail } from '../services/gmailSenderService';
 import { sendManualEmail, unspamManualMessage } from '../services/manualEmailService';
@@ -1206,27 +1206,43 @@ export async function markAsNotInterestedAction(email: string) {
     }
 }
 
+/**
+ * Inner pure function — given a sorted list of account IDs, return the
+ * per-stage counts. Wrapped in `unstable_cache` with a 5 s revalidate so
+ * the inbox tab-bar isn't doing the same expensive GROUP BY on every
+ * keystroke. The user-facing freshness still feels instant — new emails
+ * push through Realtime + the optimistic UI update; this cache only
+ * smooths over rapid back-to-back loads (tab switch, account switch).
+ */
+const fetchTabCountsCached = unstable_cache(
+    async (sortedAccountIds: string[]): Promise<Record<string, number>> => {
+        if (!sortedAccountIds.length) return {};
+        const { data: rpcCounts, error: rpcError } = await supabase.rpc('get_tab_counts', {
+            p_account_ids: sortedAccountIds,
+        });
+        if (rpcError || !rpcCounts) {
+            console.error('get_tab_counts RPC error:', rpcError);
+            return {};
+        }
+        const counts: Record<string, number> = {};
+        for (const r of rpcCounts as any[]) {
+            if (r.stage) counts[r.stage] = Number(r.cnt);
+        }
+        return counts;
+    },
+    ['inbox-tab-counts'],
+    { revalidate: 5, tags: ['inbox-tab-counts'] }
+);
+
 export async function getTabCountsAction(gmailAccountId?: string) {
     const { userId, role } = await ensureAuthenticated();
     const accountIds = await resolveAccountIds(userId, role, gmailAccountId);
     if (!accountIds || accountIds.length === 0) return {};
 
     try {
-        // Use RPC function (30s timeout, GROUP BY in DB - much faster)
-        const { data: rpcCounts, error: rpcError } = await supabase.rpc('get_tab_counts', {
-            p_account_ids: accountIds,
-        });
-
-        if (!rpcError && rpcCounts) {
-            const counts: Record<string, number> = {};
-            rpcCounts.forEach((r: any) => {
-                if (r.stage) counts[r.stage] = Number(r.cnt);
-            });
-            return counts;
-        }
-
-        console.error('get_tab_counts RPC error:', rpcError);
-        return {};
+        // Sort so cache-key collisions catch identical sets regardless of order.
+        const sorted = [...accountIds].sort();
+        return await fetchTabCountsCached(sorted);
     } catch (err) {
         console.error('getTabCountsAction error:', err);
         return {};
