@@ -754,3 +754,91 @@ export async function pushAllPersonasToGmailAction() {
     return await syncAllOAuthPersonasToSendAs();
 }
 
+// ─── Identity Factory ───────────────────────────────────────────────────
+//
+// Persistent tracking for the /identity-factory dashboard. Two timestamp
+// columns on gmail_accounts (added via scripts/identity-factory-tables.sql):
+//   identity_google_registered_at — admin marked the address as having a Google account
+//   identity_gravatar_claimed_at  — admin marked the address as having a Gravatar profile
+
+export interface IdentityFactoryRow {
+    id: string;
+    email: string;
+    domain: string;
+    display_name: string | null;
+    profile_image: string | null;
+    connection_method: 'OAUTH' | 'MANUAL';
+    google_registered_at: string | null;
+    gravatar_claimed_at: string | null;
+    /** Pre-built magic URL that opens Google sign-up with the email pre-filled. */
+    googleSignupUrl: string;
+}
+
+function googleSignupMagicUrl(email: string): string {
+    return `https://accounts.google.com/signup/v2/createaccount?flowName=GlifWebSignIn&flowEntry=SignUp&email=${encodeURIComponent(email)}`;
+}
+
+export async function getIdentityFactoryAction(): Promise<{
+    success: boolean;
+    rows?: IdentityFactoryRow[];
+    error?: string;
+}> {
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
+
+    const { data, error } = await supabase
+        .from('gmail_accounts')
+        .select('id, email, display_name, profile_image, connection_method, identity_google_registered_at, identity_gravatar_claimed_at')
+        .order('email', { ascending: true });
+
+    if (error) return { success: false, error: error.message };
+
+    const rows: IdentityFactoryRow[] = (data || []).map((a: any) => {
+        const email = (a.email || '').toLowerCase();
+        return {
+            id: a.id,
+            email,
+            domain: email.split('@')[1] || '',
+            display_name: a.display_name,
+            profile_image: a.profile_image,
+            connection_method: a.connection_method as 'OAUTH' | 'MANUAL',
+            google_registered_at: a.identity_google_registered_at ?? null,
+            gravatar_claimed_at: a.identity_gravatar_claimed_at ?? null,
+            googleSignupUrl: googleSignupMagicUrl(email),
+        };
+    });
+
+    return { success: true, rows };
+}
+
+export async function setIdentityFlagAction(
+    accountId: string,
+    flag: 'google' | 'gravatar',
+    done: boolean,
+): Promise<{ success: boolean; error?: string; timestamp?: string | null }> {
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
+    if (!accountId) return { success: false, error: 'accountId required' };
+
+    const column = flag === 'google'
+        ? 'identity_google_registered_at'
+        : 'identity_gravatar_claimed_at';
+    const value = done ? new Date().toISOString() : null;
+
+    const { error } = await supabase
+        .from('gmail_accounts')
+        .update({ [column]: value })
+        .eq('id', accountId);
+
+    if (error) {
+        // Surface the migration hint if the column doesn't exist yet.
+        if (/column .* does not exist/i.test(error.message)) {
+            return {
+                success: false,
+                error: 'Identity Factory columns not yet applied. Paste scripts/identity-factory-tables.sql into the Supabase SQL editor.',
+            };
+        }
+        return { success: false, error: error.message };
+    }
+    return { success: true, timestamp: value };
+}
