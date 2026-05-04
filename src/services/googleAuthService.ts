@@ -9,6 +9,12 @@ const SCOPES = [
     'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/gmail.labels',
+    // Required for gmail.users.settings.sendAs.update (display name + signature).
+    // Adding it explicitly even though `https://mail.google.com/` covers it as a
+    // superset — gmail.settings.basic is the granular scope Google recommends.
+    'https://www.googleapis.com/auth/gmail.settings.basic',
+    // Required to fetch the connected user's profile name + photo so we can
+    // sync them into the Unibox persona. Pre-existing.
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
     'https://mail.google.com/',

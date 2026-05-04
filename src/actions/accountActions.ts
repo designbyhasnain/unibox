@@ -754,3 +754,106 @@ export async function pushAllPersonasToGmailAction() {
     return await syncAllOAuthPersonasToSendAs();
 }
 
+// ─── Branding diagnostic ────────────────────────────────────────────────
+//
+// One-shot per-account check the admin can run from the /accounts page or
+// directly via:  await checkAccountBrandingAction('rafael.intl@filmsbyrafay.com')
+//
+// Output is intentionally compact for a toast: a 4-field report with status
+// strings ('OK' / 'Untrusted' / 'Missing' / 'Injected' / etc.) and an optional
+// `details` array for the verbose log.
+
+export interface BrandingReport {
+    dns: string;            // 'OK' | 'Untrusted' | 'Provider-managed' | 'Unknown'
+    persona: string;        // 'OK' | 'Missing display_name' | 'Missing profile_image' | 'Both missing'
+    signature: string;      // 'Injected (CID inline)' | 'Injected (URL)' | 'Skipped — no body'
+    sendAs: string;         // 'Synced' | 'Not yet synced' | 'N/A (manual SMTP account)' | 'Pending push'
+    details: string[];
+}
+
+const BRANDING_FREE_MAIL = new Set([
+    'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
+    'msn.com', 'yahoo.com', 'yahoo.co.uk', 'ymail.com', 'icloud.com',
+    'me.com', 'mac.com', 'aol.com', 'proton.me', 'protonmail.com',
+]);
+
+export async function checkAccountBrandingAction(email: string): Promise<{
+    success: boolean;
+    report?: BrandingReport;
+    error?: string;
+}> {
+    const { role } = await ensureAuthenticated();
+    requireAdmin(role);
+
+    const cleaned = (email || '').trim().toLowerCase();
+    if (!cleaned || !cleaned.includes('@')) {
+        return { success: false, error: 'Provide a valid email' };
+    }
+
+    const { data: acc, error: dbErr } = await supabase
+        .from('gmail_accounts')
+        .select('id, email, display_name, profile_image, connection_method')
+        .ilike('email', cleaned)
+        .maybeSingle();
+
+    if (dbErr) return { success: false, error: dbErr.message };
+    if (!acc) return { success: false, error: `No account found for ${cleaned}` };
+
+    const details: string[] = [];
+    const domain = (acc.email || '').split('@')[1]?.toLowerCase() || '';
+    const isFreeMail = BRANDING_FREE_MAIL.has(domain);
+
+    // 1. DNS — reuse the brandingActions DNS check.
+    let dns: string;
+    if (isFreeMail) {
+        dns = 'Provider-managed';
+        details.push(`DNS: ${domain} is managed by the email provider (gmail/outlook/yahoo etc.) — no SPF/DKIM/DMARC for us to check.`);
+    } else {
+        const { checkDomainDNSAction } = await import('./brandingActions');
+        const r = await checkDomainDNSAction(domain);
+        if (r.success && r.result) {
+            const overall = r.result.overall;
+            dns = overall === 'pass' ? 'OK' : overall === 'fail' ? 'Untrusted' : 'Unknown';
+            details.push(`DNS: SPF=${r.result.spf.status}, DKIM=${r.result.dkim.status}, DMARC=${r.result.dmarc.status}`);
+        } else {
+            dns = 'Unknown';
+            details.push(`DNS: lookup failed (${r.error || 'unknown'})`);
+        }
+    }
+
+    // 2. Persona — display_name + profile_image both required for full branding.
+    let persona: string;
+    if (!acc.display_name && !acc.profile_image) persona = 'Both missing';
+    else if (!acc.display_name) persona = 'Missing display_name';
+    else if (!acc.profile_image) persona = 'Missing profile_image';
+    else persona = 'OK';
+    details.push(`Persona: name=${acc.display_name ? '✓' : '—'}, photo=${acc.profile_image ? '✓' : '—'}`);
+
+    // 3. Signature — both senders inject one on every send. The variant differs:
+    //    SMTP path uses CID (multipart/related) — strongest.
+    //    Gmail OAuth path uses external URL (CID would require multipart/related rewrite).
+    const signature = acc.connection_method === 'MANUAL'
+        ? 'Injected (CID inline)'
+        : 'Injected (URL)';
+    details.push(`Signature: every outbound send through ${acc.connection_method} appends the persona avatar + name.`);
+
+    // 4. Send-As — only OAuth accounts can be synced to Gmail's Send-Mail-As
+    //    settings. We don't store a "last synced" timestamp on the account
+    //    (push is idempotent; a no-op when already in sync), so this is best-
+    //    effort: report whether the persona is set (a precondition) and whether
+    //    we can run the sync now.
+    let sendAs: string;
+    if (acc.connection_method !== 'OAUTH') {
+        sendAs = 'N/A (manual SMTP account)';
+    } else if (!acc.display_name) {
+        sendAs = 'Pending push (set a Persona first)';
+    } else {
+        sendAs = 'Pending push (click "Push to Gmail" to sync)';
+    }
+    details.push(`Send-As: only OAuth accounts can sync this; push is idempotent.`);
+
+    return {
+        success: true,
+        report: { dns, persona, signature, sendAs, details },
+    };
+}

@@ -18,6 +18,8 @@ import {
     retestManualAccountAction,
     syncAllAccountsHealthAction,
     syncGoogleProfilesAction,
+    pushAllPersonasToGmailAction,
+    checkAccountBrandingAction,
 } from '../../src/actions/accountActions';
 import {
     checkAllDomainsAction,
@@ -237,6 +239,40 @@ export default function AccountsPage() {
     const [isRenewingWatches, setIsRenewingWatches] = useState(false);
     const [isSyncingProfiles, setIsSyncingProfiles] = useState(false);
     const [profileSyncResult, setProfileSyncResult] = useState<string | null>(null);
+    const [isPushingPersonas, setIsPushingPersonas] = useState(false);
+
+    const handlePushAllToGmail = async () => {
+        setIsPushingPersonas(true);
+        try {
+            const r = await pushAllPersonasToGmailAction();
+            const reconnectNeeded = r.results.filter(x => /reconnect/i.test(x.error || '')).length;
+            const detail = reconnectNeeded > 0 ? ` · ${reconnectNeeded} need a reconnect` : '';
+            if (r.failed > 0) {
+                showError(`Pushed ${r.succeeded}/${r.total} personas to Gmail Send-As${detail}.`);
+            } else {
+                showSuccess(`Pushed ${r.succeeded}/${r.total} personas to Gmail Send-As. Display name + signature now match the Persona on every OAuth account.`);
+            }
+        } catch (e: any) {
+            showError(`Push failed: ${e?.message || 'Unknown error'}`, { onRetry: handlePushAllToGmail });
+        } finally {
+            setIsPushingPersonas(false);
+        }
+    };
+
+    const handleBrandingDiagnostic = async (email: string) => {
+        const r = await checkAccountBrandingAction(email);
+        if (!r.success || !r.report) {
+            showError(`Diagnostic failed: ${r.error || 'Unknown'}`);
+            return;
+        }
+        const lines = [
+            `DNS: ${r.report.dns}`,
+            `Persona: ${r.report.persona}`,
+            `Signature: ${r.report.signature}`,
+            `Send-As: ${r.report.sendAs}`,
+        ].join('  ·  ');
+        showSuccess(`${email} — ${lines}`);
+    };
 
     const handleSyncGoogleProfiles = async () => {
         setIsSyncingProfiles(true);
@@ -672,6 +708,18 @@ export default function AccountsPage() {
                                         {isSyncingProfiles ? 'Syncing…' : 'Sync Google Profiles'}
                                     </button>
                                     <button
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={handlePushAllToGmail}
+                                        disabled={isPushingPersonas}
+                                        title="Push display name + signature from each Unibox Persona into Gmail's Send-Mail-As settings (OAuth accounts only). Improves the chance Gmail surfaces the profile photo to recipients."
+                                        style={{ opacity: isPushingPersonas ? 0.6 : 1 }}
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M22 2 11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                                        </svg>
+                                        {isPushingPersonas ? 'Pushing…' : 'Push to Gmail'}
+                                    </button>
+                                    <button
                                         className="btn btn-primary btn-sm"
                                         onClick={() => { setShowSelectionModal(true); setError(null); }}
                                     >
@@ -1061,6 +1109,13 @@ export default function AccountsPage() {
                                                             title="Set display name + photo shown to recipients (also drives the inline email signature)"
                                                         >
                                                             Persona
+                                                        </button>
+                                                        <button
+                                                            className="btn btn-sm btn-secondary"
+                                                            onClick={() => handleBrandingDiagnostic(acc.email)}
+                                                            title="Run DNS / Persona / Signature / Send-As branding diagnostic (toast popup)"
+                                                        >
+                                                            Diagnose
                                                         </button>
                                                         <button
                                                             className="btn btn-sm btn-danger"

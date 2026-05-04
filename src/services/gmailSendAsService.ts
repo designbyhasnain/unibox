@@ -53,19 +53,31 @@ export interface SyncResult {
 
 function buildSignatureHtml(displayName: string, profileImage: string | null): string {
     if (!profileImage) {
-        // Plain text signature with just the display name.
-        return `<div style="font-family:Arial,sans-serif;font-size:13px;color:#444;">${escapeHtml(displayName)}</div>`;
+        // Plain text signature with just the display name + the <hr> divider.
+        return [
+            `<hr style="border:none;border-top:1px solid #eee;margin:20px 0;" />`,
+            `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:15px;font-weight:600;color:#111827;letter-spacing:-0.01em;">${escapeHtml(displayName)}</div>`,
+        ].join('');
     }
-    // Inline image signature. Gmail renders this at the bottom of every
-    // sent message. NOT the avatar slot — recipients still see a default
-    // silhouette there. The image renders as part of the body.
+    // Image signature for Gmail Send-As. Gmail renders this whenever the
+    // user composes mail in Gmail's own UI — keeps the brand consistent
+    // with Unibox-sent mail. Layout matches the body CID signature in
+    // identitySchema.ts so recipients see one unified style across both
+    // surfaces. NOT the Gmail avatar slot.
     return [
-        `<div style="font-family:Arial,sans-serif;font-size:13px;color:#444;margin-top:16px;">`,
-        `<img src="${escapeAttr(profileImage)}" alt="${escapeAttr(displayName)}" `,
-        `width="64" height="64" `,
-        `style="border-radius:50%;display:block;margin-bottom:6px;" />`,
-        `<div style="font-weight:600;color:#222;">${escapeHtml(displayName)}</div>`,
-        `</div>`,
+        `<hr style="border:none;border-top:1px solid #eee;margin:20px 0;" />`,
+        `<table role="presentation" cellpadding="0" cellspacing="0" border="0" `,
+        `style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2937;">`,
+        `<tr>`,
+        `<td valign="middle" style="padding-right:14px;">`,
+        `<img src="${escapeAttr(profileImage)}" alt="Profile Photo" width="60" height="60" `,
+        `style="width:60px;height:60px;border-radius:50%;display:block;object-fit:cover;border:0;background:#f3f4f6;" />`,
+        `</td>`,
+        `<td valign="middle" style="line-height:1.45;">`,
+        `<div style="font-size:15px;font-weight:600;color:#111827;letter-spacing:-0.01em;">${escapeHtml(displayName)}</div>`,
+        `</td>`,
+        `</tr>`,
+        `</table>`,
     ].join('');
 }
 

@@ -180,22 +180,33 @@ export function bodyHasSignature(html: string): boolean {
 export const SIGNATURE_CID = 'unibox-avatar';
 
 export function buildSenderSignatureWithCid(ctx: SignatureContext): string {
+    return renderSignature(ctx, `cid:${SIGNATURE_CID}`);
+}
+
+/**
+ * Internal — renders the signature with the `<img src="...">` value the
+ * caller chose (external URL or `cid:unibox-avatar`).
+ */
+function renderSignature(ctx: SignatureContext, imgSrc: string): string {
     const safeName = escapeHtml(ctx.senderName);
     const safeEmail = escapeHtml(ctx.senderEmail);
     const safeOrg = ctx.organization ? escapeHtml(ctx.organization) : null;
     const safeOrgUrl = ctx.organizationUrl ? escapeHtml(ctx.organizationUrl) : null;
+    // imgSrc is either escapeHtml-clean (URL variant) or the literal
+    // `cid:unibox-avatar` constant — both are safe to inject directly.
 
     return `
 ${SIGNATURE_MARKER}
+<hr style="border:none;border-top:1px solid #eee;margin:20px 0;" />
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"
-       style="margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1f2937;">
+       style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1f2937;">
   <tr>
     <td valign="middle" style="padding-right:14px;">
-      <img src="cid:${SIGNATURE_CID}" alt="${safeName}" width="60" height="60"
-           style="width:60px;height:60px;border-radius:50%;display:block;object-fit:cover;border:0;" />
+      <img src="${imgSrc}" alt="Profile Photo" width="60" height="60"
+           style="width:60px;height:60px;border-radius:50%;display:block;object-fit:cover;border:0;background:#f3f4f6;" />
     </td>
-    <td valign="middle" style="line-height:1.4;">
-      <div style="font-size:15px;font-weight:600;color:#111827;">${safeName}</div>
+    <td valign="middle" style="line-height:1.45;">
+      <div style="font-size:15px;font-weight:600;color:#111827;letter-spacing:-0.01em;">${safeName}</div>
       ${safeOrg ? `<div style="font-size:13px;color:#6b7280;margin-top:2px;">${safeOrgUrl ? `<a href="${safeOrgUrl}" style="color:#6b7280;text-decoration:none;">${safeOrg}</a>` : safeOrg}</div>` : ''}
       <div style="font-size:13px;color:#6b7280;margin-top:2px;"><a href="mailto:${safeEmail}" style="color:#6b7280;text-decoration:none;">${safeEmail}</a></div>
     </td>
@@ -245,36 +256,15 @@ interface SignatureContext {
  * Build the HTML signature block. Inline-styled so it renders identically
  * across email clients (no <style> block — Gmail strips it).
  *
- * 60px round avatar + bold name + email link + optional organization line.
+ * Layout:
+ *   <hr> thin divider
+ *   60×60 circular avatar | bold name + organization + email link
+ *
+ * Colors and font sizes are tuned to read well on both light + dark
+ * email backgrounds across Gmail / Apple / Outlook / mobile clients.
  */
 export function buildSenderSignature(ctx: SignatureContext): string {
-    const safeName = escapeHtml(ctx.senderName);
-    const safeEmail = escapeHtml(ctx.senderEmail);
-    const safeOrg = ctx.organization ? escapeHtml(ctx.organization) : null;
-    const safeOrgUrl = ctx.organizationUrl ? escapeHtml(ctx.organizationUrl) : null;
-    const safeImage = escapeHtml(ctx.profileImageUrl);
-
-    // Two-cell table — most reliable layout primitive across email clients.
-    // 60×60 circular image, vertical center, 14px gap, 13–15px font sizes
-    // tuned for both desktop and mobile. Colors are safe defaults that
-    // work on both light + dark email backgrounds.
-    return `
-${SIGNATURE_MARKER}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0"
-       style="margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1f2937;">
-  <tr>
-    <td valign="middle" style="padding-right:14px;">
-      <img src="${safeImage}" alt="${safeName}" width="60" height="60"
-           style="width:60px;height:60px;border-radius:50%;display:block;object-fit:cover;border:0;" />
-    </td>
-    <td valign="middle" style="line-height:1.4;">
-      <div style="font-size:15px;font-weight:600;color:#111827;">${safeName}</div>
-      ${safeOrg ? `<div style="font-size:13px;color:#6b7280;margin-top:2px;">${safeOrgUrl ? `<a href="${safeOrgUrl}" style="color:#6b7280;text-decoration:none;">${safeOrg}</a>` : safeOrg}</div>` : ''}
-      <div style="font-size:13px;color:#6b7280;margin-top:2px;"><a href="mailto:${safeEmail}" style="color:#6b7280;text-decoration:none;">${safeEmail}</a></div>
-    </td>
-  </tr>
-</table>
-`;
+    return renderSignature(ctx, escapeHtml(ctx.profileImageUrl));
 }
 
 /**

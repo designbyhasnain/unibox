@@ -33,18 +33,19 @@ const recipientEmail = 'recipient@example.com';
 const subject = 'Sample message — MIME proof';
 const SIGNATURE_CID = 'unibox-avatar';
 
-// Match the signature builder output (CID-mode).
+// Match the polished signature builder output (CID-mode + hr + alt="Profile Photo").
 const signature = `
 <!--unibox-sig-->
+<hr style="border:none;border-top:1px solid #eee;margin:20px 0;" />
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"
-       style="margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1f2937;">
+       style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1f2937;">
   <tr>
     <td valign="middle" style="padding-right:14px;">
-      <img src="cid:${SIGNATURE_CID}" alt="${senderName}" width="60" height="60"
-           style="width:60px;height:60px;border-radius:50%;display:block;object-fit:cover;border:0;" />
+      <img src="cid:${SIGNATURE_CID}" alt="Profile Photo" width="60" height="60"
+           style="width:60px;height:60px;border-radius:50%;display:block;object-fit:cover;border:0;background:#f3f4f6;" />
     </td>
-    <td valign="middle" style="line-height:1.4;">
-      <div style="font-size:15px;font-weight:600;color:#111827;">${senderName}</div>
+    <td valign="middle" style="line-height:1.45;">
+      <div style="font-size:15px;font-weight:600;color:#111827;letter-spacing:-0.01em;">${senderName}</div>
       <div style="font-size:13px;color:#6b7280;margin-top:2px;"><a href="https://wedits.com" style="color:#6b7280;text-decoration:none;">Wedits</a></div>
       <div style="font-size:13px;color:#6b7280;margin-top:2px;"><a href="mailto:${senderEmail}" style="color:#6b7280;text-decoration:none;">${senderEmail}</a></div>
     </td>
@@ -132,6 +133,10 @@ partHeaders.forEach((m, i) => {
 });
 console.log('└─────────────────────────────────────────────────────────────\n');
 
+// Confirm the key things. Decode quoted-printable soft line breaks (=\n)
+// so the body inspection sees logical content instead of MIME-split lines.
+const rawForAssertions = raw.replace(/=\r?\n/g, '');
+
 // Confirm the key things.
 const checks = [
     ['multipart/related at top level OR nested', /multipart\/related/.test(raw)],
@@ -147,6 +152,8 @@ const checks = [
     ['NO speculative X-Sender-Photo header (cleaned up)', !/X-Sender-Photo:/i.test(raw)],
     ['NO speculative X-Persona-* header (cleaned up)', !/X-Persona-/i.test(raw)],
     ['Standard From header format ("Name" <email>)', /^From:\s*"?[^<]+"?\s*<[^>]+@[^>]+>/m.test(raw)],
+    ['Signature has alt="Profile Photo"', /alt=(?:"|3D")Profile Photo/i.test(rawForAssertions)],
+    ['Signature has the <hr> divider', /(?:<|3C)hr[^>]*border-top:1px solid (?:#|23)eee/i.test(rawForAssertions)],
 ];
 
 console.log('┌─ ASSERTIONS ────────────────────────────────────────────────');
