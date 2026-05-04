@@ -484,14 +484,25 @@ export default function InboxPage() {
                                     const isSelected = selectedEmail?.id === email.id;
                                     const isUnread = email.is_unread;
                                     const isSent = email.direction === 'SENT';
-                                    let senderName = 'Unknown';
-                                    if (isSent) {
-                                        const toRaw = email.to_email || '';
-                                        const toNameMatch = toRaw.split(',')[0]?.match(/^([^<]+)</);
-                                        const toName = toNameMatch ? toNameMatch[1]?.trim().replace(/"/g, '') : toRaw.split('@')[0];
-                                        senderName = toName || 'Unknown';
-                                    } else {
-                                        senderName = extractSenderName(email.from_email || '');
+                                    // Sender slot always shows the CLIENT name (the non-us party
+                                    // on the thread). Resolution order:
+                                    //   1. `contact_name` resolved server-side from contacts.name.
+                                    //   2. If outbound (SENT) or a self-loop ghost (Gmail "All Mail"
+                                    //      duplicate of one of our own outbound sends), parse the
+                                    //      recipient from `to_email`.
+                                    //   3. Otherwise extract from `from_email`.
+                                    const isSelfLoop: boolean = !!email.is_self_loop;
+                                    const treatAsOutbound = isSent || isSelfLoop;
+                                    let senderName: string = email.contact_name || '';
+                                    if (!senderName) {
+                                        if (treatAsOutbound) {
+                                            const toRaw = email.to_email || '';
+                                            const toNameMatch = toRaw.split(',')[0]?.match(/^([^<]+)</);
+                                            const toName = toNameMatch ? toNameMatch[1]?.trim().replace(/"/g, '') : toRaw.split('@')[0];
+                                            senderName = toName || 'Unknown';
+                                        } else {
+                                            senderName = extractSenderName(email.from_email || '') || 'Unknown';
+                                        }
                                     }
                                     const preview = cleanPreview(email.snippet || email.body || '');
                                     const subject = email.subject || '(no subject)';
@@ -547,10 +558,7 @@ export default function InboxPage() {
                                                         style={{ marginLeft: 'auto', color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 4 }}
                                                         title={amName ? `${amName}${amEmail ? ` <${amEmail}>` : ''}` : amLabel}
                                                     >
-                                                        {accountProfileImage && (
-                                                            <img src={accountProfileImage} alt="" style={{ width: 14, height: 14, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} referrerPolicy="no-referrer" />
-                                                        )}
-                                                        {accountDisplayName || accountEmail.split('@')[0]}
+                                                        {accountEmail || accountDisplayName}
                                                         {amFirst && <span style={{ opacity: 0.7 }}>{' '}· {amFirst}</span>}
                                                     </span>
                                                 </div>

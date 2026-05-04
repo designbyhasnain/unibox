@@ -137,6 +137,9 @@ export default function CampaignsPage() {
                     </div>
                     <div style={{ flex: 1 }} />
                     <button className="icon-btn" title="Filter">{ICON.filter}</button>
+                    <Link href="/campaigns/goal-planner" className="btn" style={{ marginRight: 8 }} title="Set a revenue goal and let the system propose a data-grounded plan">
+                        ✨ Goal Planner
+                    </Link>
                     <Link href="/campaigns/new" className="btn btn-dark">{ICON.plus} New campaign</Link>
                 </div>
 

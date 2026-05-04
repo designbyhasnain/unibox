@@ -39,13 +39,17 @@ export type PaginatedEmailResult = {
 // ─── Account-manager resolution (shared by all inbox-shaped actions) ──────────
 // Resolution chain (see docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md):
 //   1. contacts.account_manager_id  (explicit per-contact override)
-//   2. user_gmail_assignments       (default per Gmail inbox; SALES role wins
-//                                    over ADMIN, oldest assigned_at as tiebreak)
+//   2. user_gmail_assignments       (default per Gmail inbox; non-ADMIN roles
+//                                    win over ADMIN, oldest assigned_at as
+//                                    tiebreak; ADMIN-only assignments resolve
+//                                    to null so the badge hides — admins are
+//                                    the org owner, not a working AM)
 //   3. null                         → "Unassigned" in the UI
 type AmInfo = { id: string; name: string; email: string };
 type AmResolution = {
     contactAmMap: Record<string, AmInfo | null>;
     accountAmMap: Record<string, AmInfo | null>;
+    contactNameMap: Record<string, string>;
 };
 async function resolveAccountManagers(
     rows: { contact_id?: string | null; gmail_account_id?: string | null }[],
@@ -54,6 +58,7 @@ async function resolveAccountManagers(
     const uniqueAccountIds = [...new Set(rows.map(r => r.gmail_account_id).filter(Boolean))] as string[];
     const contactAmMap: Record<string, AmInfo | null> = {};
     const accountAmMap: Record<string, AmInfo | null> = {};
+    const contactNameMap: Record<string, string> = {};
     const userById: Record<string, AmInfo> = {};
 
     const fetchUsersByIds = async (ids: string[]) => {
@@ -68,11 +73,22 @@ async function resolveAccountManagers(
 
     if (uniqueContactIds.length > 0) {
         const { data: contactRows } = await supabase
-            .from('contacts').select('id, account_manager_id').in('id', uniqueContactIds);
+            .from('contacts').select('id, name, email, account_manager_id').in('id', uniqueContactIds);
         const amIds = [...new Set((contactRows || []).map(c => c.account_manager_id).filter(Boolean))] as string[];
         await fetchUsersByIds(amIds);
+        // Pull roles so we can skip ADMINs — the org owner shouldn't appear as AM.
+        const { data: amRoleRows } = amIds.length > 0
+            ? await supabase.from('users').select('id, role').in('id', amIds)
+            : { data: [] as { id: string; role: string }[] };
+        const adminUsers = new Set((amRoleRows || []).filter(u => u.role === 'ADMIN').map(u => u.id));
         (contactRows || []).forEach(c => {
-            contactAmMap[c.id] = c.account_manager_id ? (userById[c.account_manager_id] || null) : null;
+            const id = c.account_manager_id;
+            contactAmMap[c.id] = id && !adminUsers.has(id) ? (userById[id] || null) : null;
+            // Best-effort display name — prefer the contact's `name`, fall back
+            // to the email-prefix so the inbox always shows a client identifier
+            // instead of the team mailbox owner's name on outbound rows.
+            const display = (c.name && c.name.trim()) || (c.email ? c.email.split('@')[0] : '');
+            if (display) contactNameMap[c.id] = display;
         });
     }
 
@@ -95,13 +111,16 @@ async function resolveAccountManagers(
             (byAccount[a.gmail_account_id] = byAccount[a.gmail_account_id] || []).push({ user_id: a.user_id, assigned_at: a.assigned_at });
         });
         Object.entries(byAccount).forEach(([accId, list]) => {
-            const sales = list.find(a => roleById[a.user_id] === 'SALES');
-            const pick = sales || list[0];
+            // Skip ADMINs entirely — they're the org owner, not a working AM.
+            // Prefer SALES (the canonical AM role) over anyone else non-ADMIN.
+            const nonAdmin = list.filter(a => roleById[a.user_id] !== 'ADMIN');
+            const sales = nonAdmin.find(a => roleById[a.user_id] === 'SALES');
+            const pick = sales || nonAdmin[0] || null;
             accountAmMap[accId] = pick ? (userById[pick.user_id] || null) : null;
         });
     }
 
-    return { contactAmMap, accountAmMap };
+    return { contactAmMap, accountAmMap, contactNameMap };
 }
 function pickAccountManager(
     row: { contact_id?: string | null; gmail_account_id?: string | null },
@@ -354,6 +373,21 @@ export async function getInboxEmailsAction(
 
     const amResolution = await resolveAccountManagers(rows);
 
+    // Set of all our owned mailbox addresses (lowercased) — used to detect
+    // self-loop rows where Gmail ingested an outbound message as RECEIVED.
+    const ownedMailboxes = new Set(
+        Object.values(accountMap)
+            .map(a => a.email?.toLowerCase())
+            .filter((e): e is string => !!e)
+    );
+
+    /** Lowercased bare-address extracted from "Name <foo@bar>" or "foo@bar". */
+    const extractAddress = (raw: string | null | undefined): string => {
+        if (!raw) return '';
+        const m = raw.match(/<([^>]+)>/);
+        return (m ? m[1] : raw).trim().toLowerCase();
+    };
+
     const totalCount = count ?? ((page - 1) * clampedPageSize + rows.length);
     const totalPages = Math.max(1, Math.ceil(totalCount / clampedPageSize));
 
@@ -361,6 +395,12 @@ export async function getInboxEmailsAction(
     const emails = rows.map((r) => {
         const acc = accountMap[r.gmail_account_id];
         const am = pickAccountManager(r, amResolution);
+        const fromAddr = extractAddress(r.from_email);
+        // Self-loop detection: a RECEIVED row whose `from_email` is one of OUR
+        // own mailboxes is the Gmail "All Mail" duplicate of an outbound send.
+        // Render it as outbound so the inbox shows the recipient (the client),
+        // not our own mailbox owner's name.
+        const isSelfLoop = r.direction === 'RECEIVED' && ownedMailboxes.has(fromAddr);
         return {
             ...r,
             account_email: acc?.email,
@@ -369,6 +409,8 @@ export async function getInboxEmailsAction(
             account_manager_name: am.name,
             account_manager_email: am.email,
             account_manager_source: am.source,
+            contact_name: r.contact_id ? amResolution.contactNameMap[r.contact_id] || null : null,
+            is_self_loop: isSelfLoop,
             account_display_name: acc?.displayName,
             account_profile_image: acc?.profileImage,
             gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },
@@ -467,6 +509,18 @@ export async function getInboxWithCountsAction(
 
     const amResolution = await resolveAccountManagers(rows);
 
+    // Self-loop detection set — see the equivalent block above.
+    const ownedMailboxes = new Set(
+        Object.values(accountMap)
+            .map((a: any) => a.email?.toLowerCase())
+            .filter((e: any): e is string => !!e)
+    );
+    const extractAddress = (raw: string | null | undefined): string => {
+        if (!raw) return '';
+        const m = raw.match(/<([^>]+)>/);
+        return (m ? m[1] : raw).trim().toLowerCase();
+    };
+
     const totalCount = totalCountEstimate ?? ((page - 1) * clampedPageSize + rows.length);
     const totalPages = Math.max(1, Math.ceil(totalCount / clampedPageSize));
 
@@ -474,14 +528,18 @@ export async function getInboxWithCountsAction(
     const emails = rows.map((r: any) => {
         const acc = accountMap[r.gmail_account_id];
         const am = pickAccountManager(r, amResolution);
+        const fromAddr = extractAddress(r.from_email);
+        const isSelfLoop = r.direction === 'RECEIVED' && ownedMailboxes.has(fromAddr);
         return {
             ...r,
+            is_self_loop: isSelfLoop,
             account_email: acc?.email,
             manager_name: acc?.managerName || 'System',
             account_manager_id: am.id,
             account_manager_name: am.name,
             account_manager_email: am.email,
             account_manager_source: am.source,
+            contact_name: r.contact_id ? amResolution.contactNameMap[r.contact_id] || null : null,
             account_display_name: acc?.displayName,
             account_profile_image: acc?.profileImage,
             gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },

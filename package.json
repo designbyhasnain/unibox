@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:fresh": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true});require('fs').rmSync('node_modules/.cache',{recursive:true,force:true});\" && next dev",
-    "build": "next build",
+    "build": "next build --experimental-build-mode=compile",
     "start": "next start",
     "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true});require('fs').rmSync('node_modules/.cache',{recursive:true,force:true});console.log('cleaned .next + node_modules/.cache');\"",
     "lint": "eslint .",

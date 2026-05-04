@@ -5,7 +5,19 @@ import { Resend } from 'resend';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy: only instantiate when actually sending. Constructing at module load
+// throws "Missing API key" if RESEND_API_KEY is unset, which breaks every
+// route that imports this module (e.g. /team) — even routes that never send.
+let _resend: Resend | null = null;
+function getResend(): Resend {
+    if (!_resend) {
+        if (!process.env.RESEND_API_KEY) {
+            throw new Error('RESEND_API_KEY is not set — cannot send invitation email');
+        }
+        _resend = new Resend(process.env.RESEND_API_KEY);
+    }
+    return _resend;
+}
 
 // Invitation tokens: the URL token is a 64-char hex string. We store only the
 // SHA-256 hash in the DB so a stolen DB read can't be replayed against
@@ -34,7 +46,7 @@ async function sendInviteViaResend(toEmail: string, inviteUrl: string) {
     console.error('[RESEND] Sending invite to:', toEmail);
     console.error('[RESEND] API key exists:', !!process.env.RESEND_API_KEY);
 
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResend().emails.send({
         from: 'Unibox <noreply@texasbrains.com>',
         to: [toEmail],
         subject: 'You have been invited to join Unibox',
