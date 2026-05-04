@@ -135,60 +135,65 @@ function WatchStatusBadge({ watchStatus, watchExpiry, connectionMethod }: {
     );
 }
 
-// ── Branding badge primitives (inline so we don't add a new component file) ──
+// ── Card primitives (inline so we don't add a new component file) ──
 
-function googleSignupMagicUrl(email: string): string {
-    return `https://accounts.google.com/signup/v2/createaccount?flowName=GlifWebSignIn&flowEntry=SignUp&email=${encodeURIComponent(email)}`;
-}
-
-function DnsBadgeRow({
+function DnsAuthSection({
     dns,
-    gravatarExists,
-    isOAuth,
     onRecheck,
     rechecking,
     isFreeMail,
 }: {
     dns: DnsHealthResult | undefined;
-    gravatarExists: boolean | null;
-    isOAuth: boolean;
     onRecheck: () => void;
     rechecking: boolean;
     isFreeMail: boolean;
 }) {
-    const pillFor = (status: DnsCheckStatus, label: string, title?: string) => {
+    const pill = (status: DnsCheckStatus, label: string, title?: string) => {
         const cls = status === 'pass' ? 'badge-green' : status === 'fail' ? 'badge-red' : 'badge-gray';
         return <span className={`badge badge-sm ${cls}`} title={title}>{label}</span>;
     };
 
-    if (!dns) {
-        return <span className="badge badge-sm badge-gray">DNS …</span>;
-    }
-
     return (
-        <>
-            {pillFor(dns.spf.status, 'SPF', dns.spf.record || dns.spf.note || 'SPF')}
-            {pillFor(dns.dkim.status, 'DKIM', dns.dkim.record || dns.dkim.note || 'DKIM')}
-            {pillFor(dns.dmarc.status, dns.dmarc.policy ? `DMARC: ${dns.dmarc.policy}` : 'DMARC', dns.dmarc.record || dns.dmarc.note || 'DMARC')}
-            {isOAuth ? (
-                <span className="badge badge-sm badge-green" title="Connected via Google OAuth — has a Google profile">Google</span>
-            ) : gravatarExists === true ? (
-                <span className="badge badge-sm badge-green" title="Gravatar found for this address">Gravatar</span>
-            ) : gravatarExists === false ? (
-                <span className="badge badge-sm badge-gray" title="No Google account or Gravatar — recipients see initials in Gmail">No avatar</span>
-            ) : null}
+        <div
+            style={{
+                marginTop: 12,
+                padding: '10px 12px',
+                background: 'color-mix(in oklab, var(--surface) 60%, transparent)',
+                border: '1px solid var(--hairline-soft)',
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flexWrap: 'wrap',
+            }}
+        >
+            <span style={{ fontSize: 11, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
+                Domain auth
+            </span>
+            {isFreeMail ? (
+                <span className="badge badge-sm badge-blue" title="Provider-managed domain (gmail/outlook/yahoo) — DNS is set by the provider">Provider-managed</span>
+            ) : !dns ? (
+                <span className="badge badge-sm badge-gray">Checking…</span>
+            ) : (
+                <>
+                    {pill(dns.spf.status, 'SPF', dns.spf.record || dns.spf.note || 'SPF')}
+                    {pill(dns.dkim.status, 'DKIM', dns.dkim.record || dns.dkim.note || 'DKIM')}
+                    {pill(dns.dmarc.status, dns.dmarc.policy ? `DMARC: ${dns.dmarc.policy}` : 'DMARC', dns.dmarc.record || dns.dmarc.note || 'DMARC')}
+                </>
+            )}
+            <div style={{ flex: 1 }} />
             {!isFreeMail && (
                 <button
                     onClick={onRecheck}
                     disabled={rechecking}
                     className="btn btn-xs btn-secondary"
-                    style={{ padding: '2px 6px', fontSize: 10.5, marginLeft: 2 }}
-                    title={`Re-check DNS for this domain`}
+                    style={{ padding: '3px 8px', fontSize: 11 }}
+                    title="Re-check DNS for this domain"
                 >
-                    {rechecking ? '…' : '↻ DNS'}
+                    {rechecking ? '…' : '↻ Re-check'}
                 </button>
             )}
-        </>
+        </div>
     );
 }
 
@@ -764,21 +769,18 @@ export default function AccountsPage() {
                                         Deliverability &amp; sender avatars — what each badge means {dnsLoading ? '· checking…' : ''}
                                     </summary>
                                     <div style={{ marginTop: 10, lineHeight: 1.65 }}>
-                                        <div><strong>SPF / DKIM / DMARC</strong> — green means the domain is set up correctly. Untrusted domains land in spam more often and never get a sender photo on Gmail.</div>
-                                        <div><strong>Google / Gravatar / No avatar</strong> — Google = OAuth-connected, Gravatar = registered Gravatar found, No avatar = recipients on Gmail will see only initials.</div>
+                                        <div><strong>SPF / DKIM / DMARC</strong> — green means the domain is set up correctly. Untrusted domains land in spam more often and Gmail will never show their sender photo.</div>
                                         <div style={{ marginTop: 8 }}>
-                                            <strong style={{ color: 'var(--ink)' }}>Honest reality (verified May 2026):</strong>
+                                            <strong style={{ color: 'var(--ink)' }}>How we surface the photo (verified May 2026):</strong>
                                         </div>
                                         <ul style={{ marginTop: 4, paddingLeft: 18 }}>
-                                            <li><strong>Gmail avatar circle</strong> — hard-blocked without a paid VMC (~$1500/yr) or CMC (~$500–$1200/yr) certificate. <em>No header trick or DNS-only setup will turn it on.</em> The only free path is the <em>Register w/ Google</em> button below — sign each address up for a free Google account so Gmail uses that profile photo.</li>
-                                            <li><strong>Yahoo / AOL avatar</strong> — free with self-asserted BIMI: DMARC enforcement (<code>p=quarantine</code> or stricter) + a hosted SVG Tiny PS logo + a TXT record at <code>default._bimi.&lt;domain&gt;</code>. We already emit the <code>BIMI-Selector</code> header on every send.</li>
+                                            <li><strong>Inline HTML signature</strong> (every send from a custom domain) — the persona photo is rendered as a 60px circular image + bold display name in the email body. Recipients see the photo regardless of which client they use; this is the most reliable path that doesn&apos;t require a paid cert. Set the photo via the Persona button on each card.</li>
+                                            <li><strong>Gmail avatar circle</strong> — hard-blocked without a paid VMC (~$1500/yr) or CMC (~$500–$1200/yr) certificate. No DNS / header / HTML trick turns it on. The signature above is our workaround.</li>
+                                            <li><strong>Yahoo / AOL avatar</strong> — free with self-asserted BIMI: DMARC enforcement (<code>p=quarantine</code> or stricter) + a hosted SVG Tiny PS logo + a TXT record at <code>default._bimi.&lt;domain&gt;</code>. We already emit the <code>BIMI-Selector</code> header on every send, so it activates the moment the DNS record is added.</li>
                                             <li><strong>Apple Mail (iCloud recipients only)</strong> — free via Apple Business Connect &ldquo;Branded Mail&rdquo; enrollment (~7-day review). Apple Mail reading Gmail/IMAP doesn&apos;t render avatars at all.</li>
-                                            <li><strong>Outlook</strong> — doesn&apos;t render BIMI anywhere as of April 2026. Photo comes from Microsoft Graph / Entra only.</li>
+                                            <li><strong>Outlook</strong> — doesn&apos;t render BIMI anywhere as of April 2026.</li>
                                             <li><strong>Schema.org JSON-LD</strong> we inject is parsed by Gmail for action chips, NOT for avatar. We send it because it costs nothing.</li>
                                         </ul>
-                                        <div style={{ marginTop: 8, fontSize: 11.5 }}>
-                                            <em>So: green badges + the Persona button cover everything we can do in code. Hitting 100% Gmail visibility means either Register-with-Google for each address, or buying CMC/VMC certificates per domain.</em>
-                                        </div>
                                     </div>
                                 </details>
                             )}
@@ -802,12 +804,20 @@ export default function AccountsPage() {
                                                 className={`account-item-card${acc.status === 'ERROR' ? ' account-error' : acc.status === 'SYNCING' ? ' account-syncing' : ''}`}
                                             >
                                                 {/* Card Content */}
-                                                <div className="acct-card-header">
+                                                <div
+                                                    className="acct-card-header"
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'flex-start',
+                                                        gap: 12,
+                                                    }}
+                                                >
                                                     {isAdmin && (
                                                         <label
                                                             className="acct-card-check"
                                                             title="Select for bulk persona apply"
                                                             onClick={e => e.stopPropagation()}
+                                                            style={{ marginTop: 14 }}
                                                         >
                                                             <input
                                                                 type="checkbox"
@@ -817,7 +827,21 @@ export default function AccountsPage() {
                                                             />
                                                         </label>
                                                     )}
-                                                    <div className={`acct-card-icon${acc.profile_image ? ' acct-card-icon--photo' : ''}`}>
+                                                    <div
+                                                        className={`acct-card-icon${acc.profile_image ? ' acct-card-icon--photo' : ''}`}
+                                                        style={{
+                                                            width: 44,
+                                                            height: 44,
+                                                            flex: '0 0 44px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            borderRadius: '50%',
+                                                            background: acc.profile_image ? 'transparent' : 'var(--shell)',
+                                                            border: acc.profile_image ? 'none' : '1px solid var(--hairline-soft)',
+                                                            overflow: 'hidden',
+                                                        }}
+                                                    >
                                                         {acc.profile_image ? (
                                                             <img
                                                                 src={acc.profile_image}
@@ -831,14 +855,22 @@ export default function AccountsPage() {
                                                                 }}
                                                             />
                                                         ) : acc.connection_method === 'OAUTH' ? <GoogleIcon /> : (
-                                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                                                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                                                                 <polyline points="22,6 12,13 2,6" />
                                                             </svg>
                                                         )}
                                                     </div>
-                                                    <div className="acct-card-info">
-                                                        <div className="acct-card-email">
+                                                    <div className="acct-card-info" style={{ flex: 1, minWidth: 0 }}>
+                                                        <div
+                                                            className="acct-card-email"
+                                                            style={{
+                                                                whiteSpace: 'nowrap',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                lineHeight: 1.25,
+                                                            }}
+                                                        >
                                                             {acc.display_name ? (
                                                                 <>
                                                                     <span className="acct-card-display-name">{acc.display_name}</span>
@@ -848,31 +880,48 @@ export default function AccountsPage() {
                                                                 acc.email
                                                             )}
                                                         </div>
-                                                        <div className="acct-card-meta">
+                                                        <div
+                                                            className="acct-card-meta"
+                                                            style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 6,
+                                                                flexWrap: 'wrap',
+                                                                marginTop: 6,
+                                                            }}
+                                                        >
                                                             <StatusBadge status={acc.status} />
                                                             <WatchStatusBadge
                                                                 watchStatus={acc.watch_status}
                                                                 watchExpiry={acc.watch_expiry}
                                                                 connectionMethod={acc.connection_method}
                                                             />
-                                                            <span className="acct-card-method">
+                                                            <span
+                                                                className="acct-card-method"
+                                                                style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}
+                                                            >
                                                                 {acc.connection_method === 'MANUAL' ? 'Manual/IMAP' : 'Google OAuth'}
                                                             </span>
                                                         </div>
-                                                        <div className="acct-card-meta" style={{ marginTop: 4, flexWrap: 'wrap' }}>
-                                                            <DnsBadgeRow
-                                                                dns={dnsMap[acc.email.split('@')[1]?.toLowerCase() || '']}
-                                                                gravatarExists={gravatarMap[emailHashes[acc.email.toLowerCase()] || ''] ?? null}
-                                                                isOAuth={acc.connection_method === 'OAUTH'}
-                                                                onRecheck={() => recheckDomain(acc.email.split('@')[1]?.toLowerCase() || '')}
-                                                                rechecking={recheckingDomain === acc.email.split('@')[1]?.toLowerCase()}
-                                                                isFreeMail={FREE_MAIL_DOMAINS.has(acc.email.split('@')[1]?.toLowerCase() || '')}
-                                                            />
-                                                        </div>
                                                     </div>
-                                                    <div className="acct-card-sync-info">
-                                                        <div className="acct-card-sync-label">Last synced</div>
-                                                        <div className="acct-card-sync-value">
+                                                    <div
+                                                        className="acct-card-sync-info"
+                                                        style={{
+                                                            flex: '0 0 auto',
+                                                            textAlign: 'right',
+                                                            paddingTop: 2,
+                                                        }}
+                                                    >
+                                                        <div
+                                                            className="acct-card-sync-label"
+                                                            style={{ fontSize: 10.5, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}
+                                                        >
+                                                            Last synced
+                                                        </div>
+                                                        <div
+                                                            className="acct-card-sync-value"
+                                                            style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 2 }}
+                                                        >
                                                             {formatLastSynced(acc.last_synced_at)}
                                                         </div>
                                                     </div>
@@ -886,6 +935,13 @@ export default function AccountsPage() {
                                                         {acc.emails_count != null ? `${acc.emails_count.toLocaleString()} emails synced` : 'Scanning...'}
                                                     </div>
                                                 </div>
+
+                                                <DnsAuthSection
+                                                    dns={dnsMap[acc.email.split('@')[1]?.toLowerCase() || '']}
+                                                    onRecheck={() => recheckDomain(acc.email.split('@')[1]?.toLowerCase() || '')}
+                                                    rechecking={recheckingDomain === acc.email.split('@')[1]?.toLowerCase()}
+                                                    isFreeMail={FREE_MAIL_DOMAINS.has(acc.email.split('@')[1]?.toLowerCase() || '')}
+                                                />
 
                                                 {acc.status === 'ERROR' && (
                                                     <div className="acct-card-error-msg">
@@ -953,8 +1009,16 @@ export default function AccountsPage() {
                                                 )}
 
                                                 {isAdmin && (
-                                                <div className="acct-card-actions">
-                                                    <div className="acct-card-actions-left">
+                                                <div className="acct-card-actions" style={{ marginTop: 12 }}>
+                                                    <div
+                                                        className="acct-card-actions-left"
+                                                        style={{
+                                                            display: 'flex',
+                                                            gap: 6,
+                                                            flexWrap: 'wrap',
+                                                            alignItems: 'center',
+                                                        }}
+                                                    >
                                                         {acc.status === 'ERROR' ? (
                                                             <button className="btn btn-sm btn-primary" onClick={() => handleOAuthFlow()}>
                                                                 Re-connect
@@ -994,21 +1058,10 @@ export default function AccountsPage() {
                                                                 displayName: acc.display_name ?? null,
                                                                 profileImage: acc.profile_image ?? null,
                                                             })}
-                                                            title="Set display name + photo shown to recipients"
+                                                            title="Set display name + photo shown to recipients (also drives the inline email signature)"
                                                         >
                                                             Persona
                                                         </button>
-                                                        {acc.connection_method !== 'OAUTH' && !FREE_MAIL_DOMAINS.has(acc.email.split('@')[1]?.toLowerCase() || '') && (
-                                                            <a
-                                                                className="btn btn-sm btn-secondary"
-                                                                href={googleSignupMagicUrl(acc.email)}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                title="Open Google sign-up with this email pre-filled (forces 'Use my current email' flow). Required for Gmail to ever show a sender photo."
-                                                            >
-                                                                Register w/ Google
-                                                            </a>
-                                                        )}
                                                         <button
                                                             className="btn btn-sm btn-danger"
                                                             onClick={() => setAccountToRemove(acc)}

@@ -5,7 +5,7 @@ import { handleEmailSent } from './emailSyncLogic';
 import { refreshAccessToken } from './googleAuthService';
 import { prepareTrackedEmail } from './trackingService';
 import { formatFromHeader } from '../utils/fromAddress';
-import { injectIdentitySchema, buildUnsubscribeHeaders, buildBimiSelectorHeader, resolveSenderImage } from '../utils/identitySchema';
+import { injectIdentitySchema, buildUnsubscribeHeaders, buildBimiSelectorHeader, resolveSenderImage, injectSenderSignature } from '../utils/identitySchema';
 
 /**
  * Sends an email via Gmail API and syncs it to the database.
@@ -63,15 +63,25 @@ export async function sendGmailEmail(params: {
         const fromHeader = formatFromHeader(account.display_name, account.email);
         console.log(`[Gmail Send] from=${fromHeader} to=${to} subject=${subject.slice(0, 60)}`);
 
-        // Inject Schema.org Person/Organization JSON-LD at the bottom of
-        // the body. Honest scope: Gmail does NOT use this for sender avatar
-        // (verified May 2026). Used by some third-party clients + parsed
-        // by Gmail for action chips. Zero cost / zero risk to ship.
+        // Identity surfaces (verified May 2026):
+        // (1) Inline HTML signature — 60px circular photo + bold name in the
+        //     email body. Works in every major client without a paid cert.
+        //     Idempotent via a hidden <!--unibox-sig--> marker.
+        // (2) Schema.org JSON-LD — hidden script. Used by Gmail for action
+        //     chips (NOT avatar), zero visible noise.
         // Persona image falls back to Gravatar URL when account has no
-        // uploaded photo — covers third-party clients automatically.
+        // uploaded photo.
         const senderImage = resolveSenderImage(account.profile_image, account.email);
-        const enrichedBody = injectIdentitySchema(body, {
-            senderName: account.display_name || account.email,
+        const senderName = account.display_name || account.email;
+        const bodyWithSig = injectSenderSignature(body, {
+            senderName,
+            senderEmail: account.email,
+            profileImageUrl: senderImage,
+            organization: 'Wedits',
+            organizationUrl: 'https://wedits.com',
+        });
+        const enrichedBody = injectIdentitySchema(bodyWithSig, {
+            senderName,
             senderEmail: account.email,
             profileImageUrl: senderImage,
             organization: 'Wedits',

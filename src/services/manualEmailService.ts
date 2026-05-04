@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
 import { decrypt } from '../utils/encryption';
 import { prepareTrackedEmail } from './trackingService';
-import { injectIdentitySchema, buildUnsubscribeHeaders, buildBimiSelectorHeader, resolveSenderImage } from '../utils/identitySchema';
+import { injectIdentitySchema, buildUnsubscribeHeaders, buildBimiSelectorHeader, resolveSenderImage, injectSenderSignature } from '../utils/identitySchema';
 
 /**
  * Test IMAP and SMTP connection with provided credentials
@@ -102,13 +102,27 @@ export async function sendManualEmail(params: {
     const fromField = displayName ? { name: displayName, address: account.email } : account.email;
     console.log(`[SMTP Send] from=${typeof fromField === 'string' ? fromField : `${fromField.name} <${fromField.address}>`} to=${to} subject=${subject.slice(0, 60)}`);
 
-    // Identity metadata. Same logic as the Gmail path.
-    // Persona image falls back to Gravatar URL when no profile_image is set —
-    // gives third-party clients (Superhuman/Spark/Mimestream) a photo even
-    // without an uploaded avatar. Honest: Gmail/Apple/Outlook ignore Gravatar.
+    // Identity surface for custom-domain senders.
+    // Persona image falls back to Gravatar URL when no profile_image is set.
     const senderImage = resolveSenderImage(account.profile_image, account.email);
-    const enrichedHtml = injectIdentitySchema(body, {
-        senderName: displayName || account.email,
+    const senderName = displayName || account.email;
+
+    // (1) Inline HTML signature — the photo fix. Renders a 60px circular
+    // avatar + bold name in the email body itself. This is the only avatar
+    // surface that works in every major client without a paid cert. Idempotent
+    // via a hidden <!--unibox-sig--> marker so replies don't stack signatures.
+    const bodyWithSig = injectSenderSignature(body, {
+        senderName,
+        senderEmail: account.email,
+        profileImageUrl: senderImage,
+        organization: 'Wedits',
+        organizationUrl: 'https://wedits.com',
+    });
+
+    // (2) Schema.org JSON-LD. Hidden script tag — adds zero visible noise.
+    // Some third-party clients use it; Gmail uses it for action chips, not avatar.
+    const enrichedHtml = injectIdentitySchema(bodyWithSig, {
+        senderName,
         senderEmail: account.email,
         profileImageUrl: senderImage,
         organization: 'Wedits',

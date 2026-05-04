@@ -159,3 +159,88 @@ export function buildBimiSelectorHeader(selector = 'default'): Record<string, st
         'BIMI-Selector': `v=BIMI1; s=${selector};`,
     };
 }
+
+// ─── Inline HTML signature ──────────────────────────────────────────────
+//
+// This is the MOST IMPORTANT identity surface for custom-domain senders
+// who can't pay for VMC/CMC. The avatar circle is blocked everywhere
+// without a cert, but a clean HTML signature with a circular photo +
+// bold name renders inline in EVERY major client (Gmail, Apple Mail,
+// Outlook, mobile clients) — nothing to enroll, nothing to verify.
+//
+// The signature is appended to the body before the JSON-LD <script>
+// block (which is hidden anyway). De-duplication marker is a hidden HTML
+// comment `<!--unibox-sig-->` so replies don't accumulate signatures.
+
+const SIGNATURE_MARKER = '<!--unibox-sig-->';
+
+interface SignatureContext {
+    senderName: string;
+    senderEmail: string;
+    profileImageUrl: string;
+    /** Optional. Brand name shown under the contact name. */
+    organization?: string;
+    /** Optional. URL the brand name links to. */
+    organizationUrl?: string;
+}
+
+/**
+ * Build the HTML signature block. Inline-styled so it renders identically
+ * across email clients (no <style> block — Gmail strips it).
+ *
+ * 60px round avatar + bold name + email link + optional organization line.
+ */
+export function buildSenderSignature(ctx: SignatureContext): string {
+    const safeName = escapeHtml(ctx.senderName);
+    const safeEmail = escapeHtml(ctx.senderEmail);
+    const safeOrg = ctx.organization ? escapeHtml(ctx.organization) : null;
+    const safeOrgUrl = ctx.organizationUrl ? escapeHtml(ctx.organizationUrl) : null;
+    const safeImage = escapeHtml(ctx.profileImageUrl);
+
+    // Two-cell table — most reliable layout primitive across email clients.
+    // 60×60 circular image, vertical center, 14px gap, 13–15px font sizes
+    // tuned for both desktop and mobile. Colors are safe defaults that
+    // work on both light + dark email backgrounds.
+    return `
+${SIGNATURE_MARKER}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"
+       style="margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1f2937;">
+  <tr>
+    <td valign="middle" style="padding-right:14px;">
+      <img src="${safeImage}" alt="${safeName}" width="60" height="60"
+           style="width:60px;height:60px;border-radius:50%;display:block;object-fit:cover;border:0;" />
+    </td>
+    <td valign="middle" style="line-height:1.4;">
+      <div style="font-size:15px;font-weight:600;color:#111827;">${safeName}</div>
+      ${safeOrg ? `<div style="font-size:13px;color:#6b7280;margin-top:2px;">${safeOrgUrl ? `<a href="${safeOrgUrl}" style="color:#6b7280;text-decoration:none;">${safeOrg}</a>` : safeOrg}</div>` : ''}
+      <div style="font-size:13px;color:#6b7280;margin-top:2px;"><a href="mailto:${safeEmail}" style="color:#6b7280;text-decoration:none;">${safeEmail}</a></div>
+    </td>
+  </tr>
+</table>
+`;
+}
+
+/**
+ * Append the signature to an HTML body. Idempotent — if the body already
+ * contains the SIGNATURE_MARKER (i.e. it's a forward/reply that already
+ * has a Unibox signature embedded), we don't add another one.
+ *
+ * Returns the body unchanged when the marker is detected.
+ */
+export function injectSenderSignature(html: string, ctx: SignatureContext): string {
+    if (html.includes(SIGNATURE_MARKER)) return html;
+    const sig = buildSenderSignature(ctx);
+    if (/<\/body>/i.test(html)) {
+        return html.replace(/<\/body>/i, `${sig}</body>`);
+    }
+    return html + sig;
+}
+
+function escapeHtml(s: string): string {
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
