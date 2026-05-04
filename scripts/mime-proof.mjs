@@ -58,12 +58,6 @@ const headers = {
     'List-Unsubscribe': `<mailto:unsubscribe@filmsbyrafay.com>, <https://example.com/api/unsubscribe?t=fake>`,
     'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
     'BIMI-Selector': 'v=BIMI1; s=default;',
-    'X-Image-URL': PERSONA_URL,
-    'X-Avatar': PERSONA_URL,
-    'Avatar-URL': PERSONA_URL,
-    'X-Sender-Photo': PERSONA_URL,
-    'X-Persona-Name': senderName,
-    'X-Persona-Email': senderEmail,
 };
 
 // ─── Compile MIME without sending ────────────────────────────────────
@@ -146,11 +140,13 @@ const checks = [
     [`Content-ID: <${SIGNATURE_CID}> declared on attachment`, new RegExp(`Content-ID:\\s*<${SIGNATURE_CID}>`, 'i').test(raw)],
     ['Inline disposition on attachment', /Content-Disposition:\s*inline/i.test(raw)],
     ['BIMI-Selector header set', /BIMI-Selector:/i.test(raw)],
-    ['Speculative X-Image-URL header set', /X-Image-URL:/i.test(raw)],
-    ['Speculative X-Avatar header set', /X-Avatar:/i.test(raw)],
-    ['Speculative Avatar-URL header set', /Avatar-URL:/i.test(raw)],
-    ['Speculative X-Sender-Photo header set', /X-Sender-Photo:/i.test(raw)],
     ['List-Unsubscribe header set', /List-Unsubscribe:/i.test(raw)],
+    ['NO speculative X-Image-URL header (cleaned up)', !/X-Image-URL:/i.test(raw)],
+    ['NO speculative X-Avatar header (cleaned up)', !/X-Avatar:/i.test(raw)],
+    ['NO speculative Avatar-URL header (cleaned up)', !/Avatar-URL:/i.test(raw)],
+    ['NO speculative X-Sender-Photo header (cleaned up)', !/X-Sender-Photo:/i.test(raw)],
+    ['NO speculative X-Persona-* header (cleaned up)', !/X-Persona-/i.test(raw)],
+    ['Standard From header format ("Name" <email>)', /^From:\s*"?[^<]+"?\s*<[^>]+@[^>]+>/m.test(raw)],
 ];
 
 console.log('┌─ ASSERTIONS ────────────────────────────────────────────────');

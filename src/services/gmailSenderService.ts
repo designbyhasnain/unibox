@@ -11,7 +11,6 @@ import {
     buildBimiSelectorHeader,
     resolveSenderImage,
     injectSenderSignature,
-    buildSpeculativeIdentityHeaders,
 } from '../utils/identitySchema';
 
 /**
@@ -101,19 +100,11 @@ export async function sendGmailEmail(params: {
             mailto: `unsubscribe@${(account.email.split('@')[1] || 'wedits.com')}`,
             httpUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/unsubscribe?t=${trackingId}`,
         }) : {};
-        // BIMI-Selector header — receivers (Yahoo/AOL today, Apple via Branded
-        // Mail, Gmail via VMC/CMC if ever paid for) use this to look up the
-        // BIMI DNS record. Harmless when no record exists.
+        // BIMI-Selector header — IETF BIMI draft. Receivers (Yahoo/AOL today,
+        // Apple via Branded Mail, Gmail via VMC/CMC if ever paid for) use this
+        // to look up the BIMI DNS record. Harmless when no record exists.
         const bimiHeader = buildBimiSelectorHeader('default');
-        // Speculative identity headers — see identitySchema.ts for the full
-        // honest warning. No major email client reads any of these as of
-        // May 2026. Shipped per explicit product-owner request. Harmless.
-        const speculativeHeaders = buildSpeculativeIdentityHeaders({
-            imageUrl: senderImage,
-            name: senderName,
-            email: account.email,
-        });
-        const allHeaders = { ...unsubHeaders, ...bimiHeader, ...speculativeHeaders };
+        const allHeaders = { ...unsubHeaders, ...bimiHeader };
         const headerLines = Object.entries(allHeaders).map(([k, v]) => `${k}: ${v}`);
 
         const messageParts = [

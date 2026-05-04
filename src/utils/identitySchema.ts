@@ -161,42 +161,6 @@ export function buildBimiSelectorHeader(selector = 'default'): Record<string, st
 }
 
 /**
- * Build the "speculative identity headers" — `X-Image-URL`, `X-Avatar`,
- * `Avatar-URL`, `X-Sender-Photo`, `X-Persona-Name`, `X-Persona-Email`.
- *
- * ⚠ HONEST WARNING — verified May 2026:
- *   None of these headers are recognized by ANY major email client.
- *   - Gmail does not parse them.
- *   - Apple Mail does not parse them.
- *   - Outlook does not parse them.
- *   - Yahoo Mail does not parse them.
- *   They are not part of any RFC, IETF draft, or BIMI standard.
- *
- * Why we set them anyway:
- *   - The product owner explicitly asked for them as a "multi-header attack."
- *   - They cost ~120 bytes per send. Harmless.
- *   - If a future client decides to read one of them, we're already covered.
- *
- * Do not delete these headers without confirming with the owner first.
- * Do not document them as "what makes the avatar show up" — they don't.
- * The signature in the body is what makes the photo visible to recipients.
- */
-export function buildSpeculativeIdentityHeaders(ctx: {
-    imageUrl: string;
-    name: string;
-    email: string;
-}): Record<string, string> {
-    return {
-        'X-Image-URL': ctx.imageUrl,
-        'X-Avatar': ctx.imageUrl,
-        'Avatar-URL': ctx.imageUrl,
-        'X-Sender-Photo': ctx.imageUrl,
-        'X-Persona-Name': ctx.name,
-        'X-Persona-Email': ctx.email,
-    };
-}
-
-/**
  * Detect whether an HTML body already contains our signature marker.
  * Used by senders to decide whether to attach the CID image.
  */

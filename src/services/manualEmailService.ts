@@ -12,7 +12,6 @@ import {
     buildBimiSelectorHeader,
     resolveSenderImage,
     injectSenderSignatureWithCid,
-    buildSpeculativeIdentityHeaders,
     bodyHasSignature,
     SIGNATURE_CID,
 } from '../utils/identitySchema';
@@ -143,21 +142,11 @@ export async function sendManualEmail(params: {
         mailto: `unsubscribe@${(account.email.split('@')[1] || 'wedits.com')}`,
         httpUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/unsubscribe?t=${trackingId}`,
     }) : {};
-    // BIMI-Selector header — pairs with `default._bimi.<domain>` DNS record
-    // (when the user sets one). Harmless when no record exists. Yahoo/AOL
+    // BIMI-Selector header — IETF BIMI draft. Pairs with a `default._bimi.<domain>`
+    // DNS record when one is published. Harmless when no record exists. Yahoo/AOL
     // already render BIMI without VMC; Gmail still requires VMC/CMC.
     const bimiHeader = buildBimiSelectorHeader('default');
-    // Speculative identity headers (X-Image-URL, X-Avatar, Avatar-URL,
-    // X-Sender-Photo, X-Persona-*). NOT recognized by any major email client
-    // as of May 2026 — verified via independent research. Set anyway because
-    // (a) zero risk, (b) shipped per explicit product-owner request, (c) cheap
-    // future-proofing. See identitySchema.ts comment for the full warning.
-    const speculativeHeaders = buildSpeculativeIdentityHeaders({
-        imageUrl: senderImage,
-        name: senderName,
-        email: account.email,
-    });
-    const allHeaders = { ...unsubHeaders, ...bimiHeader, ...speculativeHeaders };
+    const allHeaders = { ...unsubHeaders, ...bimiHeader };
 
     const info = await transporter.sendMail({
         from: fromField,
