@@ -5,7 +5,7 @@ import { handleEmailSent } from './emailSyncLogic';
 import { refreshAccessToken } from './googleAuthService';
 import { prepareTrackedEmail } from './trackingService';
 import { formatFromHeader } from '../utils/fromAddress';
-import { injectIdentitySchema, buildUnsubscribeHeaders } from '../utils/identitySchema';
+import { injectIdentitySchema, buildUnsubscribeHeaders, buildBimiSelectorHeader, resolveSenderImage } from '../utils/identitySchema';
 
 /**
  * Sends an email via Gmail API and syncs it to the database.
@@ -63,26 +63,33 @@ export async function sendGmailEmail(params: {
         const fromHeader = formatFromHeader(account.display_name, account.email);
         console.log(`[Gmail Send] from=${fromHeader} to=${to} subject=${subject.slice(0, 60)}`);
 
-        // Phase 15: inject Schema.org Person/Organization JSON-LD at the
-        // bottom of the body. Apple Mail + Outlook on the web read this;
-        // Gmail ignores it without partner whitelisting (see comment in
-        // src/utils/identitySchema.ts). Zero cost / zero risk to ship.
+        // Inject Schema.org Person/Organization JSON-LD at the bottom of
+        // the body. Honest scope: Gmail does NOT use this for sender avatar
+        // (verified May 2026). Used by some third-party clients + parsed
+        // by Gmail for action chips. Zero cost / zero risk to ship.
+        // Persona image falls back to Gravatar URL when account has no
+        // uploaded photo — covers third-party clients automatically.
+        const senderImage = resolveSenderImage(account.profile_image, account.email);
         const enrichedBody = injectIdentitySchema(body, {
             senderName: account.display_name || account.email,
             senderEmail: account.email,
-            profileImageUrl: account.profile_image,
+            profileImageUrl: senderImage,
             organization: 'Wedits',
             organizationUrl: 'https://wedits.com',
         });
 
-        // Phase 15: List-Unsubscribe + List-Unsubscribe-Post (RFC 8058)
-        // headers when we have a tracking-id we can route an unsubscribe
-        // through. Improves Gmail deliverability + sender reputation.
+        // List-Unsubscribe + List-Unsubscribe-Post (RFC 8058) when we have
+        // a tracking-id. Improves Gmail deliverability + sender reputation.
         const unsubHeaders = trackingId && process.env.NEXT_PUBLIC_APP_URL ? buildUnsubscribeHeaders({
             mailto: `unsubscribe@${(account.email.split('@')[1] || 'wedits.com')}`,
             httpUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/unsubscribe?t=${trackingId}`,
         }) : {};
-        const unsubHeaderLines = Object.entries(unsubHeaders).map(([k, v]) => `${k}: ${v}`);
+        // BIMI-Selector header — receivers (Yahoo/AOL today, Apple via Branded
+        // Mail, Gmail via VMC/CMC if ever paid for) use this to look up the
+        // BIMI DNS record. Harmless when no record exists.
+        const bimiHeader = buildBimiSelectorHeader('default');
+        const allHeaders = { ...unsubHeaders, ...bimiHeader };
+        const headerLines = Object.entries(allHeaders).map(([k, v]) => `${k}: ${v}`);
 
         const messageParts = [
             `From: ${fromHeader}`,
@@ -92,7 +99,7 @@ export async function sendGmailEmail(params: {
             `Content-Type: text/html; charset=utf-8`,
             `MIME-Version: 1.0`,
             `Subject: ${utf8Subject}`,
-            ...unsubHeaderLines,
+            ...headerLines,
             ``,
             enrichedBody,
         ];

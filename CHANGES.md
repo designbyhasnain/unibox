@@ -397,7 +397,44 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-04 (later) — Merged /branding into /accounts; deleted standalone route; strengthened sender-identity headers
+
+Reversal of the previous build's separate `/branding` route. The deliverability info belongs alongside the account it describes, not on its own page.
+
+**UI merger** (`app/accounts/PageClient.tsx`):
+- Each account card's meta line now shows DNS health pills (`SPF`, `DKIM`, `DMARC`) plus a `Google` / `Gravatar` / `No avatar` identity badge and a per-domain `↻ DNS` re-check button.
+- New "Register w/ Google" button on the action bar for non-OAuth, non-free-mail accounts — opens the Google sign-up magic URL pre-filled with the address.
+- Persona button stays as the single place to set display name + photo.
+- Collapsible "Deliverability & sender avatars" details block at the top of the page documents the **honest** reality of which clients render which avatar signals (Gmail = paid VMC/CMC only, Yahoo/AOL = free BIMI, Apple = Apple Business Connect, Outlook = nothing).
+- Compute sha256 client-side via `crypto.subtle.digest` for Gravatar lookup — no extra server round-trip.
+- Branding actions (`checkAllDomainsAction`, `checkDomainDNSAction`, `checkGravatarsAction`) loaded once when accounts mount; cached in component state.
+
+**Deleted** `app/branding/page.tsx` + `app/branding/PageClient.tsx`. Removed Branding entry from Sidebar Admin group. `src/actions/brandingActions.ts` retained — actions are now consumed by `/accounts`.
+
+**BIMI-without-VMC research** (full report in agent transcript): summary —
+- Gmail avatar circle is hard-blocked without VMC (~$1500/yr) or CMC (~$500–$1200/yr). No header/HTML/JSON-LD trick changes this. The only free path for Gmail is registering each address as a Google account (Register-w/-Google button).
+- Yahoo / AOL render BIMI without VMC since 2021 — DNS TXT at `default._bimi.<domain>` + DMARC enforcement + hosted SVG Tiny PS. Free win.
+- Apple Mail (iCloud-recipient only) renders via Apple Business Connect "Branded Mail" enrollment — free, ~7-day review, no VMC.
+- Outlook does not render BIMI as of April 2026.
+- `BIMI-Selector` MIME header tells receivers which DNS selector to fetch — costs nothing, harmless when no DNS record exists.
+- `BIMI-Indicator` is a receiver-inserted header per IETF draft; sender-asserted ones are ignored.
+- Schema.org JSON-LD is parsed by Gmail for action chips, NOT for sender avatar.
+- Native Gmail / Apple / Outlook do NOT read Gravatar (per Gravatar's own docs). Useful only for third-party clients.
+
+**Sender-identity header changes** (`src/utils/identitySchema.ts`, `src/services/manualEmailService.ts`, `src/services/gmailSenderService.ts`):
+- New `buildBimiSelectorHeader(selector = 'default')` → emits `BIMI-Selector: v=BIMI1; s=default;` on every send. Both senders now wire it.
+- New `gravatarUrl(email, size)` + `resolveSenderImage(profileImage, email)` — falls back to a Gravatar URL when no `profile_image` is set on the account, so the JSON-LD identity block always carries an image. (Honest: this only helps third-party clients that read Gravatar.)
+- Doc comment in `identitySchema.ts` rewritten to document the verified May-2026 client matrix (was overselling JSON-LD as an avatar source).
+- Existing `injectIdentitySchema` and `buildUnsubscribeHeaders` unchanged.
+
+**Net code shipped this build**:
+- Modified: `app/accounts/PageClient.tsx`, `app/components/Sidebar.tsx`, `src/services/manualEmailService.ts`, `src/services/gmailSenderService.ts`, `src/utils/identitySchema.ts`, `CLAUDE.md`, `CHANGES.md`.
+- Deleted: `app/branding/page.tsx`, `app/branding/PageClient.tsx`.
+- Retained for re-use: `src/actions/brandingActions.ts` (now consumed by /accounts).
+
 ## Build 2026-05-04 — Branding & Deliverability dashboard at `/branding`
+
+> ⚠ Superseded by the same-day "Merged /branding into /accounts" build above. The standalone route was removed. The server actions in `src/actions/brandingActions.ts` survived the merge.
 
 New admin-only route to drive 100% Gmail avatar visibility across all 77+ sender accounts.
 

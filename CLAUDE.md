@@ -245,4 +245,4 @@ Prisma enum has only `ADMIN` and `SALES`, but the DB also stores `ACCOUNT_MANAGE
 
 ---
 
-_Last audited: 2026-05-04 (technical pruning — moved build journal to `CHANGES.md`, architecture inventories to `PROJECT_OVERVIEW.md`). Previous: 2026-05-04 (added /branding dashboard). 2026-04-30 (Phase 1 launch-ready). 2026-04-26 (AM credit & ownership separation)._
+_Last audited: 2026-05-04 (merged /branding features into /accounts; deleted /branding route; added BIMI-Selector header + Gravatar fallback to mail senders — see CHANGES.md). Previous: 2026-05-04 (technical pruning of CLAUDE.md). 2026-04-30 (Phase 1 launch-ready)._

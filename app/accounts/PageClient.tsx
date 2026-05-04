@@ -19,6 +19,13 @@ import {
     syncAllAccountsHealthAction,
     syncGoogleProfilesAction,
 } from '../../src/actions/accountActions';
+import {
+    checkAllDomainsAction,
+    checkDomainDNSAction,
+    checkGravatarsAction,
+    type DnsHealthResult,
+    type DnsCheckStatus,
+} from '../../src/actions/brandingActions';
 import { PageLoader } from '../components/LoadingStates';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { useConfirm } from '../context/ConfirmContext';
@@ -128,6 +135,71 @@ function WatchStatusBadge({ watchStatus, watchExpiry, connectionMethod }: {
     );
 }
 
+// ── Branding badge primitives (inline so we don't add a new component file) ──
+
+function googleSignupMagicUrl(email: string): string {
+    return `https://accounts.google.com/signup/v2/createaccount?flowName=GlifWebSignIn&flowEntry=SignUp&email=${encodeURIComponent(email)}`;
+}
+
+function DnsBadgeRow({
+    dns,
+    gravatarExists,
+    isOAuth,
+    onRecheck,
+    rechecking,
+    isFreeMail,
+}: {
+    dns: DnsHealthResult | undefined;
+    gravatarExists: boolean | null;
+    isOAuth: boolean;
+    onRecheck: () => void;
+    rechecking: boolean;
+    isFreeMail: boolean;
+}) {
+    const pillFor = (status: DnsCheckStatus, label: string, title?: string) => {
+        const cls = status === 'pass' ? 'badge-green' : status === 'fail' ? 'badge-red' : 'badge-gray';
+        return <span className={`badge badge-sm ${cls}`} title={title}>{label}</span>;
+    };
+
+    if (!dns) {
+        return <span className="badge badge-sm badge-gray">DNS …</span>;
+    }
+
+    return (
+        <>
+            {pillFor(dns.spf.status, 'SPF', dns.spf.record || dns.spf.note || 'SPF')}
+            {pillFor(dns.dkim.status, 'DKIM', dns.dkim.record || dns.dkim.note || 'DKIM')}
+            {pillFor(dns.dmarc.status, dns.dmarc.policy ? `DMARC: ${dns.dmarc.policy}` : 'DMARC', dns.dmarc.record || dns.dmarc.note || 'DMARC')}
+            {isOAuth ? (
+                <span className="badge badge-sm badge-green" title="Connected via Google OAuth — has a Google profile">Google</span>
+            ) : gravatarExists === true ? (
+                <span className="badge badge-sm badge-green" title="Gravatar found for this address">Gravatar</span>
+            ) : gravatarExists === false ? (
+                <span className="badge badge-sm badge-gray" title="No Google account or Gravatar — recipients see initials in Gmail">No avatar</span>
+            ) : null}
+            {!isFreeMail && (
+                <button
+                    onClick={onRecheck}
+                    disabled={rechecking}
+                    className="btn btn-xs btn-secondary"
+                    style={{ padding: '2px 6px', fontSize: 10.5, marginLeft: 2 }}
+                    title={`Re-check DNS for this domain`}
+                >
+                    {rechecking ? '…' : '↻ DNS'}
+                </button>
+            )}
+        </>
+    );
+}
+
+const FREE_MAIL_DOMAINS = new Set([
+    'gmail.com', 'googlemail.com',
+    'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+    'yahoo.com', 'yahoo.co.uk', 'ymail.com',
+    'icloud.com', 'me.com', 'mac.com',
+    'aol.com', 'proton.me', 'protonmail.com',
+]);
+
 export default function AccountsPage() {
     const isHydrated = useHydrated();
     const { selectedAccountId, setSelectedAccountId, accounts, refreshAccounts, isLoadingAccounts, setAccounts } = useGlobalFilter();
@@ -183,6 +255,14 @@ export default function AccountsPage() {
     const [personaTarget, setPersonaTarget] = useState<PersonaTarget | null>(null);
     const [personaBulkOpen, setPersonaBulkOpen] = useState(false);
     const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
+
+    // Branding state — DNS health (per-domain) + Gravatar existence (per-email-hash).
+    // Computed client-side, refreshed by a button. Read-only — no DB writes.
+    const [dnsMap, setDnsMap] = useState<Record<string, DnsHealthResult>>({});
+    const [gravatarMap, setGravatarMap] = useState<Record<string, boolean>>({});
+    const [emailHashes, setEmailHashes] = useState<Record<string, string>>({}); // email → sha256 hex
+    const [dnsLoading, setDnsLoading] = useState(false);
+    const [recheckingDomain, setRecheckingDomain] = useState<string | null>(null);
     const toggleBulkSelect = (id: string) => {
         setSelectedForBulk(prev => {
             const next = new Set(prev);
@@ -240,6 +320,64 @@ export default function AccountsPage() {
 
         return () => clearInterval(interval);
     }, [accounts, isSyncing]);
+
+    // ── Branding: DNS + Gravatar checks ─────────────────────────────────
+    // Runs once when accounts load. Read-only public DNS + Gravatar HEAD probe.
+    // sha256 is computed client-side via SubtleCrypto so we don't need a
+    // server round-trip just to get the hash.
+    const loadBrandingChecks = async (accts: GmailAccount[]) => {
+        if (!accts.length) return;
+        setDnsLoading(true);
+        try {
+            // Compute sha256 for each unique email (Gravatar key).
+            const emails = Array.from(new Set(accts.map(a => a.email.toLowerCase())));
+            const hashes: Record<string, string> = {};
+            for (const email of emails) {
+                const buf = new TextEncoder().encode(email.trim().toLowerCase());
+                const digest = await crypto.subtle.digest('SHA-256', buf);
+                hashes[email] = Array.from(new Uint8Array(digest))
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
+            }
+            setEmailHashes(hashes);
+
+            const domains = Array.from(new Set(
+                accts
+                    .map(a => a.email.split('@')[1])
+                    .filter((d): d is string => Boolean(d))
+            ));
+            const [dnsRes, gravRes] = await Promise.all([
+                checkAllDomainsAction(domains),
+                checkGravatarsAction(Object.values(hashes)),
+            ]);
+            if (dnsRes.success && dnsRes.results) setDnsMap(dnsRes.results);
+            if (gravRes.success && gravRes.results) setGravatarMap(gravRes.results);
+        } catch (err) {
+            console.warn('Branding checks failed:', err);
+        } finally {
+            setDnsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        // Trigger when accounts first arrive (or count changes — new connect).
+        if (accounts.length > 0 && Object.keys(dnsMap).length === 0) {
+            loadBrandingChecks(accounts);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [accounts.length]);
+
+    const recheckDomain = async (domain: string) => {
+        setRecheckingDomain(domain);
+        const res = await checkDomainDNSAction(domain);
+        if (res.success && res.result) {
+            setDnsMap(prev => ({ ...prev, [domain]: res.result! }));
+            showSuccess(`Re-checked ${domain}`);
+        } else {
+            showError(res.error || 'DNS re-check failed');
+        }
+        setRecheckingDomain(null);
+    };
 
     const handleOAuthFlow = async () => {
         try {
@@ -610,6 +748,41 @@ export default function AccountsPage() {
                                 </div>
                             )}
 
+                            {isAdmin && (
+                                <details
+                                    style={{
+                                        margin: '0 1.5rem 1rem',
+                                        padding: '12px 14px',
+                                        background: 'var(--surface)',
+                                        border: '1px solid var(--hairline-soft)',
+                                        borderRadius: 10,
+                                        fontSize: 12.5,
+                                        color: 'var(--ink-muted)',
+                                    }}
+                                >
+                                    <summary style={{ cursor: 'pointer', color: 'var(--ink)', fontWeight: 500, fontSize: 13 }}>
+                                        Deliverability &amp; sender avatars — what each badge means {dnsLoading ? '· checking…' : ''}
+                                    </summary>
+                                    <div style={{ marginTop: 10, lineHeight: 1.65 }}>
+                                        <div><strong>SPF / DKIM / DMARC</strong> — green means the domain is set up correctly. Untrusted domains land in spam more often and never get a sender photo on Gmail.</div>
+                                        <div><strong>Google / Gravatar / No avatar</strong> — Google = OAuth-connected, Gravatar = registered Gravatar found, No avatar = recipients on Gmail will see only initials.</div>
+                                        <div style={{ marginTop: 8 }}>
+                                            <strong style={{ color: 'var(--ink)' }}>Honest reality (verified May 2026):</strong>
+                                        </div>
+                                        <ul style={{ marginTop: 4, paddingLeft: 18 }}>
+                                            <li><strong>Gmail avatar circle</strong> — hard-blocked without a paid VMC (~$1500/yr) or CMC (~$500–$1200/yr) certificate. <em>No header trick or DNS-only setup will turn it on.</em> The only free path is the <em>Register w/ Google</em> button below — sign each address up for a free Google account so Gmail uses that profile photo.</li>
+                                            <li><strong>Yahoo / AOL avatar</strong> — free with self-asserted BIMI: DMARC enforcement (<code>p=quarantine</code> or stricter) + a hosted SVG Tiny PS logo + a TXT record at <code>default._bimi.&lt;domain&gt;</code>. We already emit the <code>BIMI-Selector</code> header on every send.</li>
+                                            <li><strong>Apple Mail (iCloud recipients only)</strong> — free via Apple Business Connect &ldquo;Branded Mail&rdquo; enrollment (~7-day review). Apple Mail reading Gmail/IMAP doesn&apos;t render avatars at all.</li>
+                                            <li><strong>Outlook</strong> — doesn&apos;t render BIMI anywhere as of April 2026. Photo comes from Microsoft Graph / Entra only.</li>
+                                            <li><strong>Schema.org JSON-LD</strong> we inject is parsed by Gmail for action chips, NOT for avatar. We send it because it costs nothing.</li>
+                                        </ul>
+                                        <div style={{ marginTop: 8, fontSize: 11.5 }}>
+                                            <em>So: green badges + the Persona button cover everything we can do in code. Hitting 100% Gmail visibility means either Register-with-Google for each address, or buying CMC/VMC certificates per domain.</em>
+                                        </div>
+                                    </div>
+                                </details>
+                            )}
+
                             <PageLoader isLoading={!isHydrated || isLoading} type="grid" count={6} context="accounts">
                                 {filteredAccounts.length === 0 ? (
                                     <div className="empty-state">
@@ -685,6 +858,16 @@ export default function AccountsPage() {
                                                             <span className="acct-card-method">
                                                                 {acc.connection_method === 'MANUAL' ? 'Manual/IMAP' : 'Google OAuth'}
                                                             </span>
+                                                        </div>
+                                                        <div className="acct-card-meta" style={{ marginTop: 4, flexWrap: 'wrap' }}>
+                                                            <DnsBadgeRow
+                                                                dns={dnsMap[acc.email.split('@')[1]?.toLowerCase() || '']}
+                                                                gravatarExists={gravatarMap[emailHashes[acc.email.toLowerCase()] || ''] ?? null}
+                                                                isOAuth={acc.connection_method === 'OAUTH'}
+                                                                onRecheck={() => recheckDomain(acc.email.split('@')[1]?.toLowerCase() || '')}
+                                                                rechecking={recheckingDomain === acc.email.split('@')[1]?.toLowerCase()}
+                                                                isFreeMail={FREE_MAIL_DOMAINS.has(acc.email.split('@')[1]?.toLowerCase() || '')}
+                                                            />
                                                         </div>
                                                     </div>
                                                     <div className="acct-card-sync-info">
@@ -815,6 +998,17 @@ export default function AccountsPage() {
                                                         >
                                                             Persona
                                                         </button>
+                                                        {acc.connection_method !== 'OAUTH' && !FREE_MAIL_DOMAINS.has(acc.email.split('@')[1]?.toLowerCase() || '') && (
+                                                            <a
+                                                                className="btn btn-sm btn-secondary"
+                                                                href={googleSignupMagicUrl(acc.email)}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                title="Open Google sign-up with this email pre-filled (forces 'Use my current email' flow). Required for Gmail to ever show a sender photo."
+                                                            >
+                                                                Register w/ Google
+                                                            </a>
+                                                        )}
                                                         <button
                                                             className="btn btn-sm btn-danger"
                                                             onClick={() => setAccountToRemove(acc)}

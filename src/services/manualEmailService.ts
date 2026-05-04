@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
 import { decrypt } from '../utils/encryption';
 import { prepareTrackedEmail } from './trackingService';
-import { injectIdentitySchema, buildUnsubscribeHeaders } from '../utils/identitySchema';
+import { injectIdentitySchema, buildUnsubscribeHeaders, buildBimiSelectorHeader, resolveSenderImage } from '../utils/identitySchema';
 
 /**
  * Test IMAP and SMTP connection with provided credentials
@@ -102,11 +102,15 @@ export async function sendManualEmail(params: {
     const fromField = displayName ? { name: displayName, address: account.email } : account.email;
     console.log(`[SMTP Send] from=${typeof fromField === 'string' ? fromField : `${fromField.name} <${fromField.address}>`} to=${to} subject=${subject.slice(0, 60)}`);
 
-    // Phase 15: identity metadata. Same logic as the Gmail path.
+    // Identity metadata. Same logic as the Gmail path.
+    // Persona image falls back to Gravatar URL when no profile_image is set —
+    // gives third-party clients (Superhuman/Spark/Mimestream) a photo even
+    // without an uploaded avatar. Honest: Gmail/Apple/Outlook ignore Gravatar.
+    const senderImage = resolveSenderImage(account.profile_image, account.email);
     const enrichedHtml = injectIdentitySchema(body, {
         senderName: displayName || account.email,
         senderEmail: account.email,
-        profileImageUrl: account.profile_image,
+        profileImageUrl: senderImage,
         organization: 'Wedits',
         organizationUrl: 'https://wedits.com',
     });
@@ -114,6 +118,11 @@ export async function sendManualEmail(params: {
         mailto: `unsubscribe@${(account.email.split('@')[1] || 'wedits.com')}`,
         httpUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/unsubscribe?t=${trackingId}`,
     }) : {};
+    // BIMI-Selector header — pairs with `default._bimi.<domain>` DNS record
+    // (when the user sets one). Harmless when no record exists. Yahoo/AOL
+    // already render BIMI without VMC; Gmail still requires VMC/CMC.
+    const bimiHeader = buildBimiSelectorHeader('default');
+    const allHeaders = { ...unsubHeaders, ...bimiHeader };
 
     const info = await transporter.sendMail({
         from: fromField,
@@ -122,7 +131,7 @@ export async function sendManualEmail(params: {
         ...(bcc ? { bcc } : {}),
         subject,
         html: enrichedHtml,
-        ...(Object.keys(unsubHeaders).length > 0 ? { headers: unsubHeaders } : {}),
+        ...(Object.keys(allHeaders).length > 0 ? { headers: allHeaders } : {}),
     });
 
     const finalThreadId = threadId || info.messageId.replace(/[<>]/g, '');
