@@ -7,6 +7,7 @@ import { UndoToastProvider } from './context/UndoToastContext'
 import { ConfirmProvider } from './context/ConfirmContext'
 import { GlobalSearchProvider } from './context/GlobalSearchContext'
 import ClientLayout from './components/ClientLayout'
+import ServiceWorkerRegister from './components/ServiceWorkerRegister'
 
 // Every authenticated page reads the unibox_session cookie via getFreshSession()
 // or ensureAuthenticated(); Next 16's prerender path can't satisfy that and
@@ -24,6 +25,7 @@ export const metadata: Metadata = {
     applicationName: 'Unibox',
     authors: [{ name: 'Wedits' }],
     icons: { icon: '/icon.svg' },
+    manifest: '/manifest.json',
     robots: {
         index: false,
         follow: false,
@@ -46,6 +48,7 @@ export default function RootLayout({
         <html lang="en" suppressHydrationWarning>
             <body suppressHydrationWarning>
                 <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+                <ServiceWorkerRegister />
                 <FilterProvider>
                     <UIProvider>
                         <UndoToastProvider>

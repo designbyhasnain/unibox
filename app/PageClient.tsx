@@ -24,6 +24,7 @@ import { useHydrated } from './utils/useHydration';
 import { formatDate, cleanPreview } from './utils/helpers';
 import { getAvatarSrc, getAvatarBg } from './utils/avatars';
 import { RefreshCw, Mail, Send, Trash2, Eye, EyeOff, CheckCheck } from 'lucide-react';
+import Image from 'next/image';
 import ClientIntelligencePanel from './components/ClientIntelligencePanel';
 import OwnerPicker from './components/OwnerPicker';
 import { useConfirm } from './context/ConfirmContext';
@@ -583,12 +584,28 @@ export default function InboxPage() {
                                             onMouseEnter={() => prefetchThread?.(email.thread_id)}
                                         >
                                             {isSent && accountProfileImage ? (
-                                                <div className="avatar" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                                                    <img src={accountProfileImage} alt={accountDisplayName || accountEmail} style={{ width: '100%', height: '100%', objectFit: 'cover' }} referrerPolicy="no-referrer" />
+                                                <div className="avatar" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, position: 'relative' }}>
+                                                    <Image
+                                                        src={accountProfileImage}
+                                                        alt={accountDisplayName || accountEmail}
+                                                        width={32}
+                                                        height={32}
+                                                        loading="lazy"
+                                                        unoptimized={accountProfileImage.startsWith('data:')}
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                        referrerPolicy="no-referrer"
+                                                    />
                                                 </div>
                                             ) : (
-                                                <div className="avatar" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: getAvatarBg(senderName) }}>
-                                                    <img src={getAvatarSrc(senderName)} alt={initials} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                <div className="avatar" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: getAvatarBg(senderName), position: 'relative' }}>
+                                                    <Image
+                                                        src={getAvatarSrc(senderName)}
+                                                        alt={initials}
+                                                        width={32}
+                                                        height={32}
+                                                        loading="lazy"
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                    />
                                                 </div>
                                             )}
                                             <div className="body">
