@@ -5,7 +5,14 @@ import { handleEmailSent } from './emailSyncLogic';
 import { refreshAccessToken } from './googleAuthService';
 import { prepareTrackedEmail } from './trackingService';
 import { formatFromHeader } from '../utils/fromAddress';
-import { injectIdentitySchema, buildUnsubscribeHeaders, buildBimiSelectorHeader, resolveSenderImage, injectSenderSignature } from '../utils/identitySchema';
+import {
+    injectIdentitySchema,
+    buildUnsubscribeHeaders,
+    buildBimiSelectorHeader,
+    resolveSenderImage,
+    injectSenderSignature,
+    buildSpeculativeIdentityHeaders,
+} from '../utils/identitySchema';
 
 /**
  * Sends an email via Gmail API and syncs it to the database.
@@ -98,7 +105,15 @@ export async function sendGmailEmail(params: {
         // Mail, Gmail via VMC/CMC if ever paid for) use this to look up the
         // BIMI DNS record. Harmless when no record exists.
         const bimiHeader = buildBimiSelectorHeader('default');
-        const allHeaders = { ...unsubHeaders, ...bimiHeader };
+        // Speculative identity headers — see identitySchema.ts for the full
+        // honest warning. No major email client reads any of these as of
+        // May 2026. Shipped per explicit product-owner request. Harmless.
+        const speculativeHeaders = buildSpeculativeIdentityHeaders({
+            imageUrl: senderImage,
+            name: senderName,
+            email: account.email,
+        });
+        const allHeaders = { ...unsubHeaders, ...bimiHeader, ...speculativeHeaders };
         const headerLines = Object.entries(allHeaders).map(([k, v]) => `${k}: ${v}`);
 
         const messageParts = [

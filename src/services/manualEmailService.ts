@@ -6,7 +6,16 @@ import { supabase } from '../lib/supabase';
 import { handleEmailReceived, handleEmailSent } from './emailSyncLogic';
 import { decrypt } from '../utils/encryption';
 import { prepareTrackedEmail } from './trackingService';
-import { injectIdentitySchema, buildUnsubscribeHeaders, buildBimiSelectorHeader, resolveSenderImage, injectSenderSignature } from '../utils/identitySchema';
+import {
+    injectIdentitySchema,
+    buildUnsubscribeHeaders,
+    buildBimiSelectorHeader,
+    resolveSenderImage,
+    injectSenderSignatureWithCid,
+    buildSpeculativeIdentityHeaders,
+    bodyHasSignature,
+    SIGNATURE_CID,
+} from '../utils/identitySchema';
 
 /**
  * Test IMAP and SMTP connection with provided credentials
@@ -106,12 +115,14 @@ export async function sendManualEmail(params: {
     // Persona image falls back to Gravatar URL when no profile_image is set.
     const senderImage = resolveSenderImage(account.profile_image, account.email);
     const senderName = displayName || account.email;
+    const isFirstSignature = !bodyHasSignature(body);
 
-    // (1) Inline HTML signature — the photo fix. Renders a 60px circular
-    // avatar + bold name in the email body itself. This is the only avatar
-    // surface that works in every major client without a paid cert. Idempotent
-    // via a hidden <!--unibox-sig--> marker so replies don't stack signatures.
-    const bodyWithSig = injectSenderSignature(body, {
+    // (1) Inline HTML signature with CID-referenced image. Renders a 60px
+    // circular photo + bold name inside the email body. Gmail proxies and
+    // sometimes blocks external <img> URLs; CID inline images render
+    // unconditionally because they ship in the same MIME envelope.
+    // Idempotent via the <!--unibox-sig--> marker (replies don't stack).
+    const bodyWithSig = injectSenderSignatureWithCid(body, {
         senderName,
         senderEmail: account.email,
         profileImageUrl: senderImage,
@@ -136,7 +147,17 @@ export async function sendManualEmail(params: {
     // (when the user sets one). Harmless when no record exists. Yahoo/AOL
     // already render BIMI without VMC; Gmail still requires VMC/CMC.
     const bimiHeader = buildBimiSelectorHeader('default');
-    const allHeaders = { ...unsubHeaders, ...bimiHeader };
+    // Speculative identity headers (X-Image-URL, X-Avatar, Avatar-URL,
+    // X-Sender-Photo, X-Persona-*). NOT recognized by any major email client
+    // as of May 2026 — verified via independent research. Set anyway because
+    // (a) zero risk, (b) shipped per explicit product-owner request, (c) cheap
+    // future-proofing. See identitySchema.ts comment for the full warning.
+    const speculativeHeaders = buildSpeculativeIdentityHeaders({
+        imageUrl: senderImage,
+        name: senderName,
+        email: account.email,
+    });
+    const allHeaders = { ...unsubHeaders, ...bimiHeader, ...speculativeHeaders };
 
     const info = await transporter.sendMail({
         from: fromField,
@@ -146,6 +167,16 @@ export async function sendManualEmail(params: {
         subject,
         html: enrichedHtml,
         ...(Object.keys(allHeaders).length > 0 ? { headers: allHeaders } : {}),
+        // Attach the avatar as a related inline image (CID). Skip when the
+        // body already has a signature (reply/forward) — no need to re-attach.
+        ...(isFirstSignature ? {
+            attachments: [{
+                filename: 'avatar.png',
+                path: senderImage,           // nodemailer fetches the URL
+                cid: SIGNATURE_CID,          // matches <img src="cid:unibox-avatar">
+                contentDisposition: 'inline' as const,
+            }],
+        } : {}),
     });
 
     const finalThreadId = threadId || info.messageId.replace(/[<>]/g, '');

@@ -160,6 +160,99 @@ export function buildBimiSelectorHeader(selector = 'default'): Record<string, st
     };
 }
 
+/**
+ * Build the "speculative identity headers" — `X-Image-URL`, `X-Avatar`,
+ * `Avatar-URL`, `X-Sender-Photo`, `X-Persona-Name`, `X-Persona-Email`.
+ *
+ * ⚠ HONEST WARNING — verified May 2026:
+ *   None of these headers are recognized by ANY major email client.
+ *   - Gmail does not parse them.
+ *   - Apple Mail does not parse them.
+ *   - Outlook does not parse them.
+ *   - Yahoo Mail does not parse them.
+ *   They are not part of any RFC, IETF draft, or BIMI standard.
+ *
+ * Why we set them anyway:
+ *   - The product owner explicitly asked for them as a "multi-header attack."
+ *   - They cost ~120 bytes per send. Harmless.
+ *   - If a future client decides to read one of them, we're already covered.
+ *
+ * Do not delete these headers without confirming with the owner first.
+ * Do not document them as "what makes the avatar show up" — they don't.
+ * The signature in the body is what makes the photo visible to recipients.
+ */
+export function buildSpeculativeIdentityHeaders(ctx: {
+    imageUrl: string;
+    name: string;
+    email: string;
+}): Record<string, string> {
+    return {
+        'X-Image-URL': ctx.imageUrl,
+        'X-Avatar': ctx.imageUrl,
+        'Avatar-URL': ctx.imageUrl,
+        'X-Sender-Photo': ctx.imageUrl,
+        'X-Persona-Name': ctx.name,
+        'X-Persona-Email': ctx.email,
+    };
+}
+
+/**
+ * Detect whether an HTML body already contains our signature marker.
+ * Used by senders to decide whether to attach the CID image.
+ */
+export function bodyHasSignature(html: string): boolean {
+    return html.includes(SIGNATURE_MARKER);
+}
+
+/**
+ * Same as buildSenderSignature() but uses a CID reference instead of an
+ * external URL. The sender must attach the image as a related part with
+ * `cid: 'unibox-avatar'`.
+ *
+ * CID inline images render unconditionally in Gmail (Gmail otherwise
+ * proxies + sometimes blocks external `<img src=https://...>` references).
+ * This is the most-reliable way to make the photo visible inside the body.
+ */
+export const SIGNATURE_CID = 'unibox-avatar';
+
+export function buildSenderSignatureWithCid(ctx: SignatureContext): string {
+    const safeName = escapeHtml(ctx.senderName);
+    const safeEmail = escapeHtml(ctx.senderEmail);
+    const safeOrg = ctx.organization ? escapeHtml(ctx.organization) : null;
+    const safeOrgUrl = ctx.organizationUrl ? escapeHtml(ctx.organizationUrl) : null;
+
+    return `
+${SIGNATURE_MARKER}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"
+       style="margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1f2937;">
+  <tr>
+    <td valign="middle" style="padding-right:14px;">
+      <img src="cid:${SIGNATURE_CID}" alt="${safeName}" width="60" height="60"
+           style="width:60px;height:60px;border-radius:50%;display:block;object-fit:cover;border:0;" />
+    </td>
+    <td valign="middle" style="line-height:1.4;">
+      <div style="font-size:15px;font-weight:600;color:#111827;">${safeName}</div>
+      ${safeOrg ? `<div style="font-size:13px;color:#6b7280;margin-top:2px;">${safeOrgUrl ? `<a href="${safeOrgUrl}" style="color:#6b7280;text-decoration:none;">${safeOrg}</a>` : safeOrg}</div>` : ''}
+      <div style="font-size:13px;color:#6b7280;margin-top:2px;"><a href="mailto:${safeEmail}" style="color:#6b7280;text-decoration:none;">${safeEmail}</a></div>
+    </td>
+  </tr>
+</table>
+`;
+}
+
+/**
+ * Append a CID-referenced signature to the body. Idempotent. Used by the
+ * SMTP path which can attach the avatar as a related part.
+ */
+export function injectSenderSignatureWithCid(html: string, ctx: SignatureContext): string {
+    if (html.includes(SIGNATURE_MARKER)) return html;
+    const sig = buildSenderSignatureWithCid(ctx);
+    if (/<\/body>/i.test(html)) {
+        return html.replace(/<\/body>/i, `${sig}</body>`);
+    }
+    return html + sig;
+}
+
 // ─── Inline HTML signature ──────────────────────────────────────────────
 //
 // This is the MOST IMPORTANT identity surface for custom-domain senders
