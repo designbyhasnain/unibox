@@ -184,7 +184,7 @@ The sidebar is **role-aware** and splits navigation into logical groups. Badges 
 | **CRM** | Actions, Inbox, Dashboard, Clients (`/My Clients` for SALES), My Projects, Accounts (admin-only), Opportunities (`/My Pipeline` for SALES) | ADMIN + SALES |
 | **Marketing** | Campaigns, Scraper (admin-only), Templates, Analytics | ADMIN + SALES |
 | **Work** (ADMIN) / **Assistant** (SALES) | Edit Projects (admin-only), Link Projects (admin-only), Jarvis AI | ADMIN + SALES |
-| **Admin** | Intelligence, Finance, Data Health, Team | ADMIN / ACCOUNT_MANAGER only |
+| **Admin** | Intelligence, Finance, Data Health, Branding, Team | ADMIN / ACCOUNT_MANAGER only |
 | **My Work** | Dashboard, My Projects | VIDEO_EDITOR only |
 
 ---
@@ -334,6 +334,7 @@ app/
 ├── intelligence/page.tsx      # Jarvis audit (admin)
 ├── finance/page.tsx           # Revenue + collections (admin)
 ├── data-health/page.tsx       # Data integrity checks (admin)
+├── branding/page.tsx          # Branding & Deliverability dashboard — SPF/DKIM/DMARC + Gravatar + Google identity (admin)
 ├── team/page.tsx              # Team management (admin)
 ├── scraper/page.tsx           # Lead scraper (admin)
 ├── jarvis/page.tsx            # Jarvis chat
@@ -348,7 +349,7 @@ app/
 └── brand-guides/page.tsx      # Brand guides reference
 ```
 
-### Server Actions (`src/actions/`) — 23 files
+### Server Actions (`src/actions/`) — 24 files
 
 | File | Purpose |
 |------|---------|
@@ -375,6 +376,7 @@ app/
 | `dataHealthActions.ts` | **NEW:** Data integrity checks (admin) |
 | `jarvisActions.ts` | **NEW:** Daily briefing, reply suggestions, feedback log, knowledge verification |
 | `scraperActions.ts` | **NEW:** Scraper jobs + results CRUD |
+| `brandingActions.ts` | **NEW:** DNS health (`checkDomainDNSAction`, `checkAllDomainsAction`), `getBrandingDashboardAction`, `checkGravatarsAction`. Uses `node:dns/promises` for SPF/DKIM/DMARC, server-side HEAD against gravatar.com for avatar existence. |
 
 ### Services (`src/services/`) — 23 files
 
@@ -732,7 +734,20 @@ All server actions return `{ success: boolean; data?: T; error?: string }`. Pagi
 
 ---
 
-_Last audited: 2026-04-30 (Grand Discovery audit — see [`docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md`](docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md) — and Phase 1 critical fixes shipped). Previous: 2026-04-29 (theme integrity overhaul). 2026-04-26 (AM credit & ownership separation)._
+_Last audited: 2026-05-04 (added /branding dashboard — DNS health, Google identity, Gravatar). Previous: 2026-04-30 (Grand Discovery audit — see [`docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md`](docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md) — and Phase 1 critical fixes shipped). 2026-04-29 (theme integrity overhaul). 2026-04-26 (AM credit & ownership separation)._
+
+**Build 2026-05-04 — Branding & Deliverability dashboard at `/branding`.** New admin-only route to drive 100% Gmail avatar visibility across all 77+ sender accounts.
+- New route [`app/branding/page.tsx`](app/branding/page.tsx) + [`PageClient.tsx`](app/branding/PageClient.tsx) — high-density table with columns: Email + tiny avatar preview, Display name, DNS health (overall ✓ Trusted / ⚠ Untrusted), per-record SPF/DKIM/DMARC pills, Google identity, Gravatar status, action links.
+- New server actions in [`src/actions/brandingActions.ts`](src/actions/brandingActions.ts):
+  - `checkDomainDNSAction(domain)` — uses `node:dns/promises` (`resolveTxt` + `resolveCname`) to verify SPF (`v=spf1`), DKIM (tries 9 common selectors: `google`, `default`, `selector1/2`, `s1/2`, `k1`, `mxvault`, `dkim` — TXT or CNAME), DMARC (`v=DMARC1` at `_dmarc.<domain>`).
+  - `checkAllDomainsAction(domains)` — bulk variant; de-dupes domains, runs in parallel batches of 8.
+  - `getBrandingDashboardAction()` — returns one row per `gmail_accounts` entry with email, domain, persona, sha256 Gravatar hash, and a pre-built Google sign-up "magic URL".
+  - `checkGravatarsAction(hashes)` — server-side HEAD against `gravatar.com/avatar/{hash}?d=404` in batches of 10 (avoids browser CORS / rate-limit issues). Uses sha256 (Gravatar accepts MD5 or SHA-256).
+- "Register with Google" button generates `https://accounts.google.com/signup/v2/createaccount?flowName=GlifWebSignIn&flowEntry=SignUp&email=<email>` — forces the "Use my current email address instead" flow so each custom-domain inbox can have its own Google identity (which is what makes Gmail show the photo).
+- JSON-LD verification: identity metadata is already correctly injected in [`src/services/manualEmailService.ts:106-112`](src/services/manualEmailService.ts) via `injectIdentitySchema()` — Person + Organization (Wedits) blocks with `profile_image` URL. Confirmed unchanged.
+- All checks are read-only; nothing is written to DB. Re-scan is a button press, no polling.
+- **Honest limits documented in the UI footer**: Gmail BIMI program (forced avatar circle) needs a $1500/yr VMC certificate — out of scope. The DNS + Gravatar + Google-signup combo is what gets us to ~100% photo visibility on Gmail/Apple/Outlook web without BIMI.
+- Sidebar: added Branding entry to the Admin group ([`app/components/Sidebar.tsx:243`](app/components/Sidebar.tsx)). Admin-only — same gate as Data Health and Team.
 
 **Build 2026-04-30 — Phase 1 Launch-Ready security + dashboard truth fixes.** Full audit + fix plan in [`docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md`](docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md).
 - **Closed `getClientsAction` SALES fallthrough** ([`src/actions/clientActions.ts`](src/actions/clientActions.ts)): SALES users with empty Gmail assignments fell through to the admin branch and received the workspace-wide contact list. Now fail-closed. Same commit added `blockEditorAccess()` to `ensureContactAction`, `createClientAction`, and `checkDuplicateAction`, and stopped `createClientAction` honouring caller-supplied `account_manager_id` for SALES (mass-assignment guard).

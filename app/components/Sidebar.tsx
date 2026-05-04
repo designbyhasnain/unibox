@@ -240,6 +240,7 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         { href: '/intelligence', label: 'Intelligence', icon: Icon.brain },
         { href: '/finance', label: 'Finance', icon: Icon.money },
         { href: '/data-health', label: 'Data Health', icon: Icon.shield },
+        { href: '/branding', label: 'Branding', icon: Icon.brand },
         { href: '/team', label: 'Team', icon: Icon.team },
     ] : [];
 
