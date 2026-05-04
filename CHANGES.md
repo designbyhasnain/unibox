@@ -390,3 +390,103 @@ export async function GET(request: Request) {
 
 ### 10. Add Environment Variable Validation
 > "Add startup validation for all required environment variables so missing config fails fast instead of at runtime"
+
+---
+
+# Detailed Build Notes (extracted from CLAUDE.md, 2026-05-04)
+
+> Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
+
+## Build 2026-05-04 — Branding & Deliverability dashboard at `/branding`
+
+New admin-only route to drive 100% Gmail avatar visibility across all 77+ sender accounts.
+
+- New route [`app/branding/page.tsx`](app/branding/page.tsx) + [`PageClient.tsx`](app/branding/PageClient.tsx) — high-density table with columns: Email + tiny avatar preview, Display name, DNS health (overall ✓ Trusted / ⚠ Untrusted), per-record SPF/DKIM/DMARC pills, Google identity, Gravatar status, action links.
+- New server actions in [`src/actions/brandingActions.ts`](src/actions/brandingActions.ts):
+  - `checkDomainDNSAction(domain)` — `node:dns/promises` (`resolveTxt` + `resolveCname`) verifies SPF (`v=spf1`), DKIM (tries 9 common selectors: `google`, `default`, `selector1/2`, `s1/2`, `k1`, `mxvault`, `dkim` — TXT or CNAME), DMARC (`v=DMARC1` at `_dmarc.<domain>`).
+  - `checkAllDomainsAction(domains)` — bulk variant; de-dupes domains, parallel batches of 8.
+  - `getBrandingDashboardAction()` — one row per `gmail_accounts` with email, domain, persona, sha256 Gravatar hash, pre-built Google sign-up "magic URL".
+  - `checkGravatarsAction(hashes)` — server-side HEAD against `gravatar.com/avatar/{hash}?d=404` in batches of 10 (avoids browser CORS / rate-limit issues). Uses sha256.
+- "Register with Google" button generates `https://accounts.google.com/signup/v2/createaccount?flowName=GlifWebSignIn&flowEntry=SignUp&email=<email>` — forces "Use my current email address instead" so each custom-domain inbox can have its own Google identity.
+- JSON-LD identity metadata already correctly injected in `src/services/manualEmailService.ts:106-112` via `injectIdentitySchema()` — Person + Organization (Wedits). Confirmed unchanged.
+- All checks read-only; nothing written to DB. Re-scan is a button press, no polling.
+- Honest limit documented in UI footer: Gmail BIMI (forced avatar circle) needs $1500/yr VMC — out of scope. The DNS + Gravatar + Google-signup combo is what gets to ~100% photo visibility on Gmail/Apple/Outlook web without BIMI.
+- Sidebar: Branding entry added to Admin group, admin-only.
+
+## Build 2026-04-30 — Phase 1 Launch-Ready security + dashboard truth fixes
+
+Full audit + fix plan in `docs/AUDIT-2026-04-30-GRAND-DISCOVERY.md`.
+
+- **Closed `getClientsAction` SALES fallthrough** (`src/actions/clientActions.ts`): SALES users with empty Gmail assignments fell through to the admin branch and received the workspace-wide contact list. Now fail-closed. Same commit added `blockEditorAccess()` to `ensureContactAction`, `createClientAction`, `checkDuplicateAction`; stopped `createClientAction` honouring caller-supplied `account_manager_id` for SALES (mass-assignment guard).
+- **Login null-role no longer defaults to ADMIN** (`app/api/auth/login/route.ts`): `user.role || 'ADMIN'` was a silent privilege-escalation path. Now whitelists ADMIN/ACCOUNT_MANAGER/SALES/VIDEO_EDITOR and returns 403 otherwise.
+- **Session cookies migrated AES-CBC → AES-GCM** (`src/lib/auth.ts`). The CBC scheme had no integrity check and was malleable. New format `iv:authTag:cipher` with 12-byte IV + 16-byte tag; tampered cookies fail at decrypt. `proxy.ts` validator updated. Dropped the dev-only-insecure-fallback secret — `NEXTAUTH_SECRET` is now strictly required everywhere. Migration impact: every existing session invalidated once.
+- **Gmail webhook verifies OIDC JWT** (`app/api/webhooks/gmail/route.ts`): previously trusted any caller. Now uses `OAuth2Client.verifyIdToken`. Required env: `GMAIL_WEBHOOK_AUDIENCE`. Optional: `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL`. Local-dev escape hatch: `GMAIL_WEBHOOK_VERIFY=false`.
+- **Invitation tokens hashed at rest** (`src/actions/inviteActions.ts`): SHA-256, never returned by `listInvitesAction`. `validateInviteTokenAction` accepts both hashed and legacy plaintext (legacy fallback expires within 7 days).
+- **Reflected XSS in proxy 403 fixed** (`proxy.ts`): the IP rendered in the "your IP X is not authorized" page was attacker-controlled and unescaped. Now HTML-escaped.
+- **Dashboard fake data removed** (`app/dashboard/PageClient.tsx` + `src/actions/dashboardActions.ts`): four KPI tiles previously rendered hardcoded sparkline arrays + 12%-of-today fake deltas + a literal "12 hours ago" string + a hardcoded `[42,12],[51,18]…` revenue fallback. `getSalesDashboardAction` now returns `kpiTrends` with real 9-day daily buckets for sent / replies / new-leads / reply-rate plus today-vs-yesterday deltas plus `newestLeadAt`. Revenue chart shows empty state instead of fake bars.
+- **Pipeline-counts N+1 collapsed** (`src/actions/dashboardActions.ts`): 7 sequential `head:true` count queries replaced by `get_pipeline_counts(p_user_id)` RPC (single GROUP BY). SQL in `scripts/dashboard-pipeline-rpc.sql`. Falls back to `Promise.all` of the 7 counts if RPC isn't deployed yet (still ~6× faster). Same migration adds missing indexes: `contacts(pipeline_stage)`, `contacts(account_manager_id, pipeline_stage)`, `projects(paid_status, project_date)`, `activity_logs(contact_id, created_at desc)`, `edit_projects(user_id, due_date)`.
+- **`/opportunities` "drag cards between stages" copy removed** — there was no DnD wired. TODO left for proper `@dnd-kit` wiring.
+- **Native `alert()` swept across 13 user-facing surfaces** — replaced with `useUndoToast`'s `showSuccess` + existing `showError` (with `onRetry`). Native `confirm()` left in 7 destructive paths with `TODO(*-modal)` markers.
+
+Stale-entry correction: lint workflow has been on ESLint 9 flat config since `f4bda8e`; `npm run lint` passes 0 warnings. Vercel's `buildCommand` is `next build --experimental-build-mode=compile`, NOT `next build || true` — broken builds fail the deploy.
+
+## Build 2026-04-26 — AM Credit & Ownership separation
+
+Full design in `docs/AM-CREDIT-AND-OWNERSHIP-SCOPE.md`.
+
+- **Principle**: Historical credit (`projects.account_manager_id`) is immutable once `paid_status='PAID'`. Current ownership (`contacts.account_manager_id`) is mutable. Two facts, two fields, never conflated.
+- **Schema lock**: `updateProjectAction` refuses to mutate `account_manager_id` on a PAID project unless caller passes `{ adminOverride: true, reason: '...' (≥10 chars) }` AND has ADMIN role. Successful overrides write `AM_CREDIT_OVERRIDE` row to `activity_logs`. Refunds (PAID → PENDING) implicitly release the lock.
+- **Transfer chokepoint**: `transferContactAction(contactId, newAmId, opts?)` is the **only** path that writes `contacts.account_manager_id`. Migrated `updateClientAction` to defer the AM field to it. Each call writes an `OWNERSHIP_TRANSFER` audit row. `OwnershipTransferSource` enum: `'manual' | 'bulk' | 'admin_override' | 'import' | 'campaign' | 'scraper' | 'invite' | 'system'`. Companion `recordOwnershipChange()` for creation paths.
+- **History action**: `getOwnershipTransferHistoryAction(contactId)` returns parsed history with resolved actor + from + to user names, batched in one `users` query.
+- **Activity log payload shape**: `activity_logs` columns: `action, performed_by, note, contact_id, project_id, created_at`. `note` is TEXT, NOT JSON. We `JSON.stringify(payload)` and parse on read. Code reading `activity_logs` should handle both `note` (current) and `details` (legacy if present).
+- **UI surfaces** (`app/clients/[id]/PageClient.tsx`): Profile header shows `Owner: <FirstName>` + collapsible "Transfer history ▾" panel. Projects tab AM column shows `Closed by <Closer> · Now: <Owner>` when project's AM differs from contact's. Activity tab parses JSON in `note` for `OWNERSHIP_TRANSFER` and `AM_CREDIT_OVERRIDE`.
+- **Out of scope (v1.5+)**: Project-list views still show single AM. Inbox row tooltip enrichment deferred. Multi-rep commission splits explicitly out (would need `project_commissions` table).
+
+## Build 2026-04-25 — Inbox row "AM" label
+
+Full design in `docs/INBOX-ACCOUNT-MANAGER-DISPLAY.md`.
+
+- **Root cause**: Inbox row was rendering `email.gmail_accounts.user.name` — i.e. the user who *connected the Gmail account*. For Wedits, that's the team admin who onboarded all 62 inboxes, so every row showed the same name.
+- **Three distinct ownership pointers in the schema**:
+  1. **Gmail-account creator** — `gmail_accounts.user_id` → who connected the OAuth. Audit/refresh only. **Never use for display.**
+  2. **Gmail-account assignment** — `user_gmail_assignments` (M:N pivot) → which user(s) own this inbox. Drives RBAC AND is the **default AM** for any contact on that inbox.
+  3. **Account manager for the contact** — `contacts.account_manager_id` → explicit per-contact override. **Wins over the default when set.**
+- **Resolution chain**: `contacts.account_manager_id` → `user_gmail_assignments` for the row's `gmail_account_id` (multi-user → prefer SALES role over ADMIN, tie-break by oldest `assigned_at`) → `Unassigned`.
+- **Fix — server** (`src/actions/emailActions.ts:194` — `getInboxEmailsAction`): SELECT now includes `contact_id`. Three batched lookups (`contacts.in()`, `user_gmail_assignments.in()`, deduped `users.in()`). Each row gets `account_manager_name`, `account_manager_email`, `account_manager_source: 'contact' | 'gmail_account' | null`.
+- **Fix — UI** (`app/components/InboxComponents.tsx:54-61, 141-149`): renders `<gmail-account-email> · AM(<name>)`.
+- **Follow-up TODO**: lift AM-attach logic into `attachAccountManagerNames(rows)` and reuse on sent / search / thread-side-panel paths flagged in the doc.
+
+## Build 2026-04-25 (later) — Jarvis Reply/Coach mode detection + long-thread bug
+
+Full design in `docs/JARVIS-MODE-DETECTION-FIX.md`.
+
+- **Root cause #1**: `Reply` / `Coach` toggle in `app/PageClient.tsx:671-672` was decorative — `jarvisMode` state never reached `<JarvisSuggestionBox>`.
+- **Root cause #2**: `suggestReplyAction` used `.order('sent_at', { ascending: true }).limit(20)`, which returned the OLDEST 20 messages. Long threads (>20 msgs) had wrong mode + wrong prompt context. Now `ascending: false` + `limit(30)` + `.reverse()`.
+- **Root cause #3**: Sync race — Gmail webhook → `email_messages` insert isn't transactional with the inbox UI's live thread display.
+- **Fix — server contract** (`src/actions/jarvisActions.ts`, `src/services/replySuggestionService.ts`): `suggestReplyAction(threadId, opts?: { forceMode?: 'reply' | 'coach' })`. Returns `{ ..., mode, modeSource: 'forced' | 'auto', staleData: boolean }`. Staleness check compares `email_threads.last_message_at` vs newest fetched `email_messages.sent_at` (10s grace).
+- **Fix — coaching prompt**: Adapts when there's no SENT message to coach.
+- **Fix — UI**: `JarvisSuggestionBox` accepts `forceMode?: 'reply' | 'coach' | null`. Renders `· auto` badge when auto-detected, `· sync catching up` warn badge when DB is behind.
+
+## Build 2026-04-25 — Claude reply-suggestion proxy gngn.my → Gloy
+
+- `ANTHROPIC_BASE_URL` default `https://api.gngn.my` → `https://api.gloyai.fun`. `CLAUDE_MODEL` `claude-sonnet-4-6` → `claude-sonnet-4.5` (Gloy uses dot-versioning).
+- Auth header still `x-api-key` (Gloy accepts both `Authorization: Bearer` and `x-api-key`); `anthropic-version: 2023-06-01` kept.
+- Key prefix changed `sk_live_*` → `sk-funpay-*`. Validate with `GET https://api.gloyai.fun/claude/key`.
+- Patched `scripts/mine-jarvis-knowledge.ts` to coerce object-typed `price_mentioned` → smallest numeric, non-finite → null.
+
+## Build 2026-04-24 — Claude reply suggestion + RAG infrastructure
+
+- Anthropic Claude (via gngn.my proxy initially, model `claude-sonnet-4-6`) added as primary LLM for in-thread reply suggestions; Groq + Gemini remain as fallback chain.
+- New env vars: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`.
+- New table: `jarvis_lessons` (anti-patterns from lost deals — Q&A + `why_lost` + `lesson` columns).
+- Confirmed: `jarvis_knowledge` and `jarvis_feedback` tables previously documented but DID NOT EXIST in DB. Setup SQL added at `scripts/jarvis-tables.sql`.
+- Upgraded `replySuggestionService.ts`: V2 system prompt with explicit Empathy Opener + Closing Playbook + Pricing Table (~3KB, prompt-cached). New `fetchTopExamples()` 3-tier fallback. `fetchRelevantLessons()` injects 1 anti-pattern. `formatInboxSignalsBlock()` injects auto-detected signals.
+- Updated `scripts/mine-jarvis-knowledge.ts`: `--limit=N` flag for first-run trial.
+- New playbook doc: `docs/CLAUDE-REPLY-SUGGESTION-PLAYBOOK.md`.
+
+## Deep System Discovery 2026-04-21 — drift corrections applied
+
+- Removed non-existent routes `/api/auth/google` and `/api/track/session` from API table.
+- Fixed IMAP cron cadence 30 min → 15 min.
+- Documented undocumented directories: `components/projects/` (25-file Notion-style tracker at repo root), `lib/projects/`, `app/utils/` (helpers, localCache, staleWhileRevalidate, useHydration), `src/constants/limits.ts`, `src/hooks/useRealtimeInbox.ts`, `src/scripts/backfillClients.ts`, `docs/`.
+- Flagged orphan files (zero imports outside docs): `src/actions/automationActions.ts`, `src/actions/relationshipActions.ts`, `src/services/pipelineLogic.ts`, `app/components/RevenueChart.tsx`, `app/components/RevenueBarChart.tsx`, `app/components/OnboardingWizard.tsx`, `app/components/JarvisDailyBriefing.tsx`.
