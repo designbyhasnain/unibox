@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { supabase } from '../lib/supabase';
 import { ensureAuthenticated } from '../lib/safe-action';
 import { getAccessibleGmailAccountIds, getOwnerFilter, blockEditorAccess, isAdmin } from '../utils/accessControl';
+import { markContactClosed } from '../services/pipelineLogic';
 
 export type ProjectUpdatePayload = {
     projectName?: string;
@@ -285,6 +286,12 @@ export async function createProjectFromEmailAction(payload: {
         return { success: false, error: 'An error occurred while processing your request' };
     }
 
+    // Pipeline invariant: a contact with any project is a paid client.
+    // Fire-and-forget; a flip failure isn't fatal to project creation.
+    markContactClosed(payload.clientId, data?.created_at).catch(err =>
+        console.warn('[createProjectFromEmailAction] markContactClosed failed:', err)
+    );
+
     revalidatePath('/projects');
     return { success: true, project: data };
 }
@@ -351,6 +358,12 @@ export async function createProjectAction(payload: {
         console.error('createProjectAction error:', error);
         return { success: false, error: 'An error occurred while processing your request' };
     }
+
+    // Pipeline invariant: a contact with any project is a paid client.
+    // Fire-and-forget — same reasoning as createProjectFromEmailAction.
+    markContactClosed(payload.clientId, data?.created_at).catch(err =>
+        console.warn('[createProjectAction] markContactClosed failed:', err)
+    );
 
     revalidatePath('/projects');
     return { success: true, project: data };
