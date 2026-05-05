@@ -2,6 +2,7 @@
 
 import React, { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Eye, EyeOff } from 'lucide-react';
 
 function LoginContent() {
     const searchParams = useSearchParams();
@@ -10,6 +11,7 @@ function LoginContent() {
     const [isLoading, setIsLoading] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [emailError, setEmailError] = useState('');
     const [isEmailLoading, setIsEmailLoading] = useState(false);
 
@@ -129,14 +131,25 @@ function LoginContent() {
                             className="login-input"
                             autoComplete="email"
                         />
-                        <input
-                            type="password"
-                            placeholder="Password"
-                            value={password}
-                            onChange={e => setPassword(e.target.value)}
-                            className="login-input"
-                            autoComplete="current-password"
-                        />
+                        <div className="login-input-wrap">
+                            <input
+                                type={showPassword ? 'text' : 'password'}
+                                placeholder="Password"
+                                value={password}
+                                onChange={e => setPassword(e.target.value)}
+                                className="login-input login-input--with-icon"
+                                autoComplete="current-password"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(s => !s)}
+                                className="login-input-eye"
+                                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                tabIndex={-1}
+                            >
+                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
+                        </div>
                         <button
                             type="submit"
                             className="login-email-btn"

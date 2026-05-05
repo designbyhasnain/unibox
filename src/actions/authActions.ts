@@ -2,8 +2,6 @@
 
 import { getSession, clearSession } from '../lib/auth';
 import { supabase } from '../lib/supabase';
-import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
 import bcrypt from 'bcryptjs';
 
 /**
@@ -83,10 +81,16 @@ export async function getCurrentUserAction() {
     };
 }
 
+/**
+ * Instant logout: deletes the unibox_session cookie and returns. No DB hit,
+ * no revalidatePath (which would invalidate every cached route in the app
+ * tree before responding), no server-side redirect (which forced a full RSC
+ * roundtrip). The caller navigates to /login itself via window.location for
+ * sub-second perceived speed.
+ */
 export async function logoutAction() {
     await clearSession();
-    revalidatePath('/');
-    redirect('/login');
+    return { success: true as const };
 }
 
 /**

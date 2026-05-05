@@ -6071,19 +6071,19 @@ textarea:focus-visible {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #f6f8fc;
+    background: var(--canvas);
     font-family: 'Inter', sans-serif;
     z-index: 9999;
 }
 .login-card {
-    background: white;
+    background: var(--shell);
     padding: 48px 40px;
     border-radius: 24px;
     width: 100%;
     max-width: 420px;
     text-align: center;
-    border: 1px solid #e0e0e0;
-    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 24px 64px rgba(0,0,0,0.06);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08), 0 24px 64px rgba(0,0,0,0.12);
 }
 .login-header {
     margin-bottom: 32px;
@@ -6096,25 +6096,25 @@ textarea:focus-visible {
 .login-title {
     font-size: 26px;
     font-weight: 700;
-    color: #202124;
+    color: var(--ink);
     margin: 0;
     letter-spacing: -0.5px;
 }
 .login-subtitle {
-    color: #5f6368;
+    color: var(--ink-muted);
     font-size: 15px;
     margin: 8px 0 0;
     font-weight: 400;
 }
 .login-error-box {
-    background: #fce8e6;
-    color: #c5221f;
+    background: color-mix(in oklab, var(--danger, #c5221f) 14%, var(--surface));
+    color: var(--danger, #c5221f);
     padding: 14px;
     border-radius: 12px;
     margin-bottom: 24px;
     font-size: 13.5px;
     text-align: left;
-    border: 1px solid #f9d2ce;
+    border: 1px solid color-mix(in oklab, var(--danger, #c5221f) 30%, transparent);
 }
 .login-error-box strong {
     display: block;
@@ -6129,9 +6129,9 @@ textarea:focus-visible {
     width: 100%;
     padding: 14px;
     border-radius: 12px;
-    border: 1px solid #dadce0;
-    background: white;
-    color: #3c4043;
+    border: 1px solid var(--border-color);
+    background: var(--surface);
+    color: var(--ink);
     font-weight: 500;
     font-size: 15px;
     display: flex;
@@ -6142,9 +6142,8 @@ textarea:focus-visible {
     transition: all 0.2s ease;
 }
 .google-login-btn:hover {
-    background: #f8f9fa;
-    box-shadow: 0 1px 3px 0 rgba(60,64,67,.20), 0 2px 6px 2px rgba(60,64,67,.10);
-    border-color: #d2e3fc;
+    background: var(--surface-hover);
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,.18), 0 2px 6px 2px rgba(0,0,0,.10);
 }
 .google-login-btn:disabled {
     opacity: 0.7;
@@ -6161,11 +6160,11 @@ textarea:focus-visible {
     content: '';
     flex: 1;
     height: 1px;
-    background: #dadce0;
+    background: var(--border-color);
 }
 .login-divider span {
     font-size: 13px;
-    color: #9aa0a6;
+    color: var(--ink-muted);
     font-weight: 500;
 }
 .login-email-form {
@@ -6177,21 +6176,68 @@ textarea:focus-visible {
     width: 100%;
     padding: 13px 16px;
     border-radius: 12px;
-    border: 1px solid #dadce0;
-    background: white;
-    color: #202124;
+    border: 1.5px solid var(--border-color);
+    background: var(--surface);
+    color: var(--ink);
     font-size: 15px;
     font-family: inherit;
     outline: none;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
     box-sizing: border-box;
+    caret-color: var(--ink);
+}
+.login-input:hover {
+    border-color: color-mix(in oklab, var(--ink) 40%, var(--border-color));
 }
 .login-input:focus {
     border-color: #1a73e8;
-    box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
+    box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.18);
 }
 .login-input::placeholder {
-    color: #9aa0a6;
+    color: var(--ink-muted);
+    opacity: 1;
+}
+/* Defeat browser autofill yellow/white that hides the value text in dark mode. */
+.login-input:-webkit-autofill,
+.login-input:-webkit-autofill:hover,
+.login-input:-webkit-autofill:focus,
+.login-input:-webkit-autofill:active {
+    -webkit-text-fill-color: var(--ink) !important;
+    -webkit-box-shadow: 0 0 0 1000px var(--surface) inset !important;
+    box-shadow: 0 0 0 1000px var(--surface) inset !important;
+    caret-color: var(--ink) !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+.login-input-wrap {
+    position: relative;
+    display: block;
+}
+.login-input--with-icon {
+    padding-right: 44px;
+}
+.login-input-eye {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--ink-muted);
+    padding: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+.login-input-eye:hover {
+    color: var(--ink);
+    background: var(--surface-hover);
+}
+.login-input-eye:focus-visible {
+    outline: 2px solid #1a73e8;
+    outline-offset: 1px;
 }
 .login-email-btn {
     width: 100%;
@@ -6221,13 +6267,13 @@ textarea:focus-visible {
 .login-footer-text {
     margin-top: 36px;
     font-size: 13px;
-    color: #9aa0a6;
+    color: var(--ink-muted);
     font-weight: 500;
 }
 .login-spinner {
     width: 20px;
     height: 20px;
-    border: 2px solid #ddd;
+    border: 2px solid color-mix(in oklab, var(--ink) 18%, transparent);
     border-top-color: #1a73e8;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;

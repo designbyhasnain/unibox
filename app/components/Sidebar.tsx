@@ -196,7 +196,23 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
     }, [userRole]);
 
-    const confirmLogout = async () => { setShowLogoutConfirm(false); await logoutAction(); };
+    const [isLoggingOut, startLogoutTransition] = React.useTransition();
+    const confirmLogout = () => {
+        // Snap-shut the modal immediately so the click feels instant; the
+        // transition below carries the rest of the work without freezing UI.
+        setShowLogoutConfirm(false);
+        startLogoutTransition(async () => {
+            // Clear local persona caches BEFORE the server roundtrip so the
+            // /login page never sees stale name/avatar/role from the previous
+            // user even if the navigation outraces the cookie response.
+            try { localStorage.removeItem('unibox_user_role'); } catch {}
+            try { localStorage.removeItem('unibox_user_name'); } catch {}
+            try { localStorage.removeItem('unibox_user_email'); } catch {}
+            try { localStorage.removeItem('unibox_user_avatar'); } catch {}
+            try { await logoutAction(); } catch {}
+            window.location.replace('/login');
+        });
+    };
 
     const isSales = userRole === 'SALES';
     const isAdminLike = userRole === 'ADMIN' || userRole === 'ACCOUNT_MANAGER';
@@ -422,8 +438,8 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                         <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>Log out?</div>
                         <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 20 }}>Are you sure you want to log out of Unibox?</div>
                         <div style={{ display: 'flex', gap: 8 }}>
-                            <button onClick={() => setShowLogoutConfirm(false)} style={{ flex: 1, padding: '10px 16px', background: 'var(--surface)', border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--ink-muted)' }}>Cancel</button>
-                            <button onClick={confirmLogout} style={{ flex: 1, padding: '10px 16px', background: 'var(--danger)', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#fff' }}>Log Out</button>
+                            <button onClick={() => setShowLogoutConfirm(false)} disabled={isLoggingOut} style={{ flex: 1, padding: '10px 16px', background: 'var(--surface)', border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: isLoggingOut ? 'not-allowed' : 'pointer', color: 'var(--ink-muted)', opacity: isLoggingOut ? 0.6 : 1 }}>Cancel</button>
+                            <button onClick={confirmLogout} disabled={isLoggingOut} style={{ flex: 1, padding: '10px 16px', background: 'var(--danger)', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: isLoggingOut ? 'wait' : 'pointer', color: '#fff', opacity: isLoggingOut ? 0.85 : 1 }}>{isLoggingOut ? 'Logging out…' : 'Log Out'}</button>
                         </div>
                     </div>
                 </div>
