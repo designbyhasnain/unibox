@@ -88,6 +88,46 @@ export default function TeamPage() {
         loadData();
     }, [loadData]);
 
+    // Live profile sync: when the current user changes their photo / name from
+    // the sidebar pill (AccountSettingsModal), it dispatches
+    // `unibox:profile-updated`. We patch our own row in the team table in the
+    // same tick so the avatar updates without a page navigation. Server-rendered
+    // routes still get the fresh value via the revalidatePath('/team') call in
+    // uploadOwnAvatarAction — this listener just covers the case where the user
+    // is already sitting on /team.
+    useEffect(() => {
+        const onProfileUpdated = (e: Event) => {
+            const detail = (e as CustomEvent<{ name?: string; avatarUrl?: string | null }>).detail || {};
+            const myId = currentUser?.userId;
+            if (!myId) return;
+            setUsers(prev => prev.map(u => {
+                if (u.id !== myId) return u;
+                const next = { ...u };
+                if (typeof detail.name === 'string') next.name = detail.name;
+                if (detail.avatarUrl !== undefined) next.avatar_url = detail.avatarUrl;
+                return next;
+            }));
+            // Keep the in-memory cache aligned so a subsequent navigation
+            // back to /team doesn't snap back to the stale photo.
+            if (teamCache) {
+                teamCache = {
+                    ...teamCache,
+                    users: teamCache.users.map((u: any) => {
+                        if (u.id !== myId) return u;
+                        return {
+                            ...u,
+                            ...(typeof detail.name === 'string' ? { name: detail.name } : {}),
+                            ...(detail.avatarUrl !== undefined ? { avatar_url: detail.avatarUrl } : {}),
+                        };
+                    }),
+                };
+                try { saveToLocalCache('team_data', teamCache); } catch {}
+            }
+        };
+        window.addEventListener('unibox:profile-updated', onProfileUpdated);
+        return () => window.removeEventListener('unibox:profile-updated', onProfileUpdated);
+    }, [currentUser]);
+
     const handleSendInvite = async () => {
         setActionLoading('invite');
         // For ADMIN: auto-assign all accounts; for VIDEO_EDITOR: none; for SALES: as-selected
