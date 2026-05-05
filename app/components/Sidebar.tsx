@@ -158,9 +158,16 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
         };
         window.addEventListener('storage', onStorage);
 
+        // Topbar user badge dispatches this when clicked. Sidebar owns the
+        // AccountSettingsModal (single source of truth) so we just toggle it
+        // here from anywhere in the app.
+        const onOpenSettings = () => setShowAccountSettings(true);
+        window.addEventListener('unibox:open-account-settings', onOpenSettings);
+
         return () => {
             window.removeEventListener('unibox:profile-updated', onProfileUpdated);
             window.removeEventListener('storage', onStorage);
+            window.removeEventListener('unibox:open-account-settings', onOpenSettings);
         };
     }, [mounted]);
 

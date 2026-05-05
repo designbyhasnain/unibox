@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { useGlobalSearchSnapshot } from '../context/GlobalSearchContext';
+import TopbarUserBadge from './TopbarUserBadge';
 
 const HISTORY_KEY = 'unibox_search_history';
 const HISTORY_MAX = 8;
@@ -156,7 +157,9 @@ export default function GlobalTopbar() {
                 </div>
             </form>
 
-            <div className="global-topbar-slot global-topbar-right" />
+            <div className="global-topbar-slot global-topbar-right">
+                <TopbarUserBadge />
+            </div>
         </div>
     );
 }
