@@ -281,10 +281,10 @@ export default function AccountsPage() {
         }
     };
 
-    // Persona state — per-account edit OR bulk-apply to selection.
+    // Persona state — per-account edit only. Bulk multi-select was removed
+    // 2026-05-05 with the luxury redesign; persona changes are now a single
+    // kebab-menu action per card.
     const [personaTarget, setPersonaTarget] = useState<PersonaTarget | null>(null);
-    const [personaBulkOpen, setPersonaBulkOpen] = useState(false);
-    const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
 
     // Kebab menu — only one card's action menu is open at a time. The menu
     // is rendered in a portal to <body> so it floats above sibling cards
@@ -347,15 +347,6 @@ export default function AccountsPage() {
     const [emailHashes, setEmailHashes] = useState<Record<string, string>>({}); // email → sha256 hex
     const [dnsLoading, setDnsLoading] = useState(false);
     const [recheckingDomain, setRecheckingDomain] = useState<string | null>(null);
-    const toggleBulkSelect = (id: string) => {
-        setSelectedForBulk(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id); else next.add(id);
-            return next;
-        });
-    };
-    const clearBulkSelection = () => setSelectedForBulk(new Set());
-
 
     const fetchAccounts = async () => {
         setIsLoading(true);
@@ -926,23 +917,17 @@ export default function AccountsPage() {
                                                 key={acc.id}
                                                 className="acct-glass-card"
                                                 data-status={acc.status}
+                                                // Inline backdrop-filter — Turbopack's CSS pipeline strips
+                                                // this declaration from the stylesheet entirely (verified
+                                                // 2026-05-05: no rule reaches getComputedStyle), so we set
+                                                // it directly on the element to bypass the bundler bug.
+                                                style={{
+                                                    backdropFilter: 'blur(18px) saturate(160%)',
+                                                    WebkitBackdropFilter: 'blur(18px) saturate(160%)',
+                                                }}
                                             >
                                                 {/* Top bar: avatar + identity + kebab. */}
                                                 <div className="acct-glass-top">
-                                                    {isAdmin && (
-                                                        <label
-                                                            className="acct-glass-check"
-                                                            title="Select for bulk persona apply"
-                                                            onClick={e => e.stopPropagation()}
-                                                        >
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedForBulk.has(acc.id)}
-                                                                onChange={() => toggleBulkSelect(acc.id)}
-                                                                aria-label={`Select ${acc.email} for bulk action`}
-                                                            />
-                                                        </label>
-                                                    )}
                                                     <div className={`acct-glass-avatar${acc.profile_image ? ' has-photo' : ''}`}>
                                                         {acc.profile_image ? (
                                                             <img
@@ -1322,22 +1307,12 @@ export default function AccountsPage() {
             )}
 
 
-            {/* Persona modal (per-account OR bulk) */}
-            {(personaTarget || personaBulkOpen) && (
+            {/* Persona modal — single-account edit only. */}
+            {personaTarget && (
                 <ManagePersonaModal
-                    target={personaTarget || undefined}
-                    bulkTargets={
-                        personaBulkOpen
-                            ? accounts
-                                .filter((a: any) => selectedForBulk.has(a.id))
-                                .map((a: any) => ({ id: a.id, email: a.email }))
-                            : undefined
-                    }
-                    onClose={() => { setPersonaTarget(null); setPersonaBulkOpen(false); }}
-                    onApplied={() => {
-                        refreshAccountsSilently();
-                        clearBulkSelection();
-                    }}
+                    target={personaTarget}
+                    onClose={() => setPersonaTarget(null)}
+                    onApplied={() => refreshAccountsSilently()}
                 />
             )}
 
@@ -1417,18 +1392,6 @@ export default function AccountsPage() {
                 );
             })()}
 
-            {/* Bulk persona bar — floats at bottom when any accounts are checked */}
-            {isAdmin && selectedForBulk.size > 0 && (
-                <div className="bulk-bar" role="region" aria-label="Bulk persona actions">
-                    <div className="bulk-bar-count">{selectedForBulk.size} selected</div>
-                    <div className="bulk-bar-actions">
-                        <button className="btn btn-secondary btn-sm" onClick={clearBulkSelection}>Clear</button>
-                        <button className="btn btn-primary btn-sm" onClick={() => setPersonaBulkOpen(true)}>
-                            Apply persona to {selectedForBulk.size}
-                        </button>
-                    </div>
-                </div>
-            )}
 
             {/* Remove confirmation modal */}
             {accountToRemove && (

@@ -4490,7 +4490,10 @@ select.form-input option {
     position: relative;
     padding: 1.25rem 1.25rem 1rem;
     border-radius: 20px;
-    background: color-mix(in oklab, var(--shell) 78%, transparent);
+    /* 70% opaque surface so the inline backdrop-filter (set on the element
+       in JSX to dodge Turbopack stripping the rule) actually has something
+       to peek through. */
+    background: color-mix(in oklab, var(--shell) 70%, transparent);
     /* Hairline border — 1px at 6% alpha reads as a true edge on retina without
        collapsing on standard displays where sub-pixel widths just disappear. */
     border: 1px solid color-mix(in oklab, var(--ink) 6%, transparent);
@@ -4499,8 +4502,6 @@ select.form-input option {
         0 1px 0 color-mix(in oklab, var(--ink) 4%, transparent) inset,
         0 6px 18px -10px color-mix(in oklab, var(--ink) 22%, transparent),
         0 28px 80px -36px color-mix(in oklab, var(--ink) 32%, transparent);
-    backdrop-filter: blur(18px) saturate(160%);
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
     transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
     isolation: isolate;
     overflow: visible;

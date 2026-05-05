@@ -204,9 +204,10 @@ Prioritized action list across five types: `REPLY_NOW`, `FOLLOW_UP`, `WIN_BACK`,
 - **Intelligence:** `app/intelligence/page.tsx` — Jarvis audit card UI.
 - **Finance:** `app/finance/page.tsx` — revenue + collections.
 - **Data Health:** `app/data-health/page.tsx` — data-integrity checks (admin only).
-- **Accounts:** `app/accounts/page.tsx` — Gmail/IMAP management.
-- **Settings:** `app/settings/page.tsx`.
+- **Accounts (Unified):** `app/accounts/page.tsx` — single page that merges what used to be three: Gmail/IMAP connection management + DNS deliverability (SPF/DKIM/DMARC pills, BIMI explainer) + Persona / branding (display name, profile photo, signature push to Gmail Send-As). The standalone `/branding` and `/identity-factory` pages were folded in and deleted (commits `c04f05a`, `a740a28`).
 - **Analytics:** `app/analytics/page.tsx` — campaign A/B + revenue charts.
+
+> Theme is auto from `prefers-color-scheme` (no manual toggle). The old `/settings` route was deleted 2026-05-05; profile editing for every role now flows through the AccountSettingsModal opened from the sidebar profile pill (or the topbar avatar — see §10).
 
 ### 4.10 Chrome Extension — **Unibox Prospector v2 (Antigravity)**
 Self-contained extension that ships under `chrome-extension/` and talks to `/api/ext/*` + `/api/extension/*`.
@@ -237,9 +238,31 @@ chrome-extension/
 
 **Excludes by design:** Gmail, Google Docs/Drive, Facebook, Instagram, LinkedIn, YouTube, localhost.
 
+### 4.11 Sender Identity & Deliverability
+A multi-layer attempt to make outbound mail look like it comes from a real person — gateway recipients (Gmail, Yahoo, Apple Mail, Outlook) gate avatar / branding behind very different policies, so we cover them in parallel rather than picking one.
+
+- **Persona (per-account)** — display name + photo per Gmail/IMAP account. Edited via the kebab menu on each card on `/accounts` (`ManagePersonaModal`). Persisted on `gmail_accounts.display_name` + `profile_image`.
+- **Identity force-sync — `pushAllPersonasToGmailAction()`** in `accountActions.ts` → `src/services/gmailSendAsService.ts`. For every OAuth account, pushes the Persona's display name + signature into Gmail's `users.settings.sendAs` so Gmail itself reflects the latest identity. Surfaced in the `/accounts` secondary toolbar as **Push to Gmail**. Reconnect-needed accounts are reported in the toast (`/reconnect/i.test(error)` check) so the user knows which to re-OAuth.
+- **Sync Google profiles** — `syncGoogleProfilesAction()` reverse-fills empty Personas with the Google account's photo + name (uses `oauth2.userinfo.get`). Toolbar action: **Sync profiles**.
+- **CID inline avatar (SMTP path)** — for IMAP/SMTP sends, `manualEmailService.ts` injects the persona photo as a `cid:` attachment referenced by the inline HTML signature. Recipients on clients that don't pull external imagery (or that block 1×1 trackers) still see the photo because it's part of the MIME body. Speculative `X-*` headers attempted earlier were stripped (commit `a740a28`).
+- **Inline HTML signature engine** — every send injects a Persona-driven HTML signature: 60 px circular photo + bold display name + role line. Built once per send in the same code path as the body wrap. This is the most reliable workaround to Gmail's avatar blocking (which requires a paid VMC certificate).
+- **DNS deliverability** — `brandingActions.ts` runs SPF / DKIM / DMARC + Gravatar checks. Results cached client-side per domain on `/accounts`. The card surface shows **✓ Trusted / ✓ Provider-managed / ⚠ DNS issues / Checking…** as a single pill in the Technical Health summary; expand for per-record pills + a "Re-check" button. `scripts/dns-fixer-report.mjs` is a one-shot CLI that prints what's missing per domain.
+- **MIME-proofing** — `scripts/mime-proof.mjs` dumps the actual outbound MIME for a sample send so the user can sanity-check headers, attachment IDs, and signature wrapping before bulk-pushing.
+- **BIMI** — every send emits a `BIMI-Selector: v=BIMI1; s=default;` header. The TXT record at `default._bimi.<domain>` activates Yahoo / AOL avatar rendering as soon as DMARC enforcement is in place.
+- **Per-account diagnostic** — `checkAccountBrandingAction(email)` (kebab → "Run diagnostic") returns a 4-axis report (DNS / Persona / Signature / Send-As) as a toast.
+
+> Background on coverage (verified May 2026): Gmail avatar circle is hard-blocked without a paid VMC (~$1500/yr). Yahoo/AOL works free with self-asserted BIMI. Apple Mail iCloud works free via Apple Business Connect "Branded Mail" enrollment. Outlook doesn't render BIMI as of April 2026. Schema.org JSON-LD chips don't drive avatar — we send them anyway because the cost is zero.
+
+### 4.12 Global Search (Topbar)
+- **`app/components/GlobalTopbar.tsx`** — banner-role topbar mounted by `ClientLayout` for every authenticated route. Three slots: left (placeholder), centered search form, right (user badge — see §10).
+- **Centered search** — 3-column CSS grid on `.global-topbar` so the search form sits dead-center of the topbar regardless of viewport width.
+- **Per-page registration** — pages call `useRegisterGlobalSearch({ placeholder, value, onChange, onClear, onSubmit })` from `app/context/GlobalSearchContext.tsx`. The context publishes via `useSyncExternalStore`; only the topbar subscribes, so pages don't re-render on every keystroke that doesn't belong to them. When no page is registered, the input is `disabled`.
+- **Recent search history** — kept in `localStorage` under `unibox_search_history` (max 8 entries). Opens on focus when entries exist; clicking a row replays the query through the registered page's `onChange` + `onSubmit`. Cleared via the small "Clear" button in the dropdown header.
+- **Keyboard shortcuts** (`ClientLayout`): `⌘K` / `⌃K` and bare `/` (when not already in a field) focus the search input; `⌘J` / `⌃J` jumps to `/jarvis`.
+
 ---
 
-## 5. Pages (25 routes)
+## 5. Pages (24 routes)
 
 | Route | File | Auth Gate | Purpose |
 |-------|------|-----------|---------|
@@ -250,7 +273,7 @@ chrome-extension/
 | `/actions` | `app/actions/page.tsx` | Non-editor | Prioritized action queue |
 | `/clients` | `app/clients/page.tsx` | Session | Client/contact list (role-scoped) |
 | `/clients/[id]` | `app/clients/[id]/page.tsx` | Session | Contact detail + history |
-| `/accounts` | `app/accounts/page.tsx` | Admin | Gmail/IMAP account management |
+| `/accounts` | `app/accounts/page.tsx` | Admin | Unified Gmail / IMAP management + DNS deliverability + Persona / branding (merged from former `/branding` + `/identity-factory`) |
 | `/campaigns` | `app/campaigns/page.tsx` | Non-editor | Campaign list |
 | `/campaigns/new` | `app/campaigns/new/page.tsx` | Non-editor | Create campaign wizard |
 | `/campaigns/[id]` | `app/campaigns/[id]/page.tsx` | Non-editor | Campaign detail + analytics |
@@ -267,7 +290,6 @@ chrome-extension/
 | `/team` | `app/team/page.tsx` | Admin | Team management + invites |
 | `/scraper` | `app/scraper/page.tsx` | Admin | Lead scraper |
 | `/jarvis` | `app/jarvis/page.tsx` | Session | Jarvis chat interface |
-| `/settings` | `app/settings/page.tsx` | Session | User settings |
 
 ---
 
@@ -435,7 +457,7 @@ Vercel Cron (from `vercel.json`):
 ## 10. Components (`app/components/`)
 
 ### Core Layout
-`ClientLayout`, `Sidebar`, `Topbar`, `Resizer`, `ErrorBoundary`, `LoadingStates`.
+`ClientLayout`, `Sidebar`, `Topbar` (back-compat shell — search now lives in `GlobalTopbar`), `GlobalTopbar`, `TopbarUserBadge` (real-photo / initials disc, dispatches `unibox:open-account-settings`), `Resizer`, `ErrorBoundary`, `LoadingStates`.
 
 ### Inbox / Email
 `InboxComponents.tsx` (EmailRow + EmailDetail + PaginationControls + ToastStack), `ComposeModal`, `InlineReply`.
@@ -474,16 +496,18 @@ Badge counts come from live `actionQueueActions` polls every 60 s.
 
 ### Session Cookie
 - Name: `unibox_session` — httpOnly, secure, sameSite `lax`, 7-day expiry.
-- Encryption: **AES-256-CBC** with random 16-byte IV. Format: `{ivHex}:{ciphertextHex}`.
+- Encryption: **AES-256-GCM** (authenticated — confidentiality + integrity). Random 12-byte IV, 16-byte auth tag. Format: `{ivHex}:{authTagHex}:{ciphertextHex}` (all lowercase hex). The legacy 2-part CBC format is rejected outright at decrypt so tampered cookies are forced through `/login`.
 - Payload: `{ userId, email, name, role, exp }`.
-- API: `createSession()`, `getSession()`, `clearSession()` in `src/lib/auth.ts`.
+- API: `createSession()`, `getSession()`, `clearSession()` in `src/lib/auth.ts`. `clearSession()` is also the entire body of `logoutAction()` — no `revalidatePath`, no server-side redirect; the client navigates via `window.location.replace('/login')` for sub-second logout.
 
 ### `proxy.ts` (Next.js 16 middleware replacement — commit `038a3bb`)
 Two-layer guard on every request:
-1. **IP whitelist** (hardcoded — exact IPs + prefixes for PTCL, Jazz, Nayatel, Telenor, Zong + IPv6 + `192.168.`). Non-matching IPs see a styled 403 HTML page.
-2. **Session validation** — cookie format check (IV = 32 hex, ciphertext non-empty).
+1. **IP whitelist** (hardcoded — exact IPs + prefixes for PTCL, Jazz, Nayatel, Telenor, Zong + IPv6 + `192.168.`). Non-matching IPs see a styled 403 HTML page. The reflected IP value is HTML-escaped before insertion (defense against `X-Forwarded-For` reflected XSS — the 403 page took attacker-controlled values otherwise).
+2. **Session validation** — cookie format check matches the GCM layout: 3 hex parts, IV = 24 chars, auth tag = 32 chars, ciphertext ≥ 16. Stale CBC-shaped cookies fail this check and are deleted on the redirect to `/login`.
 3. Public paths: `/login`, `/invite`. API routes protect themselves via `getSession()`.
 4. Matcher excludes `_next/*`, `favicon.ico`, `/api/*`, static files.
+
+> Hardening pass (May 2026, audit `c04f05a` neighbourhood) also covers: login null-role returns 403 instead of defaulting to ADMIN; invitation tokens are stored as SHA-256 hashes (legacy plaintext fallback through 2026-06-01); Gmail webhook verifies the OIDC JWT via `OAuth2Client.verifyIdToken` before processing (skip only with `GMAIL_WEBHOOK_VERIFY=false` in local dev); contact ownership transfers go through a single chokepoint (`transferContactAction`) that writes the `OWNERSHIP_TRANSFER` audit row; `projects.account_manager_id` writes after `paid_status='PAID'` require `{ adminOverride: true, reason: '... ≥10 chars' }` AND ADMIN role.
 
 ### Role Gates
 - **`src/lib/safe-action.ts` → `ensureAuthenticated()`** — cookie-role gate. Fast (no DB hit). Called by every server action.
@@ -559,7 +583,45 @@ Breaking step 4 leaks data across users; breaking step 1 or 2 leaks to unauthent
 > ⚠ The Prisma `Role` enum only has `ADMIN` and `SALES`. `ACCOUNT_MANAGER` and `VIDEO_EDITOR` are DB strings the code recognizes but the schema does not enforce. Migrations must not break these values.
 
 ### VIDEO_EDITOR allowed paths
-`/dashboard`, `/projects` — everything else redirects to `/dashboard` via `blockEditorAccess()`.
+`/dashboard`, `/projects` — everything else redirects to `/dashboard` via `blockEditorAccess()`. Profile editing flows through the AccountSettingsModal opened by the sidebar profile pill, same as every other role.
+
+---
+
+## 13a. Design System & Interaction Model
+
+> **CSS lives in one file: `app/globals.css` (~9 400 lines, oklch tokens, `[data-theme='light']` overrides).** No Tailwind, no CSS-in-JS for product surfaces (the few `style jsx` blocks are legacy and being phased out).
+
+### Auto theme (no toggle)
+- Inline `<head>` script in `app/layout.tsx` reads `window.matchMedia('(prefers-color-scheme: dark)')`, sets `data-theme="light"` on `<html>` + `<body>` when the OS prefers light, and listens to `matchMedia('change')` so flipping Windows / macOS dark mode flips the app live without a refresh.
+- The legacy `unibox_theme` localStorage key is removed on boot.
+- The Sidebar Theme toggle button was removed (commit `ab6c1d1`).
+
+### Glassmorphism cards (`/accounts`)
+- Card class: `.acct-glass-card` (account cards). Translucent surface (`color-mix(in oklab, var(--shell) 70%, transparent)` so a backdrop blur has something to peek through).
+- **Backdrop blur is applied via the inline `style` prop** on the card element — `backdropFilter: 'blur(18px) saturate(160%)'` plus `WebkitBackdropFilter`. This is a deliberate workaround: Turbopack's CSS pipeline strips the `backdrop-filter` declaration from `globals.css` entirely (verified via `getComputedStyle` returning `none` even with the rule present). Inline-style bypasses the bundler.
+- **Hairline edge** = `1px @ 6 % alpha border` + a `0 0 0 0.5px` subpixel `box-shadow` ring. True 0.5 px borders collapse on standard displays; the layered ring + low-alpha border reads as a hairline on retina without disappearing on 1× screens.
+- **Hover = "Lift & Glow"** — `transform: translateY(-4px)` + a layered purple ambient shadow (`rgba(107, 92, 246, 0.10)` at the spreads `0 20px 25px -5px` and `0 8px 10px -6px`) plus a complementary purple-tinted border. Smooth `0.3s ease` transition. `prefers-reduced-motion: reduce` kills the transform.
+- **Grid** = `repeat(auto-fill, minmax(320px, 1fr))` with 28 px gap and 28 px outer padding so the lift never crashes into a neighbour.
+
+### Kebab menu (portaled)
+- Per-card ⋮ menus are rendered via `createPortal()` to `<body>` with `position: fixed` and `z-index: 1000`. Coords come from `getBoundingClientRect()` on the trigger button (refs in a `Map<string, HTMLButtonElement>`). Menu auto-closes on outside `mousedown`, Escape, document scroll (capture phase), and window resize.
+- Pre-portal, the menu was clipped by sibling cards' stacking contexts (commit `9e1520f` fix).
+
+### Topbar avatar
+- `app/components/TopbarUserBadge.tsx` — 32 px circle in the right slot of `GlobalTopbar`. Renders the user's profile photo (`unibox_user_avatar` in localStorage) or a clean Inter initials disc fallback. Hydrates from the same localStorage keys the Sidebar profile pill populates so there's no extra DB roundtrip on mount.
+- Click dispatches `unibox:open-account-settings`; the Sidebar listens and opens its `AccountSettingsModal` so the modal stays a single source of truth.
+
+### Account hero (stat pills + secondary toolbar)
+- `.acct-stat-pills` — pill row above the grid: Total / Live / (Syncing) / (Paused) / Issues. The Syncing + Paused pills auto-render only when count > 0 so a healthy fleet stays uncluttered. Tabular-nums numerics, uppercase 10.5 px labels.
+- `.acct-secondary-toolbar` — bordered pill-rail grouping bulk maintenance actions (Sync all · Renew watches · Sync profiles · Push to Gmail · | · Check health) with a vertical divider before the diagnostic action so admins read it as "operate vs. inspect". The single primary `+ Add Account` lives in the topbar above.
+
+### Trust pill (Technical Health)
+- `.acct-tech-trust` — single pill in the collapsed `<details>` summary of every card. Computed from `dnsMap`: `✓ Trusted` / `✓ Provider-managed` / `Checking…` / `⚠ DNS issues`. No click required to read the verdict; click expands to the per-record SPF / DKIM / DMARC pills + push-watch row + Re-check button.
+
+### Login form
+- Theme-aware via design tokens (`var(--ink)` text, `var(--surface)` bg, `var(--border-color)` border).
+- Lucide-react `Eye` / `EyeOff` toggle on the password field.
+- `:-webkit-autofill` override sets `-webkit-text-fill-color: var(--ink)` and a `1000px` inset bg matching `var(--surface)` — kills the white-on-white autofill flash that was the actual root cause of the "invisible text in dark mode" report.
 
 ---
 
@@ -749,4 +811,4 @@ Candidates for removal (verified with repo-wide grep — zero imports outside th
 
 ---
 
-_Last audited: **2026-04-21** — full ground-up rewrite (commit `038a3bb`). Second pass added dedicated Identity Scoping section, detailed Scraper→Campaign enrollment flow, and documented `scrape_jobs` / `scrape_results` raw tables._
+_Last audited: **2026-05-05** — Luxury UI overhaul pass. Added §4.11 Sender Identity & Deliverability (CID inline avatar, identity force-sync, BIMI, MIME-proofing), §4.12 Global Search (centered topbar + recent search history), §13a Design System & Interaction Model (auto theme, glassmorphism cards, lift-and-glow hover, portaled kebab, topbar user badge, account hero, trust pill), updated /accounts to the unified DNS + Persona surface, removed the deleted /settings route, refreshed §12 cookie crypto to AES-256-GCM + hardening notes (XFF reflected-XSS escape, hashed invite tokens, OIDC JWT verification on Gmail webhook, contact ownership chokepoint, paid-project AM lock). Previous: 2026-04-21 — full ground-up rewrite (commit `038a3bb`). Identity scoping + Scraper→Campaign enrollment flow + raw `scrape_jobs` / `scrape_results` tables._
