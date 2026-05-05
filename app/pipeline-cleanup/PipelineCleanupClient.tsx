@@ -229,6 +229,15 @@ export default function PipelineCleanupClient() {
 }
 
 function Row({ c }: { c: MisclassifiedContact }) {
+    // Match the chip palette used everywhere else in the app: CLOSED is green
+    // (coach), in-flight stages are yellow (warn), and unknown is muted grey.
+    const stage = c.pipeline_stage;
+    const chipStyle: React.CSSProperties =
+        stage === 'CLOSED'
+            ? { background: 'var(--coach-soft)', color: 'var(--coach)' }
+            : stage
+              ? { background: 'var(--warn-soft)', color: 'var(--warn)' }
+              : { background: 'var(--surface-2, var(--surface))', color: 'var(--ink-muted)' };
     return (
         <tr style={{ borderBottom: '1px solid var(--hairline-soft)' }}>
             <td style={td}>
@@ -236,8 +245,8 @@ function Row({ c }: { c: MisclassifiedContact }) {
                 <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{c.email}</div>
             </td>
             <td style={td}>
-                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--warn-soft)', color: 'var(--warn)' }}>
-                    {c.pipeline_stage || 'NULL'}
+                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, ...chipStyle }}>
+                    {stage || 'NULL'}
                 </span>
             </td>
             <td style={td}>{c.project_count}</td>
