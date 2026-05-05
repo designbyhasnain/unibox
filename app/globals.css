@@ -9408,3 +9408,65 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
 /* Topbar right slot is intentionally empty — the user persona lives in the
    sidebar profile pill and the Jarvis orb floats in its own draggable layer.
    We keep the slot so the centered-search 3-column grid stays balanced. */
+
+/* ── Team page · luxury action buttons ──────────────────────────────────
+   Used for Set/Reset password and Manage Accounts. Replaces the old
+   underlined-link look with a high-density, premium chip. Two variants:
+   .team-btn (subtle filled) and .team-btn--ghost (transparent ghost).
+   Both lift slightly on hover + tint the border with the accent. */
+.team-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.4;
+    color: var(--ink);
+    background: var(--surface-2);
+    border: 1px solid color-mix(in oklab, var(--ink) 7%, transparent);
+    box-shadow: 0 0 0 0.5px color-mix(in oklab, var(--ink) 4%, transparent);
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+        transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+        background-color 180ms ease,
+        border-color 180ms ease,
+        box-shadow 180ms ease,
+        color 180ms ease;
+}
+.team-btn svg {
+    color: var(--ink-muted);
+    flex-shrink: 0;
+    transition: color 180ms ease;
+}
+.team-btn:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in oklab, var(--accent, #4f8cff) 55%, transparent);
+    box-shadow:
+        0 0 0 0.5px color-mix(in oklab, var(--accent, #4f8cff) 28%, transparent),
+        0 4px 12px -4px color-mix(in oklab, var(--accent, #4f8cff) 35%, transparent);
+}
+.team-btn:hover svg { color: var(--accent, #4f8cff); }
+.team-btn:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--accent, #4f8cff) 65%, transparent);
+    outline-offset: 1px;
+}
+.team-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.team-btn--ghost {
+    background: transparent;
+    color: var(--ink-2);
+    border-color: color-mix(in oklab, var(--ink) 9%, transparent);
+}
+.team-btn--ghost:hover {
+    background: color-mix(in oklab, var(--accent, #4f8cff) 7%, transparent);
+    color: var(--accent, #4f8cff);
+}

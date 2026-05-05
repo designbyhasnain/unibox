@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { KeyRound, Settings2 } from 'lucide-react';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { listUsersAction, assignGmailToUserAction, removeGmailFromUserAction, updateUserRoleAction, deactivateUserAction, reactivateUserAction, setUserPasswordAction, deleteUserAction } from '../../src/actions/userManagementActions';
 import { sendInviteAction, listInvitesAction, revokeInviteAction, resendInviteAction, deleteInvitationAction } from '../../src/actions/inviteActions';
@@ -479,10 +480,12 @@ export default function TeamPage() {
                                                         {user.password ? 'Set \u2713' : 'Not set'}
                                                     </span>
                                                     <button
+                                                        type="button"
+                                                        className="team-btn"
                                                         onClick={() => { setPasswordModal({ userId: user.id, name: user.name }); setPasswordForm({ password: '', confirm: '' }); setPasswordError(''); setPasswordSuccess(''); }}
-                                                        style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
                                                         title={user.password ? `Reset ${user.name}'s password` : `Set initial password for ${user.name}`}
                                                     >
+                                                        <KeyRound size={12} strokeWidth={2.2} aria-hidden="true" />
                                                         {user.password ? 'Reset password' : 'Set password'}
                                                     </button>
                                                 </div>
@@ -501,8 +504,14 @@ export default function TeamPage() {
                                                         <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>All (admin)</span>
                                                     )}
                                                 </div>
-                                                <button onClick={() => setShowManageAccountsModal(user)}
-                                                    style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0', marginTop: 4 }}>
+                                                <button
+                                                    type="button"
+                                                    className="team-btn team-btn--ghost"
+                                                    style={{ marginTop: 6 }}
+                                                    onClick={() => setShowManageAccountsModal(user)}
+                                                    title={`Manage account access for ${user.name}`}
+                                                >
+                                                    <Settings2 size={12} strokeWidth={2.2} aria-hidden="true" />
                                                     Manage
                                                 </button>
                                             </td>
