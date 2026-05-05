@@ -624,6 +624,16 @@ export default function AccountsPage() {
 
     const needsReauth = accounts.filter(acc => acc.status === 'ERROR');
 
+    // Stat-pill counts. Computed inline (cheap on a small array) and also
+    // used by the hero header and aria-labels.
+    const accountStats = {
+        total: accounts.length,
+        active: accounts.filter(a => a.status === 'ACTIVE').length,
+        syncing: accounts.filter(a => a.status === 'SYNCING').length,
+        paused: accounts.filter(a => a.status === 'PAUSED').length,
+        error: accounts.filter(a => a.status === 'ERROR' || a.status === 'DISCONNECTED').length,
+    };
+
     const selectionModalTitleId = 'selection-modal-title';
     const manualFormTitleId = 'manual-form-title';
     const removeModalTitleId = 'remove-modal-title';
@@ -641,132 +651,146 @@ export default function AccountsPage() {
                         <h1 className="page-title">Accounts</h1>
                     }
                     rightContent={
-                        <div className="topbar-actions">
-                            {isAdmin && (
-                                <>
-                                    <button
-                                        className="icon-btn"
-                                        onClick={handleSync}
-                                        disabled={isSyncing}
-                                        title={isSyncing ? 'Syncing...' : 'Sync all accounts'}
-                                    >
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
-                                            <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
-                                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                                        </svg>
-                                    </button>
-                                    <button
-                                        className="icon-btn"
-                                        onClick={async () => {
-                                            const ok = await confirm({
-                                                title: 'Renew Gmail push notifications?',
-                                                message: 'Re-registers the Pub/Sub watch for every connected Gmail account so push deliveries keep flowing past their 7-day expiry. Read-only.',
-                                                confirmLabel: 'Renew all',
-                                            });
-                                            if (!ok) return;
-                                            setIsRenewingWatches(true);
-                                            try {
-                                                const result = await renewAllWatchesAction();
-                                                if (result.success) {
-                                                    const failed = result.failed ?? 0;
-                                                    const renewed = result.renewed ?? 0;
-                                                    if (failed > 0) {
-                                                        showInfo(`Renewed ${renewed} watches; ${failed} failed. See console for errors.`, { autoDismissMs: 8000 });
-                                                        if (result.errors?.length) console.warn('[accounts] renew watches errors:', result.errors);
-                                                    } else {
-                                                        showSuccess(`Renewed ${renewed} Gmail watches`);
-                                                    }
-                                                    await fetchAccounts();
-                                                } else {
-                                                    showError(result.error || 'Failed to renew watches');
-                                                }
-                                            } finally {
-                                                setIsRenewingWatches(false);
-                                            }
-                                        }}
-                                        disabled={isRenewingWatches}
-                                        title="Renew all Gmail push notification watches"
-                                        style={{ opacity: isRenewingWatches ? 0.5 : 1 }}
-                                    >
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="m3 11 18-5v12L3 14v-3z" />
-                                            <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-                                        </svg>
-                                    </button>
-                                    <button
-                                        className="btn btn-secondary btn-sm"
-                                        onClick={handleSyncGoogleProfiles}
-                                        disabled={isSyncingProfiles}
-                                        title="Fetch Google profile name + photo for all OAuth accounts with empty persona"
-                                        style={{ opacity: isSyncingProfiles ? 0.6 : 1 }}
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-                                        </svg>
-                                        {isSyncingProfiles ? 'Syncing…' : 'Sync Google Profiles'}
-                                    </button>
-                                    <button
-                                        className="btn btn-secondary btn-sm"
-                                        onClick={handlePushAllToGmail}
-                                        disabled={isPushingPersonas}
-                                        title="Push display name + signature from each Unibox Persona into Gmail's Send-Mail-As settings (OAuth accounts only). Improves the chance Gmail surfaces the profile photo to recipients."
-                                        style={{ opacity: isPushingPersonas ? 0.6 : 1 }}
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M22 2 11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" />
-                                        </svg>
-                                        {isPushingPersonas ? 'Pushing…' : 'Push to Gmail'}
-                                    </button>
-                                    <button
-                                        className="btn btn-primary btn-sm"
-                                        onClick={() => { setShowSelectionModal(true); setError(null); }}
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14m-7-7h14" /></svg>
-                                        Add Account
-                                    </button>
-                                </>
-                            )}
-                        </div>
+                        isAdmin ? (
+                            <button
+                                className="btn btn-primary btn-sm acct-primary-add"
+                                onClick={() => { setShowSelectionModal(true); setError(null); }}
+                            >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14m-7-7h14" /></svg>
+                                Add Account
+                            </button>
+                        ) : null
                     }
                 />
 
-                {/* Tabs / Sub-header */}
-                <div className="tabs-bar">
-                    <div className="tab active">Connected Accounts</div>
+                {/* Hero — stats pills + grouped secondary toolbar.
+                    Primary "Add Account" lives in the topbar above so this row
+                    is purely status overview + batch maintenance. */}
+                <div className="acct-hero">
+                    <div className="acct-stat-pills" role="group" aria-label="Account stats">
+                        <div className="acct-stat-pill">
+                            <span className="acct-stat-pill-num">{isHydrated ? accountStats.total : 0}</span>
+                            <span className="acct-stat-pill-label">Total</span>
+                        </div>
+                        <div className="acct-stat-pill acct-stat-pill--active">
+                            <span className="acct-stat-pill-num">{isHydrated ? accountStats.active : 0}</span>
+                            <span className="acct-stat-pill-label">Live</span>
+                        </div>
+                        {accountStats.syncing > 0 && (
+                            <div className="acct-stat-pill acct-stat-pill--syncing">
+                                <span className="acct-stat-pill-num">{accountStats.syncing}</span>
+                                <span className="acct-stat-pill-label">Syncing</span>
+                            </div>
+                        )}
+                        {accountStats.paused > 0 && (
+                            <div className="acct-stat-pill acct-stat-pill--paused">
+                                <span className="acct-stat-pill-num">{accountStats.paused}</span>
+                                <span className="acct-stat-pill-label">Paused</span>
+                            </div>
+                        )}
+                        <div className={`acct-stat-pill acct-stat-pill--error${accountStats.error === 0 ? ' is-zero' : ''}`}>
+                            <span className="acct-stat-pill-num">{isHydrated ? accountStats.error : 0}</span>
+                            <span className="acct-stat-pill-label">Issues</span>
+                        </div>
+                    </div>
+
+                    {isAdmin && (
+                        <div className="acct-secondary-toolbar" role="toolbar" aria-label="Bulk maintenance actions">
+                            <button
+                                type="button"
+                                className="acct-tool-btn"
+                                onClick={handleSync}
+                                disabled={isSyncing}
+                                title="Trigger an immediate sync on every connected account"
+                            >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
+                                    <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                                </svg>
+                                <span>{isSyncing ? 'Syncing' : 'Sync all'}</span>
+                            </button>
+                            <button
+                                type="button"
+                                className="acct-tool-btn"
+                                disabled={isRenewingWatches}
+                                title="Re-register Gmail Pub/Sub watches so push deliveries keep flowing past their 7-day expiry"
+                                onClick={async () => {
+                                    const ok = await confirm({
+                                        title: 'Renew Gmail push notifications?',
+                                        message: 'Re-registers the Pub/Sub watch for every connected Gmail account so push deliveries keep flowing past their 7-day expiry. Read-only.',
+                                        confirmLabel: 'Renew all',
+                                    });
+                                    if (!ok) return;
+                                    setIsRenewingWatches(true);
+                                    try {
+                                        const result = await renewAllWatchesAction();
+                                        if (result.success) {
+                                            const failed = result.failed ?? 0;
+                                            const renewed = result.renewed ?? 0;
+                                            if (failed > 0) {
+                                                showInfo(`Renewed ${renewed} watches; ${failed} failed. See console for errors.`, { autoDismissMs: 8000 });
+                                                if (result.errors?.length) console.warn('[accounts] renew watches errors:', result.errors);
+                                            } else {
+                                                showSuccess(`Renewed ${renewed} Gmail watches`);
+                                            }
+                                            await fetchAccounts();
+                                        } else {
+                                            showError(result.error || 'Failed to renew watches');
+                                        }
+                                    } finally {
+                                        setIsRenewingWatches(false);
+                                    }
+                                }}
+                            >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                                </svg>
+                                <span>{isRenewingWatches ? 'Renewing' : 'Renew watches'}</span>
+                            </button>
+                            <button
+                                type="button"
+                                className="acct-tool-btn"
+                                onClick={handleSyncGoogleProfiles}
+                                disabled={isSyncingProfiles}
+                                title="Fetch Google profile name + photo for OAuth accounts with empty persona"
+                            >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+                                </svg>
+                                <span>{isSyncingProfiles ? 'Syncing' : 'Sync profiles'}</span>
+                            </button>
+                            <button
+                                type="button"
+                                className="acct-tool-btn"
+                                onClick={handlePushAllToGmail}
+                                disabled={isPushingPersonas}
+                                title="Push Persona display name + signature into Gmail Send-Mail-As (OAuth accounts only)"
+                            >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M22 2 11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                                </svg>
+                                <span>{isPushingPersonas ? 'Pushing' : 'Push to Gmail'}</span>
+                            </button>
+                            <span className="acct-tool-divider" aria-hidden="true" />
+                            <button
+                                type="button"
+                                className="acct-tool-btn"
+                                onClick={handleSyncAllHealth}
+                                disabled={isCheckingHealth}
+                                title="Refresh tokens + re-test every account in batches of 5. Never sends email."
+                            >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                                </svg>
+                                <span>{isCheckingHealth ? 'Checking' : 'Check health'}</span>
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="content-split">
                     <div className="list-panel">
-                        {/* Toolbar */}
-                        <div className="list-toolbar">
-                            <div className="list-toolbar-left">
-                                <span className="count-label">{isHydrated ? accounts.length : 0} linked accounts</span>
-                            </div>
-                            {isAdmin && (
-                            <div className="list-toolbar-right">
-                                <button
-                                    className="btn btn-secondary btn-sm"
-                                    onClick={handleSyncAllHealth}
-                                    disabled={isCheckingHealth}
-                                    title="Refresh tokens + re-test every account in batches of 5. Never sends email."
-                                >
-                                    {isCheckingHealth ? 'Checking…' : 'Check All Health'}
-                                </button>
-                                <button className="icon-btn" onClick={handleSync} disabled={isSyncing} title="Sync All">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
-                                        <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                                    </svg>
-                                </button>
-                                <button
-                                    className="btn btn-primary btn-sm"
-                                    onClick={() => { setShowSelectionModal(true); setError(null); }}
-                                >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14m-7-7h14" /></svg>
-                                    Add Account
-                                </button>
-                            </div>
-                            )}
-                        </div>
 
                         <div className="list-area" style={{ padding: '0' }}>
                             {/* Global Error Banner */}
@@ -1063,13 +1087,29 @@ export default function AccountsPage() {
                                                     </div>
                                                 )}
 
-                                                {/* Technical Health — folded by default to keep the card clean. */}
+                                                {/* Technical Health — folded by default. The summary row
+                                                    surfaces a single pill that tells the user whether SPF/
+                                                    DKIM/DMARC all pass; click to see the per-record pills. */}
+                                                {(() => {
+                                                    const dnsForCard = dnsMap[domain];
+                                                    const dnsLoaded = dnsForCard != null;
+                                                    const allPass = dnsLoaded && dnsForCard.spf.status === 'pass' && dnsForCard.dkim.status === 'pass' && dnsForCard.dmarc.status === 'pass';
+                                                    const trustClass = isFreeMail ? 'acct-tech-trust--ok'
+                                                        : !dnsLoaded ? 'acct-tech-trust--checking'
+                                                        : allPass ? 'acct-tech-trust--ok'
+                                                        : 'acct-tech-trust--warn';
+                                                    const trustText = isFreeMail ? '✓ Provider-managed'
+                                                        : !dnsLoaded ? 'Checking…'
+                                                        : allPass ? '✓ Trusted'
+                                                        : '⚠ DNS issues';
+                                                    return (
                                                 <details className="acct-glass-tech">
                                                     <summary>
                                                         <span className="acct-glass-tech-icon" aria-hidden="true">
                                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                                                         </span>
                                                         <span>Technical health</span>
+                                                        <span className={`acct-tech-trust ${trustClass}`}>{trustText}</span>
                                                         <span className="acct-glass-tech-chev" aria-hidden="true">
                                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                                                         </span>
@@ -1091,6 +1131,8 @@ export default function AccountsPage() {
                                                         />
                                                     </div>
                                                 </details>
+                                                    );
+                                                })()}
                                             </div>
                                         );})}
                                     </div>

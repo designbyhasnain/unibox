@@ -4329,6 +4329,148 @@ select.form-input option {
     animation: syncPulse 1.5s ease-in-out infinite;
 }
 
+/* ── Accounts page · header hero (stats + secondary toolbar) ──── */
+.acct-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 24px 12px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid color-mix(in oklab, var(--ink) 7%, transparent);
+}
+.acct-stat-pills {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.acct-stat-pill {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--ink) 5%, transparent);
+    border: 1px solid color-mix(in oklab, var(--ink) 7%, transparent);
+    transition: background-color 150ms var(--ease), border-color 150ms var(--ease);
+}
+.acct-stat-pill:hover { background: color-mix(in oklab, var(--ink) 8%, transparent); }
+.acct-stat-pill-num {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "ss01" 1;
+    letter-spacing: -0.025em;
+    line-height: 1;
+}
+.acct-stat-pill-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+}
+.acct-stat-pill--active .acct-stat-pill-num { color: #10b981; }
+.acct-stat-pill--active {
+    background: color-mix(in oklab, #10b981 8%, transparent);
+    border-color: color-mix(in oklab, #10b981 22%, transparent);
+}
+.acct-stat-pill--syncing .acct-stat-pill-num { color: #4f8cff; }
+.acct-stat-pill--syncing {
+    background: color-mix(in oklab, #4f8cff 8%, transparent);
+    border-color: color-mix(in oklab, #4f8cff 22%, transparent);
+}
+.acct-stat-pill--paused .acct-stat-pill-num { color: #f59e0b; }
+.acct-stat-pill--paused {
+    background: color-mix(in oklab, #f59e0b 8%, transparent);
+    border-color: color-mix(in oklab, #f59e0b 22%, transparent);
+}
+.acct-stat-pill--error.is-zero .acct-stat-pill-num { color: var(--ink-muted); }
+.acct-stat-pill--error:not(.is-zero) .acct-stat-pill-num { color: #ef4444; }
+.acct-stat-pill--error:not(.is-zero) {
+    background: color-mix(in oklab, #ef4444 8%, transparent);
+    border-color: color-mix(in oklab, #ef4444 25%, transparent);
+}
+
+/* Grouped secondary toolbar — high-density bordered container. */
+.acct-secondary-toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    background: color-mix(in oklab, var(--ink) 4%, transparent);
+    border: 1px solid color-mix(in oklab, var(--ink) 8%, transparent);
+    border-radius: 12px;
+    flex-wrap: wrap;
+}
+.acct-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-2);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 120ms var(--ease), color 120ms var(--ease);
+    font-family: inherit;
+    white-space: nowrap;
+}
+.acct-tool-btn:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--ink) 7%, transparent);
+    color: var(--ink);
+}
+.acct-tool-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.acct-tool-btn svg { color: var(--ink-muted); flex-shrink: 0; }
+.acct-tool-btn:hover:not(:disabled) svg { color: var(--ink); }
+.acct-tool-divider {
+    width: 1px;
+    height: 18px;
+    margin: 0 4px;
+    background: color-mix(in oklab, var(--ink) 12%, transparent);
+}
+
+@media (max-width: 800px) {
+    .acct-hero { flex-direction: column; align-items: stretch; gap: 12px; padding: 14px 16px; }
+    .acct-secondary-toolbar { width: 100%; justify-content: flex-start; overflow-x: auto; }
+}
+
+/* ── Trust pill in Technical Health summary row ─────────────────── */
+.acct-tech-trust {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    border: 1px solid transparent;
+    line-height: 1.4;
+}
+.acct-tech-trust--ok {
+    color: #10b981;
+    background: color-mix(in oklab, #10b981 10%, transparent);
+    border-color: color-mix(in oklab, #10b981 28%, transparent);
+}
+.acct-tech-trust--warn {
+    color: #ef4444;
+    background: color-mix(in oklab, #ef4444 10%, transparent);
+    border-color: color-mix(in oklab, #ef4444 30%, transparent);
+}
+.acct-tech-trust--checking {
+    color: var(--ink-muted);
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    border-color: color-mix(in oklab, var(--ink) 10%, transparent);
+}
+
 /* ── Accounts page · glass account cards ─────────────────────────
    Apple-style cards: translucent surface with backdrop-blur, soft
    border, large radius, single primary action via kebab menu. The
@@ -4699,10 +4841,11 @@ select.form-input option {
 .acct-glass-tech > summary:hover { color: var(--ink-2); }
 .acct-glass-tech-icon { display: inline-flex; align-items: center; opacity: 0.8; }
 .acct-glass-tech-chev {
-    margin-left: auto;
+    margin-left: 8px;
     display: inline-flex;
     align-items: center;
     transition: transform 200ms var(--ease);
+    color: var(--ink-muted);
 }
 .acct-glass-tech[open] > summary > .acct-glass-tech-chev { transform: rotate(180deg); }
 .acct-glass-tech-body {
