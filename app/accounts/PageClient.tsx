@@ -80,18 +80,6 @@ function isAccountsCacheValid(): boolean {
     return true;
 }
 
-function StatusBadge({ status }: { status: AccountStatus }) {
-    const map: Record<AccountStatus, { label: string; cls: string }> = {
-        ACTIVE: { label: 'Active', cls: 'badge-green' },
-        ERROR: { label: 'Error', cls: 'badge-red' },
-        DISCONNECTED: { label: 'Disconnected', cls: 'badge-gray' },
-        SYNCING: { label: 'Syncing...', cls: 'badge-blue' },
-        PAUSED: { label: 'Paused', cls: 'badge-orange' },
-    };
-    const { label, cls } = map[status] || { label: status, cls: 'badge-gray' };
-    return <span className={`badge ${cls}`}>{label}</span>;
-}
-
 function WatchStatusBadge({ watchStatus, watchExpiry, connectionMethod }: {
     watchStatus?: string | null;
     watchExpiry?: string | null;
@@ -296,6 +284,25 @@ export default function AccountsPage() {
     const [personaTarget, setPersonaTarget] = useState<PersonaTarget | null>(null);
     const [personaBulkOpen, setPersonaBulkOpen] = useState(false);
     const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
+
+    // Kebab menu — only one card's action menu is open at a time. Closing on
+    // outside click + Escape so the user never gets a stuck-open dropdown.
+    const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+    useEffect(() => {
+        if (!openMenuId) return;
+        const onDocClick = (e: MouseEvent) => {
+            const target = e.target as HTMLElement | null;
+            if (target && target.closest('.acct-kebab-wrap')) return;
+            setOpenMenuId(null);
+        };
+        const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenMenuId(null); };
+        document.addEventListener('mousedown', onDocClick);
+        document.addEventListener('keydown', onEsc);
+        return () => {
+            document.removeEventListener('mousedown', onDocClick);
+            document.removeEventListener('keydown', onEsc);
+        };
+    }, [openMenuId]);
 
     // Branding state — DNS health (per-domain) + Gravatar existence (per-email-hash).
     // Computed client-side, refreshed by a button. Read-only — no DB writes.
@@ -617,15 +624,6 @@ export default function AccountsPage() {
 
     const needsReauth = accounts.filter(acc => acc.status === 'ERROR');
 
-    const GoogleIcon = () => (
-        <svg width="20" height="20" viewBox="0 0 24 24">
-            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-            <path d="M12 23c3.11 0 5.71-1.03 7.61-2.79l-3.57-2.77c-1.01.69-2.31 1.1-4.04 1.1-3.11 0-5.74-2.1-6.68-4.93H1.72v2.85C3.65 20.46 7.55 23 12 23z" fill="#34A853" />
-            <path d="M5.32 13.62C7.26 13.23 7.15 12.63 7.15 12c0-.63.11-1.23.28-1.82L4.11 7.61c-.6 1.18-.96 2.51-.96 3.9 0 1.39.36 2.73.96 3.9l3.21-1.79z" fill="#FBBC05" />
-            <path d="M12 6.58c1.32 0 2.5.45 3.44 1.35l2.58-2.59C16.46 3.9 14.42 3 12 3 8.55 3 5.61 4.63 4.11 7.61L7.43 10.2c.64-1.93 2.44-3.37 4.57-3.37z" fill="#EA4335" />
-        </svg>
-    );
-
     const selectionModalTitleId = 'selection-modal-title';
     const manualFormTitleId = 'manual-form-title';
     const removeModalTitleId = 'remove-modal-title';
@@ -728,7 +726,6 @@ export default function AccountsPage() {
                                     </button>
                                 </>
                             )}
-                            <div className="avatar-btn">A</div>
                         </div>
                     }
                 />
@@ -845,27 +842,38 @@ export default function AccountsPage() {
                                         <div className="empty-state-desc">Connect a Gmail account to start sending and receiving emails.</div>
                                     </div>
                                 ) : (
-                                    <div className="accounts-grid" style={{ padding: '1.5rem' }}>
-                                        {filteredAccounts.map(acc => (
+                                    <div className="accounts-grid">
+                                        {filteredAccounts.map(acc => {
+                                            const domain = acc.email.split('@')[1]?.toLowerCase() || '';
+                                            const isFreeMail = FREE_MAIL_DOMAINS.has(domain);
+                                            const statusLabel = acc.status === 'ACTIVE' ? 'Live'
+                                                : acc.status === 'SYNCING' ? 'Syncing'
+                                                : acc.status === 'PAUSED' ? 'Paused'
+                                                : acc.status === 'ERROR' ? 'Reconnect'
+                                                : 'Disconnected';
+                                            const initial = (acc.display_name || acc.email).trim().charAt(0).toUpperCase();
+                                            const watchHoursLeft = acc.watch_expiry
+                                                ? Math.round((new Date(acc.watch_expiry).getTime() - Date.now()) / (1000 * 60 * 60))
+                                                : null;
+                                            const hasWatchWarn = acc.connection_method === 'OAUTH'
+                                                && acc.watch_status === 'ACTIVE'
+                                                && watchHoursLeft !== null && watchHoursLeft > 0 && watchHoursLeft <= 48;
+                                            const hasInvalidGrant = !!(acc.last_error_message && acc.status !== 'ERROR' && acc.last_error_message.includes('invalid_grant'));
+                                            const hasWarmupErr = !!(acc.last_error_message && acc.status !== 'ERROR' && acc.last_error_message.startsWith('Warm-up:'));
+                                            const hasPushExpired = acc.connection_method === 'OAUTH' && acc.watch_status !== 'ACTIVE' && acc.status !== 'ERROR';
+                                            return (
                                             <div
                                                 key={acc.id}
-                                                className={`account-item-card${acc.status === 'ERROR' ? ' account-error' : acc.status === 'SYNCING' ? ' account-syncing' : ''}`}
+                                                className="acct-glass-card"
+                                                data-status={acc.status}
                                             >
-                                                {/* Card Content */}
-                                                <div
-                                                    className="acct-card-header"
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'flex-start',
-                                                        gap: 12,
-                                                    }}
-                                                >
+                                                {/* Top bar: avatar + identity + kebab. */}
+                                                <div className="acct-glass-top">
                                                     {isAdmin && (
                                                         <label
-                                                            className="acct-card-check"
+                                                            className="acct-glass-check"
                                                             title="Select for bulk persona apply"
                                                             onClick={e => e.stopPropagation()}
-                                                            style={{ marginTop: 14 }}
                                                         >
                                                             <input
                                                                 type="checkbox"
@@ -875,143 +883,160 @@ export default function AccountsPage() {
                                                             />
                                                         </label>
                                                     )}
-                                                    <div
-                                                        className={`acct-card-icon${acc.profile_image ? ' acct-card-icon--photo' : ''}`}
-                                                        style={{
-                                                            width: 44,
-                                                            height: 44,
-                                                            flex: '0 0 44px',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            borderRadius: '50%',
-                                                            background: acc.profile_image ? 'transparent' : 'var(--shell)',
-                                                            border: acc.profile_image ? 'none' : '1px solid var(--hairline-soft)',
-                                                            overflow: 'hidden',
-                                                        }}
-                                                    >
+                                                    <div className={`acct-glass-avatar${acc.profile_image ? ' has-photo' : ''}`}>
                                                         {acc.profile_image ? (
                                                             <img
                                                                 src={acc.profile_image}
                                                                 alt={acc.display_name || acc.email}
-                                                                className="acct-card-avatar"
                                                                 referrerPolicy="no-referrer"
                                                                 onError={e => {
                                                                     (e.currentTarget as HTMLImageElement).style.display = 'none';
                                                                     const parent = e.currentTarget.parentElement;
-                                                                    if (parent) parent.classList.remove('acct-card-icon--photo');
+                                                                    if (parent) parent.classList.remove('has-photo');
                                                                 }}
                                                             />
-                                                        ) : acc.connection_method === 'OAUTH' ? <GoogleIcon /> : (
-                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                                                                <polyline points="22,6 12,13 2,6" />
-                                                            </svg>
+                                                        ) : (
+                                                            <span className="acct-glass-avatar-initial">{initial}</span>
                                                         )}
+                                                        <span className={`acct-glass-pulse acct-glass-pulse--${acc.status.toLowerCase()}`} aria-hidden="true" />
                                                     </div>
-                                                    <div className="acct-card-info" style={{ flex: 1, minWidth: 0 }}>
-                                                        <div
-                                                            className="acct-card-email"
-                                                            style={{
-                                                                whiteSpace: 'nowrap',
-                                                                overflow: 'hidden',
-                                                                textOverflow: 'ellipsis',
-                                                                lineHeight: 1.25,
-                                                            }}
-                                                        >
-                                                            {acc.display_name ? (
-                                                                <>
-                                                                    <span className="acct-card-display-name">{acc.display_name}</span>
-                                                                    <span className="acct-card-email-muted">&nbsp;· {acc.email}</span>
-                                                                </>
-                                                            ) : (
-                                                                acc.email
+                                                    <div className="acct-glass-identity">
+                                                        <div className="acct-glass-name" title={acc.display_name || acc.email}>
+                                                            {acc.display_name || acc.email.split('@')[0]}
+                                                        </div>
+                                                        {acc.display_name && (
+                                                            <div className="acct-glass-email" title={acc.email}>{acc.email}</div>
+                                                        )}
+                                                        <div className="acct-glass-status">
+                                                            <span className={`acct-glass-statuslabel acct-glass-statuslabel--${acc.status.toLowerCase()}`}>{statusLabel}</span>
+                                                            <span className="acct-glass-dot">·</span>
+                                                            <span>{acc.connection_method === 'OAUTH' ? 'Google OAuth' : 'IMAP / SMTP'}</span>
+                                                        </div>
+                                                    </div>
+                                                    {isAdmin && (
+                                                        <div className="acct-kebab-wrap">
+                                                            <button
+                                                                className="acct-kebab-btn"
+                                                                aria-label={`Actions for ${acc.email}`}
+                                                                aria-haspopup="menu"
+                                                                aria-expanded={openMenuId === acc.id}
+                                                                onClick={() => setOpenMenuId(prev => prev === acc.id ? null : acc.id)}
+                                                            >
+                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                    <circle cx="12" cy="5" r="1.4" />
+                                                                    <circle cx="12" cy="12" r="1.4" />
+                                                                    <circle cx="12" cy="19" r="1.4" />
+                                                                </svg>
+                                                            </button>
+                                                            {openMenuId === acc.id && (
+                                                                <div className="acct-kebab-menu" role="menu">
+                                                                    {acc.status === 'ERROR' ? (
+                                                                        <button role="menuitem" className="acct-kebab-item acct-kebab-item--primary" onClick={() => { setOpenMenuId(null); handleOAuthFlow(); }}>
+                                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+                                                                            Re-connect
+                                                                        </button>
+                                                                    ) : acc.status === 'SYNCING' ? (
+                                                                        <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleStopSync(acc); }}>
+                                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+                                                                            Stop sync
+                                                                        </button>
+                                                                    ) : (
+                                                                        <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleReSync(acc); }}>
+                                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                                                                            Re-sync now
+                                                                        </button>
+                                                                    )}
+                                                                    {acc.status !== 'ERROR' && acc.status !== 'SYNCING' && (
+                                                                        <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleToggleSync(acc); }}>
+                                                                            {acc.status === 'PAUSED' ? (
+                                                                                <>
+                                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+                                                                                    Resume sync
+                                                                                </>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                                                                                    Pause sync
+                                                                                </>
+                                                                            )}
+                                                                        </button>
+                                                                    )}
+                                                                    {acc.connection_method === 'MANUAL' && acc.status !== 'SYNCING' && (
+                                                                        <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleRetestManual(acc); }}>
+                                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+                                                                            Re-test IMAP / SMTP
+                                                                        </button>
+                                                                    )}
+                                                                    <button role="menuitem" className="acct-kebab-item" onClick={() => {
+                                                                        setOpenMenuId(null);
+                                                                        setPersonaTarget({
+                                                                            id: acc.id,
+                                                                            email: acc.email,
+                                                                            displayName: acc.display_name ?? null,
+                                                                            profileImage: acc.profile_image ?? null,
+                                                                        });
+                                                                    }}>
+                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                                                                        Edit persona
+                                                                    </button>
+                                                                    <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleBrandingDiagnostic(acc.email); }}>
+                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+                                                                        Run diagnostic
+                                                                    </button>
+                                                                    <div className="acct-kebab-sep" />
+                                                                    <button role="menuitem" className="acct-kebab-item acct-kebab-item--danger" onClick={() => { setOpenMenuId(null); setAccountToRemove(acc); }}>
+                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                                                                        Remove account
+                                                                    </button>
+                                                                </div>
                                                             )}
                                                         </div>
-                                                        <div
-                                                            className="acct-card-meta"
-                                                            style={{
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: 6,
-                                                                flexWrap: 'wrap',
-                                                                marginTop: 6,
-                                                            }}
-                                                        >
-                                                            <StatusBadge status={acc.status} />
-                                                            <WatchStatusBadge
-                                                                watchStatus={acc.watch_status}
-                                                                watchExpiry={acc.watch_expiry}
-                                                                connectionMethod={acc.connection_method}
-                                                            />
-                                                            <span
-                                                                className="acct-card-method"
-                                                                style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}
-                                                            >
-                                                                {acc.connection_method === 'MANUAL' ? 'Manual/IMAP' : 'Google OAuth'}
-                                                            </span>
+                                                    )}
+                                                </div>
+
+                                                {/* Stats: minimal high-density numerics. */}
+                                                <div className="acct-glass-stats">
+                                                    <div className="acct-glass-stat">
+                                                        <div className="acct-glass-stat-label">Total emails</div>
+                                                        <div className="acct-glass-stat-value">
+                                                            {acc.emails_count != null ? acc.emails_count.toLocaleString() : '—'}
                                                         </div>
                                                     </div>
-                                                    <div
-                                                        className="acct-card-sync-info"
-                                                        style={{
-                                                            flex: '0 0 auto',
-                                                            textAlign: 'right',
-                                                            paddingTop: 2,
-                                                        }}
-                                                    >
-                                                        <div
-                                                            className="acct-card-sync-label"
-                                                            style={{ fontSize: 10.5, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}
-                                                        >
-                                                            Last synced
-                                                        </div>
-                                                        <div
-                                                            className="acct-card-sync-value"
-                                                            style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 2 }}
-                                                        >
+                                                    <div className="acct-glass-stat-divider" aria-hidden="true" />
+                                                    <div className="acct-glass-stat">
+                                                        <div className="acct-glass-stat-label">Last sync</div>
+                                                        <div className="acct-glass-stat-value">
                                                             {formatLastSynced(acc.last_synced_at)}
                                                         </div>
                                                     </div>
                                                 </div>
 
-                                                <div className="acct-card-status-box">
-                                                    <div className="acct-card-status-label">
-                                                        Synchronization Status
-                                                    </div>
-                                                    <div className="acct-card-status-value">
-                                                        {acc.emails_count != null ? `${acc.emails_count.toLocaleString()} emails synced` : 'Scanning...'}
-                                                    </div>
-                                                </div>
-
-                                                <DnsAuthSection
-                                                    dns={dnsMap[acc.email.split('@')[1]?.toLowerCase() || '']}
-                                                    onRecheck={() => recheckDomain(acc.email.split('@')[1]?.toLowerCase() || '')}
-                                                    rechecking={recheckingDomain === acc.email.split('@')[1]?.toLowerCase()}
-                                                    isFreeMail={FREE_MAIL_DOMAINS.has(acc.email.split('@')[1]?.toLowerCase() || '')}
-                                                />
-
-                                                {acc.status === 'ERROR' && (
-                                                    <div className="acct-card-error-msg">
-                                                        Authentication failed — please reconnect this account.
+                                                {/* Sync progress (only while syncing). */}
+                                                {acc.status === 'SYNCING' && (
+                                                    <div className="acct-glass-progress">
+                                                        <div className="sync-bar" role="progressbar" aria-valuenow={acc.sync_progress || 0} aria-valuemin={0} aria-valuemax={100} aria-label={`Sync progress: ${acc.sync_progress || 0}%`}>
+                                                            <div className="sync-bar-fill" style={{ width: `${acc.sync_progress || 0}%` }} />
+                                                        </div>
+                                                        <span className="acct-glass-progress-label">{acc.sync_progress || 0}%</span>
                                                     </div>
                                                 )}
 
-                                                {acc.last_error_message && acc.status !== 'ERROR' && acc.last_error_message.includes('invalid_grant') && (
-                                                    <div className="acct-warning-banner acct-warning-orange">
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                                                        <span>Token issue detected — reconnect recommended</span>
+                                                {/* Critical inline warnings (kept above-fold). */}
+                                                {acc.status === 'ERROR' && (
+                                                    <div className="acct-glass-alert acct-glass-alert--danger">
+                                                        <span>Authentication failed — reconnect required.</span>
+                                                        <button className="btn btn-xs btn-primary" onClick={() => handleOAuthFlow()}>Re-connect</button>
+                                                    </div>
+                                                )}
+                                                {hasInvalidGrant && (
+                                                    <div className="acct-glass-alert acct-glass-alert--warn">
+                                                        <span>Token expired — reconnect recommended.</span>
                                                         <button className="btn btn-xs btn-primary" onClick={() => handleOAuthFlow()}>Reconnect</button>
                                                     </div>
                                                 )}
-
-                                                {/* Warm-up failure warning. Shows when a recent warm-up run for this
-                                                    account couldn't send. Not a token issue — usually app-password
-                                                    rotation, SMTP quota, or a transient network blip. */}
-                                                {acc.last_error_message && acc.status !== 'ERROR' && acc.last_error_message.startsWith('Warm-up:') && (
-                                                    <div className="acct-warning-banner acct-warning-yellow">
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                                                        <span>Warm-up failed: {acc.last_error_message.replace(/^Warm-up:\s*/, '').slice(0, 80)}</span>
+                                                {hasWarmupErr && (
+                                                    <div className="acct-glass-alert acct-glass-alert--warn">
+                                                        <span>Warm-up failed: {acc.last_error_message!.replace(/^Warm-up:\s*/, '').slice(0, 60)}</span>
                                                         {acc.connection_method === 'MANUAL' ? (
                                                             <button className="btn btn-xs btn-primary" onClick={() => handleRetestManual(acc)}>Re-test</button>
                                                         ) : (
@@ -1019,25 +1044,18 @@ export default function AccountsPage() {
                                                         )}
                                                     </div>
                                                 )}
-
-                                                {acc.connection_method === 'OAUTH' && acc.watch_status !== 'ACTIVE' && acc.status !== 'ERROR' && (
-                                                    <div className="acct-warning-banner acct-warning-red">
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                                                        <span>Push expired — no real-time sync</span>
+                                                {hasPushExpired && (
+                                                    <div className="acct-glass-alert acct-glass-alert--danger">
+                                                        <span>Push expired — no real-time sync.</span>
                                                         <button className="btn btn-xs btn-primary" onClick={async () => {
                                                             setAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, watch_status: 'ACTIVE' } : a));
                                                             await renewAllWatchesAction();
-                                                        }}>Fix Now</button>
+                                                        }}>Fix now</button>
                                                     </div>
                                                 )}
-
-                                                {acc.connection_method === 'OAUTH' && acc.watch_status === 'ACTIVE' && acc.watch_expiry && (() => {
-                                                    const hoursLeft = (new Date(acc.watch_expiry).getTime() - Date.now()) / (1000 * 60 * 60);
-                                                    return hoursLeft > 0 && hoursLeft <= 48;
-                                                })() && (
-                                                    <div className="acct-warning-banner acct-warning-yellow">
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                                        <span>Push expiring in {Math.round((new Date(acc.watch_expiry!).getTime() - Date.now()) / (1000 * 60 * 60))}h</span>
+                                                {hasWatchWarn && (
+                                                    <div className="acct-glass-alert acct-glass-alert--warn">
+                                                        <span>Push expiring in {watchHoursLeft}h.</span>
                                                         <button className="btn btn-xs btn-secondary" onClick={async () => {
                                                             await renewAllWatchesAction();
                                                             refreshAccountsSilently();
@@ -1045,89 +1063,36 @@ export default function AccountsPage() {
                                                     </div>
                                                 )}
 
-                                                {acc.status === 'SYNCING' && (
-                                                    <div className="acct-sync-progress">
-                                                        <div className="sync-bar" role="progressbar" aria-valuenow={acc.sync_progress || 0} aria-valuemin={0} aria-valuemax={100} aria-label={`Sync progress: ${acc.sync_progress || 0}%`}>
-                                                            <div className="sync-bar-fill" style={{ width: `${acc.sync_progress || 0}%` }} />
+                                                {/* Technical Health — folded by default to keep the card clean. */}
+                                                <details className="acct-glass-tech">
+                                                    <summary>
+                                                        <span className="acct-glass-tech-icon" aria-hidden="true">
+                                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                                                        </span>
+                                                        <span>Technical health</span>
+                                                        <span className="acct-glass-tech-chev" aria-hidden="true">
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                                        </span>
+                                                    </summary>
+                                                    <div className="acct-glass-tech-body">
+                                                        <div className="acct-glass-tech-row">
+                                                            <span className="acct-glass-tech-label">Push</span>
+                                                            <WatchStatusBadge
+                                                                watchStatus={acc.watch_status}
+                                                                watchExpiry={acc.watch_expiry}
+                                                                connectionMethod={acc.connection_method}
+                                                            />
                                                         </div>
-                                                        <p className="acct-sync-label">
-                                                            <span>Syncing... {acc.sync_progress || 0}%</span>
-                                                        </p>
+                                                        <DnsAuthSection
+                                                            dns={dnsMap[domain]}
+                                                            onRecheck={() => recheckDomain(domain)}
+                                                            rechecking={recheckingDomain === domain}
+                                                            isFreeMail={isFreeMail}
+                                                        />
                                                     </div>
-                                                )}
-
-                                                {isAdmin && (
-                                                <div className="acct-card-actions" style={{ marginTop: 12 }}>
-                                                    <div
-                                                        className="acct-card-actions-left"
-                                                        style={{
-                                                            display: 'flex',
-                                                            gap: 6,
-                                                            flexWrap: 'wrap',
-                                                            alignItems: 'center',
-                                                        }}
-                                                    >
-                                                        {acc.status === 'ERROR' ? (
-                                                            <button className="btn btn-sm btn-primary" onClick={() => handleOAuthFlow()}>
-                                                                Re-connect
-                                                            </button>
-                                                        ) : acc.status === 'SYNCING' ? (
-                                                            <button className="btn btn-sm btn-secondary" onClick={() => handleStopSync(acc)}>
-                                                                Stop Sync
-                                                            </button>
-                                                        ) : (
-                                                            <button className="btn btn-sm btn-secondary" onClick={() => handleReSync(acc)}>
-                                                                Re-sync
-                                                            </button>
-                                                        )}
-
-                                                        {acc.status !== 'ERROR' && acc.status !== 'SYNCING' && (
-                                                            <button
-                                                                className={`btn btn-sm ${acc.status === 'PAUSED' ? 'btn-primary' : 'btn-secondary'}`}
-                                                                onClick={() => handleToggleSync(acc)}
-                                                            >
-                                                                {acc.status === 'PAUSED' ? 'Resume Sync' : 'Pause Sync'}
-                                                            </button>
-                                                        )}
-                                                        {acc.connection_method === 'MANUAL' && acc.status !== 'SYNCING' && (
-                                                            <button
-                                                                className="btn btn-sm btn-secondary"
-                                                                onClick={() => handleRetestManual(acc)}
-                                                                title="Re-test IMAP/SMTP with the stored app password"
-                                                            >
-                                                                Re-test
-                                                            </button>
-                                                        )}
-                                                        <button
-                                                            className="btn btn-sm btn-secondary"
-                                                            onClick={() => setPersonaTarget({
-                                                                id: acc.id,
-                                                                email: acc.email,
-                                                                displayName: acc.display_name ?? null,
-                                                                profileImage: acc.profile_image ?? null,
-                                                            })}
-                                                            title="Set display name + photo shown to recipients (also drives the inline email signature)"
-                                                        >
-                                                            Persona
-                                                        </button>
-                                                        <button
-                                                            className="btn btn-sm btn-secondary"
-                                                            onClick={() => handleBrandingDiagnostic(acc.email)}
-                                                            title="Run DNS / Persona / Signature / Send-As branding diagnostic (toast popup)"
-                                                        >
-                                                            Diagnose
-                                                        </button>
-                                                        <button
-                                                            className="btn btn-sm btn-danger"
-                                                            onClick={() => setAccountToRemove(acc)}
-                                                        >
-                                                            Remove
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                )}
+                                                </details>
                                             </div>
-                                        ))}
+                                        );})}
                                     </div>
                                 )}
                             </PageLoader>

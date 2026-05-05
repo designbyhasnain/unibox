@@ -342,29 +342,13 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                         </div>
                     ))}
 
-                    {/* Account section */}
+                    {/* Account section. Theme follows the OS preference now —
+                        no manual toggle. The previous /settings page only held
+                        polling toggles and an "About" card; deleted. Profile
+                        editing lives in the AccountSettingsModal triggered by
+                        the user pill at the bottom of the sidebar. */}
                     <div className="sb-group">
                         <div className="sb-group-title">Account</div>
-                        <Link href="/settings" className={`sb-nav-item${pathname === '/settings' ? ' active' : ''}`} onClick={() => onClose?.()}>
-                            <span className="sb-nav-icon">{Icon.settings}</span>
-                            <span className="sb-nav-label">{isEditor ? 'Profile' : 'Settings'}</span>
-                        </Link>
-                        <button className="sb-nav-item" onClick={() => {
-                            const current = document.documentElement.getAttribute('data-theme');
-                            const next = current === 'light' ? '' : 'light';
-                            if (next) {
-                                document.documentElement.setAttribute('data-theme', next);
-                                document.body.setAttribute('data-theme', next);
-                                localStorage.setItem('unibox_theme', next);
-                            } else {
-                                document.documentElement.removeAttribute('data-theme');
-                                document.body.removeAttribute('data-theme');
-                                localStorage.removeItem('unibox_theme');
-                            }
-                        }} title="Toggle theme">
-                            <span className="sb-nav-icon">{Icon.sun}</span>
-                            <span className="sb-nav-label">Theme</span>
-                        </button>
                         <button className="sb-nav-item" onClick={() => setShowLogoutConfirm(true)} title="Logout">
                             <span className="sb-nav-icon">{Icon.logout}</span>
                             <span className="sb-nav-label">Logout</span>

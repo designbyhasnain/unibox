@@ -32,20 +32,10 @@ export default function Topbar({
             <div className="topbar-spacer" />
 
             <div className="topbar-right">
-                {rightContent || (
-                    <div className="topbar-right-default">
-                        <div className="avatar-btn">A</div>
-                    </div>
-                )}
+                {rightContent}
             </div>
 
             <style jsx>{`
-                .topbar-right-default {
-                    display: flex;
-                    justify-content: flex-end;
-                    align-items: center;
-                    gap: 1rem;
-                }
                 .topbar-spacer {
                     flex: 1;
                 }

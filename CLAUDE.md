@@ -230,7 +230,7 @@ Prisma enum has only `ADMIN` and `SALES`, but the DB also stores `ACCOUNT_MANAGE
 | `ADMIN` | Full |
 | `ACCOUNT_MANAGER` | Treated identically to ADMIN |
 | `SALES` | Only assigned Gmail accounts + own contacts/projects/campaigns |
-| `VIDEO_EDITOR` | Only `edit_projects` rows. No Gmail / Contact / Campaign access. Allowed paths: `/dashboard`, `/projects`, `/settings`. Everything else redirects via `blockEditorAccess()`. |
+| `VIDEO_EDITOR` | Only `edit_projects` rows. No Gmail / Contact / Campaign access. Allowed paths: `/dashboard`, `/projects`. Everything else redirects via `blockEditorAccess()`. (Profile editing now flows through the AccountSettingsModal triggered by the sidebar profile pill — same as every other role.) |
 
 ---
 
@@ -245,4 +245,4 @@ Prisma enum has only `ADMIN` and `SALES`, but the DB also stores `ACCOUNT_MANAGE
 
 ---
 
-_Last audited: 2026-05-04 (merged /branding features into /accounts; deleted /branding route; added BIMI-Selector header + Gravatar fallback to mail senders — see CHANGES.md). Previous: 2026-05-04 (technical pruning of CLAUDE.md). 2026-04-30 (Phase 1 launch-ready)._
+_Last audited: 2026-05-05 (deleted /settings route + manual theme toggle — theme now follows OS prefers-color-scheme; redesigned /accounts cards as glassmorphism with kebab actions + collapsible Technical Health). Previous: 2026-05-04 (merged /branding features into /accounts; deleted /branding route; added BIMI-Selector header + Gravatar fallback to mail senders). 2026-04-30 (Phase 1 launch-ready)._

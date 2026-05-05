@@ -33,10 +33,13 @@ export const metadata: Metadata = {
     },
 }
 
-// Apply on <html> first so the CSS cascade sees the right tokens BEFORE any
-// descendant paints — eliminates the brief dark→light flash. We also mirror
-// onto <body> for any selector still scoped that way.
-const themeScript = `(function(){try{var t=localStorage.getItem('unibox_theme');if(t==='light'){document.documentElement.setAttribute('data-theme','light');document.body&&document.body.setAttribute('data-theme','light')}}catch(e){}})()`;
+// Auto theme: follow the OS / browser preference and stay in sync as it
+// changes. Runs synchronously in <head> so the CSS cascade sees the right
+// tokens BEFORE any descendant paints — eliminates the dark↔light flash.
+// We also mirror onto <body> for any selector still scoped that way, and
+// keep listening to prefers-color-scheme so a user toggling Windows / macOS
+// dark mode flips the app live without a refresh.
+const themeScript = `(function(){try{var mq=window.matchMedia('(prefers-color-scheme: dark)');function apply(isDark){var h=document.documentElement,b=document.body;if(isDark){h.removeAttribute('data-theme');b&&b.removeAttribute('data-theme')}else{h.setAttribute('data-theme','light');b&&b.setAttribute('data-theme','light')}}apply(mq.matches);if(mq.addEventListener)mq.addEventListener('change',function(e){apply(e.matches)});else if(mq.addListener)mq.addListener(function(e){apply(e.matches)});try{localStorage.removeItem('unibox_theme')}catch(_){}}catch(e){}})()`;
 
 
 export default function RootLayout({

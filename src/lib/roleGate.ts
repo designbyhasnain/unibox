@@ -23,7 +23,11 @@ export async function getFreshSession(): Promise<FreshSession | null> {
     return { ...session, role: user.role };
 }
 
-const EDITOR_ALLOWED_PATHS = ['/dashboard', '/projects', '/settings'];
+// `/settings` was removed in 2026-05-05 — theme is now auto (system preference)
+// and the polling toggles + about card lived nowhere else worth surfacing.
+// Editor profile editing flows through the same AccountSettingsModal everyone
+// else uses (sidebar profile pill).
+const EDITOR_ALLOWED_PATHS = ['/dashboard', '/projects'];
 
 export async function blockEditorAccess(redirectTo = '/dashboard'): Promise<FreshSession> {
     const session = await getFreshSession();
