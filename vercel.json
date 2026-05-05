@@ -46,12 +46,19 @@
         },
         "app/api/mine-templates/route.ts": {
             "maxDuration": 60
+        },
+        "app/api/cron/extract-insights/route.ts": {
+            "maxDuration": 60
         }
     },
     "crons": [
         {
             "path": "/api/mine-templates",
             "schedule": "0 3 * * 1"
+        },
+        {
+            "path": "/api/cron/extract-insights",
+            "schedule": "0 * * * *"
         }
     ]
 }

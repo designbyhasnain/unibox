@@ -50,6 +50,9 @@ type AmResolution = {
     contactAmMap: Record<string, AmInfo | null>;
     accountAmMap: Record<string, AmInfo | null>;
     contactNameMap: Record<string, string>;
+    /** ISO YYYY-MM-DD wedding date per contact_id, when we have it from the
+     *  email-intelligence-layer extractor. Drives the "💍 in 47 days" badge. */
+    weddingDateMap: Record<string, string>;
 };
 async function resolveAccountManagers(
     rows: { contact_id?: string | null; gmail_account_id?: string | null }[],
@@ -59,6 +62,7 @@ async function resolveAccountManagers(
     const contactAmMap: Record<string, AmInfo | null> = {};
     const accountAmMap: Record<string, AmInfo | null> = {};
     const contactNameMap: Record<string, string> = {};
+    const weddingDateMap: Record<string, string> = {};
 
     /**
      * Phase-1 perf coalescing: this used to do up to four sequential Supabase
@@ -79,7 +83,7 @@ async function resolveAccountManagers(
     const flattenEmbedded = (raw: any): EmbeddedUser =>
         Array.isArray(raw) ? (raw[0] ?? null) : (raw ?? null);
 
-    const [contactsResp, assignmentsResp] = await Promise.all([
+    const [contactsResp, assignmentsResp, weddingResp] = await Promise.all([
         uniqueContactIds.length > 0
             ? supabase
                 .from('contacts')
@@ -92,6 +96,19 @@ async function resolveAccountManagers(
                 .select('gmail_account_id, user_id, assigned_at, user:users!user_id(id, name, email, role)')
                 .in('gmail_account_id', uniqueAccountIds)
                 .order('assigned_at', { ascending: true })
+            : Promise.resolve({ data: [] as any[], error: null }),
+        // Email Intelligence Layer: pull the wedding_date insight for these
+        // contacts so the inbox row can show "💍 in N days". Filtered to high-
+        // confidence (≥0.6) so noisy extractions don't show in the UI. Errors
+        // (e.g. table doesn't exist before migration runs) are swallowed
+        // silently so the inbox still works.
+        uniqueContactIds.length > 0
+            ? supabase
+                .from('contact_insights')
+                .select('contact_id, value')
+                .eq('fact_type', 'wedding_date')
+                .gte('confidence', 0.6)
+                .in('contact_id', uniqueContactIds)
             : Promise.resolve({ data: [] as any[], error: null }),
     ]);
 
@@ -127,7 +144,15 @@ async function resolveAccountManagers(
         accountAmMap[accId] = pick ? toAmInfo(pick) : null;
     }
 
-    return { contactAmMap, accountAmMap, contactNameMap };
+    // Wedding-date map (silent on errors — pre-migration is graceful)
+    if (weddingResp && !(weddingResp as any).error) {
+        for (const row of (weddingResp as any).data ?? []) {
+            const iso = row?.value?.iso;
+            if (typeof iso === 'string') weddingDateMap[row.contact_id] = iso;
+        }
+    }
+
+    return { contactAmMap, accountAmMap, contactNameMap, weddingDateMap };
 }
 function pickAccountManager(
     row: { contact_id?: string | null; gmail_account_id?: string | null },
@@ -417,6 +442,7 @@ export async function getInboxEmailsAction(
             account_manager_email: am.email,
             account_manager_source: am.source,
             contact_name: r.contact_id ? amResolution.contactNameMap[r.contact_id] || null : null,
+            contact_wedding_date: r.contact_id ? amResolution.weddingDateMap[r.contact_id] || null : null,
             is_self_loop: isSelfLoop,
             account_display_name: acc?.displayName,
             account_profile_image: acc?.profileImage,
@@ -547,6 +573,7 @@ export async function getInboxWithCountsAction(
             account_manager_email: am.email,
             account_manager_source: am.source,
             contact_name: r.contact_id ? amResolution.contactNameMap[r.contact_id] || null : null,
+            contact_wedding_date: r.contact_id ? amResolution.weddingDateMap[r.contact_id] || null : null,
             account_display_name: acc?.displayName,
             account_profile_image: acc?.profileImage,
             gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },

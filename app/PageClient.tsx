@@ -25,6 +25,48 @@ import { formatDate, cleanPreview } from './utils/helpers';
 import { getAvatarSrc, getAvatarBg } from './utils/avatars';
 import { RefreshCw, Mail, Send, Trash2, Eye, EyeOff, CheckCheck } from 'lucide-react';
 import Image from 'next/image';
+
+/**
+ * Format an extracted wedding date as a relative-time chip:
+ *   today / tomorrow / in N days / in N weeks / in N months / in N years
+ *   for past dates: "N days ago" capped at 60 days, then a plain ISO label.
+ *
+ * Color escalates as the date approaches — green when distant (calm),
+ * yellow when ≤30 days (act now), red when ≤7 days (urgent).
+ *
+ * Returns null when the input is unparseable so the caller can skip render.
+ */
+function formatWeddingBadge(iso: string | null | undefined): { label: string; bg: string; fg: string } | null {
+    if (!iso || typeof iso !== 'string') return null;
+    const ts = Date.parse(iso);
+    if (Number.isNaN(ts)) return null;
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const days = Math.round((ts - now) / dayMs);
+
+    let label: string;
+    if (days === 0) label = 'today';
+    else if (days === 1) label = 'tomorrow';
+    else if (days === -1) label = 'yesterday';
+    else if (days > 0 && days <= 14) label = `in ${days} days`;
+    else if (days > 14 && days <= 60) label = `in ${Math.round(days / 7)} wk`;
+    else if (days > 60 && days <= 365) label = `in ${Math.round(days / 30)} mo`;
+    else if (days > 365) label = `in ${Math.round(days / 365)} yr`;
+    else if (days < 0 && days >= -60) label = `${-days} days ago`;
+    else label = iso.slice(0, 10);
+
+    let bg = 'var(--coach-soft)';
+    let fg = 'var(--coach)';
+    if (days >= 0 && days <= 30) {
+        bg = 'var(--warn-soft)';
+        fg = 'var(--warn)';
+    }
+    if (days >= 0 && days <= 7) {
+        bg = 'var(--danger-soft)';
+        fg = 'var(--danger)';
+    }
+    return { label, bg, fg };
+}
 import ClientIntelligencePanel from './components/ClientIntelligencePanel';
 import OwnerPicker from './components/OwnerPicker';
 import { useConfirm } from './context/ConfirmContext';
@@ -629,6 +671,25 @@ export default function InboxPage() {
                                                     {stage && (
                                                         <span className={`chip dot ${stageClass(stage)}`}>{stageLabel(stage)}</span>
                                                     )}
+                                                    {email.contact_wedding_date && (() => {
+                                                        const w = formatWeddingBadge(email.contact_wedding_date);
+                                                        if (!w) return null;
+                                                        return (
+                                                            <span
+                                                                title={`Wedding: ${email.contact_wedding_date}`}
+                                                                style={{
+                                                                    fontSize: 11,
+                                                                    fontWeight: 600,
+                                                                    padding: '2px 8px',
+                                                                    borderRadius: 999,
+                                                                    background: w.bg,
+                                                                    color: w.fg,
+                                                                }}
+                                                            >
+                                                                💍 {w.label}
+                                                            </span>
+                                                        );
+                                                    })()}
                                                     <span
                                                         style={{ marginLeft: 'auto', color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 4 }}
                                                         title={amName ? `${amName}${amEmail ? ` <${amEmail}>` : ''}` : amLabel}
