@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useGlobalFilter } from '../context/FilterContext';
 import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import { useUI } from '../context/UIContext';
@@ -285,24 +286,59 @@ export default function AccountsPage() {
     const [personaBulkOpen, setPersonaBulkOpen] = useState(false);
     const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
 
-    // Kebab menu — only one card's action menu is open at a time. Closing on
-    // outside click + Escape so the user never gets a stuck-open dropdown.
+    // Kebab menu — only one card's action menu is open at a time. The menu
+    // is rendered in a portal to <body> so it floats above sibling cards
+    // (otherwise the next card's stacking context would clip it). We track
+    // the trigger button refs by account id so we can re-anchor the menu
+    // each time it opens, and close on outside click / Esc / scroll so the
+    // user never gets a stuck-open dropdown that drifts off its anchor.
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+    const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+    const kebabRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
+
+    const closeKebab = React.useCallback(() => {
+        setOpenMenuId(null);
+        setMenuPos(null);
+    }, []);
+
+    const openKebab = (id: string) => {
+        const btn = kebabRefs.current.get(id);
+        if (!btn) return;
+        const rect = btn.getBoundingClientRect();
+        // Use fixed positioning relative to the viewport. Anchor the menu's
+        // right edge to the button's right edge so it always sits under the
+        // ⋮ instead of drifting on narrow cards.
+        setMenuPos({
+            top: Math.round(rect.bottom + 6),
+            right: Math.round(window.innerWidth - rect.right),
+        });
+        setOpenMenuId(id);
+    };
+
     useEffect(() => {
         if (!openMenuId) return;
         const onDocClick = (e: MouseEvent) => {
             const target = e.target as HTMLElement | null;
-            if (target && target.closest('.acct-kebab-wrap')) return;
-            setOpenMenuId(null);
+            if (target && (target.closest('.acct-kebab-wrap') || target.closest('.acct-kebab-menu'))) return;
+            closeKebab();
         };
-        const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenMenuId(null); };
+        const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') closeKebab(); };
+        // Close on scroll — the alternative is reposition-on-scroll, which
+        // adds complexity for a low-value case (user opened menu, then
+        // scrolled the page). Closing is the simpler, sturdier behavior.
+        const onScroll = () => closeKebab();
+        const onResize = () => closeKebab();
         document.addEventListener('mousedown', onDocClick);
         document.addEventListener('keydown', onEsc);
+        window.addEventListener('scroll', onScroll, true);
+        window.addEventListener('resize', onResize);
         return () => {
             document.removeEventListener('mousedown', onDocClick);
             document.removeEventListener('keydown', onEsc);
+            window.removeEventListener('scroll', onScroll, true);
+            window.removeEventListener('resize', onResize);
         };
-    }, [openMenuId]);
+    }, [openMenuId, closeKebab]);
 
     // Branding state — DNS health (per-domain) + Gravatar existence (per-email-hash).
     // Computed client-side, refreshed by a button. Read-only — no DB writes.
@@ -940,11 +976,15 @@ export default function AccountsPage() {
                                                     {isAdmin && (
                                                         <div className="acct-kebab-wrap">
                                                             <button
+                                                                ref={(el) => {
+                                                                    if (el) kebabRefs.current.set(acc.id, el);
+                                                                    else kebabRefs.current.delete(acc.id);
+                                                                }}
                                                                 className="acct-kebab-btn"
                                                                 aria-label={`Actions for ${acc.email}`}
                                                                 aria-haspopup="menu"
                                                                 aria-expanded={openMenuId === acc.id}
-                                                                onClick={() => setOpenMenuId(prev => prev === acc.id ? null : acc.id)}
+                                                                onClick={() => openMenuId === acc.id ? closeKebab() : openKebab(acc.id)}
                                                             >
                                                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                                                     <circle cx="12" cy="5" r="1.4" />
@@ -952,68 +992,6 @@ export default function AccountsPage() {
                                                                     <circle cx="12" cy="19" r="1.4" />
                                                                 </svg>
                                                             </button>
-                                                            {openMenuId === acc.id && (
-                                                                <div className="acct-kebab-menu" role="menu">
-                                                                    {acc.status === 'ERROR' ? (
-                                                                        <button role="menuitem" className="acct-kebab-item acct-kebab-item--primary" onClick={() => { setOpenMenuId(null); handleOAuthFlow(); }}>
-                                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
-                                                                            Re-connect
-                                                                        </button>
-                                                                    ) : acc.status === 'SYNCING' ? (
-                                                                        <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleStopSync(acc); }}>
-                                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
-                                                                            Stop sync
-                                                                        </button>
-                                                                    ) : (
-                                                                        <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleReSync(acc); }}>
-                                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                                                                            Re-sync now
-                                                                        </button>
-                                                                    )}
-                                                                    {acc.status !== 'ERROR' && acc.status !== 'SYNCING' && (
-                                                                        <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleToggleSync(acc); }}>
-                                                                            {acc.status === 'PAUSED' ? (
-                                                                                <>
-                                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>
-                                                                                    Resume sync
-                                                                                </>
-                                                                            ) : (
-                                                                                <>
-                                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                                                                                    Pause sync
-                                                                                </>
-                                                                            )}
-                                                                        </button>
-                                                                    )}
-                                                                    {acc.connection_method === 'MANUAL' && acc.status !== 'SYNCING' && (
-                                                                        <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleRetestManual(acc); }}>
-                                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
-                                                                            Re-test IMAP / SMTP
-                                                                        </button>
-                                                                    )}
-                                                                    <button role="menuitem" className="acct-kebab-item" onClick={() => {
-                                                                        setOpenMenuId(null);
-                                                                        setPersonaTarget({
-                                                                            id: acc.id,
-                                                                            email: acc.email,
-                                                                            displayName: acc.display_name ?? null,
-                                                                            profileImage: acc.profile_image ?? null,
-                                                                        });
-                                                                    }}>
-                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-                                                                        Edit persona
-                                                                    </button>
-                                                                    <button role="menuitem" className="acct-kebab-item" onClick={() => { setOpenMenuId(null); handleBrandingDiagnostic(acc.email); }}>
-                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-                                                                        Run diagnostic
-                                                                    </button>
-                                                                    <div className="acct-kebab-sep" />
-                                                                    <button role="menuitem" className="acct-kebab-item acct-kebab-item--danger" onClick={() => { setOpenMenuId(null); setAccountToRemove(acc); }}>
-                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
-                                                                        Remove account
-                                                                    </button>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                     )}
                                                 </div>
@@ -1362,6 +1340,82 @@ export default function AccountsPage() {
                     }}
                 />
             )}
+
+            {/* Kebab action menu — portaled to <body> so it floats above
+                sibling cards instead of being clipped by their stacking
+                context. Re-anchors on every open via the trigger button's
+                getBoundingClientRect. */}
+            {openMenuId && menuPos && typeof document !== 'undefined' && (() => {
+                const acc = accounts.find(a => a.id === openMenuId);
+                if (!acc) return null;
+                return createPortal(
+                    <div
+                        className="acct-kebab-menu"
+                        role="menu"
+                        style={{ top: menuPos.top, right: menuPos.right }}
+                    >
+                        {acc.status === 'ERROR' ? (
+                            <button role="menuitem" className="acct-kebab-item acct-kebab-item--primary" onClick={() => { closeKebab(); handleOAuthFlow(); }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+                                Re-connect
+                            </button>
+                        ) : acc.status === 'SYNCING' ? (
+                            <button role="menuitem" className="acct-kebab-item" onClick={() => { closeKebab(); handleStopSync(acc); }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+                                Stop sync
+                            </button>
+                        ) : (
+                            <button role="menuitem" className="acct-kebab-item" onClick={() => { closeKebab(); handleReSync(acc); }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                                Re-sync now
+                            </button>
+                        )}
+                        {acc.status !== 'ERROR' && acc.status !== 'SYNCING' && (
+                            <button role="menuitem" className="acct-kebab-item" onClick={() => { closeKebab(); handleToggleSync(acc); }}>
+                                {acc.status === 'PAUSED' ? (
+                                    <>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+                                        Resume sync
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                                        Pause sync
+                                    </>
+                                )}
+                            </button>
+                        )}
+                        {acc.connection_method === 'MANUAL' && acc.status !== 'SYNCING' && (
+                            <button role="menuitem" className="acct-kebab-item" onClick={() => { closeKebab(); handleRetestManual(acc); }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+                                Re-test IMAP / SMTP
+                            </button>
+                        )}
+                        <button role="menuitem" className="acct-kebab-item" onClick={() => {
+                            closeKebab();
+                            setPersonaTarget({
+                                id: acc.id,
+                                email: acc.email,
+                                displayName: acc.display_name ?? null,
+                                profileImage: acc.profile_image ?? null,
+                            });
+                        }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                            Edit persona
+                        </button>
+                        <button role="menuitem" className="acct-kebab-item" onClick={() => { closeKebab(); handleBrandingDiagnostic(acc.email); }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+                            Run diagnostic
+                        </button>
+                        <div className="acct-kebab-sep" />
+                        <button role="menuitem" className="acct-kebab-item acct-kebab-item--danger" onClick={() => { closeKebab(); setAccountToRemove(acc); }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                            Remove account
+                        </button>
+                    </div>,
+                    document.body
+                );
+            })()}
 
             {/* Bulk persona bar — floats at bottom when any accounts are checked */}
             {isAdmin && selectedForBulk.size > 0 && (
