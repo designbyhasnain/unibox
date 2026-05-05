@@ -2,6 +2,7 @@
 
 import { getSession, clearSession } from '../lib/auth';
 import { supabase } from '../lib/supabase';
+import { revalidatePath } from 'next/cache';
 import bcrypt from 'bcryptjs';
 
 /**
@@ -183,6 +184,20 @@ export async function uploadOwnAvatarAction(
         if (updateError) {
             console.error('[uploadOwnAvatarAction] DB update failed', updateError);
             return { success: false, error: 'Uploaded but failed to save URL' };
+        }
+
+        // Bust Next's data cache for routes that render this user's avatar
+        // server-side. Live components (sidebar pill, etc.) already pick up
+        // the change via the unibox:profile-updated CustomEvent + the
+        // localStorage write in the modal — this covers everything that
+        // doesn't hydrate from those signals.
+        try {
+            revalidatePath('/team');
+            revalidatePath('/dashboard');
+            revalidatePath('/');
+        } catch (e) {
+            // revalidatePath can throw outside a request context; non-fatal.
+            console.warn('[uploadOwnAvatarAction] revalidatePath skipped:', (e as Error)?.message);
         }
 
         return { success: true, url };

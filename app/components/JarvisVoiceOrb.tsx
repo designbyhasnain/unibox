@@ -4,6 +4,20 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 
 type Phase = 'idle' | 'listening' | 'thinking' | 'speaking';
 
+const ORB_SIZE = 44;
+const ORB_PADDING = 12; // viewport edge gutter
+const POS_KEY = 'unibox_jvo_position';
+
+function clampToViewport(x: number, y: number) {
+    if (typeof window === 'undefined') return { x, y };
+    const maxX = window.innerWidth - ORB_SIZE - ORB_PADDING;
+    const maxY = window.innerHeight - ORB_SIZE - ORB_PADDING;
+    return {
+        x: Math.max(ORB_PADDING, Math.min(maxX, x)),
+        y: Math.max(ORB_PADDING, Math.min(maxY, y)),
+    };
+}
+
 export default function JarvisVoiceOrb() {
     const [open, setOpen] = useState(false);
     const [phase, setPhase] = useState<Phase>('idle');
@@ -13,6 +27,88 @@ export default function JarvisVoiceOrb() {
     const messagesRef = useRef<{ role: string; content: string }[]>([]);
     const animFrameRef = useRef<number>(0);
     const [pulseScale, setPulseScale] = useState(1);
+
+    // Drag state. Position is loaded from localStorage in a post-mount effect
+    // so server-rendered HTML doesn't disagree with the client. Until mount we
+    // hide the trigger entirely (see render below) — same shape both sides.
+    const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+    const draggingRef = useRef(false);
+    const dragStartRef = useRef({ pointerX: 0, pointerY: 0, originX: 0, originY: 0, moved: false });
+    const positionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+    // Hydrate position once we know the viewport size.
+    useEffect(() => {
+        let initial: { x: number; y: number } | null = null;
+        try {
+            const saved = localStorage.getItem(POS_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number') initial = parsed;
+            }
+        } catch {}
+        if (!initial) {
+            // Default: top-right, where the old hardcoded `top:16px; right:16px` placed it.
+            initial = { x: window.innerWidth - ORB_SIZE - 16, y: 16 };
+        }
+        const clamped = clampToViewport(initial.x, initial.y);
+        positionRef.current = clamped;
+        setPosition(clamped);
+
+        // Re-clamp if the viewport shrinks (rotation, browser resize) so the
+        // orb never strands itself off-screen.
+        const onResize = () => {
+            const next = clampToViewport(positionRef.current.x, positionRef.current.y);
+            if (next.x !== positionRef.current.x || next.y !== positionRef.current.y) {
+                positionRef.current = next;
+                setPosition(next);
+            }
+        };
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
+    const onTriggerPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+        if (!position) return;
+        draggingRef.current = true;
+        dragStartRef.current = {
+            pointerX: e.clientX,
+            pointerY: e.clientY,
+            originX: position.x,
+            originY: position.y,
+            moved: false,
+        };
+        try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    };
+
+    const onTriggerPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+        if (!draggingRef.current) return;
+        const dx = e.clientX - dragStartRef.current.pointerX;
+        const dy = e.clientY - dragStartRef.current.pointerY;
+        // 4 px deadzone — under this we still treat a pointerup as a click.
+        if (!dragStartRef.current.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+            dragStartRef.current.moved = true;
+        }
+        if (!dragStartRef.current.moved) return;
+        const next = clampToViewport(
+            dragStartRef.current.originX + dx,
+            dragStartRef.current.originY + dy,
+        );
+        positionRef.current = next;
+        setPosition(next);
+    };
+
+    const onTriggerPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+        if (!draggingRef.current) return;
+        draggingRef.current = false;
+        try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+        if (dragStartRef.current.moved) {
+            // Persist the new resting spot.
+            try { localStorage.setItem(POS_KEY, JSON.stringify(positionRef.current)); } catch {}
+        } else {
+            // No real drag — treat as a click and open the voice overlay.
+            setOpen(true);
+        }
+    };
 
     // Animate pulse based on phase
     useEffect(() => {
@@ -193,7 +289,8 @@ export default function JarvisVoiceOrb() {
     return (
         <>
             <style>{`
-.jvo-trigger{position:fixed;top:16px;right:16px;z-index:9999;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0ea5e9,#7c3aed);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 20px rgba(14,165,233,.3);transition:transform .2s,box-shadow .2s}
+.jvo-trigger{position:fixed;z-index:9999;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0ea5e9,#7c3aed);border:none;cursor:grab;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 20px rgba(14,165,233,.3);transition:transform .2s,box-shadow .2s;touch-action:none;user-select:none}
+.jvo-trigger:active{cursor:grabbing}
 .jvo-trigger:hover{transform:scale(1.1);box-shadow:0 6px 28px rgba(14,165,233,.5)}
 .jvo-trigger-pulse{position:absolute;inset:-4px;border-radius:50%;border:2px solid rgba(14,165,233,.4);animation:jvoPulse 2s ease infinite}
 @keyframes jvoPulse{0%,100%{opacity:.4;transform:scale(1)}50%{opacity:.8;transform:scale(1.15)}}
@@ -217,9 +314,22 @@ export default function JarvisVoiceOrb() {
 .jvo-brand{position:absolute;bottom:32px;font-size:11px;color:#27272a;letter-spacing:.05em}
             `}</style>
 
-            {/* Floating trigger button — visible on every page */}
-            {!open && (
-                <button className="jvo-trigger" onClick={() => setOpen(true)} title="Talk to Jarvis">
+            {/* Floating trigger — draggable, position-persisted. Renders only
+                after we've hydrated `position` from localStorage so SSR HTML
+                and the first client render agree (no hydration warning).
+                Pointer events handle both mouse + touch; a 4 px deadzone
+                distinguishes a tap (open overlay) from a drag (move + save). */}
+            {!open && position && (
+                <button
+                    className="jvo-trigger"
+                    style={{ left: position.x, top: position.y }}
+                    onPointerDown={onTriggerPointerDown}
+                    onPointerMove={onTriggerPointerMove}
+                    onPointerUp={onTriggerPointerUp}
+                    onPointerCancel={onTriggerPointerUp}
+                    title="Talk to Jarvis (drag to move)"
+                    aria-label="Open Jarvis voice assistant"
+                >
                     <div className="jvo-trigger-pulse" />
                     {'\u{1F916}'}
                 </button>

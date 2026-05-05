@@ -2,7 +2,6 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { useGlobalSearchSnapshot } from '../context/GlobalSearchContext';
-import TopbarUserBadge from './TopbarUserBadge';
 
 const HISTORY_KEY = 'unibox_search_history';
 const HISTORY_MAX = 8;
@@ -157,9 +156,11 @@ export default function GlobalTopbar() {
                 </div>
             </form>
 
-            <div className="global-topbar-slot global-topbar-right">
-                <TopbarUserBadge />
-            </div>
+            {/* Right slot intentionally empty — keeps the centered-search
+                3-column grid balanced. The user persona lives in the sidebar
+                profile pill (left rail) and the Jarvis orb sits in its own
+                draggable layer above. */}
+            <div className="global-topbar-slot global-topbar-right" />
         </div>
     );
 }
