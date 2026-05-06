@@ -9567,13 +9567,19 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
 }
 
 /* ─── Native datetime-local / date / time picker icon visibility ─────────
-   The browser's built-in calendar / clock indicator on these inputs uses
-   its own colour from `color-scheme`. Without it the icon is rendered
-   black-on-black in dark mode and effectively invisible (see
-   /clients > Last Contact column). `color-scheme: dark` makes the
-   browser pick the dark-theme picker; the invert filter is a defensive
-   fallback for browsers that ignore color-scheme on the icon. The
-   light-theme override re-opaques it back to black-on-light. */
+   The browser's built-in calendar / clock indicator on these inputs is
+   black-on-transparent by default. In dark mode it disappears against
+   the dark surface (Last Contact column, Expected Close Date in the
+   Add Client modal). Three layers of defense:
+   1. color-scheme: dark on html so the whole document tells the UA
+      "render native UI in dark theme".
+   2. color-scheme: dark on the inputs themselves (Chromium picks up
+      from the input first).
+   3. invert(1) on the picker indicator — wins regardless of UA support.
+   The light-theme override flips all three back. */
+html { color-scheme: dark; }
+body[data-theme="light"] { color-scheme: light; }
+
 input[type="datetime-local"],
 input[type="date"],
 input[type="time"] {
@@ -9581,10 +9587,12 @@ input[type="time"] {
 }
 input[type="datetime-local"]::-webkit-calendar-picker-indicator,
 input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="time"]::-webkit-calendar-picker-indicator {
-    opacity: 0.7;
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-clear-button,
+input[type="date"]::-webkit-clear-button {
+    filter: invert(1) brightness(1.5);
+    opacity: 0.85;
     cursor: pointer;
-    filter: invert(1) brightness(1.4);
     transition: opacity 0.12s;
 }
 input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
@@ -9592,6 +9600,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover,
 input[type="time"]::-webkit-calendar-picker-indicator:hover {
     opacity: 1;
 }
+
 body[data-theme="light"] input[type="datetime-local"],
 body[data-theme="light"] input[type="date"],
 body[data-theme="light"] input[type="time"] {

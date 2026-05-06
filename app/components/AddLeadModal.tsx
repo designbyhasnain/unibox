@@ -16,9 +16,16 @@ import { useGlobalFilter } from '../context/FilterContext';
 interface AddLeadModalProps {
     onClose: () => void;
     onAddLead: (lead: any) => void;
+    /** Optional pre-fetched SALES users from the parent. When provided the
+     *  modal skips its own listSalesUsersAction call and the AM dropdown
+     *  is populated instantly. /clients PageClient passes its already-
+     *  loaded list here; standalone callers fall back to the in-modal
+     *  fetch (unchanged behaviour). */
+    presetSalesUsers?: SalesUser[];
+    presetIsAdmin?: boolean;
 }
 
-export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) {
+export default function AddLeadModal({ onClose, onAddLead, presetSalesUsers, presetIsAdmin }: AddLeadModalProps) {
     const { dialogRef } = useDialogShell({ onClose });
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
@@ -38,24 +45,28 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
     // to a specific inbox before any email arrives.
     const [gmailAccountId, setGmailAccountId] = useState('');
     const { accounts: gmailAccounts } = useGlobalFilter();
-    const [managers, setManagers] = useState<SalesUser[]>([]);
+    const [managers, setManagers] = useState<SalesUser[]>(presetSalesUsers ?? []);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
     // SALES users can't pick another user as the AM (server enforces via the
     // mass-assignment guard in commit 2ef18b6); hide the dropdown for them
     // entirely so the team roster doesn't leak client-side.
-    const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+    const [isAdmin, setIsAdmin] = useState<boolean | null>(presetIsAdmin ?? null);
 
     useEffect(() => {
+        // Fast path: parent pre-fetched both pieces — skip the network roundtrip.
+        if (presetIsAdmin !== undefined && presetSalesUsers !== undefined) return;
         getCurrentUserAction().then((u: any) => {
             const admin = u?.role === 'ADMIN' || u?.role === 'ACCOUNT_MANAGER';
             setIsAdmin(admin);
-            if (admin) {
+            if (admin && presetSalesUsers === undefined) {
                 listSalesUsersAction()
                     .then(r => { if (r.success) setManagers(r.users); })
                     .catch(console.error);
             }
         }).catch(() => setIsAdmin(false));
+    // intentionally not in deps — we only want this on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {

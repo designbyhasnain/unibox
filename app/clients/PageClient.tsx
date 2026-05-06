@@ -611,7 +611,7 @@ export default function ClientsPage() {
         {selected && (
             <>
                 <div onClick={() => setSelectedId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(14,14,15,0.32)', zIndex: 40, animation: 'fadeIn 150ms ease' }} />
-                <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 520, zIndex: 41, background: 'var(--surface)', borderLeft: '1px solid var(--hairline)', boxShadow: '-24px 0 48px rgba(14,14,15,0.12)', display: 'flex', flexDirection: 'column', animation: 'slideInRight 220ms cubic-bezier(.2,.8,.2,1)' }}>
+                <div className="cl-drawer" style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 520, zIndex: 41, background: 'var(--surface)', borderLeft: '1px solid var(--hairline)', boxShadow: '-24px 0 48px rgba(14,14,15,0.12)', display: 'flex', flexDirection: 'column', animation: 'slideInRight 220ms cubic-bezier(.2,.8,.2,1)' }}>
                     {/* Header */}
                     <div style={{ padding: '18px 22px 16px', borderBottom: '1px solid var(--hairline-soft)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--ink-muted)', marginBottom: 12 }}>
@@ -809,7 +809,17 @@ export default function ClientsPage() {
             </>
         )}
 
-        {isAddOpen && <AddLeadModal onClose={() => setIsAddOpen(false)} onAddLead={() => { setIsAddOpen(false); load(); }} />}
+        {isAddOpen && (
+            <AddLeadModal
+                onClose={() => setIsAddOpen(false)}
+                onAddLead={() => { setIsAddOpen(false); load(); }}
+                /* Skip the modal's own listSalesUsersAction round-trip — the
+                   parent has already loaded the SALES roster, so the AM
+                   dropdown is populated the moment the modal opens. */
+                presetSalesUsers={salesUsers}
+                presetIsAdmin={isAdmin}
+            />
+        )}
 
         {/* Owner-transfer picker — modal-style. Renders on top of the
             page so it's reachable from both the row kebab and the
@@ -914,11 +924,16 @@ export default function ClientsPage() {
 .cl-page .chip.closed{background:color-mix(in oklab,var(--coach-soft),transparent 20%);color:var(--coach);border-color:transparent}
 .cl-page .chip.dead{background:color-mix(in oklab,var(--danger-soft),transparent 20%);color:var(--danger);border-color:transparent}
 .cl-page .row-menu-wrap{position:relative;display:inline-block}
-/* Higher z-index than the slide-out drawer (which uses 41) so the menu
-   isn't hidden when triggered from the detail panel. surface-2 bg gives
-   a clearer separation from the page; min-width fits "Enroll in
-   campaign…" without truncation. */
-.cl-page .row-menu{
+.cl-drawer .row-menu-wrap{position:relative;display:inline-block}
+/* Unscoped: the table kebab and the slide-out drawer kebab both use the
+   same .row-menu/.row-menu-item classes, but the drawer is rendered as
+   a sibling of .cl-page (not inside it) so a .cl-page .row-menu rule
+   never reached it — items rendered with the browser's default inline
+   button styling, which is what produced the
+   "Transfer owner…Enroll in campaign…Delete" run-on-line bug.
+   z-index 70 so the menu floats above the drawer (z-index 41) AND its
+   own backdrop scrim. */
+.row-menu{
     position:absolute;
     right:0;
     top:calc(100% + 6px);
@@ -928,12 +943,12 @@ export default function ClientsPage() {
     border-radius:10px;
     box-shadow:0 10px 28px rgba(0,0,0,.32);
     padding:6px;
-    z-index:60;
+    z-index:70;
     display:flex;
     flex-direction:column;
     gap:2px;
 }
-.cl-page .row-menu-item{
+.row-menu-item{
     display:block;
     width:100%;
     background:none;
@@ -949,10 +964,16 @@ export default function ClientsPage() {
     white-space:nowrap;
     transition:background .12s, color .12s;
 }
-.cl-page .row-menu-item:hover{background:var(--surface-hover);color:var(--ink)}
-.cl-page .row-menu-item:disabled{opacity:.5;cursor:default}
-.cl-page .row-menu-item.danger{color:var(--danger)}
-.cl-page .row-menu-item.danger:hover{background:color-mix(in oklab,var(--danger-soft),transparent 60%);color:var(--danger)}
+.row-menu-item:hover{background:var(--surface-hover);color:var(--ink)}
+.row-menu-item:disabled{opacity:.5;cursor:default}
+.row-menu-item.danger{color:var(--danger)}
+.row-menu-item.danger:hover{background:color-mix(in oklab,var(--danger-soft),transparent 60%);color:var(--danger)}
+
+/* Detail-panel editable affordance — show the pencil on hover so the
+   user knows the row is interactive (Stage/Health/Owner pills look
+   identical to read-only labels otherwise). */
+.cl-drawer .kv-cell-editable:hover .kv-cell-pencil { opacity: 1; }
+.cl-drawer .ep-ss-trigger { cursor: pointer; }
 .cl-page .card{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;transition:border-color .12s}
 .cl-page .card:hover{border-color:var(--hairline)}
 .cl-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:start;overflow-x:auto}
@@ -985,11 +1006,26 @@ function StatBox({ label, val }: { label: string; val: React.ReactNode }) {
 
 // Editable KV row — same layout as KV but renders an arbitrary control on
 // the right (used for Stage / Health / Owner SmartSelects in the panel).
+// The trailing pencil glyph + dashed-border on hover make it visually
+// obvious the field is interactive — earlier feedback was that the
+// SmartSelect chip looked indistinguishable from the read-only KV row.
 function KVCell({ k, children }: { k: string; children: React.ReactNode }) {
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--hairline-soft)', minHeight: 32 }}>
+        <div
+            className="kv-cell-editable"
+            style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--hairline-soft)', minHeight: 32 }}
+        >
             <div style={{ width: 140, color: 'var(--ink-muted)', flexShrink: 0 }}>{k}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+            <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+                {children}
+                <span
+                    aria-hidden="true"
+                    className="kv-cell-pencil"
+                    style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--ink-faint)', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s' }}
+                >
+                    ✎
+                </span>
+            </div>
         </div>
     );
 }

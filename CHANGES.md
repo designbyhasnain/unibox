@@ -397,6 +397,23 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 (CRM polish, round 2) — Drawer kebab, AM dropdown speed, calendar icon, editable affordance
+
+Followups after the user's screenshots showed three issues didn't fully land in the previous build.
+
+**1. Drawer kebab still rendered "Transfer owner…Enroll in campaign…Delete" on one line.** Root cause: the `.row-menu` rule in PageClient.tsx was scoped under `.cl-page`, but the side-drawer JSX is rendered as a sibling of `.cl-page` (not inside it), so the rule never reached the drawer's menu — it inherited the browser's default inline-button styling. Fixed by un-scoping `.row-menu` / `.row-menu-item` (the only other consumer is `/campaigns` which uses `.cp-page` prefix) and adding a `.cl-drawer` className on the drawer wrapper for hover-state targeting. Bumped z-index 60 → 70 so the menu floats above its own backdrop scrim too.
+
+**2. Calendar icon black-on-black.** The previous fix only set `color-scheme: dark` on the inputs themselves; some browser builds need it on `html` (or a higher ancestor) to render the calendar-picker indicator in the dark theme. Added `html { color-scheme: dark; }` and `body[data-theme="light"] { color-scheme: light; }` so the document declares its theme to the UA, and bumped the indicator's `filter: invert(1)` to `invert(1) brightness(1.5)` so it's visibly white-on-dark even on UAs that ignore color-scheme on the picker pseudo-element.
+
+**3. AM dropdown took ~500ms to appear in Add Client modal.** Modal was firing its own `listSalesUsersAction` on open. The parent `/clients` PageClient already loads the same list at page mount. New optional `presetSalesUsers` + `presetIsAdmin` props let the parent hand the pre-fetched list down — modal opens with the AM dropdown populated instantly. Standalone callers still get the in-modal fetch (unchanged behaviour).
+
+**4. Detail-panel editable affordance.** Cells were already interactive (verified live in the previous build), but they rendered identically to the old read-only labels — the user reasonably mistook them for static text. Added a pencil glyph (✎) absolutely positioned on the right of each KVCell that fades in on row hover, plus an explicit `cursor: pointer` on the SmartSelect trigger inside the drawer.
+
+**Files touched:**
+- `app/globals.css` — html/body color-scheme, stronger filter on the picker indicator.
+- `app/clients/PageClient.tsx` — un-scoped row-menu CSS, `.cl-drawer` wrapper, KVCell pencil hint, AddLeadModal pre-fetch handoff.
+- `app/components/AddLeadModal.tsx` — `presetSalesUsers` / `presetIsAdmin` props with fast-path effect skip.
+
 ## Build 2026-05-06 (CRM polish) — Calendar icon, dropdown overflow, editable detail panel, Gmail account, live sync
 
 Five visual + behavioural fixes from the screenshots:
