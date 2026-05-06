@@ -11,6 +11,7 @@ import BoardView from './views/BoardView';
 import ProjectDetailPanel from './project-detail/ProjectDetailPanel';
 import { ErrorBoundary } from '../../app/components/ErrorBoundary';
 import { useUndoToast } from '../../app/context/UndoToastContext';
+import { useRegisterGlobalSearch } from '../../app/context/GlobalSearchContext';
 
 const PAGE_SIZE = 50;
 
@@ -32,12 +33,21 @@ export default function ProjectsClient({ userRole }: { userRole?: string }) {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
+  // ── Search debounce ─────────────────────────────────────────────────
+  // Topbar search streams keystrokes; debounce 300ms before hitting the
+  // server (`getEditProjects` does an `.ilike` OR across name/client/editor).
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
   // ── Load Projects ──────────────────────────────────────────────────────────
   const loadProjects = useCallback(async (page: number = 1, showPageLoader: boolean = false) => {
     if (showPageLoader) setPageLoading(true); else setLoading(true);
 
     const res = await getEditProjects(
-      { search: search || undefined, sortBy: sortBy || undefined, sortOrder },
+      { search: debouncedSearch || undefined, sortBy: sortBy || undefined, sortOrder },
       page,
       PAGE_SIZE,
     );
@@ -51,7 +61,7 @@ export default function ProjectsClient({ userRole }: { userRole?: string }) {
 
     setLoading(false);
     setPageLoading(false);
-  }, [search, sortBy, sortOrder]);
+  }, [debouncedSearch, sortBy, sortOrder]);
 
   useEffect(() => { loadProjects(1); }, [loadProjects]);
 
@@ -164,6 +174,16 @@ export default function ProjectsClient({ userRole }: { userRole?: string }) {
     setCurrentPage(1);
   }, []);
 
+  // ── Global topbar search ─────────────────────────────────────────────
+  // Server-side filter (debounced above). Filters by Project Name,
+  // Client Name, or Editor — see lib/projects/actions.ts.
+  useRegisterGlobalSearch('/projects', {
+    placeholder: 'Search projects, client, editor',
+    value: search,
+    onChange: handleSearchChange,
+    onClear: () => handleSearchChange(''),
+  });
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="ep-page">
@@ -179,8 +199,6 @@ export default function ProjectsClient({ userRole }: { userRole?: string }) {
       <ViewSwitcher activeView={activeView} onChangeView={v => { setActiveView(v); setCurrentPage(1); }} />
 
       <TableToolbar
-        search={search}
-        onSearchChange={handleSearchChange}
         onImport={() => setShowImport(true)}
         onCreateNew={() => handleCreateNew()}
         selectedCount={selectedIds.size}
@@ -191,6 +209,13 @@ export default function ProjectsClient({ userRole }: { userRole?: string }) {
         <div className="ep-content-main">
           {loading ? (
             <div className="ep-loading">Loading projects...</div>
+          ) : filteredProjects.length === 0 && debouncedSearch ? (
+            <div className="empty-state-v2" style={{ padding: '48px 24px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 600 }}>No results found</h3>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-muted)' }}>
+                Nothing matches “{debouncedSearch}”. Try a different name, client, or editor.
+              </p>
+            </div>
           ) : activeView === 'board' ? (
             <ErrorBoundary section="Board View">
               <BoardView

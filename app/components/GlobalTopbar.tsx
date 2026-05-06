@@ -3,29 +3,50 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useGlobalSearchSnapshot } from '../context/GlobalSearchContext';
 
-const HISTORY_KEY = 'unibox_search_history';
+const HISTORY_PREFIX = 'unibox_search_history';
+const LEGACY_HISTORY_KEY = 'unibox_search_history';
 const HISTORY_MAX = 8;
 
-function loadHistory(): string[] {
+// History is partitioned per registered page key (e.g. `/`, `/clients`,
+// `/projects`) so that the dropdown only shows queries the user has run
+// on the page they're currently viewing — typing "invoice" on /clients
+// shouldn't surface that suggestion when they later open /campaigns.
+function historyKey(pageKey: string | null): string | null {
+    if (!pageKey) return null;
+    return `${HISTORY_PREFIX}:${pageKey}`;
+}
+
+function loadHistory(pageKey: string | null): string[] {
     if (typeof window === 'undefined') return [];
+    const key = historyKey(pageKey);
+    if (!key) return [];
     try {
-        const raw = localStorage.getItem(HISTORY_KEY);
+        const raw = localStorage.getItem(key);
         if (!raw) return [];
         const arr = JSON.parse(raw);
         return Array.isArray(arr) ? arr.filter(s => typeof s === 'string') : [];
     } catch { return []; }
 }
-function saveHistory(arr: string[]) {
-    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr.slice(0, HISTORY_MAX))); } catch {}
+function saveHistory(pageKey: string | null, arr: string[]) {
+    const key = historyKey(pageKey);
+    if (!key) return;
+    try { localStorage.setItem(key, JSON.stringify(arr.slice(0, HISTORY_MAX))); } catch {}
 }
 
 export default function GlobalTopbar() {
-    const { config } = useGlobalSearchSnapshot();
+    const { key: pageKey, config } = useGlobalSearchSnapshot();
     const inputRef = useRef<HTMLInputElement>(null);
     const [history, setHistory] = useState<string[]>([]);
     const [open, setOpen] = useState(false);
 
-    useEffect(() => { setHistory(loadHistory()); }, []);
+    // Reload history whenever the active page changes, so /clients sees
+    // /clients history and /campaigns sees /campaigns history.
+    useEffect(() => {
+        setHistory(loadHistory(pageKey));
+        // One-time migration: drop the old global key so stale cross-page
+        // queries don't bleed into any single page's bucket.
+        try { localStorage.removeItem(LEGACY_HISTORY_KEY); } catch {}
+    }, [pageKey]);
 
     const active = !!config;
     const placeholder = config?.placeholder ?? 'Search…';
@@ -41,7 +62,7 @@ export default function GlobalTopbar() {
         if (trimmed.length < 2) return;
         const next = [trimmed, ...history.filter(h => h.toLowerCase() !== trimmed.toLowerCase())].slice(0, HISTORY_MAX);
         setHistory(next);
-        saveHistory(next);
+        saveHistory(pageKey, next);
     };
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -70,8 +91,11 @@ export default function GlobalTopbar() {
 
     const handleHistoryClear = () => {
         setHistory([]);
-        saveHistory([]);
-        try { localStorage.removeItem(HISTORY_KEY); } catch {}
+        saveHistory(pageKey, []);
+        const key = historyKey(pageKey);
+        if (key) {
+            try { localStorage.removeItem(key); } catch {}
+        }
     };
 
     const handleFocus = () => {
@@ -86,6 +110,10 @@ export default function GlobalTopbar() {
         <div className="global-topbar" role="banner">
             <div className="global-topbar-slot global-topbar-left" />
 
+            {/* Search is rendered only on list-heavy pages that register a
+                handler via useRegisterGlobalSearch. Dashboard, Intelligence,
+                Finance, Data Health, Team etc. show no search at all. */}
+            {active && (
             <form className="global-search-form" onSubmit={handleSubmit} role="search">
                 <div className={`global-search-bar ${active ? '' : 'is-disabled'}`}>
                     <svg
@@ -155,6 +183,7 @@ export default function GlobalTopbar() {
                     )}
                 </div>
             </form>
+            )}
 
             {/* Right slot intentionally empty — keeps the centered-search
                 3-column grid balanced. The user persona lives in the sidebar

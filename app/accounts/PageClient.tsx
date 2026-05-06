@@ -889,8 +889,14 @@ export default function AccountsPage() {
                                                 <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
                                             </svg>
                                         </div>
-                                        <div className="empty-state-title">No accounts yet</div>
-                                        <div className="empty-state-desc">Connect a Gmail account to start sending and receiving emails.</div>
+                                        <div className="empty-state-title">
+                                            {searchQuery ? 'No results found' : 'No accounts yet'}
+                                        </div>
+                                        <div className="empty-state-desc">
+                                            {searchQuery
+                                                ? <>Nothing matches “{searchQuery}”. Try a different email or status.</>
+                                                : 'Connect a Gmail account to start sending and receiving emails.'}
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="accounts-grid">

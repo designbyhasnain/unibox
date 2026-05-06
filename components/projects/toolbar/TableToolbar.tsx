@@ -1,36 +1,22 @@
 'use client';
-import { useState } from 'react';
 
 type Props = {
-  search: string;
-  onSearchChange: (v: string) => void;
   onImport: () => void;
   onCreateNew: () => void;
   selectedCount: number;
   onDeleteSelected: () => void;
 };
 
-export default function TableToolbar({ search, onSearchChange, onImport, onCreateNew, selectedCount, onDeleteSelected }: Props) {
-  const [showSearch, setShowSearch] = useState(false);
-
+// Search lives in the global topbar (see useRegisterGlobalSearch in
+// ProjectsClient). The local 🔍 button was removed to avoid two parallel
+// inputs that could drift out of sync.
+export default function TableToolbar({ onImport, onCreateNew, selectedCount, onDeleteSelected }: Props) {
   return (
     <div className="ep-toolbar">
       <div className="ep-toolbar-left">
         <button className="ep-toolbar-btn">≡ Filter</button>
         <button className="ep-toolbar-btn">↕ Sort</button>
         <button className="ep-toolbar-btn">⚡ Automate</button>
-        {showSearch ? (
-          <input
-            className="ep-toolbar-search"
-            placeholder="Search projects..."
-            value={search}
-            onChange={e => onSearchChange(e.target.value)}
-            autoFocus
-            onBlur={() => { if (!search) setShowSearch(false); }}
-          />
-        ) : (
-          <button className="ep-toolbar-btn" onClick={() => setShowSearch(true)}>🔍 Search</button>
-        )}
         <button className="ep-toolbar-btn">⚙</button>
       </div>
       <div className="ep-toolbar-right">

@@ -23,18 +23,19 @@ export interface GlobalSearchConfig {
 // ────────────────────────────────────────────────────────────────────────────
 
 type Snapshot = {
+    key: string | null;
     config: GlobalSearchConfig | null;
     version: number;
 };
 
 const registry = new Map<string, GlobalSearchConfig>();
 let activeKey: string | null = null;
-let snapshot: Snapshot = { config: null, version: 0 };
+let snapshot: Snapshot = { key: null, config: null, version: 0 };
 const listeners = new Set<() => void>();
 
 function emit() {
     const config = activeKey ? registry.get(activeKey) ?? null : null;
-    snapshot = { config, version: snapshot.version + 1 };
+    snapshot = { key: activeKey, config, version: snapshot.version + 1 };
     listeners.forEach(l => l());
 }
 
@@ -47,7 +48,7 @@ function getSnapshot() { return snapshot; }
 // SSR safety: identical snapshot on the server so the first client render
 // matches. Since the registry is populated via useEffect (client-only), the
 // server always sees null config.
-const SERVER_SNAPSHOT: Snapshot = { config: null, version: 0 };
+const SERVER_SNAPSHOT: Snapshot = { key: null, config: null, version: 0 };
 function getServerSnapshot() { return SERVER_SNAPSHOT; }
 
 function registerImpl(key: string, cfg: GlobalSearchConfig) {

@@ -245,4 +245,4 @@ Prisma enum has only `ADMIN` and `SALES`, but the DB also stores `ACCOUNT_MANAGE
 
 ---
 
-_Last audited: 2026-05-05 (deleted /settings route + manual theme toggle — theme now follows OS prefers-color-scheme; redesigned /accounts cards as glassmorphism with kebab actions + collapsible Technical Health). Previous: 2026-05-04 (merged /branding features into /accounts; deleted /branding route; added BIMI-Selector header + Gravatar fallback to mail senders). 2026-04-30 (Phase 1 launch-ready)._
+_Last audited: 2026-05-06 (global search overhaul — wired /projects + /scraper, extended projects search to editor column, hid the search form on non-list routes, partitioned recent-search history per page key). Previous: 2026-05-05 (deleted /settings route + manual theme toggle — theme now follows OS prefers-color-scheme; redesigned /accounts cards as glassmorphism with kebab actions + collapsible Technical Health). 2026-05-04 (merged /branding features into /accounts; deleted /branding route; added BIMI-Selector header + Gravatar fallback to mail senders). 2026-04-30 (Phase 1 launch-ready)._

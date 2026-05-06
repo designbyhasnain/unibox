@@ -11,6 +11,7 @@ import {
     type ScrapeResultRow,
 } from '../../src/actions/scraperActions';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 
 export default function ScraperPage() {
     const [urls, setUrls] = useState('');
@@ -27,6 +28,16 @@ export default function ScraperPage() {
     const [campaignId, setCampaignId] = useState<string>('');
     const [enrolling, setEnrolling] = useState(false);
     const [enrollMsg, setEnrollMsg] = useState<string | null>(null);
+
+    // Global topbar search — filters scrape results (URL/email/phone/domain)
+    // when a job is selected, otherwise filters the recent jobs list by id.
+    const [searchTerm, setSearchTerm] = useState('');
+    useRegisterGlobalSearch('/scraper', {
+        placeholder: selectedJobId ? 'Search results' : 'Search scrape jobs',
+        value: searchTerm,
+        onChange: setSearchTerm,
+        onClear: () => setSearchTerm(''),
+    });
 
     const loadJobs = () => { getScrapeJobsAction().then(setJobs); };
 
@@ -63,8 +74,31 @@ export default function ScraperPage() {
         });
     };
 
+    // Apply the topbar search to the visible results table. Matches on URL,
+    // domain, email, phone, or score label so users can find a row by any
+    // visible column.
+    const filteredResults = useMemo(() => {
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return results;
+        return results.filter(r => {
+            const fields = [r.url, r.domain, r.email, r.phone, r.scoreLabel];
+            return fields.some(f => (f || '').toLowerCase().includes(q));
+        });
+    }, [results, searchTerm]);
+
+    // Filter the jobs sidebar by status or id-prefix when no job is open
+    // (so the topbar search has a useful target before clicking a job).
+    const filteredJobs = useMemo(() => {
+        const q = searchTerm.trim().toLowerCase();
+        if (!q || selectedJobId) return jobs;
+        return jobs.filter(j =>
+            j.status.toLowerCase().includes(q) ||
+            j.id.toLowerCase().startsWith(q)
+        );
+    }, [jobs, searchTerm, selectedJobId]);
+
     // Only leads that have an email are enrollable — others are skipped by the action anyway
-    const enrollableResults = useMemo(() => results.filter(r => r.email && r.email.includes('@')), [results]);
+    const enrollableResults = useMemo(() => filteredResults.filter(r => r.email && r.email.includes('@')), [filteredResults]);
     const allEnrollableSelected = enrollableResults.length > 0 && enrollableResults.every(r => selected.has(r.id));
 
     const toggleOne = (id: string) => {
@@ -160,7 +194,10 @@ export default function ScraperPage() {
                     <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Recent Jobs</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {jobs.length === 0 && <p style={{ fontSize: '13px', color: 'var(--ink-muted)' }}>No jobs yet</p>}
-                        {jobs.map((j) => (
+                        {jobs.length > 0 && filteredJobs.length === 0 && (
+                            <p style={{ fontSize: '13px', color: 'var(--ink-muted)' }}>No jobs match “{searchTerm}”.</p>
+                        )}
+                        {filteredJobs.map((j) => (
                             <button
                                 key={j.id}
                                 onClick={() => setSelectedJobId(j.id)}
@@ -187,7 +224,7 @@ export default function ScraperPage() {
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
                         <h3 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>
-                            Results {selectedJobId ? `(${results.length})` : ''}
+                            Results {selectedJobId ? `(${filteredResults.length}${searchTerm && filteredResults.length !== results.length ? `/${results.length}` : ''})` : ''}
                             {selected.size > 0 && <span style={{ color: 'var(--ink)', fontWeight: 500, fontSize: 13 }}> &middot; {selected.size} selected</span>}
                         </h3>
 
@@ -241,7 +278,13 @@ export default function ScraperPage() {
                     {selectedJobId && results.length === 0 && (
                         <p style={{ fontSize: '13px', color: 'var(--ink-muted)' }}>No results</p>
                     )}
-                    {results.length > 0 && (
+                    {selectedJobId && results.length > 0 && filteredResults.length === 0 && (
+                        <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                            <p style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>No results found</p>
+                            <p style={{ fontSize: '13px', color: 'var(--ink-muted)', margin: 0 }}>Nothing matches “{searchTerm}”.</p>
+                        </div>
+                    )}
+                    {filteredResults.length > 0 && (
                         <div style={{ border: '1px solid var(--hairline)', borderRadius: '8px', overflow: 'hidden' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                                 <thead style={{ background: 'var(--surface-2)' }}>
@@ -263,7 +306,7 @@ export default function ScraperPage() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {results.map((r) => {
+                                    {filteredResults.map((r) => {
                                         const hasEmail = r.email && r.email.includes('@');
                                         const isSelected = selected.has(r.id);
                                         return (

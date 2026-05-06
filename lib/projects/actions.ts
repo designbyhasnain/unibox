@@ -78,7 +78,9 @@ export async function getEditProjects(filters?: ProjectFilters, page: number = 1
   if (filters?.tag) query = query.contains('tags', [filters.tag]);
   if (filters?.search) {
     const s = filters.search.replace(/[%_\\]/g, '\\$&');
-    query = query.or(`name.ilike.%${s}%,client_name.ilike.%${s}%`);
+    // Search Project Name, Client Name, and Editor — matches the global
+    // search contract documented in CLAUDE.md / GlobalTopbar.
+    query = query.or(`name.ilike.%${s}%,client_name.ilike.%${s}%,editor.ilike.%${s}%`);
   }
 
   query = query.order(col, { ascending: sortOrder, nullsFirst: false });

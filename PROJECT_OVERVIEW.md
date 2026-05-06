@@ -254,11 +254,13 @@ A multi-layer attempt to make outbound mail look like it comes from a real perso
 > Background on coverage (verified May 2026): Gmail avatar circle is hard-blocked without a paid VMC (~$1500/yr). Yahoo/AOL works free with self-asserted BIMI. Apple Mail iCloud works free via Apple Business Connect "Branded Mail" enrollment. Outlook doesn't render BIMI as of April 2026. Schema.org JSON-LD chips don't drive avatar — we send them anyway because the cost is zero.
 
 ### 4.12 Global Search (Topbar)
-- **`app/components/GlobalTopbar.tsx`** — banner-role topbar mounted by `ClientLayout` for every authenticated route. Three slots: left (placeholder), centered search form, right (user badge — see §10).
+- **`app/components/GlobalTopbar.tsx`** — banner-role topbar mounted by `ClientLayout` for every authenticated route. Three slots: left (placeholder), centered search form, right (placeholder).
 - **Centered search** — 3-column CSS grid on `.global-topbar` so the search form sits dead-center of the topbar regardless of viewport width.
-- **Per-page registration** — pages call `useRegisterGlobalSearch({ placeholder, value, onChange, onClear, onSubmit })` from `app/context/GlobalSearchContext.tsx`. The context publishes via `useSyncExternalStore`; only the topbar subscribes, so pages don't re-render on every keystroke that doesn't belong to them. When no page is registered, the input is `disabled`.
-- **Recent search history** — kept in `localStorage` under `unibox_search_history` (max 8 entries). Opens on focus when entries exist; clicking a row replays the query through the registered page's `onChange` + `onSubmit`. Cleared via the small "Clear" button in the dropdown header.
-- **Keyboard shortcuts** (`ClientLayout`): `⌘K` / `⌃K` and bare `/` (when not already in a field) focus the search input; `⌘J` / `⌃J` jumps to `/jarvis`.
+- **Per-page registration** — pages call `useRegisterGlobalSearch(key, { placeholder, value, onChange, onClear, onSubmit })` from `app/context/GlobalSearchContext.tsx`. The context publishes via `useSyncExternalStore`; only the topbar subscribes, so pages don't re-render on every keystroke that doesn't belong to them. **When no page is registered, the search form is hidden entirely** (not just disabled) so non-list routes stay visually clean.
+- **List-heavy routes that register search:** `/` (mail by sender/subject/body), `/sent`, `/clients` (server-side debounced 300ms across name/email/company/phone), `/projects` (server-side debounced 300ms across name/client_name/editor — see `lib/projects/actions.ts`), `/campaigns` (client-side by name/goal/createdBy), `/accounts` (client-side by email/status), `/scraper` (client-side filter on visible jobs/results table).
+- **Routes that DO NOT register search** (search bar hidden): `/dashboard`, `/intelligence`, `/finance`, `/data-health`, `/team`, plus singletons like `/calendar`, `/jarvis`, `/analytics`.
+- **Recent search history** — partitioned per page key in `localStorage` under `unibox_search_history:<key>` (e.g. `unibox_search_history:/clients`), max 8 entries each. Opens on focus when entries exist; clicking a row replays the query through the registered page's `onChange` + `onSubmit`. The legacy global key `unibox_search_history` is removed on first load. Cleared via the small "Clear" button in the dropdown header.
+- **Keyboard shortcuts** (`ClientLayout`): `⌘K` / `⌃K` and bare `/` (when not already in a field) focus the search input on routes where it is mounted; `⌘J` / `⌃J` jumps to `/jarvis`.
 
 ---
 

@@ -417,7 +417,7 @@ export async function getInboxEmailsAction(
     const extractAddress = (raw: string | null | undefined): string => {
         if (!raw) return '';
         const m = raw.match(/<([^>]+)>/);
-        return (m ? m[1] : raw).trim().toLowerCase();
+        return (m?.[1] ?? raw).trim().toLowerCase();
     };
 
     const totalCount = count ?? ((page - 1) * clampedPageSize + rows.length);
@@ -551,7 +551,7 @@ export async function getInboxWithCountsAction(
     const extractAddress = (raw: string | null | undefined): string => {
         if (!raw) return '';
         const m = raw.match(/<([^>]+)>/);
-        return (m ? m[1] : raw).trim().toLowerCase();
+        return (m?.[1] ?? raw).trim().toLowerCase();
     };
 
     const totalCount = totalCountEstimate ?? ((page - 1) * clampedPageSize + rows.length);

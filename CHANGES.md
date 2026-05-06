@@ -397,6 +397,48 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 — Global search: contextual, list-only, per-page history
+
+One-pass overhaul of the topbar search so it actually works the same way on every list-heavy page and disappears on routes where there's nothing to search. Driven by a complaint that the bar showed up on the dashboard / intelligence / finance / data-health / team views (where it does nothing) and that "recent searches" was a single global pile that bled queries across unrelated pages.
+
+**Where search is wired (each route's PageClient registers `useRegisterGlobalSearch(key, …)`):**
+
+| Route | Side | Fields |
+|-------|------|--------|
+| `/` | server | sender, subject, body |
+| `/sent` | server | sender, subject, body |
+| `/clients` | server (debounced 300ms) | name, email, company, phone |
+| `/projects` | server (debounced 300ms) | name, client_name, **editor** (added) |
+| `/campaigns` | client | name, goal, createdBy |
+| `/accounts` | client | email, status |
+| `/scraper` | client | url, domain, email, phone, score label (results); status / id-prefix (jobs) |
+
+**Where search is hidden:** `/dashboard`, `/intelligence`, `/finance`, `/data-health`, `/team`, `/calendar`, `/jarvis`, `/analytics`, `/login`, `/invite/accept`. The form simply isn't rendered on these — `GlobalTopbar` short-circuits when no page registers (was previously `disabled` styling, which still showed an empty bar).
+
+**Per-page history:** `unibox_search_history` was a single global key, so typing "invoice" on `/clients` would suggest itself on `/campaigns`. Now partitioned as `unibox_search_history:<key>` (e.g. `:/clients`, `:/projects`). The legacy global key is removed on first load. History reloads when the active page changes — so the dropdown always reflects what you've searched on the page you're on.
+
+**`/projects` rewire:**
+- Added `useRegisterGlobalSearch('/projects', …)` in `components/projects/ProjectsClient.tsx` with a 300ms debounce so each keystroke doesn't hit Supabase.
+- Extended `lib/projects/actions.ts` `getEditProjects` `OR` clause from `name, client_name` → `name, client_name, editor` so the topbar can find a project by editor.
+- Removed the local 🔍 toggle/input from `components/projects/toolbar/TableToolbar.tsx` — having two inputs that could drift was a UX trap.
+- Added a "No results found" empty state when search returns zero rows.
+
+**`/scraper` wire-up:** new `useRegisterGlobalSearch('/scraper', …)` in `app/scraper/ScraperClient.tsx`. With a job selected, the topbar filters the results table client-side; with no job selected, it filters the recent jobs sidebar by status or id prefix. Empty-state text matches the topbar `placeholder` swap (`"Search results"` vs `"Search scrape jobs"`).
+
+**Snapshot shape change:** `GlobalSearchContext` snapshot now exposes the active `key` alongside the `config` so `GlobalTopbar` can scope history without prop-drilling. SSR snapshot updated to `{ key: null, config: null, version: 0 }`.
+
+**Pre-existing tsc errors fixed in passing:** two `Object is possibly undefined` errors in `src/actions/emailActions.ts` (`m[1]` after `raw.match(...)` — `noUncheckedIndexedAccess` strictness). Replaced with `m?.[1] ?? raw`.
+
+**Files touched:**
+- `app/context/GlobalSearchContext.tsx` — emit `key` in snapshot.
+- `app/components/GlobalTopbar.tsx` — hide form when inactive, partition history per page.
+- `components/projects/ProjectsClient.tsx` + `components/projects/toolbar/TableToolbar.tsx` — register global search, drop local search input.
+- `lib/projects/actions.ts` — search by editor in addition to name + client.
+- `app/scraper/ScraperClient.tsx` — register global search, filter results + jobs.
+- `app/accounts/PageClient.tsx` — empty-state copy switches to "No results found" when filtered to zero.
+- `src/actions/emailActions.ts` — strict-mode tsc fix.
+- `PROJECT_OVERVIEW.md` §4.12 — refreshed Global Search section.
+
 ## Build 2026-05-04 (later) — Merged /branding into /accounts; deleted standalone route; strengthened sender-identity headers
 
 Reversal of the previous build's separate `/branding` route. The deliverability info belongs alongside the account it describes, not on its own page.
