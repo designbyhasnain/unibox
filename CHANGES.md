@@ -397,6 +397,28 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 (post-launch) — /actions page: click-to-open + Ask AI wiring
+
+First post-launch bug fix pass. Two reported issues on `/actions`:
+
+**Bug 1: rows weren't clickable.** `app/actions/PageClient.tsx` was rendering its own simple inline rows that had `cursor: pointer` for show but no `onClick`. The richer `app/components/ActionCard.tsx` (which expands inline to show the conversation + a reply composer, plus snooze/done) already existed but was never used by the page. Refactor: drop the inline rows, render `ActionCard` for each item, and lift `expandedId` into the page so only one card is open at a time. Wired `accounts` from `useGlobalFilter`, `onSnooze`/`onDone` to the existing `snoozeActionAction` / `markActionDoneAction` server actions with optimistic remove + rollback on error.
+
+**Bug 2: "Ask AI" button was a noop.** Two surfaces had this button:
+
+1. `ComposeModal.tsx` — `<button className="ask-ai">…</button>` had no `onClick`. Now wired to `suggestReplyAction(threadId)`. When the modal was opened from a thread context (reply flow) it drafts and injects the suggestion into the contentEditable editor (with `DOMPurify.sanitize`); when there's no `threadId` (fresh compose), it shows a toast asking the user to open a thread first instead of failing silently.
+2. `ActionCard.tsx` — never had an Ask AI button at all. Added one beside Send in the expanded composer's bottom bar, wired to `suggestReplyAction(threadId)` using the most-recent RECEIVED email's `thread_id`. Loading state ("Jarvis thinking…"), inline error row, button disabled while the thread is still loading or empty.
+
+**Audit pass (no code changes needed):**
+- Sorting: server sorts by urgency descending (critical → low) before returning. Confirmed.
+- Badge counts: `med` tab folds `medium + low`, matching the original 3-bucket UI design. Counts memoized off `actions` state.
+- Layout shifts: cards expand inline and shift the list — acceptable tradeoff vs. a separate modal. The card itself uses `transition: all .25s` so the expand is animated.
+- Slow queries: `getActionQueueAction` already has a 30s in-memory cache and was previously refactored from 150 round-trips to 1 batched query (Phase 7). No further optimization needed.
+
+**Files touched:**
+- `app/actions/PageClient.tsx` — refactored to use `ActionCard`, lifted expand state, wired snooze/done with optimistic UI.
+- `app/components/ActionCard.tsx` — added `Ask AI` button + `handleAskAI` calling `suggestReplyAction`, plus `aiLoading` / `aiError` states.
+- `app/components/ComposeModal.tsx` — wired the previously-noop Ask AI button to `suggestReplyAction(threadId)`, sanitises the result before injecting into contentEditable.
+
 ## Build 2026-05-06 (later) — Search coverage on remaining list pages + intelligence scroll fix
 
 Follow-on to the morning's global-search overhaul. Three list pages still had no topbar search and the `/intelligence` page had a scroll bug that hid most of the Jarvis audit cards below the fold.

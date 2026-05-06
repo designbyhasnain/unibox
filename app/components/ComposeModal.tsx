@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { sendEmailAction, searchContactsForComposeAction } from '../../src/actions/emailActions';
+import { suggestReplyAction } from '../../src/actions/jarvisActions';
 import { useUndoToast } from '../context/UndoToastContext';
 import { useConfirm } from '../context/ConfirmContext';
 import { useGlobalFilter } from '../context/FilterContext';
@@ -66,6 +67,7 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const [bcc, setBcc] = useState('');
     const [showFromDropdown, setShowFromDropdown] = useState(false);
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+    const [aiLoading, setAiLoading] = useState(false);
 
     const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -193,6 +195,35 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSend(); }
         if (e.key === 'Escape') onClose();
+    };
+
+    // Ask AI — drafts a reply via Jarvis using the current threadId. The
+    // service requires a threadId because it needs the prior conversation
+    // for context; without one, we surface a toast asking the user to open
+    // a thread first instead of failing silently (which is what happened
+    // before the button was wired).
+    const handleAskAI = async () => {
+        if (!threadId) {
+            showError('Open an email thread first so Jarvis has context to reply to.');
+            return;
+        }
+        setAiLoading(true);
+        try {
+            const res = await suggestReplyAction(threadId);
+            if (res.success && res.suggestion) {
+                setBody(res.suggestion);
+                if (editorRef.current) {
+                    editorRef.current.innerHTML = DOMPurify.sanitize(res.suggestion);
+                }
+            } else {
+                const msg = (res as { error?: string }).error || 'Jarvis could not draft a reply.';
+                showError(msg, { onRetry: handleAskAI });
+            }
+        } catch (e: any) {
+            showError(e?.message || 'Ask AI failed — try again.', { onRetry: handleAskAI });
+        } finally {
+            setAiLoading(false);
+        }
     };
 
     const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
@@ -350,7 +381,16 @@ export default function ComposeModal({ onClose, defaultTo = '', defaultSubject =
                 <div className="compose-foot">
                     <button className="icon-btn" title="Templates" onClick={() => setShowTemplatePicker(true)}><LayoutTemplate size={15} /></button>
                     <div className="spacer" />
-                    <button className="ask-ai"><Sparkles size={12} />Ask AI</button>
+                    <button
+                        type="button"
+                        className="ask-ai"
+                        onClick={handleAskAI}
+                        disabled={aiLoading}
+                        title={threadId ? 'Ask Jarvis to draft a reply for this thread' : 'Open a thread to use Ask AI'}
+                    >
+                        <Sparkles size={12} />
+                        {aiLoading ? 'Thinking…' : 'Ask AI'}
+                    </button>
                     <button className="send" onClick={handleSend} disabled={isSending || recipients.length === 0}>
                         <Send size={12} />
                         {isSending ? 'Sending…' : 'Send'}

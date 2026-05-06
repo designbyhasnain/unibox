@@ -2,11 +2,12 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { Send, ChevronUp, Loader2, Clock, ExternalLink } from 'lucide-react';
+import { Send, ChevronUp, Loader2, Clock, ExternalLink, Sparkles } from 'lucide-react';
 import type { ActionItem } from '../../src/actions/actionQueueActions';
 import type { LastEmail } from '../../src/actions/actionQueueActions';
 import { getContactLastEmailsAction } from '../../src/actions/actionQueueActions';
 import { sendEmailAction } from '../../src/actions/emailActions';
+import { suggestReplyAction } from '../../src/actions/jarvisActions';
 import { computeContactHabit, formatHabitSummary } from '../../src/utils/clientHabits';
 import { extractReplyPreview } from '../../src/utils/emailPreview';
 
@@ -51,6 +52,8 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
     const [sendError, setSendError] = useState<string | null>(null);
     const [showSnooze, setShowSnooze] = useState(false);
     const [hovered, setHovered] = useState(false);
+    const [aiLoading, setAiLoading] = useState(false);
+    const [aiError, setAiError] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
@@ -86,6 +89,35 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
         e.preventDefault();
         e.stopPropagation();
         onToggleExpand(action.id);
+    };
+
+    const handleAskAI = async () => {
+        // Pick the most-recent thread we know about: prefer the latest
+        // RECEIVED message (so Jarvis drafts a reply to *their* last
+        // message), else fall back to whatever email we loaded first.
+        const lastReceived = emails.find(e => e.direction === 'RECEIVED');
+        const threadId = lastReceived?.thread_id || emails[0]?.thread_id;
+        if (!threadId) {
+            setAiError('No thread context yet — wait for the conversation to load.');
+            setTimeout(() => setAiError(null), 3500);
+            return;
+        }
+        setAiLoading(true);
+        setAiError(null);
+        try {
+            const res = await suggestReplyAction(threadId);
+            if (res.success && res.suggestion) {
+                setReplyBody(res.suggestion);
+                // Focus the textarea so the user can immediately tweak.
+                setTimeout(() => textareaRef.current?.focus(), 50);
+            } else {
+                setAiError((res as { error?: string }).error || 'Jarvis could not draft a reply.');
+            }
+        } catch (e: any) {
+            setAiError(e?.message || 'Ask AI failed — try again.');
+        } finally {
+            setAiLoading(false);
+        }
     };
 
     const handleSend = async () => {
@@ -432,6 +464,15 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                     </div>
                                 )}
 
+                                {aiError && (
+                                    <div style={{
+                                        padding: '8px 16px', background: 'var(--danger-soft)', color: 'var(--danger)',
+                                        fontSize: 12, borderTop: '1px solid var(--danger)',
+                                    }}>
+                                        {aiError}
+                                    </div>
+                                )}
+
                                 {/* Bottom bar */}
                                 <div style={{
                                     padding: '8px 16px', borderTop: '1px solid var(--hairline-soft)',
@@ -446,6 +487,33 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                         Template
                                     </button>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        {/* Ask AI \u2014 drafts a reply against the loaded thread via
+                                            suggestReplyAction(threadId). Disabled while we're still
+                                            waiting on the thread to load (no threadId yet). */}
+                                        <button
+                                            type="button"
+                                            onClick={handleAskAI}
+                                            disabled={aiLoading || loadingEmails || emails.length === 0}
+                                            title={emails.length === 0 ? 'Open a thread to use Ask AI' : 'Ask Jarvis to draft a reply'}
+                                            style={{
+                                                background: aiLoading ? 'color-mix(in oklab, var(--accent), transparent 70%)' : 'transparent',
+                                                color: 'var(--accent)',
+                                                border: '1px solid color-mix(in oklab, var(--accent), transparent 65%)',
+                                                borderRadius: 8,
+                                                padding: '7px 12px', fontSize: 12, fontWeight: 600,
+                                                cursor: (aiLoading || loadingEmails || emails.length === 0) ? 'not-allowed' : 'pointer',
+                                                opacity: (loadingEmails || emails.length === 0) ? 0.55 : 1,
+                                                display: 'flex', alignItems: 'center', gap: 6,
+                                                transition: 'all .15s',
+                                                fontFamily: "'DM Sans', sans-serif",
+                                            }}
+                                        >
+                                            {aiLoading ? (
+                                                <><Loader2 size={13} className="action-spin" /> Jarvis thinking\u2026</>
+                                            ) : (
+                                                <><Sparkles size={13} /> Ask AI</>
+                                            )}
+                                        </button>
                                         <span style={{ fontSize: 11, color: 'var(--hairline)' }}>
                                             {'\u2318'}+Enter
                                         </span>

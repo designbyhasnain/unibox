@@ -1,42 +1,25 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { getActionQueueAction } from '../../src/actions/actionQueueActions';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { getActionQueueAction, snoozeActionAction, markActionDoneAction } from '../../src/actions/actionQueueActions';
 import type { ActionItem } from '../../src/actions/actionQueueActions';
 import { PageLoader } from '../components/LoadingStates';
 import { useUI } from '../context/UIContext';
 import { useGlobalFilter } from '../context/FilterContext';
+import { useUndoToast } from '../context/UndoToastContext';
+import ActionCard from '../components/ActionCard';
 
 const ICON = {
-    filter: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
-    check: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>,
     refresh: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
-    arrowRight: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>,
 };
 
-const pColor: Record<string, string> = { critical: 'var(--danger)', high: 'var(--warn)', medium: 'var(--ink-muted)', low: 'var(--ink-dim)' };
-const pLabel: Record<string, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
-
+// Map server urgency (4 levels) to filter-tab buckets (3 levels). The
+// "med" tab covers both `medium` and `low` because the prior design
+// folded them together — keep that contract for badge counts.
 function mapUrgencyToDesign(u: string): string {
     if (u === 'critical') return 'critical';
     if (u === 'high') return 'high';
     return 'med';
-}
-
-function getActionLabel(a: ActionItem): string {
-    if (a.actionType === 'REPLY_NOW') return 'Draft reply';
-    if (a.actionType === 'NEW_LEAD') return 'Send intro';
-    if (a.actionType === 'FOLLOW_UP') return 'Follow up';
-    if (a.actionType === 'WIN_BACK') return 'Re-engage';
-    return 'View';
-}
-
-function getDueLabel(a: ActionItem): string {
-    const days = a.daysSinceContact || 0;
-    if (days >= 7) return `Overdue · ${days}d`;
-    if (days >= 2) return `${days}d ago`;
-    if (days === 1) return 'Yesterday';
-    return 'Today';
 }
 
 export default function ActionsPage() {
@@ -44,9 +27,11 @@ export default function ActionsPage() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [filter, setFilter] = useState<string>('all');
+    const [expandedId, setExpandedId] = useState<string | null>(null);
 
-    useGlobalFilter();
+    const { accounts } = useGlobalFilter();
     const ui = useUI();
+    const { showError, showSuccess } = useUndoToast();
 
     const load = useCallback(async () => {
         try {
@@ -64,27 +49,65 @@ export default function ActionsPage() {
 
     const handleRefresh = () => { setRefreshing(true); load(); };
 
-    const handleQuickEmail = (action: ActionItem) => {
-        if (ui) {
-            ui.setComposeDefaultTo(action.email);
-            ui.setComposeDefaultSubject(action.lastEmailSubject ? `Re: ${action.lastEmailSubject}` : '');
-            ui.setComposeOpen(true);
-        }
-    };
+    // Compose-drawer fallback for the "Template" link inside ActionCard's
+    // expanded composer — keeps the existing UX where users can pop into
+    // the full compose drawer if the inline reply isn't enough.
+    const handleQuickEmail = useCallback((action: ActionItem) => {
+        if (!ui) return;
+        ui.setComposeDefaultTo(action.email);
+        ui.setComposeDefaultSubject(action.lastEmailSubject ? `Re: ${action.lastEmailSubject}` : '');
+        ui.setComposeOpen(true);
+    }, [ui]);
 
-    const counts: Record<string, number> = {
+    const handleSnooze = useCallback(async (contactId: string, days: number) => {
+        // Optimistic remove from queue.
+        const removed = actions.find(a => a.contactId === contactId);
+        setActions(prev => prev.filter(a => a.contactId !== contactId));
+        setExpandedId(null);
+        try {
+            const res = await snoozeActionAction(contactId, days);
+            if (!res.success) {
+                if (removed) setActions(prev => [removed, ...prev]);
+                showError(res.error || 'Could not snooze', { onRetry: () => handleSnooze(contactId, days) });
+            } else {
+                showSuccess(`Snoozed for ${days} day${days > 1 ? 's' : ''}`);
+            }
+        } catch (e: any) {
+            if (removed) setActions(prev => [removed, ...prev]);
+            showError(e?.message || 'Could not snooze', { onRetry: () => handleSnooze(contactId, days) });
+        }
+    }, [actions, showError, showSuccess]);
+
+    const handleDone = useCallback(async (contactId: string) => {
+        const removed = actions.find(a => a.contactId === contactId);
+        setActions(prev => prev.filter(a => a.contactId !== contactId));
+        setExpandedId(null);
+        try {
+            const res = await markActionDoneAction(contactId);
+            if (!res.success) {
+                if (removed) setActions(prev => [removed, ...prev]);
+                showError(res.error || 'Could not mark done', { onRetry: () => handleDone(contactId) });
+            }
+        } catch (e: any) {
+            if (removed) setActions(prev => [removed, ...prev]);
+            showError(e?.message || 'Could not mark done', { onRetry: () => handleDone(contactId) });
+        }
+    }, [actions, showError]);
+
+    const counts = useMemo<Record<string, number>>(() => ({
         all: actions.length,
         critical: actions.filter(a => a.urgency === 'critical').length,
         high: actions.filter(a => a.urgency === 'high').length,
         med: actions.filter(a => a.urgency === 'medium' || a.urgency === 'low').length,
-    };
+    }), [actions]);
 
-    const filtered = filter === 'all' ? actions : actions.filter(a => {
-        const mapped = mapUrgencyToDesign(a.urgency);
-        return mapped === filter;
-    });
+    const filtered = useMemo(() => (
+        filter === 'all' ? actions : actions.filter(a => mapUrgencyToDesign(a.urgency) === filter)
+    ), [actions, filter]);
 
-    const avColors = ['av-a', 'av-b', 'av-c', 'av-d', 'av-e', 'av-f', 'av-g', 'av-h'];
+    const onToggleExpand = useCallback((id: string) => {
+        setExpandedId(prev => (prev === id ? null : id));
+    }, []);
 
     if (loading) return <PageLoader isLoading={true} type="list" count={6} context="inbox"><div /></PageLoader>;
 
@@ -128,51 +151,19 @@ export default function ActionsPage() {
                         </div>
                     </div>
                 ) : (
-                    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                        {filtered.map((a, i) => {
-                            const initials = (a.name || '?').split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase();
-                            const avClass = avColors[(a.name || '').charCodeAt(0) % avColors.length];
-                            const dueLabel = getDueLabel(a);
-                            const isOverdue = dueLabel.startsWith('Overdue');
-                            const actionLabel = getActionLabel(a);
-
-                            return (
-                                <div key={a.id || i} className="aq-row"
-                                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
-                                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                                    style={{ borderBottom: i < filtered.length - 1 ? '1px solid var(--hairline-soft)' : 'none' }}
-                                >
-                                    {/* Priority bar + Avatar */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <span style={{ width: 6, height: 36, borderRadius: 3, background: pColor[a.urgency] || 'var(--ink-dim)', flexShrink: 0 }} />
-                                        <div className={`avatar ${avClass}`} style={{ width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
-                                            {initials}
-                                        </div>
-                                    </div>
-
-                                    {/* Task content */}
-                                    <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {a.reason || a.lastEmailSubject || 'Follow up'}
-                                        </div>
-                                        <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {a.name} · {a.company || a.email} {a.estimatedValue ? `· ${a.estimatedValue > 0 ? '$' + a.estimatedValue.toLocaleString() : ''}` : ''}
-                                        </div>
-                                    </div>
-
-                                    {/* Priority + Due */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                                        <span className="chip" style={{ color: pColor[a.urgency], fontSize: 10.5 }}>{pLabel[a.urgency] || 'Medium'}</span>
-                                        <span style={{ fontSize: 11, color: isOverdue ? 'var(--danger)' : 'var(--ink-muted)', fontWeight: isOverdue ? 600 : 400 }}>{dueLabel}</span>
-                                    </div>
-
-                                    {/* Action button */}
-                                    <button className="aq-action-btn" onClick={(e) => { e.stopPropagation(); handleQuickEmail(a); }}>
-                                        {actionLabel} {ICON.arrowRight}
-                                    </button>
-                                </div>
-                            );
-                        })}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {filtered.map(a => (
+                            <ActionCard
+                                key={a.id}
+                                action={a}
+                                accounts={accounts}
+                                expandedId={expandedId}
+                                onToggleExpand={onToggleExpand}
+                                onQuickEmail={handleQuickEmail}
+                                onSnooze={handleSnooze}
+                                onDone={handleDone}
+                            />
+                        ))}
                     </div>
                 )}
             </div>
