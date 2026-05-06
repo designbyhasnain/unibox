@@ -182,6 +182,7 @@ export default function OpportunitiesPage() {
                                     <span className="title">{col.label}</span>
                                     <span className="count">{(byStage[col.key] || []).length}</span>
                                 </div>
+                                <div className="kcol-body">
                                 {(byStage[col.key] || []).map((c, i) => {
                                     const av = avColors[(c.name || '').charCodeAt(0) % avColors.length];
                                     return (
@@ -223,6 +224,7 @@ export default function OpportunitiesPage() {
                                 {(byStage[col.key] || []).length === 0 && (
                                     <div style={{ padding: '10px 8px', fontSize: 11.5, color: 'var(--ink-muted)', textAlign: 'center', fontStyle: 'italic' }}>Drop a card here</div>
                                 )}
+                                </div>
                             </DroppableColumn>
                         ))}
                     </div>
@@ -230,21 +232,31 @@ export default function OpportunitiesPage() {
             </div>
 
             <style>{`
-.op-page{height:100%;overflow-y:auto;background:var(--shell);font-family:var(--font-ui);color:var(--ink)}
-.op-content{padding:22px 26px}
-.op-page .page-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+/* Layout (2026-05-06): board page is now a flex column whose only
+   scrollable region is each kanban *column* (and its inner card list).
+   The previous CSS gave every .kcol min-height:300px with no max — so
+   one busy column (Contacted=70 cards) made the whole page scroll while
+   the empty columns stayed short, producing the uneven-stack look in
+   the screenshot. Now: page is fixed-viewport, kanban grid stretches to
+   fill, and each column owns its own overflow:auto. */
+.op-page{height:100%;display:flex;flex-direction:column;overflow:hidden;background:var(--shell);font-family:var(--font-ui);color:var(--ink)}
+.op-content{padding:22px 26px;display:flex;flex-direction:column;flex:1;min-height:0}
+.op-page .page-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px;flex-shrink:0}
 .op-page .page-head h2{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0}
 .op-page .page-head .sub{color:var(--ink-muted);font-size:13px;margin-top:4px}
-.op-page .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.op-page .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;flex-shrink:0}
 .op-page .kpi{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;padding:14px 16px;position:relative;overflow:hidden}
 .op-page .kpi .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-muted);font-weight:500}
 .op-page .kpi .v{font-size:26px;font-weight:600;letter-spacing:-.02em;margin:6px 0 2px;font-variant-numeric:tabular-nums}
 .op-page .kpi .d{font-size:11.5px;color:var(--ink-muted)}
 .op-page .kpi .d .up{color:var(--coach)}
 .op-page .kpi-spark{position:absolute;right:10px;top:10px;width:64px;height:28px;opacity:.6}
-.op-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:start;overflow-x:auto}
-.op-page .kcol{background:var(--shell);border:1px solid var(--hairline-soft);border-radius:14px;padding:10px;min-height:300px}
-.op-page .kcol-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:2px 4px}
+.op-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:stretch;overflow-x:auto;flex:1;min-height:0}
+.op-page .kcol{background:var(--shell);border:1px solid var(--hairline-soft);border-radius:14px;padding:10px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.op-page .kcol-body{flex:1;min-height:0;overflow-y:auto;padding-right:2px;scrollbar-width:thin;scrollbar-color:var(--hairline) transparent}
+.op-page .kcol-body::-webkit-scrollbar{width:6px}
+.op-page .kcol-body::-webkit-scrollbar-thumb{background:var(--hairline);border-radius:3px}
+.op-page .kcol-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:2px 4px;flex-shrink:0}
 .op-page .kcol-head .dot{width:7px;height:7px;border-radius:50%}
 .op-page .kcol-head .title{font-size:12px;font-weight:600}
 .op-page .kcol-head .count{font-size:11px;color:var(--ink-muted);margin-left:auto}

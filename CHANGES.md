@@ -397,6 +397,38 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 (CRM sprint) — Inline-edit /clients table + opportunities board fix + detail kebab
+
+High-impact CRM overhaul. Five things in one ship.
+
+**1. Opportunities board — equal-height columns + per-column scroll.** Before: `.kcol` had `min-height: 300px` with no max, so a busy column (Contacted: 70 cards) grew the whole page while empty columns stayed at 300px — that's the uneven look in the screenshot. Restructured to a flex chain: `.op-page` is fixed-viewport with `overflow:hidden`; `.op-content` is a flex column whose inner `.kanban` grid takes `flex:1; min-height:0`; each `.kcol` is a flex column where the new `.kcol-body` div owns `flex:1; overflow-y:auto`. Cards now scroll inside their column instead of pushing the whole page.
+
+**2. /clients table — inline editing on six columns.** Wired through the existing `SmartSelect` (popover-portal, search, creatable) component used by the Projects table, plus a small `NumericCell` for the dollar fields:
+- **Stage** — SmartSelect with the 7 enum stages + creatable. New stages are stored as plain text; they won't appear in the existing funnel filters (those use `IN ('COLD_LEAD','CONTACTED',…)`), but the user is aware of that tradeoff per the spec.
+- **Health** — SmartSelect with the 9 known values (strong/warm/good/neutral/cooling/cold/at-risk/critical/dead) + creatable.
+- **Open value, Deals, LTV** — NumericCell with `$` prefix (Deals shows no prefix), edit on click, commit on blur or Enter, escape to cancel. Blank string clears the value to null. Strips `$` and `,` from input on commit.
+- **Last contact** — `<input type="datetime-local">` (browser-native picker, no extra deps). Round-trips ISO ↔ "yyyy-MM-ddTHH:mm".
+- **Owner** — SmartSelect populated by the new `listSalesUsersAction` (SALES role only). Writes route through `transferContactAction` so the OWNERSHIP_TRANSFER audit row is always logged (CLAUDE.md rule 13). The "Account" column was renamed to "Owner" — it now shows AM name instead of the gmail-account email prefix.
+
+Every cell uses the optimistic-UI pattern: flip local state immediately, fire the server write, revert on failure with a retry toast.
+
+**3. Server-side guards.** `updateContactAction` was previously typed to accept `{name, company, phone, notes, priority}` only and would throw on errors. Reworked so it (a) takes a generic Record and intersects against an explicit allowlist (`name, company, phone, notes, priority, location, email, pipeline_stage, relationship_health, estimated_value, total_projects, total_revenue, unpaid_amount, last_email_at, lead_score`), (b) deliberately excludes `account_manager_id` (must go through `transferContactAction`), (c) returns `{success, error}` instead of throwing so cell handlers can roll back optimistically. The `getOwnerFilter` scope (SALES-only-sees-own-contacts) is preserved.
+
+**4. New server action — `listSalesUsersAction`.** Returns `{id, name, email}[]` for active users with role='SALES' (SALES only — admins and account-managers are excluded since the spec is "users with the SALES role"). Distinct from the existing `listAccountManagersAction` which returns `{value: name}` for the Projects table because that table stores AM as plain text, while contacts.account_manager_id is a UUID FK.
+
+**5. Detail-panel kebab + Schedule + row kebab additions.** Both the row kebab and the detail-panel kebab now include: **Open**, **Transfer owner…** (admin-only, opens OwnerPicker in a modal), **Enroll in campaign…** (opens picker listing running + draft campaigns), **Delete**. The Schedule button (was a no-op) now opens the global ComposeModal pre-filled with subject "Quick call?" and a 3-slot meeting-request body templated to the contact's first name.
+
+**Files touched:**
+- `app/opportunities/PageClient.tsx` — kanban CSS + `.kcol-body` wrapper.
+- `src/actions/contactDetailActions.ts` — `updateContactAction` allowlist + `{success, error}` shape.
+- `src/actions/projectMetadataActions.ts` — new `listSalesUsersAction`.
+- `app/clients/PageClient.tsx` — six inline cells, `NumericCell`, optimistic update handler, Schedule wiring, kebab menu actions, OwnerPicker modal, Enroll modal.
+- `app/clients/[id]/PageClient.tsx` — `handleSave` adapted to the new `{success, error}` shape (was `await` no-check; would've silently failed on guard rejection).
+
+**Verified:**
+- tsc clean, build clean.
+- Unchanged: `getClientsAction` payload, the AddLeadModal (already had every field per the user's earlier screenshot), the Mail/Extension/Scraper compatibility (those flows write to the same `contacts` table with the same column names).
+
 ## Build 2026-05-06 (dashboard audit) — Need-Reply subjects, KPI delta arrows, label & empty-state fixes
 
 A proactive audit of /dashboard against the live admin account surfaced four real bugs and two UX gaps. No "the user reported X" — these were caught by code-reading + browser inspection.

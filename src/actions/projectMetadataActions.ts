@@ -81,6 +81,43 @@ export async function listAccountManagersAction(): Promise<{ success: true; user
 }
 
 /**
+ * Lists active SALES users keyed by id — used by surfaces that store a user
+ * UUID rather than a free-form name (e.g. contacts.account_manager_id, the
+ * /clients table inline AM picker, the contact-detail OwnerPicker fallback).
+ *
+ * Differs from listAccountManagersAction (above) which returns name as value
+ * because edit_projects.account_manager is a TEXT column. This one returns
+ * the actual user id so the caller can write to a FK column safely.
+ */
+export type SalesUser = { id: string; name: string; email: string };
+
+export async function listSalesUsersAction(): Promise<{ success: true; users: SalesUser[] } | { success: false; error: string }> {
+    const { role } = await ensureAuthenticated();
+    if (role === 'VIDEO_EDITOR') return { success: false, error: 'Forbidden' };
+
+    const { data, error } = await supabase
+        .from('users')
+        .select('id, name, email, role, crm_status')
+        .eq('role', 'SALES')
+        .order('name', { ascending: true });
+
+    if (error) {
+        console.error('[listSalesUsersAction] error', error);
+        return { success: false, error: error.message };
+    }
+
+    const users: SalesUser[] = (data || [])
+        .filter((u: { crm_status: string | null }) => u.crm_status !== 'REVOKED')
+        .map((u: { id: string; name: string | null; email: string | null }) => ({
+            id: u.id,
+            name: u.name || (u.email?.split('@')[0] ?? 'Unknown'),
+            email: u.email || '',
+        }));
+
+    return { success: true, users };
+}
+
+/**
  * Returns the unique set of tags used across all edit_projects, sorted by
  * frequency (most-used first). The TagsCell uses this to surface previously
  * created tags so editors can pick instead of retyping. New tags created via

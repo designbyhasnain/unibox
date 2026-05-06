@@ -146,18 +146,42 @@ export async function getContactDetailAction(contactId: string) {
     };
 }
 
-export async function updateContactAction(contactId: string, data: {
-    name?: string; company?: string; phone?: string; notes?: string; priority?: string;
-}) {
+// Allowlist of contact columns the inline-edit cells (clients table + detail
+// panel) are permitted to write. Two columns are *deliberately excluded*:
+//   - account_manager_id: every write MUST go through transferContactAction
+//     so the OWNERSHIP_TRANSFER audit row is recorded (CLAUDE.md rule 13).
+//   - last_message_direction / total_emails_*: maintained by the sync
+//     pipeline; user-facing edits would drift from reality.
+const CONTACT_UPDATABLE_FIELDS = new Set([
+    'name', 'company', 'phone', 'notes', 'priority', 'location', 'email',
+    'pipeline_stage', 'relationship_health',
+    'estimated_value', 'total_projects', 'total_revenue', 'unpaid_amount',
+    'last_email_at', 'lead_score',
+]);
+
+export async function updateContactAction(contactId: string, data: Record<string, unknown>) {
     const { userId, role } = await ensureAuthenticated();
     blockEditorAccess(role);
     const ownerFilter = getOwnerFilter(userId, role);
 
-    let q = supabase.from('contacts').update(data).eq('id', contactId);
+    // Scrub the payload so callers can never sneak account_manager_id (or
+    // any other off-limits column) through this generic updater.
+    const safe: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(data)) {
+        if (CONTACT_UPDATABLE_FIELDS.has(k)) safe[k] = v;
+    }
+    if (Object.keys(safe).length === 0) {
+        return { success: false as const, error: 'No updatable fields in payload' };
+    }
+
+    let q = supabase.from('contacts').update(safe).eq('id', contactId);
     if (ownerFilter) q = q.eq('account_manager_id', ownerFilter);
     const { error } = await q;
-    if (error) throw new Error(error.message);
-    return { success: true };
+    if (error) {
+        console.error('[updateContactAction] error:', error);
+        return { success: false as const, error: error.message };
+    }
+    return { success: true as const };
 }
 
 // ── Ownership transfer chokepoint ─────────────────────────────────────────

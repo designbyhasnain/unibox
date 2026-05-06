@@ -107,7 +107,8 @@ export default function ContactDetailPage() {
     useEffect(() => { load(); }, [load]);
 
     const handleSave = async () => {
-        await updateContactAction(contactId, editForm);
+        const res = await updateContactAction(contactId, editForm);
+        if (!res.success) return; // toast handled at row-cell level; silent here
         setEditing(false);
         load();
     };
