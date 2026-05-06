@@ -397,6 +397,23 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 (polish) — /actions card visibility + readable previews + faster expand
+
+Three bug reports + a perf ask after the morning's /actions launch:
+
+**Buttons rendered white-on-white.** Collapse and Send used `background: var(--ink)` with `color: '#fff'` — but `--ink` is the foreground colour token (light cream in dark mode), so the button became light-on-light. Fixed both by using the project's established primary-button pattern (`btn-dark` in globals.css line 423-425): `background: var(--ink); color: var(--canvas)`. The Collapse pill, which doesn't need primary emphasis, now uses `surface-2 + ink + hairline border` for a high-contrast secondary look. Snooze (clock icon) was previously `background: var(--shell)` which matched the surrounding card surface — also bumped to `surface-2 + ink`.
+
+**Message previews cut mid-sentence.** "Their Message" was capped at `maxHeight: 100px` with a `linear-gradient` fade mask, "Your Last Email" at 48px. Long messages (e.g. an OOO auto-reply that buried the actual question) were truncated to 2-3 lines with a ghostly fade. Bumped to 360px / 240px with `overflowY: auto`, removed the mask, and bumped the underlying `extractReplyPreview` cap from 200/300 → 4000 so the body actually has content to render. `whiteSpace: pre-wrap` keeps email line breaks.
+
+**Expand felt slow + re-fetched on every toggle.** The `useEffect` keyed on `[isExpanded, action.contactId, accounts]` re-fired every time the card toggled because it only short-circuited on `loadingEmails`, never on `emailsLoaded`. So collapsing then re-expanding made another `getContactLastEmailsAction` round-trip. Three changes:
+
+1. Extracted the fetch into a `prefetch()` `useCallback` that short-circuits on `emailsLoaded || loadingEmails`.
+2. Wired `prefetch()` to `onMouseEnter` so the request starts on hover — by the time the user clicks, the data is in flight (often already there for snappy expansion).
+3. Wrapped `ActionCard` in `React.memo` with a custom comparator: cards that aren't actively expanding don't re-render when a sibling's snooze popover toggles or another card's AI loading state flips.
+
+**Files touched:**
+- `app/components/ActionCard.tsx` — button colours (Collapse/Snooze/Send), message-preview heights + scroll, prefetch-on-hover, emailsLoaded short-circuit, React.memo wrapper.
+
 ## Build 2026-05-06 (post-launch) — /actions page: click-to-open + Ask AI wiring
 
 First post-launch bug fix pass. Two reported issues on `/actions`:

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Send, ChevronUp, Loader2, Clock, ExternalLink, Sparkles } from 'lucide-react';
 import type { ActionItem } from '../../src/actions/actionQueueActions';
@@ -35,7 +35,7 @@ type Props = {
     onToggleExpand: (id: string) => void;
 };
 
-export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, accounts, expandedId, onToggleExpand }: Props) {
+function ActionCardImpl({ action, onQuickEmail, onSnooze, onDone, accounts, expandedId, onToggleExpand }: Props) {
     const dotColor = URGENCY_DOT[action.urgency] || URGENCY_DOT.low;
     const isExpanded = expandedId === action.id;
 
@@ -56,8 +56,15 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
     const [aiError, setAiError] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    useEffect(() => {
-        if (!isExpanded || loadingEmails) return;
+    // ── Thread fetch + pre-fetch on hover ────────────────────────────────
+    // Single fetch per card per session. Previously the effect re-fired on
+    // every collapse → expand toggle (and on the rare `accounts` reference
+    // change), so the user paid the round-trip every click. Now: short-
+    // circuit on `emailsLoaded`, and let `prefetch` start the request as
+    // soon as the user hovers — by the time the click fires, the data is
+    // in flight or already cached in component state.
+    const prefetch = useCallback(() => {
+        if (loadingEmails || emailsLoaded) return;
         setLoadingEmails(true);
         setEmailLoadError(false);
         getContactLastEmailsAction(action.contactId)
@@ -77,7 +84,14 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
             })
             .catch(() => { setEmailsLoaded(true); setEmailLoadError(true); })
             .finally(() => setLoadingEmails(false));
-    }, [isExpanded, action.contactId, accounts]);  
+    // accounts deliberately omitted: it's only used to *select* the From
+    // account on first load, which we don't need to redo if accounts change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [action.contactId, loadingEmails, emailsLoaded]);
+
+    useEffect(() => {
+        if (isExpanded) prefetch();
+    }, [isExpanded, prefetch]);
 
     useEffect(() => {
         if (isExpanded && emailsLoaded && textareaRef.current) {
@@ -158,7 +172,7 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
 
     return (
         <div
-            onMouseEnter={() => setHovered(true)}
+            onMouseEnter={() => { setHovered(true); prefetch(); }}
             onMouseLeave={() => { setHovered(false); setShowSnooze(false); }}
             style={{
                 background: 'var(--shell)',
@@ -226,8 +240,8 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                     onClick={e => { e.stopPropagation(); setShowSnooze(!showSnooze); }}
                                     style={{
                                         width: 30, height: 30, borderRadius: 8,
-                                        border: '1px solid var(--hairline)', background: 'var(--shell)',
-                                        color: 'var(--ink-muted)', cursor: 'pointer',
+                                        border: '1px solid var(--hairline)', background: 'var(--surface-2)',
+                                        color: 'var(--ink)', cursor: 'pointer',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         transition: 'all .15s',
                                     }}
@@ -270,14 +284,19 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                         </>
                     )}
 
-                    {/* Reply / Collapse */}
+                    {/* Reply / Collapse \u2014 when expanded, use surface-2 + ink
+                        text instead of var(--ink) bg + #fff (which renders
+                        white-on-white in dark mode, since --ink is the
+                        foreground colour). The Reply state stays accent-
+                        coloured + transparent for the call-to-action look. */}
                     <button type="button" onClick={toggleExpand} style={{
-                        padding: '7px 14px', borderRadius: 8, border: 'none',
+                        padding: '7px 14px', borderRadius: 8,
+                        border: isExpanded ? '1px solid var(--hairline)' : 'none',
                         fontSize: 13, fontWeight: 500, cursor: 'pointer',
                         display: 'flex', alignItems: 'center', gap: 5,
                         transition: 'all .15s',
-                        background: isExpanded ? 'var(--ink)' : 'transparent',
-                        color: isExpanded ? '#fff' : 'var(--accent)',
+                        background: isExpanded ? 'var(--surface-2)' : 'transparent',
+                        color: isExpanded ? 'var(--ink)' : 'var(--accent)',
                     }}>
                         {isExpanded ? (
                             <><ChevronUp size={14} /> Collapse</>
@@ -351,11 +370,15 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                             )}
                                             <div style={{
                                                 fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6,
-                                                maxHeight: 100, overflow: 'hidden',
-                                                WebkitMaskImage: 'linear-gradient(180deg, black 60%, transparent 100%)',
-                                                maskImage: 'linear-gradient(180deg, black 60%, transparent 100%)',
+                                                // Show ~20 lines of their message before scrolling.
+                                                // Previously capped at 100px with a fade mask, which
+                                                // cut messages mid-sentence (e.g. an OOO auto-reply
+                                                // that buried the user's actual question).
+                                                maxHeight: 360, overflowY: 'auto',
+                                                whiteSpace: 'pre-wrap',
+                                                paddingRight: 4,
                                             }}>
-                                                {extractReplyPreview(lastReceived.body, lastReceived.snippet, 300) || 'No preview'}
+                                                {extractReplyPreview(lastReceived.body, lastReceived.snippet, 4000) || 'No preview'}
                                             </div>
                                         </div>
                                     )}
@@ -373,8 +396,12 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                                     {absoluteDate(lastSent.sent_at)}
                                                 </span>
                                             </div>
-                                            <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5, maxHeight: 48, overflow: 'hidden' }}>
-                                                {extractReplyPreview(lastSent.body, lastSent.snippet, 200) || 'No preview'}
+                                            <div style={{
+                                                fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5,
+                                                maxHeight: 240, overflowY: 'auto',
+                                                whiteSpace: 'pre-wrap', paddingRight: 4,
+                                            }}>
+                                                {extractReplyPreview(lastSent.body, lastSent.snippet, 4000) || 'No preview'}
                                             </div>
                                         </div>
                                     )}
@@ -522,9 +549,15 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
                                             onClick={handleSend}
                                             disabled={!replyBody.trim() || !fromAccountId || sending}
                                             style={{
-                                                background: (replyBody.trim() && fromAccountId) ? 'var(--ink)' : 'var(--hairline)',
-                                                color: (replyBody.trim() && fromAccountId) ? '#fff' : 'var(--ink-muted)',
-                                                border: 'none', borderRadius: 8,
+                                                // Primary "ink" button: bg=ink + text=canvas,
+                                                // matching .btn-dark in globals.css. Using #fff
+                                                // here previously rendered white-on-white in
+                                                // dark mode because var(--ink) is the foreground
+                                                // colour (light cream in dark theme).
+                                                background: (replyBody.trim() && fromAccountId) ? 'var(--ink)' : 'var(--surface-2)',
+                                                color: (replyBody.trim() && fromAccountId) ? 'var(--canvas)' : 'var(--ink-muted)',
+                                                border: (replyBody.trim() && fromAccountId) ? 'none' : '1px solid var(--hairline)',
+                                                borderRadius: 8,
                                                 padding: '8px 20px', fontSize: 13, fontWeight: 600,
                                                 cursor: (replyBody.trim() && fromAccountId) ? 'pointer' : 'not-allowed',
                                                 display: 'flex', alignItems: 'center', gap: 6,
@@ -548,3 +581,22 @@ export default function ActionCard({ action, onQuickEmail, onSnooze, onDone, acc
         </div>
     );
 }
+
+// Memoised so cards that aren't expanding don't re-render when a sibling's
+// state changes (snooze popovers, AI loading, etc.). Custom comparator keeps
+// the comparison cheap — we only care about the action object identity, the
+// expandedId (so the actively-expanded card and the previously-expanded card
+// re-render), and the accounts array reference.
+const ActionCard = React.memo(ActionCardImpl, (prev, next) => {
+    if (prev.action !== next.action) return false;
+    if (prev.expandedId !== next.expandedId) {
+        // Re-render only the cards whose expansion state actually changed.
+        const wasExpanded = prev.expandedId === prev.action.id;
+        const isExpanded = next.expandedId === next.action.id;
+        if (wasExpanded !== isExpanded) return false;
+    }
+    if (prev.accounts !== next.accounts) return false;
+    return true;
+});
+
+export default ActionCard;
