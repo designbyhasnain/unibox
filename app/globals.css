@@ -2065,6 +2065,11 @@ a {
     background: #d3e3fd;
 }
 
+.email-row {
+    /* needed for ::after dot anchor (added 2026-05-06) */
+    position: relative;
+}
+
 .email-row.unread {
     background: #ffffff;
     font-weight: 500;
@@ -2072,6 +2077,39 @@ a {
 
 .email-row.unread:hover {
     background: #e8f0fe;
+}
+
+/* Unread blue-dot indicator — accent-coloured circle in the row's left
+   gutter so unread mail is unmissable. ::after used so it doesn't fight
+   the existing checkbox cell. Hidden when the row is selected (the
+   selection background is enough signal there). */
+.email-row.unread::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent), transparent 70%);
+    pointer-events: none;
+    z-index: 1;
+}
+.email-row.unread.selected::after { display: none; }
+
+/* Read rows: explicit muted styling on text columns instead of relying
+   on opacity. Read = NOT .unread, so we negate. The selectors are
+   scoped to .email-row not .unread so they don't trigger on unread
+   rows. */
+.email-row:not(.unread) .sender-col,
+.email-row:not(.unread) .subject-text {
+    color: var(--ink-muted);
+    font-weight: 400;
+}
+.email-row:not(.unread) .preview-text {
+    color: var(--ink-faint);
 }
 
 
