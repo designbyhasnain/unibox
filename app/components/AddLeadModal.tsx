@@ -11,6 +11,7 @@ import { createClientAction } from '../../src/actions/clientActions';
 import { listSalesUsersAction, type SalesUser } from '../../src/actions/projectMetadataActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { useDialogShell } from '../hooks/useDialogShell';
+import { useGlobalFilter } from '../context/FilterContext';
 
 interface AddLeadModalProps {
     onClose: () => void;
@@ -32,6 +33,11 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
     // qualifies them.
     const [relationshipHealth, setRelationshipHealth] = useState('neutral');
     const [accountManagerId, setAccountManagerId] = useState('');
+    // Gmail account ("source mailbox") this contact is associated with.
+    // Optional — only set when the user wants to pre-attribute the lead
+    // to a specific inbox before any email arrives.
+    const [gmailAccountId, setGmailAccountId] = useState('');
+    const { accounts: gmailAccounts } = useGlobalFilter();
     const [managers, setManagers] = useState<SalesUser[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -70,6 +76,7 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
                 pipeline_stage: pipelineStage,
                 relationship_health: relationshipHealth || undefined,
                 account_manager_id: accountManagerId || undefined,
+                last_gmail_account_id: gmailAccountId || undefined,
             });
 
             if (res.success) {
@@ -175,7 +182,7 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
                         </FormField>
                     </div>
 
-                    {/* Row 5: Expected close date — full width when no AM, half when AM shown */}
+                    {/* Row 5: Expected close date + Account Manager (admin) */}
                     <div className="form-row">
                         <FormField label="EXPECTED CLOSE DATE">
                             <FormInput type="date" value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} />
@@ -199,6 +206,23 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
                             <div /> /* keep grid alignment when AM is hidden */
                         )}
                     </div>
+
+                    {/* Row 6: Gmail Account — which mailbox this contact
+                        belongs to. Optional. Persisted as
+                        contacts.last_gmail_account_id. Auto-set later when
+                        the first email arrives if left empty here. */}
+                    <FormField label="GMAIL ACCOUNT">
+                        <FormSelect value={gmailAccountId} onChange={e => setGmailAccountId(e.target.value)}>
+                            <option value="">Auto (set on first email)</option>
+                            {gmailAccounts
+                                .filter((a: any) => a.status === 'ACTIVE' || a.status === 'SYNCING' || !a.status)
+                                .map((a: any) => (
+                                    <option key={a.id} value={a.id}>
+                                        {a.email}{a.manager_name ? ` · ${a.manager_name}` : ''}
+                                    </option>
+                                ))}
+                        </FormSelect>
+                    </FormField>
 
                     <div className="modal-actions">
                         <Button type="button" variant="secondary" onClick={onClose} className="modal-btn-cancel">

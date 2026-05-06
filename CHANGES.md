@@ -397,6 +397,26 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 (CRM polish) — Calendar icon, dropdown overflow, editable detail panel, Gmail account, live sync
+
+Five visual + behavioural fixes from the screenshots:
+
+**1. Calendar icon invisible in dark mode (Last Contact column).** The browser's built-in `<input type="datetime-local">` picker indicator inherits `color-scheme` for its glyph colour. Without it the icon was rendered black-on-black in dark mode. Added a global rule in `globals.css`: every `datetime-local` / `date` / `time` input gets `color-scheme: dark` plus a `filter: invert(1)` fallback on `::-webkit-calendar-picker-indicator`. Light theme overrides via `body[data-theme="light"]` reset both. Affects `/clients` Last Contact + the Add Client expected-close-date input + any other native date input across the app.
+
+**2. Row-menu dropdown items overlapping ("Transfer owner…Enroll in campaign…Delete" inline).** Two root causes: the parent `.cl-page .table` had `overflow: hidden` for the rounded corners (clipped the `position: absolute` menu), and the items had no `white-space` rule (could wrap). Removed the table's `overflow: hidden` (the rounded border still works because there's no background overflow), bumped the menu's `min-width` from 160 → 180px, raised z-index from 50 → 60 (above the slide-out drawer), changed bg from `var(--surface)` to `var(--surface-2)` for clearer separation, and added `white-space: nowrap; display: block; width: 100%` to each item so labels stay on one line.
+
+**3. Detail panel editable.** Open Value, Lifetime Value, and Deals are now `NumericCell`s sharing the table's commit-on-blur/Enter pattern. Stage, Health, and Account Manager are now `SmartSelect` dropdowns matching the table cells (Stage + Health creatable; AM lists SALES users via `listSalesUsersAction` and writes via `transferContactAction` for the audit row). Added a new "Source Gmail account" row that surfaces `last_gmail_account_id` resolved against the loaded `accounts` array (read-only here — set on first email or via Add Client modal). Introduced a small `KVCell` helper that mirrors the `KV` row layout but renders an arbitrary control on the right.
+
+**4. Add Client modal — Gmail Account dropdown.** New optional field listing active Gmail accounts. Persisted as `contacts.last_gmail_account_id`. Default option `Auto (set on first email)`. `CreateClientPayload` and `createClientAction` extended with `last_gmail_account_id?: string`. Mail / Extension / Scraper-created contacts already write to this column when an email arrives, so the create-modal explicit choice is just a manual override for pre-attribution.
+
+**5. Live sync between table and panel.** Side-panel was tracking a snapshot copy of the row (`setSelected(c)`), so an optimistic edit in the table didn't reflect in the panel and vice versa. Replaced with `selectedId` + a derived `selected = clients.find(c => c.id === selectedId)`. Now any cell update — whether from the table or the panel — instantly reflects in the other view via the same `clients` state.
+
+**Files touched:**
+- `app/globals.css` — global datetime/date/time picker icon visibility.
+- `app/clients/PageClient.tsx` — table overflow, row-menu CSS, selectedId pattern, editable detail-panel sections, KVCell helper, Source Gmail row.
+- `app/components/AddLeadModal.tsx` — Gmail Account dropdown sourced from useGlobalFilter.
+- `src/actions/clientActions.ts` — `last_gmail_account_id` accepted in `CreateClientPayload` + insert.
+
 ## Build 2026-05-06 (CRM sprint, phase 3) — Add Client modal parity with table
 
 Brings the AddLeadModal in line with the /clients table cells so creating a client and editing one share the same fields and the same option vocabulary.

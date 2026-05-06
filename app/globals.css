@@ -9565,3 +9565,40 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
     background: color-mix(in oklab, var(--accent, #4f8cff) 7%, transparent);
     color: var(--accent, #4f8cff);
 }
+
+/* ─── Native datetime-local / date / time picker icon visibility ─────────
+   The browser's built-in calendar / clock indicator on these inputs uses
+   its own colour from `color-scheme`. Without it the icon is rendered
+   black-on-black in dark mode and effectively invisible (see
+   /clients > Last Contact column). `color-scheme: dark` makes the
+   browser pick the dark-theme picker; the invert filter is a defensive
+   fallback for browsers that ignore color-scheme on the icon. The
+   light-theme override re-opaques it back to black-on-light. */
+input[type="datetime-local"],
+input[type="date"],
+input[type="time"] {
+    color-scheme: dark;
+}
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+    opacity: 0.7;
+    cursor: pointer;
+    filter: invert(1) brightness(1.4);
+    transition: opacity 0.12s;
+}
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
+body[data-theme="light"] input[type="datetime-local"],
+body[data-theme="light"] input[type="date"],
+body[data-theme="light"] input[type="time"] {
+    color-scheme: light;
+}
+body[data-theme="light"] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+body[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
+body[data-theme="light"] input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: none;
+}

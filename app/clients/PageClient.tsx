@@ -55,7 +55,7 @@ function fmtDate(d: string) {
 export default function ClientsPage() {
     const hydrated = useHydrated();
     const router = useRouter();
-    const { selectedAccountId } = useGlobalFilter();
+    const { selectedAccountId, accounts } = useGlobalFilter();
     const { setComposeOpen, setComposeDefaultTo, setComposeDefaultSubject, setComposeDefaultBody } = useUI();
     const { showError, showSuccess } = useUndoToast();
     const confirm = useConfirm();
@@ -64,7 +64,12 @@ export default function ClientsPage() {
     // Board view dropped — `/opportunities` already owns the kanban with DnD.
     // Selecting "Board" now redirects there instead of showing a duplicate.
     const [view, setView] = useState<'list' | 'grid'>('list');
-    const [selected, setSelected] = useState<any>(null);
+    // Track the selected contact by id rather than a snapshot object so the
+    // side panel always reads the LIVE row from `clients` — that way an
+    // optimistic cell edit in the table is reflected in the panel and an
+    // edit in the panel reflects in the table without manual sync.
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const selected = selectedId ? clients.find(c => c.id === selectedId) || null : null;
     const [searchTerm, setSearchTerm] = useState('');
     const [totalCount, setTotalCount] = useState(0);
     const [isAdmin, setIsAdmin] = useState(false);
@@ -186,7 +191,7 @@ export default function ClientsPage() {
 
     useEffect(() => { load(); }, [load]);
     useEffect(() => {
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setSelected(null); setOpenMenuId(null); } };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setSelectedId(null); setOpenMenuId(null); } };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, []);
@@ -245,7 +250,7 @@ export default function ClientsPage() {
         }
         setClients(prev => prev.filter(c => c.id !== contactId));
         setTotalCount(t => Math.max(0, t - 1));
-        if (selected?.id === contactId) setSelected(null);
+        if (selectedId === contactId) setSelectedId(null);
     };
 
     if (!hydrated || loading) return <PageLoader isLoading type="list" count={10} context="clients"><div /></PageLoader>;
@@ -413,7 +418,7 @@ export default function ClientsPage() {
                                             />
                                         </td>
                                         {/* Client name + company. Click opens the side panel. */}
-                                        <td onClick={() => setSelected(c)} style={{ cursor: 'pointer' }}>
+                                        <td onClick={() => setSelectedId(c.id)} style={{ cursor: 'pointer' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                                 <div className={`avatar ${av}`} style={{ width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 10.5, fontWeight: 600 }}>{ini(c.name)}</div>
                                                 <div><b>{c.name || c.email}</b><div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{c.company || c.email}</div></div>
@@ -539,7 +544,7 @@ export default function ClientsPage() {
                                                 </button>
                                                 {openMenuId === c.id && (
                                                     <div className="row-menu" role="menu">
-                                                        <button className="row-menu-item" role="menuitem" onClick={() => { setOpenMenuId(null); setSelected(c); }}>
+                                                        <button className="row-menu-item" role="menuitem" onClick={() => { setOpenMenuId(null); setSelectedId(c.id); }}>
                                                             Open
                                                         </button>
                                                         {isAdmin && (
@@ -577,7 +582,7 @@ export default function ClientsPage() {
                             const stage = c.pipeline_stage || 'COLD_LEAD';
                             const health = c.relationship_health || 'cold';
                             return (
-                                <div key={c.id || i} className="card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => setSelected(c)}>
+                                <div key={c.id || i} className="card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => setSelectedId(c.id)}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
                                         <div className={`avatar ${av}`} style={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 12, fontWeight: 600 }}>{ini(c.name)}</div>
                                         <div style={{ minWidth: 0, flex: 1 }}>
@@ -605,7 +610,7 @@ export default function ClientsPage() {
         {/* Detail drawer */}
         {selected && (
             <>
-                <div onClick={() => setSelected(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(14,14,15,0.32)', zIndex: 40, animation: 'fadeIn 150ms ease' }} />
+                <div onClick={() => setSelectedId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(14,14,15,0.32)', zIndex: 40, animation: 'fadeIn 150ms ease' }} />
                 <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 520, zIndex: 41, background: 'var(--surface)', borderLeft: '1px solid var(--hairline)', boxShadow: '-24px 0 48px rgba(14,14,15,0.12)', display: 'flex', flexDirection: 'column', animation: 'slideInRight 220ms cubic-bezier(.2,.8,.2,1)' }}>
                     {/* Header */}
                     <div style={{ padding: '18px 22px 16px', borderBottom: '1px solid var(--hairline-soft)' }}>
@@ -613,7 +618,7 @@ export default function ClientsPage() {
                             <span>CRM / Clients /</span>
                             <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{selected.name}</span>
                             <div style={{ flex: 1 }} />
-                            <button className="icon-btn" onClick={() => setSelected(null)}>{ICON.x}</button>
+                            <button className="icon-btn" onClick={() => setSelectedId(null)}>{ICON.x}</button>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
                             <div className={`avatar ${avColors[(selected.name || '').charCodeAt(0) % avColors.length]}`} style={{ width: 56, height: 56, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 18, fontWeight: 600, flexShrink: 0 }}>{ini(selected.name)}</div>
@@ -688,11 +693,39 @@ export default function ClientsPage() {
 
                     {/* Scroll body */}
                     <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
-                        {/* Stats grid */}
+                        {/* Stats grid — Open Value / LTV are editable
+                            NumericCells matching the table; Projects + Last
+                            Contact stay informational (Last Contact still
+                            edits via the table). */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 22 }}>
-                            <StatBox label="Open value" val={selected.estimated_value ? fmt(selected.estimated_value) : '—'} />
-                            <StatBox label="Lifetime value" val={selected.total_revenue ? fmt(selected.total_revenue) : '—'} />
-                            <StatBox label="Projects" val={String(selected.total_projects || 0)} />
+                            <StatBox
+                                label="Open value"
+                                val={
+                                    <NumericCell
+                                        value={selected.estimated_value}
+                                        onCommit={(n) => handleCellUpdate(selected.id, 'estimated_value', n)}
+                                    />
+                                }
+                            />
+                            <StatBox
+                                label="Lifetime value"
+                                val={
+                                    <NumericCell
+                                        value={selected.total_revenue}
+                                        onCommit={(n) => handleCellUpdate(selected.id, 'total_revenue', n)}
+                                    />
+                                }
+                            />
+                            <StatBox
+                                label="Deals"
+                                val={
+                                    <NumericCell
+                                        value={selected.total_projects}
+                                        onCommit={(n) => handleCellUpdate(selected.id, 'total_projects', n)}
+                                        noPrefix
+                                    />
+                                }
+                            />
                             <StatBox label="Last contact" val={fmtDate(selected.last_email_at)} />
                         </div>
 
@@ -704,12 +737,72 @@ export default function ClientsPage() {
                             <KV k="Company" v={selected.company || '—'} />
                         </Section>
 
-                        {/* Relationship */}
+                        {/* Relationship — Stage/Health/Owner are now interactive
+                            SmartSelects matching the table cell behaviour. The
+                            "Source Gmail Account" surfaces last_gmail_account_id
+                            (read-only — set when the first email arrives or
+                            via Add Client). */}
                         <Section title="Relationship">
-                            <KV k="Stage" v={stageLabel[selected.pipeline_stage] || 'Cold'} />
-                            <KV k="Health" v={selected.relationship_health || 'unknown'} />
+                            <KVCell k="Stage">
+                                <SmartSelect
+                                    value={selected.pipeline_stage || 'COLD_LEAD'}
+                                    onChange={(v) => v && handleCellUpdate(selected.id, 'pipeline_stage', v)}
+                                    creatable
+                                    pillClass={`chip dot ${stageClass[selected.pipeline_stage] || 'cold'}`}
+                                    options={[
+                                        { value: 'COLD_LEAD', label: 'Cold' },
+                                        { value: 'CONTACTED', label: 'Contacted' },
+                                        { value: 'WARM_LEAD', label: 'Warm' },
+                                        { value: 'LEAD', label: 'Lead' },
+                                        { value: 'OFFER_ACCEPTED', label: 'Offer' },
+                                        { value: 'CLOSED', label: 'Closed' },
+                                        { value: 'NOT_INTERESTED', label: 'Dead' },
+                                    ]}
+                                />
+                            </KVCell>
+                            <KVCell k="Health">
+                                <SmartSelect
+                                    value={selected.relationship_health || 'neutral'}
+                                    onChange={(v) => v && handleCellUpdate(selected.id, 'relationship_health', v)}
+                                    creatable
+                                    options={[
+                                        { value: 'neutral', label: 'neutral' },
+                                        { value: 'strong', label: 'strong' },
+                                        { value: 'warm', label: 'warm' },
+                                        { value: 'good', label: 'good' },
+                                        { value: 'cooling', label: 'cooling' },
+                                        { value: 'cold', label: 'cold' },
+                                        { value: 'at-risk', label: 'at-risk' },
+                                        { value: 'critical', label: 'critical' },
+                                        { value: 'dead', label: 'dead' },
+                                    ]}
+                                />
+                            </KVCell>
                             <KV k="Lead score" v={String(selected.lead_score || 0)} />
-                            <KV k="Account" v={selected.account_email || '—'} mono />
+                            <KVCell k="Account manager">
+                                <SmartSelect
+                                    value={selected.account_manager_id || null}
+                                    onChange={(v) => handleCellUpdate(selected.id, 'account_manager_id', v)}
+                                    clearable
+                                    clearLabel="Unassigned"
+                                    placeholder="Unassigned"
+                                    options={salesUsers.map(u => ({
+                                        value: u.id,
+                                        label: u.name,
+                                        subtitle: u.email,
+                                        avatar: u.name.split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase(),
+                                    }))}
+                                />
+                            </KVCell>
+                            <KV
+                                k="Source Gmail account"
+                                v={
+                                    selected.last_gmail_account_id
+                                        ? (accounts.find(a => a.id === selected.last_gmail_account_id)?.email || selected.last_gmail_account_id)
+                                        : '—'
+                                }
+                                mono
+                            />
                         </Section>
                     </div>
                 </div>
@@ -801,7 +894,10 @@ export default function ClientsPage() {
 .cl-page .btn-dark{background:var(--ink);color:var(--canvas)}
 .cl-page .btn-dark:hover{opacity:.9}
 .cl-page .btn-ghost{background:none;color:var(--ink-2)}
-.cl-page .table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;overflow:hidden}
+/* Don't clip the table — the absolute-positioned .row-menu dropdown sits
+   on the rightmost cell and was being chopped against the rounded corner.
+   Border-radius still works because there's no background overflow. */
+.cl-page .table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px}
 .cl-page .table th,.cl-page .table td{padding:11px 14px;text-align:left;font-size:12.5px}
 .cl-page .table th{font-weight:500;color:var(--ink-muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;background:color-mix(in oklab,var(--surface-2),transparent 20%);border-bottom:1px solid var(--hairline-soft)}
 .cl-page .table tbody tr{border-bottom:1px solid var(--hairline-soft);transition:background .12s}
@@ -818,12 +914,45 @@ export default function ClientsPage() {
 .cl-page .chip.closed{background:color-mix(in oklab,var(--coach-soft),transparent 20%);color:var(--coach);border-color:transparent}
 .cl-page .chip.dead{background:color-mix(in oklab,var(--danger-soft),transparent 20%);color:var(--danger);border-color:transparent}
 .cl-page .row-menu-wrap{position:relative;display:inline-block}
-.cl-page .row-menu{position:absolute;right:0;top:calc(100% + 4px);min-width:160px;background:var(--surface);border:1px solid var(--hairline-soft);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;z-index:50;display:flex;flex-direction:column}
-.cl-page .row-menu-item{background:none;border:none;color:var(--ink);font-family:var(--font-ui);font-size:13px;text-align:left;padding:8px 12px;border-radius:6px;cursor:pointer;transition:background .12s}
-.cl-page .row-menu-item:hover{background:var(--surface-hover)}
+/* Higher z-index than the slide-out drawer (which uses 41) so the menu
+   isn't hidden when triggered from the detail panel. surface-2 bg gives
+   a clearer separation from the page; min-width fits "Enroll in
+   campaign…" without truncation. */
+.cl-page .row-menu{
+    position:absolute;
+    right:0;
+    top:calc(100% + 6px);
+    min-width:180px;
+    background:var(--surface-2);
+    border:1px solid var(--hairline);
+    border-radius:10px;
+    box-shadow:0 10px 28px rgba(0,0,0,.32);
+    padding:6px;
+    z-index:60;
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+}
+.cl-page .row-menu-item{
+    display:block;
+    width:100%;
+    background:none;
+    border:none;
+    color:var(--ink);
+    font-family:var(--font-ui);
+    font-size:13px;
+    text-align:left;
+    padding:8px 12px;
+    border-radius:6px;
+    cursor:pointer;
+    /* keep each label on a single line — was wrapping inline before */
+    white-space:nowrap;
+    transition:background .12s, color .12s;
+}
+.cl-page .row-menu-item:hover{background:var(--surface-hover);color:var(--ink)}
 .cl-page .row-menu-item:disabled{opacity:.5;cursor:default}
 .cl-page .row-menu-item.danger{color:var(--danger)}
-.cl-page .row-menu-item.danger:hover{background:color-mix(in oklab,var(--danger-soft),transparent 60%)}
+.cl-page .row-menu-item.danger:hover{background:color-mix(in oklab,var(--danger-soft),transparent 60%);color:var(--danger)}
 .cl-page .card{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;transition:border-color .12s}
 .cl-page .card:hover{border-color:var(--hairline)}
 .cl-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:start;overflow-x:auto}
@@ -845,11 +974,22 @@ export default function ClientsPage() {
     );
 }
 
-function StatBox({ label, val }: { label: string; val: string }) {
+function StatBox({ label, val }: { label: string; val: React.ReactNode }) {
     return (
         <div>
             <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-muted)', marginBottom: 4 }}>{label}</div>
             <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{val}</div>
+        </div>
+    );
+}
+
+// Editable KV row — same layout as KV but renders an arbitrary control on
+// the right (used for Stage / Health / Owner SmartSelects in the panel).
+function KVCell({ k, children }: { k: string; children: React.ReactNode }) {
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--hairline-soft)', minHeight: 32 }}>
+            <div style={{ width: 140, color: 'var(--ink-muted)', flexShrink: 0 }}>{k}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
         </div>
     );
 }

@@ -57,6 +57,9 @@ export type CreateClientPayload = {
     pipeline_stage?: string;
     relationship_health?: string;
     account_manager_id?: string;
+    /** Gmail account this contact "belongs" to. Set explicitly via the
+     *  Add Client modal, or auto-set when the first email arrives. */
+    last_gmail_account_id?: string;
     source?: string;
     notes?: string;
 };
@@ -96,6 +99,7 @@ export async function createClientAction(payload: CreateClientPayload) {
     if (payload.estimated_value) insertData.estimated_value = payload.estimated_value;
     if (payload.expected_close_date) insertData.expected_close_date = payload.expected_close_date;
     if (payload.relationship_health) insertData.relationship_health = payload.relationship_health;
+    if (payload.last_gmail_account_id) insertData.last_gmail_account_id = payload.last_gmail_account_id;
     if (payload.source) insertData.source = payload.source;
     if (payload.notes) insertData.notes = payload.notes;
 
