@@ -251,7 +251,13 @@ export default function OpportunitiesPage() {
 .op-page .kpi .d{font-size:11.5px;color:var(--ink-muted)}
 .op-page .kpi .d .up{color:var(--coach)}
 .op-page .kpi-spark{position:absolute;right:10px;top:10px;width:64px;height:28px;opacity:.6}
-.op-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:stretch;overflow-x:auto;flex:1;min-height:0}
+.op-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:stretch;overflow-x:auto;flex:1;
+    /* Floor the kanban height so on short viewports we still get a usable
+       column rather than collapsing to 0. The page scrolls on small screens;
+       on tall ones the columns stretch to fill via flex:1. The 240px deduction
+       roughly accounts for topbar + page-head + KPI row above. */
+    min-height:calc(100vh - 240px);
+}
 .op-page .kcol{background:var(--shell);border:1px solid var(--hairline-soft);border-radius:14px;padding:10px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .op-page .kcol-body{flex:1;min-height:0;overflow-y:auto;padding-right:2px;scrollbar-width:thin;scrollbar-color:var(--hairline) transparent}
 .op-page .kcol-body::-webkit-scrollbar{width:6px}
