@@ -311,7 +311,13 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
 .db-head .refresh-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:500;color:var(--ink-2);background:none;border:1px solid var(--hairline-soft);cursor:pointer;font-family:var(--font-ui);transition:background .12s}
 .db-head .refresh-btn:hover{background:var(--surface)}
 
-.db-briefing{background:linear-gradient(135deg,color-mix(in oklab,var(--accent-soft),transparent 35%),color-mix(in oklab,var(--surface),transparent 0%));border:1px solid color-mix(in oklab,var(--accent),transparent 80%);border-radius:var(--radius-card,14px);padding:18px 20px;margin-bottom:20px;position:relative;overflow:hidden}
+.db-briefing{background:linear-gradient(135deg,color-mix(in oklab,var(--accent-soft),transparent 35%),color-mix(in oklab,var(--surface),transparent 0%));border:1px solid color-mix(in oklab,var(--accent),transparent 80%);border-radius:var(--radius-card,14px);padding:18px 20px;margin-bottom:20px;position:relative;overflow:hidden;
+    /* Reserve space for the briefing body so the card doesn't grow when
+       the Groq summary lands (was: head-only → 3-paragraph body, ~120px
+       vertical jump). The fallback bullets and loaded summary both fit
+       comfortably inside this min-height; longer summaries still expand. */
+    min-height: 168px;
+}
 .db-briefing-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .db-briefing-head .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-ink);font-weight:600}
 .db-briefing-head .actions{margin-left:auto;display:flex;gap:6px}
@@ -448,7 +454,14 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                         <div className="kpi" key={i}>
                             <div className="k">{kpi.k}</div>
                             <div className="v">{kpi.v}</div>
-                            <div className="d"><span className={kpi.up ? 'up' : 'down'}>▲</span> {kpi.d}</div>
+                            <div className="d">
+                                {/* The arrow glyph follows the delta direction
+                                    rather than always rendering ▲ — previously a
+                                    -30 'Sent' delta showed a green-down-arrow with
+                                    the words "-30 vs yesterday", which read as
+                                    contradictory. ▲ for ≥0, ▼ for negative. */}
+                                <span className={kpi.up ? 'up' : 'down'}>{kpi.up ? '▲' : '▼'}</span> {kpi.d}
+                            </div>
                             <Spark points={kpi.sp} color={kpi.up ? 'var(--coach)' : 'var(--danger)'} />
                         </div>
                     ))}
@@ -471,8 +484,13 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                                 ))}
                             </div>
                         ) : (
-                            <div style={{ height: 160, display: 'grid', placeItems: 'center', color: 'var(--ink-faint)', fontSize: 13 }}>
-                                No closed revenue in the last 6 months
+                            <div style={{ height: 160, display: 'grid', placeItems: 'center', textAlign: 'center', padding: '0 24px' }}>
+                                <div>
+                                    <div style={{ color: 'var(--ink-2)', fontSize: 13, fontWeight: 500, marginBottom: 4 }}>No closed revenue in the last 6 months</div>
+                                    <div style={{ color: 'var(--ink-muted)', fontSize: 11.5 }}>
+                                        Tip: Mark a project as <b style={{ color: 'var(--ink-2)' }}>PAID</b> in <a href="/projects" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Projects</a> to see revenue here.
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -492,7 +510,7 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                     </div>
                 </div>
 
-                {/* ── Need Reply + Top Closers ── */}
+                {/* ── Need Reply + Top Revenue Clients ── */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                     <div className="card">
                         <h3>Need reply <span className="sub">overdue</span></h3>
@@ -507,7 +525,9 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                                             title={row.id ? `Open ${row.n}` : undefined}
                                         >
                                             <td style={{ width: 140 }}><b>{row.n}</b></td>
-                                            <td style={{ color: 'var(--ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{row.s}</td>
+                                            <td style={{ color: 'var(--ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>
+                                                {row.s || <span style={{ fontStyle: 'italic', color: 'var(--ink-faint)' }}>(no subject)</span>}
+                                            </td>
                                             <td className="num" style={{ textAlign: 'right', width: 60 }}>
                                                 <span className="chip" style={{ color: row.p === 'high' ? 'var(--danger)' : row.p === 'med' ? 'var(--warn)' : 'var(--ink-muted)' }}>{row.d} old</span>
                                             </td>
@@ -516,11 +536,19 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                                 </tbody>
                             </table>
                         ) : (
-                            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--ink-faint)', fontSize: 13 }}>All caught up — no overdue replies</div>
+                            <div style={{ textAlign: 'center', padding: '24px 12px' }}>
+                                <div style={{ color: 'var(--ink-2)', fontSize: 13, fontWeight: 500, marginBottom: 4 }}>All caught up — no overdue replies</div>
+                                <div style={{ color: 'var(--ink-muted)', fontSize: 11.5 }}>
+                                    Tip: Reply rate (week) climbs with consistency. Keep the streak.
+                                </div>
+                            </div>
                         )}
                     </div>
                     <div className="card">
-                        <h3>{isAdmin ? 'Top closers this month' : 'Team leaderboard · this month'}</h3>
+                        {/* Section heading: the underlying data is top REVENUE
+                            CLIENTS (contacts.total_revenue desc), not top sales
+                            reps. Earlier label "Top closers" misled the user. */}
+                        <h3>Top revenue clients <span className="sub">{isAdmin ? 'all accounts' : 'mine'} · lifetime</span></h3>
                         {closerRows.length > 0 ? (
                             <table className="table">
                                 <tbody>
@@ -546,7 +574,12 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                                 </tbody>
                             </table>
                         ) : (
-                            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--ink-faint)', fontSize: 13 }}>No closed deals yet this month</div>
+                            <div style={{ textAlign: 'center', padding: '24px 12px' }}>
+                                <div style={{ color: 'var(--ink-2)', fontSize: 13, fontWeight: 500, marginBottom: 4 }}>No closed deals yet</div>
+                                <div style={{ color: 'var(--ink-muted)', fontSize: 11.5 }}>
+                                    Tip: Top revenue clients show up here once a project is marked PAID.
+                                </div>
+                            </div>
                         )}
                     </div>
                 </div>

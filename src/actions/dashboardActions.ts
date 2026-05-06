@@ -207,7 +207,32 @@ export async function getSalesDashboardAction() {
         .order('days_since_last_contact', { ascending: true })
         .limit(5);
     if (accountIds) replyQuery = replyQuery.eq('account_manager_id', userId);
-    const { data: needReply, count: replyNowCount } = await replyQuery;
+    const { data: needReplyRaw, count: replyNowCount } = await replyQuery;
+
+    // Enrich Need-Reply rows with the LATEST RECEIVED email's subject so
+    // the dashboard table has actionable context (was rendering an empty
+    // middle column because the subject was never fetched). One batched
+    // query keyed on contact_id + direction='RECEIVED', take the most
+    // recent per contact in JS.
+    const needReplyContactIds = (needReplyRaw || []).map((c: any) => c.id);
+    const lastSubjectByContact: Record<string, string> = {};
+    if (needReplyContactIds.length > 0) {
+        const { data: subjects } = await supabase
+            .from('email_messages')
+            .select('contact_id, subject, sent_at')
+            .in('contact_id', needReplyContactIds)
+            .eq('direction', 'RECEIVED')
+            .order('sent_at', { ascending: false });
+        for (const m of subjects || []) {
+            if (m.contact_id && !(m.contact_id in lastSubjectByContact)) {
+                lastSubjectByContact[m.contact_id] = m.subject || '';
+            }
+        }
+    }
+    const needReply = (needReplyRaw || []).map((c: any) => ({
+        ...c,
+        lastSubject: lastSubjectByContact[c.id] || '',
+    }));
 
     // ── Unpaid Clients ──────────────────────────────────────────────────
     let unpaidQuery = supabase.from('contacts')

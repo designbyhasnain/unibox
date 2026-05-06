@@ -397,6 +397,31 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 (dashboard audit) — Need-Reply subjects, KPI delta arrows, label & empty-state fixes
+
+A proactive audit of /dashboard against the live admin account surfaced four real bugs and two UX gaps. No "the user reported X" — these were caught by code-reading + browser inspection.
+
+**Found via browser inspection of live KPIs:**
+- `Sent today: 48 — ▲ -30 vs yesterday` — the up-arrow rendered for a *negative* delta on every KPI tile, including Sent (-30), Replies (-26), and Reply rate (-25 pts). Cause: the JSX hardcoded `▲`, only the colour class flipped between `up` (green) and `down` (red). Fix: switch the glyph to `▼` when delta < 0 so the icon and the text agree.
+- `Need reply` table's middle column was empty for all 4 rows — `Iharvphoto`, `Memento Collective`, `Tobi (via Calendly)`, `Chris Schmauch` all rendered with no subject. Cause: `dashboardActions.getSalesDashboardAction` returned only contact-level fields (id, name, email, days_since_last_contact, total_revenue), no subject join. The PageClient had `r.subject || r.lastSubject || ''` ready but the server never populated either. Fix: in the server, do one batched query against `email_messages` filtered by `contact_id IN (…) AND direction = 'RECEIVED'` ordered desc, take the first subject per contact in JS, attach as `lastSubject`. Same number of round-trips as before for everything else (one extra batched query). The PageClient now also renders `(no subject)` in italic-faint when the field is genuinely empty rather than a blank cell.
+
+**Found via code-read:**
+- "Top closers this month" labelled top-revenue *clients* (the payload is `topClients` from `contacts` ordered by `total_revenue desc`). A "closer" reads as a sales rep — labelling the section "Top closers" was misleading. Renamed to **"Top revenue clients"** with sub-label `all accounts · lifetime` (admin) or `mine · lifetime` (sales). The data and the label now match.
+- Briefing card layout shift on first load: the `<span class="jarvis-thinking">analyzing today's data…</span>` placeholder collapsed the card to ~60px while the Groq fetch was in flight, then expanded ~120px taller when the 2-3 paragraph summary landed. Set `min-height: 168px` on `.db-briefing` so the card reserves space for both states; longer summaries still expand naturally.
+
+**Empty-state Tips (proactive UX fix per the user's spec):** added actionable hints for the three states the user is most likely to see early in the lifecycle:
+- Empty Revenue chart: *"Tip: Mark a project as PAID in Projects to see revenue here."* (with link to /projects)
+- Empty Need Reply table: *"Tip: Reply rate (week) climbs with consistency. Keep the streak."*
+- Empty Top Revenue Clients table: *"Tip: Top revenue clients show up here once a project is marked PAID."*
+
+**Click-throughs verified:** Clicking a Need-Reply row navigates to `/clients/<contactId>` (verified live: routed to `…/77948758-2ecc-4a08-ae5f-b2a90b965603`); clicking a Top Revenue Client row also routes correctly (verified live: `…/85869f7b-23e1-4623-88a1-5b25385deca8`). Both rows already had cursor:pointer + onClick handlers — no fix needed there.
+
+**Roles audit:** Live test as ADMIN passed. SALES path verified by code-read (the `accountIds` branch in `dashboardActions.ts` scopes every contact/project query to `account_manager_id = userId`, so a SALES user only sees their own pipeline). VIDEO_EDITOR path: PageClient short-circuits to `<EditorTodayView />` before calling `getSalesDashboardAction` (which itself rejects editors via `blockEditorAccess(role)` server-side as a defence-in-depth).
+
+**Files touched:**
+- `src/actions/dashboardActions.ts` — needReply enriched with `lastSubject` via batched email_messages query.
+- `app/dashboard/PageClient.tsx` — KPI delta arrow direction, "Top revenue clients" rename, empty-state Tips, briefing min-height.
+
 ## Build 2026-05-06 (inbox polish) — Relationship card overflow + unread/read distinction
 
 Two screenshot bugs from the inbox detail sidebar + a request for clearer unread state in the email list.
