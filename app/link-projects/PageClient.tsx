@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
+import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import {
     getOrphanedProjectsAction,
     searchContactsForLinkingAction,
@@ -44,6 +45,17 @@ export default function LinkProjectsPage() {
     const [suspects, setSuspects] = useState<any[]>([]);
     const [suspectLoading, setSuspectLoading] = useState(false);
     const [unlinking, setUnlinking] = useState<string | null>(null);
+
+    // Topbar search — separate from the per-card contact search. Filters
+    // the visible orphaned projects list (or the suspicious-links list,
+    // depending on the active tab) by name / AM / status / email.
+    const [topbarQuery, setTopbarQuery] = useState('');
+    useRegisterGlobalSearch('/link-projects', {
+        placeholder: tab === 'suspicious' ? 'Search suspicious contacts' : 'Search orphan projects',
+        value: topbarQuery,
+        onChange: setTopbarQuery,
+        onClear: () => setTopbarQuery(''),
+    });
 
     const DAILY_TARGET = 5;
 
@@ -109,6 +121,27 @@ export default function LinkProjectsPage() {
         }
         setUnlinking(null);
     };
+
+    // Filtered views for the active tab. Both are real-time client-side
+    // filters since the lists are small (orphaned: paginated to 8 per page,
+    // suspects: usually <100).
+    const filteredProjects = useMemo(() => {
+        const q = topbarQuery.trim().toLowerCase();
+        if (!q) return projects;
+        return projects.filter(p => {
+            const fields = [p.project_name, p.account_manager, p.status, p.client_name];
+            return fields.some(f => (f || '').toString().toLowerCase().includes(q));
+        });
+    }, [projects, topbarQuery]);
+
+    const filteredSuspects = useMemo(() => {
+        const q = topbarQuery.trim().toLowerCase();
+        if (!q) return suspects;
+        return suspects.filter(s => {
+            const fields = [s.name, s.email];
+            return fields.some(f => (f || '').toString().toLowerCase().includes(q));
+        });
+    }, [suspects, topbarQuery]);
 
     if (!hydrated) return <PageLoader isLoading type="list"><div /></PageLoader>;
 
@@ -252,9 +285,14 @@ export default function LinkProjectsPage() {
                     <PageLoader isLoading type="list"><div /></PageLoader>
                 ) : projects.length === 0 ? (
                     <div className="lp-done"><div className="lp-done-icon">&#9989;</div><div className="lp-done-text">All projects linked!</div></div>
+                ) : filteredProjects.length === 0 ? (
+                    <div className="lp-done" style={{ background: 'var(--surface)', borderColor: 'var(--hairline-soft)' }}>
+                        <div className="lp-done-text" style={{ color: 'var(--ink)' }}>No results found</div>
+                        <div className="lp-done-sub" style={{ color: 'var(--ink-muted)' }}>Nothing matches “{topbarQuery}”.</div>
+                    </div>
                 ) : (
                     <>
-                    {projects.map((p, idx) => {
+                    {filteredProjects.map((p, idx) => {
                         const isActive = activeProject === p.id;
                         const pay = p.paid_status === 'PAID' ? { color: 'var(--coach)', bg: 'var(--coach-soft)', label: 'Paid' } : { color: 'var(--danger)', bg: 'var(--danger-soft)', label: 'Unpaid' };
                         const projectSuggestions = suggestions[p.id] || [];
@@ -375,8 +413,13 @@ export default function LinkProjectsPage() {
                     <PageLoader isLoading type="list"><div /></PageLoader>
                 ) : suspects.length === 0 ? (
                     <div className="lp-done"><div className="lp-done-icon">&#9989;</div><div className="lp-done-text">No suspicious links!</div></div>
+                ) : filteredSuspects.length === 0 ? (
+                    <div className="lp-done" style={{ background: 'var(--surface)', borderColor: 'var(--hairline-soft)' }}>
+                        <div className="lp-done-text" style={{ color: 'var(--ink)' }}>No results found</div>
+                        <div className="lp-done-sub" style={{ color: 'var(--ink-muted)' }}>Nothing matches “{topbarQuery}”.</div>
+                    </div>
                 ) : (
-                    suspects.map(s => (
+                    filteredSuspects.map(s => (
                         <div key={s.id} className="lp-suspect">
                             <div className="lp-suspect-info">
                                 <div className="lp-suspect-name">{s.name}</div>

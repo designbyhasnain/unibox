@@ -397,6 +397,30 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 (later) — Search coverage on remaining list pages + intelligence scroll fix
+
+Follow-on to the morning's global-search overhaul. Three list pages still had no topbar search and the `/intelligence` page had a scroll bug that hid most of the Jarvis audit cards below the fold.
+
+**Search wiring (all client-side, real-time):**
+- **`/my-projects`** — filter by `project_name`, `client_name`, `person`, `status`, or `editor`. Operates on the loaded page (max 100 projects); separate "No results found" empty state distinguishes a filtered-empty list from "No projects yet".
+- **`/link-projects`** — filter the orphaned-projects list (by `project_name`, `account_manager`, `status`, `client_name`) and the suspicious-links list (by `name`, `email`). The per-card contact search inside an active orphan project's panel is left untouched — it's a different UX (server-side `searchContactsForLinkingAction` against the contacts table) and the topbar would be ambiguous between "filter the list" and "find a contact to link".
+- **`/data-health`** — filter the Recent Failures list (by `email` or `lastError`) and the Perf Routes table (by route path). Counts in the section heading update with the filter so the user can see "5/12 match".
+
+**`/intelligence` scroll fix:**
+
+Root cause: the page was structured as a flex column with the topbar (`flexShrink: 0`), page head (`flexShrink: 0`), KPI chips (`flexShrink: 0`), and the cards list (`flex: 1; overflowY: auto`). But `<PageLoader>` wraps its rendered children in `<div className="content-loaded">` — a plain block-level div with no flex props. That extra wrapper became a single flex child carrying KPI chips + cards together, so the cards' `flex: 1` had nothing to compete against and the `overflowY: auto` clipped without ever activating. Result: anything past the first viewport's worth of cards was invisible.
+
+Fix: collapse the inner scroll container. The outer `div` now has `overflow: hidden` and a sibling scrollable wrapper (`flex: 1; overflowY: auto; minHeight: 0`) that owns the page head, PageLoader, KPI chips, and cards together. Everything below the topbar scrolls as one. No more nested overflow boxes; no more reliance on PageLoader preserving flex-child semantics.
+
+**Files touched:**
+- `app/my-projects/PageClient.tsx` — `useRegisterGlobalSearch('/my-projects', …)`, `filteredProjects` memo, search-empty state.
+- `app/link-projects/PageClient.tsx` — `useRegisterGlobalSearch('/link-projects', …)`, two filtered memos for the two tabs, search-empty state for each.
+- `app/data-health/PageClient.tsx` — `useRegisterGlobalSearch('/data-health', …)`, two filtered memos, `PerfTable` accepts `searchTerm` + `totalRows` so it can render the right empty-state copy.
+- `app/intelligence/PageClient.tsx` — restructured into `outer (flex column, overflow hidden) → topbar (fixed) → scroll wrapper (flex:1; overflowY:auto; minHeight:0) → page head + PageLoader → KPIs + cards`.
+- `PROJECT_OVERVIEW.md` §4.12 — updated the "registers / doesn't register" lists.
+
+**Now wired across 10 list-heavy routes:** `/`, `/sent`, `/clients`, `/projects`, `/my-projects`, `/link-projects`, `/campaigns`, `/accounts`, `/scraper`, `/data-health`. Hidden everywhere else.
+
 ## Build 2026-05-06 — Global search: contextual, list-only, per-page history
 
 One-pass overhaul of the topbar search so it actually works the same way on every list-heavy page and disappears on routes where there's nothing to search. Driven by a complaint that the bar showed up on the dashboard / intelligence / finance / data-health / team views (where it does nothing) and that "recent searches" was a single global pile that bled queries across unrelated pages.

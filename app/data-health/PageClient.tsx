@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { getDataHealthAction, getGmailSyncHealthAction, type DataHealthSnapshot, type GmailSyncHealth } from '../../src/actions/dataHealthActions';
 import { syncAllAccountsHealthAction } from '../../src/actions/accountActions';
 import { LoadingText } from '../components/LoadingStates';
 import { useUndoToast } from '../context/UndoToastContext';
 import { useConfirm } from '../context/ConfirmContext';
+import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 
 import { AlertTriangle, CheckCircle2, Mail, Database, Users, Briefcase, Clock, Zap, Activity } from 'lucide-react';
 
@@ -28,6 +29,34 @@ export default function DataHealthPage() {
     const [loading, setLoading] = useState(true);
     const [running, setRunning] = useState(false);
     const [lastRun, setLastRun] = useState<string | null>(null);
+
+    // Topbar search — filters integrity issues (Recent Failures and Perf
+    // routes) by email / error text / route path. Real-time client-side
+    // filter; the lists are short.
+    const [searchTerm, setSearchTerm] = useState('');
+    useRegisterGlobalSearch('/data-health', {
+        placeholder: 'Search routes, errors, accounts',
+        value: searchTerm,
+        onChange: setSearchTerm,
+        onClear: () => setSearchTerm(''),
+    });
+
+    const filteredFailures = useMemo(() => {
+        const list = gmail?.recentlyFailed ?? [];
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return list;
+        return list.filter(r => {
+            const fields = [r.email, r.lastError];
+            return fields.some(f => (f || '').toString().toLowerCase().includes(q));
+        });
+    }, [gmail, searchTerm]);
+
+    const filteredPerf = useMemo(() => {
+        const list = perf ?? [];
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return list;
+        return list.filter(r => r.route.toLowerCase().includes(q));
+    }, [perf, searchTerm]);
 
     const load = async () => {
         setLoading(true);
@@ -103,7 +132,7 @@ export default function DataHealthPage() {
                         <>
                             {/* Performance Monitor — page-load timings reported by usePerfMonitor */}
                             <Section title="Performance" icon={<Activity size={16} />}>
-                                <PerfTable rows={perf || []} />
+                                <PerfTable rows={filteredPerf} searchTerm={searchTerm} totalRows={(perf || []).length} />
                             </Section>
 
                             {/* Gmail Sync Health */}
@@ -125,9 +154,19 @@ export default function DataHealthPage() {
                                             <div style={{ marginTop: 20 }}>
                                                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                                                     Recent failures
+                                                    {searchTerm && (
+                                                        <span style={{ marginLeft: 6, color: 'var(--ink-muted)', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
+                                                            ({filteredFailures.length}/{gmail.recentlyFailed.length})
+                                                        </span>
+                                                    )}
                                                 </div>
+                                                {filteredFailures.length === 0 ? (
+                                                    <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--ink-muted)' }}>
+                                                        No failures match “{searchTerm}”.
+                                                    </div>
+                                                ) : (
                                                 <div style={{ background: 'var(--shell)', borderRadius: 10, border: '1px solid var(--hairline-soft)', overflow: 'hidden' }}>
-                                                    {gmail.recentlyFailed.map((r, idx) => (
+                                                    {filteredFailures.map((r, idx) => (
                                                         <div key={r.email} style={{
                                                             padding: '10px 14px',
                                                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -145,6 +184,7 @@ export default function DataHealthPage() {
                                                         </div>
                                                     ))}
                                                 </div>
+                                                )}
                                             </div>
                                         ) : (
                                             <EmptyNote ok>All accounts are healthy. No recent failures.</EmptyNote>
@@ -175,8 +215,15 @@ export default function DataHealthPage() {
     );
 }
 
-function PerfTable({ rows }: { rows: PerfRouteStats[] }) {
+function PerfTable({ rows, searchTerm, totalRows }: { rows: PerfRouteStats[]; searchTerm?: string; totalRows?: number }) {
     if (rows.length === 0) {
+        if (searchTerm && totalRows && totalRows > 0) {
+            return (
+                <div style={{ padding: '20px 0', color: 'var(--ink-muted)', fontSize: 13 }}>
+                    No routes match “{searchTerm}”.
+                </div>
+            );
+        }
         return (
             <div style={{ padding: '20px 0', color: 'var(--ink-muted)', fontSize: 13 }}>
                 No samples yet — load the dashboard / inbox / opportunities pages to start collecting timings.

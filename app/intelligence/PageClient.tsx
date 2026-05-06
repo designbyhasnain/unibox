@@ -153,7 +153,15 @@ export default function IntelligencePage() {
     const dismiss = (id: string) => setDismissed(prev => new Set([...prev, id]));
 
     return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
+        // Layout fix (2026-05-06): the previous version put the topbar in a
+        // flex column and tried to give the cards list `flex: 1; overflowY:
+        // auto`. PageLoader's `<div className="content-loaded">` wrapper
+        // collapsed the flex chain, so the cards list never got a real height
+        // and the page was unscrollable past the first viewport. The simpler
+        // fix is one outer scroll container that owns the whole page below
+        // the topbar — KPI chips and cards flow naturally and the browser
+        // handles overflow.
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--shell)', fontFamily: 'var(--font-ui)', color: 'var(--ink)' }}>
 
             {/* ── Topbar ── */}
             <div style={{
@@ -185,76 +193,78 @@ export default function IntelligencePage() {
                 </button>
             </div>
 
-            {/* ── Page head ── */}
-            <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
-                <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 3px', color: 'var(--ink)' }}>
-                    Jarvis audit
-                    {lastRun && (
-                        <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 13, marginLeft: 8 }}>
-                            · last run {timeAgo(lastRun)}
-                        </span>
-                    )}
-                </h1>
-                <p style={{ fontSize: 12.5, color: 'var(--ink-muted)', margin: 0 }}>
-                    Relationship hub · deal aging · account health · template drift
-                    {totalRaw > 0 && <span> — scanned across {totalRaw.toLocaleString()}+ signals</span>}
-                </p>
+            {/* ── Scrollable content (everything below the topbar) ── */}
+            <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                {/* ── Page head ── */}
+                <div style={{ padding: '20px 24px 0' }}>
+                    <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 3px', color: 'var(--ink)' }}>
+                        Jarvis audit
+                        {lastRun && (
+                            <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 13, marginLeft: 8 }}>
+                                · last run {timeAgo(lastRun)}
+                            </span>
+                        )}
+                    </h1>
+                    <p style={{ fontSize: 12.5, color: 'var(--ink-muted)', margin: 0 }}>
+                        Relationship hub · deal aging · account health · template drift
+                        {totalRaw > 0 && <span> — scanned across {totalRaw.toLocaleString()}+ signals</span>}
+                    </p>
+                </div>
+
+                <PageLoader isLoading={!isHydrated || loading} type="list" count={4} context="default">
+
+                    {/* ── KPI chips ── */}
+                    <div style={{
+                        display: 'flex', gap: 10, padding: '16px 24px',
+                    }}>
+                        {[
+                            { label: 'CRITICAL', value: critical.length, sub: 'require attention', color: 'var(--danger)' },
+                            { label: 'OPPORTUNITIES', value: opportunities.length, sub: 'pipeline plays', color: 'var(--coach)' },
+                            { label: 'INFO', value: info.length, sub: 'notes', color: 'var(--info)' },
+                            { label: 'MODEL CONFIDENCE', value: `${confidence}%`, sub: 'based on data volume', color: 'var(--ink-muted)' },
+                        ].map(chip => (
+                            <div key={chip.label} style={{
+                                flex: 1, background: 'var(--canvas)', border: '1px solid var(--hairline)',
+                                borderRadius: 10, padding: '10px 14px',
+                            }}>
+                                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.07em', color: chip.color, marginBottom: 2, textTransform: 'uppercase' }}>
+                                    {chip.label}
+                                </div>
+                                <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)', lineHeight: 1.1 }}>
+                                    {chip.value}
+                                </div>
+                                <div style={{ fontSize: 10.5, color: 'var(--ink-muted)', marginTop: 2 }}>
+                                    {chip.sub}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* ── Cards list ── */}
+                    <div style={{ padding: '0 24px 24px' }}>
+                        {cards.length === 0 && (
+                            <div className="empty-state-v2">
+                                <div className="empty-illu" aria-hidden="true" style={{ background: 'var(--coach-soft)', color: 'var(--coach)', borderColor: 'var(--coach)' }}>
+                                    <CheckCircle2 size={26} />
+                                </div>
+                                <h3>All clear</h3>
+                                <p>Jarvis has no critical insights or opportunities right now. Run the audit to refresh against the latest activity.</p>
+                            </div>
+                        )}
+
+                        {['CRITICAL', 'OPPORTUNITY', 'INFO'].flatMap(p =>
+                            cards.filter(c => c.priority === p)
+                        ).map(card => (
+                            <InsightCardRow
+                                key={card.id}
+                                card={card}
+                                onDismiss={() => dismiss(card.id)}
+                            />
+                        ))}
+                    </div>
+
+                </PageLoader>
             </div>
-
-            <PageLoader isLoading={!isHydrated || loading} type="list" count={4} context="default">
-
-                {/* ── KPI chips ── */}
-                <div style={{
-                    display: 'flex', gap: 10, padding: '16px 24px',
-                    flexShrink: 0,
-                }}>
-                    {[
-                        { label: 'CRITICAL', value: critical.length, sub: 'require attention', color: 'var(--danger)' },
-                        { label: 'OPPORTUNITIES', value: opportunities.length, sub: 'pipeline plays', color: 'var(--coach)' },
-                        { label: 'INFO', value: info.length, sub: 'notes', color: 'var(--info)' },
-                        { label: 'MODEL CONFIDENCE', value: `${confidence}%`, sub: 'based on data volume', color: 'var(--ink-muted)' },
-                    ].map(chip => (
-                        <div key={chip.label} style={{
-                            flex: 1, background: 'var(--canvas)', border: '1px solid var(--hairline)',
-                            borderRadius: 10, padding: '10px 14px',
-                        }}>
-                            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.07em', color: chip.color, marginBottom: 2, textTransform: 'uppercase' }}>
-                                {chip.label}
-                            </div>
-                            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)', lineHeight: 1.1 }}>
-                                {chip.value}
-                            </div>
-                            <div style={{ fontSize: 10.5, color: 'var(--ink-muted)', marginTop: 2 }}>
-                                {chip.sub}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-
-                {/* ── Cards list ── */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px' }}>
-                    {cards.length === 0 && (
-                        <div className="empty-state-v2">
-                            <div className="empty-illu" aria-hidden="true" style={{ background: 'var(--coach-soft)', color: 'var(--coach)', borderColor: 'var(--coach)' }}>
-                                <CheckCircle2 size={26} />
-                            </div>
-                            <h3>All clear</h3>
-                            <p>Jarvis has no critical insights or opportunities right now. Run the audit to refresh against the latest activity.</p>
-                        </div>
-                    )}
-
-                    {['CRITICAL', 'OPPORTUNITY', 'INFO'].flatMap(p =>
-                        cards.filter(c => c.priority === p)
-                    ).map(card => (
-                        <InsightCardRow
-                            key={card.id}
-                            card={card}
-                            onDismiss={() => dismiss(card.id)}
-                        />
-                    ))}
-                </div>
-
-            </PageLoader>
         </div>
     );
 }

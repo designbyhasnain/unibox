@@ -7,6 +7,7 @@ import { getAllProjectsAction, createProjectAction } from '../../src/actions/pro
 import { getClientsAction } from '../../src/actions/clientActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { useUndoToast } from '../context/UndoToastContext';
+import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import { Filter, Plus, X, MessageSquare, CirclePlus, CheckCircle2, Circle, Clock, FileText, Film } from 'lucide-react';
 
 type Project = any;
@@ -257,6 +258,16 @@ export default function MyProjectsPage() {
     const [clientOptions, setClientOptions] = useState<{ id: string; name: string; email: string }[]>([]);
     const [loadingClients, setLoadingClients] = useState(false);
 
+    // Global topbar search — real-time client-side filter on the loaded
+    // page (max 100 projects) by project name, client, or status.
+    const [searchTerm, setSearchTerm] = useState('');
+    useRegisterGlobalSearch('/my-projects', {
+        placeholder: 'Search projects, client, status',
+        value: searchTerm,
+        onChange: setSearchTerm,
+        onClear: () => setSearchTerm(''),
+    });
+
     useEffect(() => {
         getCurrentUserAction().then((u: any) => {
             if (u?.role === 'ADMIN' || u?.role === 'ACCOUNT_MANAGER') setIsAdmin(true);
@@ -328,6 +339,15 @@ export default function MyProjectsPage() {
         return due >= now && due <= weekEnd;
     }).length;
 
+    const filteredProjects = useMemo(() => {
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return projects;
+        return projects.filter(p => {
+            const fields = [p.project_name, p.client_name, p.person, p.status, p.editor];
+            return fields.some(f => (f || '').toString().toLowerCase().includes(q));
+        });
+    }, [projects, searchTerm]);
+
     const handleAdd = async () => {
         if (!newProject.name.trim()) return;
         if (!newProject.clientId) {
@@ -389,7 +409,7 @@ export default function MyProjectsPage() {
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {projects.map(p => {
+                        {filteredProjects.map(p => {
                             const stage = p.status || 'Not Started';
                             const color = STAGE_COLOR[stage] || STAGE_COLOR[stage.toLowerCase()] || 'var(--ink-muted)';
                             const stageLabel = STAGE_LABEL[stage] || stage.toUpperCase();
@@ -456,6 +476,16 @@ export default function MyProjectsPage() {
                                     <Plus size={14} style={{ marginRight: 4, verticalAlign: 'text-bottom' }} />
                                     New project
                                 </button>
+                            </div>
+                        )}
+
+                        {projects.length > 0 && filteredProjects.length === 0 && (
+                            <div className="empty-state-v2">
+                                <div className="empty-illu" aria-hidden="true">
+                                    <Film size={26} />
+                                </div>
+                                <h3>No results found</h3>
+                                <p>Nothing matches “{searchTerm}”. Try a different project name, client, or status.</p>
                             </div>
                         )}
                     </div>
