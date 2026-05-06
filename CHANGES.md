@@ -397,6 +397,25 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 (inbox polish) — Relationship card overflow + unread/read distinction
+
+Two screenshot bugs from the inbox detail sidebar + a request for clearer unread state in the email list.
+
+**Relationship card: 'Closed' chip pushed outside the rounded container.** `.inbox-grid .stage-bar` was `display: flex` (no wrap), so 6 stage chips (Cold / Contacted / Warm / Lead / Offer / Closed) at the rendered widths overflowed past the right edge. Added `flex-wrap: wrap`, tightened chip padding (8px → 7px horizontal, 10.5px → 10px font), reduced gap (4px → 2px), and gave each button `flex: 0 0 auto; white-space: nowrap` so chips sit comfortably in 1 row at the common widths and gracefully wrap to 2 on narrow panes.
+
+**Account email could push card layout.** `.inbox-grid .kv .v` had no overflow handling. With long mailboxes (`photographybyrafay@gmail.com` and similar) the row could break the card. Added `overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 100%` and `gap: 12px` between key/value so the value gets to flex without crowding the label.
+
+**Unread vs. read was hard to distinguish at a glance.** Two changes:
+
+1. Added a small accent-coloured dot (`8x8`, `box-shadow` halo) at the left edge of `.gmail-email-row.unread::after`. Sits in the row's natural left padding (x=6), past the `.selected::before` 2px bar. Hidden when the row is also `.selected` so the two indicators don't fight visually.
+2. Replaced the global `.gmail-email-row.read { opacity: 0.75 }` rule with per-element colour muting: read sender + subject use `var(--ink-muted)` and `font-weight: 400`; preview + date use `var(--ink-faint)`. Read rows now look secondary instead of ghosty, and the WhatsApp-style tracking ticks regain their full contrast.
+
+Existing rules already made unread sender + subject `font-weight: 600`, so we didn't have to change those.
+
+**Mail parity check (sent vs inbox):** verified at the SQL layer — `getInboxEmailsAction` filters `direction = 'RECEIVED'`, `getSentEmailsAction` filters `direction = 'SENT'`. They're correctly mirrored. The cross-account dedup in inbox is a deliberate defence against the same email being synced under multiple owned mailboxes (shared inboxes), not a hide. No code change.
+
+**File touched:** `app/globals.css` (only).
+
 ## Build 2026-05-06 (polish) — /actions card visibility + readable previews + faster expand
 
 Three bug reports + a perf ask after the morning's /actions launch:

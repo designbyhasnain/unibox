@@ -2244,10 +2244,42 @@ a {
     background: transparent !important;
 }
 
+/* Read rows: slightly mute foreground colours per-element instead of a
+   global opacity dim. The previous opacity:0.75 made hovered rows feel
+   ghosty and dropped the contrast on the WhatsApp tracking ticks. */
 .gmail-email-row.read {
     background: transparent !important;
-    opacity: 0.75;
 }
+.gmail-email-row.read .gmail-row-sender,
+.gmail-email-row.read .gmail-row-subject {
+    color: var(--ink-muted);
+    font-weight: 400;
+}
+.gmail-email-row.read .gmail-row-preview,
+.gmail-email-row.read .gmail-row-date {
+    color: var(--ink-faint);
+}
+
+/* Unread blue-dot indicator — a small accent circle at the left edge.
+   Sits in the row's gutter (the row already has padding-left for the
+   checkbox cell). Uses ::after so it doesn't collide with the
+   .selected::before bar. The dot is hidden when the row is selected
+   so the two indicators don't fight visually. */
+.gmail-email-row.unread::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent), transparent 70%);
+    pointer-events: none;
+    z-index: 1;
+}
+.gmail-email-row.unread.selected::after { display: none; }
 
 .gmail-email-row:hover {
     background: color-mix(in oklab, var(--surface), transparent 40%) !important;
@@ -8191,15 +8223,29 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
     color: var(--ink-muted); font-weight: 600;
 }
 .inbox-grid .stage-bar {
-    display: flex; align-items: center; gap: 4px;
-    padding: 4px; background: var(--surface-2);
+    /* 6 stage chips need to fit a ~290px sub-card; flex without wrap pushed
+       the rightmost chip ('Closed') outside the rounded container. Allow
+       wrapping and tighten chip padding so they fit in one row at the
+       common widths and gracefully wrap to two rows on narrow panes. */
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    background: var(--surface-2);
     border: 1px solid var(--hairline-soft);
-    border-radius: 10px; margin-bottom: 12px;
+    border-radius: 10px;
+    margin-bottom: 12px;
 }
 .inbox-grid .stage-bar button {
-    padding: 3px 8px; font-size: 10.5px; font-weight: 500;
-    border-radius: 7px; color: var(--ink-muted);
+    padding: 3px 7px;
+    font-size: 10px;
+    font-weight: 500;
+    border-radius: 6px;
+    color: var(--ink-muted);
     border: none; background: none; cursor: pointer; font-family: var(--font-ui);
+    white-space: nowrap;
+    flex: 0 0 auto;
     transition: background var(--dur-fast, 120ms), color var(--dur-fast, 120ms);
 }
 .inbox-grid .stage-bar button.active {
@@ -8209,12 +8255,23 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
 .inbox-grid .stage-bar button:hover:not(.active) { color: var(--ink-2); }
 .inbox-grid .kv {
     display: flex; justify-content: space-between; align-items: center;
+    gap: 12px;
     padding: 6px 0; font-size: 12px;
     border-bottom: 1px solid var(--hairline-soft);
 }
 .inbox-grid .kv:last-child { border-bottom: none; }
-.inbox-grid .kv .k { color: var(--ink-muted); }
-.inbox-grid .kv .v { color: var(--ink); font-weight: 500; }
+.inbox-grid .kv .k { color: var(--ink-muted); flex-shrink: 0; }
+/* Truncate long values (Account emails like
+   photographybyrafay@gmail.com) so they don't push the card width. */
+.inbox-grid .kv .v {
+    color: var(--ink);
+    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
 
 /* ── Empty states ── */
 .inbox-grid .inbox-empty { text-align: center; padding: 60px 20px; }
