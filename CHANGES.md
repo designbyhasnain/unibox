@@ -397,6 +397,24 @@ export async function GET(request: Request) {
 
 > Pruned out of CLAUDE.md to keep that file under 30k chars. These are the per-build narratives — root-cause analyses, design rationales, and migration impacts. Most-recent first. Architecture facts live in `PROJECT_OVERVIEW.md`; this file is the *journal*.
 
+## Build 2026-05-06 (CRM sprint, phase 3) — Add Client modal parity with table
+
+Brings the AddLeadModal in line with the /clients table cells so creating a client and editing one share the same fields and the same option vocabulary.
+
+**Three changes:**
+
+1. **AM dropdown swapped to SALES-only.** Was sourced from `getManagersAction` which returns admins + account-managers + sales (all non-editor users). Now uses the same `listSalesUsersAction` the inline-cell Owner picker uses — `role='SALES'` only. Admins still see the dropdown; non-admins still have it hidden (mass-assignment guard makes server-side AM assignment to anyone other than self impossible for SALES, so showing the roster would just leak it).
+2. **Health field added.** Modal now has a HEALTH `<select>` next to STAGE with the same nine options as the inline cell (neutral / strong / warm / good / cooling / cold / at-risk / critical / dead). Defaults to `neutral` so created leads land in a neutral state until the rep qualifies them. `createClientAction` was extended with `relationship_health?: string` and conditionally inserts it.
+3. **Layout reflow.** STATUS → STAGE label so the modal and table use the same word. Health now sits next to Stage; Priority + Estimated Value share the next row; Expected Close Date + Account Manager share the last row (with an empty grid cell on the SALES side so the layout doesn't shift when AM is hidden).
+
+**Auto-assign behaviour confirmed:** `createClientAction` line 82 — `finalAm = isAdmin(role) ? (requestedAm || userId) : userId`. Empty AM → assigned to self regardless of role. Admin can pick any SALES user; SALES is locked to themselves. New clients land in the table immediately because the modal calls `onAddLead(res.client)` which the parent uses to call `load()` and refetch.
+
+**Identity scoping unchanged:** the SALES branch in `getClientsAction` (line 159) still ORs `account_manager_id.eq.${userId}` with `last_gmail_account_id.in.(${accountIds})`, so a SALES user only sees their own assigned contacts + replies that landed on their inboxes. New leads created by a SALES user via this modal carry `account_manager_id = self`, so they show up immediately in their own list and stay invisible to peers.
+
+**File touched:**
+- `src/actions/clientActions.ts` — `CreateClientPayload` + insert handles `relationship_health`.
+- `app/components/AddLeadModal.tsx` — listSalesUsersAction, Health field, row reflow, label rename.
+
 ## Build 2026-05-06 (CRM sprint) — Inline-edit /clients table + opportunities board fix + detail kebab
 
 High-impact CRM overhaul. Five things in one ship.

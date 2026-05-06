@@ -55,6 +55,7 @@ export type CreateClientPayload = {
     estimated_value?: number;
     expected_close_date?: string;
     pipeline_stage?: string;
+    relationship_health?: string;
     account_manager_id?: string;
     source?: string;
     notes?: string;
@@ -94,6 +95,7 @@ export async function createClientAction(payload: CreateClientPayload) {
     if (payload.priority) insertData.priority = payload.priority;
     if (payload.estimated_value) insertData.estimated_value = payload.estimated_value;
     if (payload.expected_close_date) insertData.expected_close_date = payload.expected_close_date;
+    if (payload.relationship_health) insertData.relationship_health = payload.relationship_health;
     if (payload.source) insertData.source = payload.source;
     if (payload.notes) insertData.notes = payload.notes;
 

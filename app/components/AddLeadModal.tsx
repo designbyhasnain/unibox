@@ -4,7 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { Button } from './ui/Button';
 import { FormField, FormInput, FormSelect } from './ui/FormField';
 import { createClientAction } from '../../src/actions/clientActions';
-import { getManagersAction } from '../../src/actions/projectActions';
+// Switched from getManagersAction (returns admins + managers + sales) to
+// listSalesUsersAction so the AM picker matches the /clients table cell —
+// SALES role only. Admins/account-managers don't appear in either picker
+// because they're not outward-facing reps.
+import { listSalesUsersAction, type SalesUser } from '../../src/actions/projectMetadataActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
 import { useDialogShell } from '../hooks/useDialogShell';
 
@@ -23,8 +27,12 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
     const [estimatedValue, setEstimatedValue] = useState('');
     const [expectedCloseDate, setExpectedCloseDate] = useState('');
     const [pipelineStage, setPipelineStage] = useState('LEAD');
+    // Health defaults to 'neutral' to match the inline-cell options in the
+    // /clients table — created leads land in a neutral state until the rep
+    // qualifies them.
+    const [relationshipHealth, setRelationshipHealth] = useState('neutral');
     const [accountManagerId, setAccountManagerId] = useState('');
-    const [managers, setManagers] = useState<{ id: string; name: string }[]>([]);
+    const [managers, setManagers] = useState<SalesUser[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
     // SALES users can't pick another user as the AM (server enforces via the
@@ -36,7 +44,11 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
         getCurrentUserAction().then((u: any) => {
             const admin = u?.role === 'ADMIN' || u?.role === 'ACCOUNT_MANAGER';
             setIsAdmin(admin);
-            if (admin) getManagersAction().then(setManagers).catch(console.error);
+            if (admin) {
+                listSalesUsersAction()
+                    .then(r => { if (r.success) setManagers(r.users); })
+                    .catch(console.error);
+            }
         }).catch(() => setIsAdmin(false));
     }, []);
 
@@ -56,6 +68,7 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
                 estimated_value: estimatedValue ? parseFloat(estimatedValue) : undefined,
                 expected_close_date: expectedCloseDate || undefined,
                 pipeline_stage: pipelineStage,
+                relationship_health: relationshipHealth || undefined,
                 account_manager_id: accountManagerId || undefined,
             });
 
@@ -112,9 +125,11 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
                         </FormField>
                     </div>
 
-                    {/* Row 3: Status + Priority */}
+                    {/* Row 3: Stage + Health (mirrors the inline cells in the
+                        /clients table so the create flow and the edit flow
+                        share vocabulary). */}
                     <div className="form-row">
-                        <FormField label="STATUS">
+                        <FormField label="STAGE">
                             <FormSelect value={pipelineStage} onChange={e => setPipelineStage(e.target.value)}>
                                 {/* All 7 PipelineStage enum values from prisma/schema.prisma —
                                     CONTACTED and WARM_LEAD were missing before, leaving two
@@ -128,6 +143,24 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
                                 <option value="NOT_INTERESTED">Not Interested</option>
                             </FormSelect>
                         </FormField>
+                        <FormField label="HEALTH">
+                            <FormSelect value={relationshipHealth} onChange={e => setRelationshipHealth(e.target.value)}>
+                                {/* Same options as the table cell's SmartSelect. */}
+                                <option value="neutral">neutral</option>
+                                <option value="strong">strong</option>
+                                <option value="warm">warm</option>
+                                <option value="good">good</option>
+                                <option value="cooling">cooling</option>
+                                <option value="cold">cold</option>
+                                <option value="at-risk">at-risk</option>
+                                <option value="critical">critical</option>
+                                <option value="dead">dead</option>
+                            </FormSelect>
+                        </FormField>
+                    </div>
+
+                    {/* Row 4: Priority + Estimated Value */}
+                    <div className="form-row">
                         <FormField label="PRIORITY">
                             <FormSelect value={priority} onChange={e => setPriority(e.target.value)}>
                                 <option value="">None</option>
@@ -137,32 +170,35 @@ export default function AddLeadModal({ onClose, onAddLead }: AddLeadModalProps) 
                                 <option value="URGENT">Urgent</option>
                             </FormSelect>
                         </FormField>
-                    </div>
-
-                    {/* Row 4: Estimated Value + Expected Close */}
-                    <div className="form-row">
                         <FormField label="ESTIMATED VALUE ($)">
                             <FormInput type="number" value={estimatedValue} onChange={e => setEstimatedValue(e.target.value)} placeholder="50000" min="0" step="0.01" />
                         </FormField>
+                    </div>
+
+                    {/* Row 5: Expected close date — full width when no AM, half when AM shown */}
+                    <div className="form-row">
                         <FormField label="EXPECTED CLOSE DATE">
                             <FormInput type="date" value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} />
                         </FormField>
+                        {/* Account Manager — admin-only. SALES users are forced
+                            to themselves server-side (mass-assignment guard,
+                            commit 2ef18b6), so showing the dropdown to them
+                            would just leak the team roster. The dropdown lists
+                            ONLY users with role='SALES' (matching the inline
+                            cell in the /clients table). */}
+                        {isAdmin ? (
+                            <FormField label="ACCOUNT MANAGER">
+                                <FormSelect value={accountManagerId} onChange={e => setAccountManagerId(e.target.value)}>
+                                    <option value="">Auto-assign (me)</option>
+                                    {managers.map(m => (
+                                        <option key={m.id} value={m.id}>{m.name}{m.email ? ` · ${m.email}` : ''}</option>
+                                    ))}
+                                </FormSelect>
+                            </FormField>
+                        ) : (
+                            <div /> /* keep grid alignment when AM is hidden */
+                        )}
                     </div>
-
-                    {/* Row 5: Account Manager — admin-only.
-                        SALES users are forced to themselves server-side
-                        (see commit 2ef18b6 mass-assignment guard); showing
-                        the dropdown to them just leaks the team roster. */}
-                    {isAdmin && (
-                        <FormField label="ACCOUNT MANAGER">
-                            <FormSelect value={accountManagerId} onChange={e => setAccountManagerId(e.target.value)}>
-                                <option value="">Auto-assign (me)</option>
-                                {managers.map(m => (
-                                    <option key={m.id} value={m.id}>{m.name}</option>
-                                ))}
-                            </FormSelect>
-                        </FormField>
-                    )}
 
                     <div className="modal-actions">
                         <Button type="button" variant="secondary" onClick={onClose} className="modal-btn-cancel">
