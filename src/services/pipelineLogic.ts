@@ -114,10 +114,25 @@ export async function getOwningMailbox(contactEmail: string): Promise<MailboxLoc
         .eq('id', owningAccountId)
         .maybeSingle();
 
+    // Priority: pick the most CONCRETE signal so the toast text reflects the
+    // actual evidence the user can verify in the inbox.
+    //   1. Inbound reply — strongest (we have a real RECEIVED row).
+    //   2. Project — only when an actual `projects` row links to this contact.
+    //      Falls through if `is_client` is true but `projects` is empty (data
+    //      drift; was previously over-claimed).
+    //   3. Pipeline stage — last resort.
     let reason: MailboxLock['reason'];
-    if (isClient) reason = 'project';
-    else if (stagedPast) reason = 'pipeline_stage';
-    else reason = 'inbound_reply';
+    if (inboundOwner) {
+        reason = 'inbound_reply';
+    } else if (isClient && contactId) {
+        const { count } = await supabase
+            .from('projects')
+            .select('id', { count: 'exact', head: true })
+            .eq('client_id', contactId);
+        reason = (count ?? 0) > 0 ? 'project' : 'pipeline_stage';
+    } else {
+        reason = 'pipeline_stage';
+    }
 
     return {
         accountId: owningAccountId,
