@@ -85,12 +85,100 @@ export async function getAllProjectsAction(
         return { projects: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
     }
 
-    // Map joined contacts data to the `client` field the frontend expects
-    const projects = (data || []).map((p: any) => ({
+    // ── AM Resolution chain ──────────────────────────────────────────────
+    // The displayed Owner on /my-projects is the user assigned to the inbox
+    // where the contact first emailed us — NOT just whoever happens to be
+    // in projects.account_manager_id. The chain is:
+    //
+    //   project → contact → contact.last_gmail_account_id
+    //         → user_gmail_assignments(gmail_account_id) → user
+    //
+    // Three round trips, batched across the entire page for speed:
+    //   1. fetch contact rows referenced by projects to get their
+    //      last_gmail_account_id (the contacts join above only carried
+    //      id/name/email so we re-fetch with the inbox column)
+    //   2. fetch user_gmail_assignments for every gmail account id we now
+    //      know about
+    //   3. fetch users for every assigned user id
+    //
+    // Falls back to the explicit account_manager_id (if set) when the chain
+    // breaks anywhere — preserves manual ownership for projects that pre-date
+    // the inbox assignment system. The client receives `resolvedAm: { id,
+    // name, email, source: 'mailbox' | 'manual' | null }` per project.
+    const projectRows = (data || []).map((p: any) => ({
         ...p,
         client: p.contacts || null,
         client_name: p.contacts?.name || p.person || null,
     }));
+
+    const clientIds = Array.from(new Set(projectRows.map(p => p.client_id).filter(Boolean)));
+    const contactInboxByClientId = new Map<string, string | null>();
+    if (clientIds.length > 0) {
+        const { data: inboxRows } = await supabase
+            .from('contacts')
+            .select('id, last_gmail_account_id')
+            .in('id', clientIds);
+        for (const r of inboxRows ?? []) {
+            contactInboxByClientId.set(r.id, r.last_gmail_account_id ?? null);
+        }
+    }
+
+    const inboxIds = Array.from(new Set(
+        Array.from(contactInboxByClientId.values()).filter((v): v is string => !!v),
+    ));
+    const userIdByInbox = new Map<string, string>();
+    if (inboxIds.length > 0) {
+        const { data: assignRows } = await supabase
+            .from('user_gmail_assignments')
+            .select('gmail_account_id, user_id, assigned_at')
+            .in('gmail_account_id', inboxIds)
+            .order('assigned_at', { ascending: true });
+        // First (oldest) assignment wins — that user is the inbox's primary
+        // owner. Multi-assignment is rare; this keeps the display stable.
+        for (const r of assignRows ?? []) {
+            if (!userIdByInbox.has(r.gmail_account_id)) {
+                userIdByInbox.set(r.gmail_account_id, r.user_id);
+            }
+        }
+    }
+
+    // Collect every user id we'll need: the mailbox-derived ones plus any
+    // explicit account_manager_id values still set on the projects.
+    const userIdsNeeded = new Set<string>();
+    for (const uid of userIdByInbox.values()) userIdsNeeded.add(uid);
+    for (const p of projectRows) if (p.account_manager_id) userIdsNeeded.add(p.account_manager_id);
+    const userById = new Map<string, { id: string; name: string; email: string }>();
+    if (userIdsNeeded.size > 0) {
+        const { data: userRows } = await supabase
+            .from('users')
+            .select('id, name, email')
+            .in('id', Array.from(userIdsNeeded));
+        for (const u of userRows ?? []) {
+            userById.set(u.id, {
+                id: u.id,
+                name: (u.name && u.name.trim()) || (u.email?.split('@')[0] ?? 'Unnamed'),
+                email: u.email ?? '',
+            });
+        }
+    }
+
+    const projects = projectRows.map(p => {
+        const inboxId = p.client_id ? contactInboxByClientId.get(p.client_id) ?? null : null;
+        const inboxUserId = inboxId ? userIdByInbox.get(inboxId) ?? null : null;
+        let resolvedAm: { id: string; name: string; email: string; source: 'mailbox' | 'manual' } | null = null;
+        if (inboxUserId && userById.has(inboxUserId)) {
+            resolvedAm = { ...userById.get(inboxUserId)!, source: 'mailbox' };
+        } else if (p.account_manager_id && userById.has(p.account_manager_id)) {
+            resolvedAm = { ...userById.get(p.account_manager_id)!, source: 'manual' };
+        }
+        return {
+            ...p,
+            // Preserve the contact's source inbox so the drawer's "Source Gmail
+            // account" row can display it without an additional round trip.
+            client_last_gmail_account_id: inboxId,
+            resolvedAm,
+        };
+    });
 
     const totalCount = count ?? 0;
     return {
@@ -560,4 +648,40 @@ export async function linkProjectToContactAction(projectId: string, contactId: s
     }).eq('id', contactId);
 
     return { success: true };
+}
+
+// ── Project tasks (lightweight ActivityLog rows) ─────────────────────────
+// The /my-projects drawer's "Add task" button writes a row here. We reuse
+// the existing activity_logs table (action='TASK') instead of standing up
+// a dedicated tasks table — keeps the surface area small and tasks already
+// surface alongside other project activity.
+export async function addProjectTaskAction(projectId: string, note: string) {
+    const { userId, role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+    if (!projectId) return { success: false as const, error: 'projectId is required' };
+    const trimmed = note.trim();
+    if (!trimmed) return { success: false as const, error: 'Task description is required' };
+    if (trimmed.length > 1000) return { success: false as const, error: 'Task is too long (max 1000 chars)' };
+
+    // Identity-scope: SALES can only add tasks to projects they own.
+    const ownerFilter = getOwnerFilter(userId, role);
+    let projectQuery = supabase.from('projects').select('id, client_id').eq('id', projectId);
+    if (ownerFilter) projectQuery = projectQuery.eq('account_manager_id', ownerFilter);
+    const { data: project, error: projectErr } = await projectQuery.maybeSingle();
+    if (projectErr || !project) {
+        return { success: false as const, error: 'Project not found or access denied' };
+    }
+
+    const { error } = await supabase.from('activity_logs').insert({
+        action: 'TASK',
+        performed_by: userId,
+        project_id: projectId,
+        contact_id: project.client_id ?? null,
+        note: trimmed,
+    });
+    if (error) {
+        console.error('addProjectTaskAction error:', error);
+        return { success: false as const, error: 'Could not add task' };
+    }
+    return { success: true as const };
 }

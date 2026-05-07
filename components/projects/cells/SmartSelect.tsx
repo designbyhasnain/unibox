@@ -28,6 +28,12 @@ type CommonProps = {
     maxWidth?: number;
     /** Hide the in-popover search input. */
     noSearch?: boolean;
+    /** Open the popover immediately on mount. Used by inline-on-card edit
+        flows where the card stat itself is the click target. */
+    defaultOpen?: boolean;
+    /** Fires when the popover closes (selection picked or click-outside).
+        Lets a parent reset its "edit mode" state. */
+    onClose?: () => void;
 };
 
 type SingleProps = CommonProps & {
@@ -63,10 +69,18 @@ function avatarColor(s: string) {
 }
 
 export default function SmartSelect(props: Props) {
-    const { options, loading, placeholder, pillClass = 'ep-pill', minWidth = 220, maxWidth = 340, noSearch } = props;
-    const [open, setOpen] = useState(false);
+    const { options, loading, placeholder, pillClass = 'ep-pill', minWidth = 220, maxWidth = 340, noSearch, defaultOpen, onClose } = props;
+    const [open, setOpen] = useState(!!defaultOpen);
     const [filter, setFilter] = useState('');
     const triggerRef = useRef<HTMLSpanElement>(null);
+
+    // Notify the parent when the popover transitions from open → closed so
+    // a card-level "editing this field" wrapper can clear its edit-mode flag.
+    const wasOpen = useRef(open);
+    useEffect(() => {
+        if (wasOpen.current && !open) onClose?.();
+        wasOpen.current = open;
+    }, [open, onClose]);
 
     const isMulti = props.mode === 'multi';
     const selectedValues: string[] = isMulti ? props.value : (props.value ? [props.value] : []);

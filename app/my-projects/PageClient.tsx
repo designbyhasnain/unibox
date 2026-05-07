@@ -6,8 +6,12 @@ import { PageLoader } from '../components/LoadingStates';
 import { getAllProjectsAction, createProjectAction, updateProjectAction, getManagersAction } from '../../src/actions/projectActions';
 import { getClientsAction } from '../../src/actions/clientActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
+import { addProjectTaskAction } from '../../src/actions/projectActions';
+import { useUI } from '../context/UIContext';
+import { useGlobalFilter } from '../context/FilterContext';
 
 type Manager = { id: string; name: string; email: string; role: string };
+type ResolvedAm = { id: string; name: string; email: string; source: 'mailbox' | 'manual' };
 import { useUndoToast } from '../context/UndoToastContext';
 import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import SmartSelect from '../../components/projects/cells/SmartSelect';
@@ -296,6 +300,136 @@ function TextCell({ value, onCommit, mono, placeholder, multiline }: {
     );
 }
 
+// ── Card stat tiles — click-to-edit ───────────────────────────────────────
+// Each tile is a self-contained `editing` toggle. On enter, we render the
+// matching SmartSelect / NumericCell / date input. On exit (popover closes,
+// blur, Escape), we snap back to the static display. stopPropagation on the
+// outer .pj-card-stats wrapper prevents the card body click (drawer-open)
+// from firing when these tiles are interacted with.
+
+function CardStatStatus({ label, progress, color, value, onChange }: {
+    label: string;
+    progress: number;
+    color: string;
+    value: string;
+    onChange: (v: string | null) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    return (
+        <div
+            className="pj-card-stat pj-card-stat-clickable"
+            onClick={() => !editing && setEditing(true)}
+            style={{ cursor: editing ? 'default' : 'pointer' }}
+        >
+            <div className="pj-card-stat-label">{label}</div>
+            {editing ? (
+                <SmartSelect
+                    defaultOpen
+                    onClose={() => setEditing(false)}
+                    value={value}
+                    onChange={onChange}
+                    creatable
+                    options={STATUS_OPTIONS}
+                />
+            ) : (
+                <>
+                    <div className="pj-card-stat-value">{progress}%</div>
+                    <div className="progressbar"><div style={{ height: '100%', width: `${progress}%`, background: color }} /></div>
+                </>
+            )}
+        </div>
+    );
+}
+
+function CardStatBudget({ budget, project, onCommit, isPaid, isPartial, unpaid }: {
+    budget: number;
+    project: Project;
+    onCommit: (n: number | null) => void;
+    isPaid: boolean;
+    isPartial: boolean;
+    unpaid: number;
+}) {
+    return (
+        <div className="pj-card-stat pj-card-stat-clickable">
+            <div className="pj-card-stat-label">Budget</div>
+            <div className="pj-card-stat-value">
+                <NumericCell value={project.project_value} onCommit={onCommit} />
+            </div>
+            <div className="pj-card-stat-sub" style={{ color: isPaid ? 'var(--coach)' : (isPartial ? 'var(--warn)' : 'var(--danger)') }}>
+                {PAID_LABEL[project.paid_status] || 'Unpaid'}
+                {unpaid > 0 && <span style={{ color: 'var(--ink-muted)', marginLeft: 6 }}>· {fmt(unpaid)} open</span>}
+            </div>
+        </div>
+    );
+}
+
+function CardStatDue({ dueLabel, dueIso, onCommit }: {
+    dueLabel: string;
+    dueIso: string | null | undefined;
+    onCommit: (iso: string | null) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    if (editing) {
+        return (
+            <div className="pj-card-stat pj-card-stat-clickable" style={{ cursor: 'default' }}>
+                <div className="pj-card-stat-label">Due</div>
+                <input
+                    type="date"
+                    autoFocus
+                    value={toDateInputValue(dueIso)}
+                    onChange={(e) => {
+                        const v = e.target.value ? new Date(e.target.value).toISOString() : null;
+                        onCommit(v);
+                    }}
+                    onBlur={() => setEditing(false)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); setEditing(false); }
+                    }}
+                    style={{
+                        background: 'var(--canvas)', border: '1px solid var(--accent)',
+                        borderRadius: 6, padding: '4px 8px', fontSize: 14,
+                        color: 'var(--ink)', fontFamily: 'inherit', width: '100%',
+                    }}
+                />
+            </div>
+        );
+    }
+    return (
+        <div
+            className="pj-card-stat pj-card-stat-clickable"
+            style={{ cursor: 'pointer' }}
+            onClick={() => setEditing(true)}
+        >
+            <div className="pj-card-stat-label">Due</div>
+            <div className="pj-card-stat-value">{dueLabel}</div>
+            <div className="pj-card-stat-sub">{dueIso ? new Date(dueIso).toLocaleDateString('en-US', { weekday: 'short' }) : 'Click to set'}</div>
+        </div>
+    );
+}
+
+// One-click inline editor wrapper for the drawer's KPI tiles. Renders the
+// `display` node by default. On click, swaps in `renderEditor` (a function
+// receiving a `close` callback). The editor is normally a SmartSelect with
+// defaultOpen+onClose so the popover appears in a single click and the tile
+// snaps back to display once the popover closes.
+function KpiEditable({ label, display, renderEditor }: {
+    label: string;
+    display: React.ReactNode;
+    renderEditor: (close: () => void) => React.ReactNode;
+}) {
+    const [editing, setEditing] = useState(false);
+    return (
+        <div
+            className="pj-kpi-editable"
+            style={{ background: 'var(--surface)', padding: '14px 16px', cursor: editing ? 'default' : 'pointer' }}
+            onClick={(e) => { if (!editing) { e.stopPropagation(); setEditing(true); } }}
+        >
+            <div style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500, marginBottom: 4 }}>{label}</div>
+            {editing ? renderEditor(() => setEditing(false)) : display}
+        </div>
+    );
+}
+
 // Editable KV row used inside the right drawer. Hover background + pencil
 // glyph mimic the /clients drawer so the "this field is editable" affordance
 // is identical across pages.
@@ -320,13 +454,16 @@ function KVCell({ k, children }: { k: string; children: React.ReactNode }) {
     );
 }
 
-function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOptions, isAdmin }: {
+function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOptions, accounts, isAdmin, onMessageClient, onAddTask }: {
     project: Project;
     onClose: () => void;
     onUpdate: (id: string, field: string, value: unknown) => void;
     managers: Manager[];
     clientOptions: { id: string; name: string; email: string }[];
+    accounts: { id: string; email: string }[];
     isAdmin: boolean;
+    onMessageClient: () => void;
+    onAddTask: () => void;
 }) {
     const stage = project.status || 'Not Started';
     const color = STAGE_COLOR[stage] || STAGE_COLOR[stage.toLowerCase()] || 'var(--ink-muted)';
@@ -335,8 +472,10 @@ function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOption
     const clientName = project.client_name || project.person || 'Unknown';
     const budget = project.project_value || 0;
     const isPaid = project.paid_status === 'PAID';
-    const unpaid = isPaid ? 0 : budget;
+    const isPartial = project.paid_status === 'PARTIALLY_PAID';
+    const unpaid = isPaid ? 0 : (isPartial ? Math.round(budget / 2) : budget);
     const projectId = project.id?.slice(0, 8)?.toUpperCase() || 'N/A';
+    const sourceInboxId = project.client_last_gmail_account_id || null;
 
     return (
         <div className="pj-panel">
@@ -384,17 +523,45 @@ function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOption
 
                 {/* Action buttons */}
                 <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-                    <button className="pj-panel-btn"><MessageSquare size={12} /> Message client</button>
-                    <button className="pj-panel-btn"><CirclePlus size={12} /> Add task</button>
+                    <button
+                        className="pj-panel-btn"
+                        onClick={onMessageClient}
+                        disabled={!project.client?.email}
+                        title={project.client?.email ? `Compose to ${project.client.email}` : 'No client email on file'}
+                    >
+                        <MessageSquare size={12} /> Message client
+                    </button>
+                    <button className="pj-panel-btn" onClick={onAddTask}>
+                        <CirclePlus size={12} /> Add task
+                    </button>
                 </div>
 
-                {/* KPI row */}
+                {/* KPI row — every cell is interactive. Progress is a derived
+                    value tied to status, so clicking it opens the Status
+                    SmartSelect (defaultOpen=true so the popover lands in one
+                    click). Budget edits projectValue directly. Unpaid is
+                    derived from paidStatus; clicking it opens the Paid Status
+                    picker. */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1, background: 'var(--hairline-soft)', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
-                    <div style={{ background: 'var(--surface)', padding: '14px 16px' }}>
-                        <div style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500, marginBottom: 4 }}>Progress</div>
-                        <div style={{ fontSize: 20, fontWeight: 700 }}>{progress}%</div>
-                        <div className="progressbar" style={{ marginTop: 6 }}><div style={{ height: '100%', width: `${progress}%`, background: color }} /></div>
-                    </div>
+                    <KpiEditable
+                        label="Progress"
+                        display={(
+                            <>
+                                <div style={{ fontSize: 20, fontWeight: 700 }}>{progress}%</div>
+                                <div className="progressbar" style={{ marginTop: 6 }}><div style={{ height: '100%', width: `${progress}%`, background: color }} /></div>
+                            </>
+                        )}
+                        renderEditor={(close) => (
+                            <SmartSelect
+                                defaultOpen
+                                onClose={close}
+                                value={stage}
+                                onChange={(v) => v && onUpdate(project.id, 'status', v)}
+                                creatable
+                                options={STATUS_OPTIONS}
+                            />
+                        )}
+                    />
                     <div style={{ background: 'var(--surface)', padding: '14px 16px' }}>
                         <div style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500, marginBottom: 4 }}>Budget</div>
                         <div style={{ fontSize: 20, fontWeight: 700 }}>
@@ -404,10 +571,21 @@ function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOption
                             />
                         </div>
                     </div>
-                    <div style={{ background: 'var(--surface)', padding: '14px 16px' }}>
-                        <div style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500, marginBottom: 4 }}>Unpaid</div>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: unpaid > 0 ? 'var(--warn)' : 'var(--coach)' }}>{fmt(unpaid)}</div>
-                    </div>
+                    <KpiEditable
+                        label="Unpaid"
+                        display={(
+                            <div style={{ fontSize: 20, fontWeight: 700, color: unpaid > 0 ? 'var(--warn)' : 'var(--coach)' }}>{fmt(unpaid)}</div>
+                        )}
+                        renderEditor={(close) => (
+                            <SmartSelect
+                                defaultOpen
+                                onClose={close}
+                                value={project.paid_status || 'UNPAID'}
+                                onChange={(v) => v && onUpdate(project.id, 'paidStatus', v)}
+                                options={PAID_OPTIONS}
+                            />
+                        )}
+                    />
                 </div>
 
                 {/* Editable details */}
@@ -483,6 +661,18 @@ function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOption
                             placeholder="Paste a Drive / Frame.io / Vimeo link…"
                         />
                     </KVCell>
+                    {/* Source Gmail account — read-only display of the inbox the
+                        contact first emailed us through. Surfacing it here so
+                        the editor can see "this client lives in mailbox X" at a
+                        glance. The link to a User goes through user_gmail_
+                        assignments and feeds into resolvedAm above. */}
+                    <KVCell k="Source Gmail">
+                        <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 12, color: sourceInboxId ? 'var(--ink)' : 'var(--ink-faint)' }}>
+                            {sourceInboxId
+                                ? (accounts.find(a => a.id === sourceInboxId)?.email || sourceInboxId)
+                                : 'No source mailbox on contact'}
+                        </span>
+                    </KVCell>
                 </div>
 
                 {/* Brief — inline-editable multiline */}
@@ -507,29 +697,53 @@ function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOption
                     />
                 </div>
 
-                {/* Milestones (read-only — derived from status) */}
+                {/* Milestones — derived from status, but each row is a one-click
+                    promotion button. Clicking "First delivery" sets status to
+                    Downloaded, "Revisions round 1" to In Progress (Editing),
+                    "Final cut delivered" to Done. Already-completed milestones
+                    are read-only (clicking would demote, which we don't want
+                    by accident). */}
                 <div style={{ marginBottom: 24 }}>
                     <div className="pj-panel-section-title">Milestones</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative', paddingLeft: 20 }}>
                         <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 1, background: 'var(--hairline-soft)' }} />
-                        {[
-                            { label: 'Final cut delivered', date: relDate(project.due_date) || 'TBD', done: progress > 90 },
-                            { label: 'Revisions round 1', date: relDate(project.project_date) || 'TBD', done: progress > 50 },
-                            { label: 'First delivery', date: relDate(project.project_date) || 'TBD', done: progress > 30 },
-                        ].map((m, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 0', position: 'relative' }}>
-                                <div style={{ position: 'absolute', left: -16 }}>
-                                    {m.done
-                                        ? <CheckCircle2 size={14} style={{ color: 'var(--coach)' }} />
-                                        : <Circle size={14} style={{ color: 'var(--ink-faint)' }} />
-                                    }
-                                </div>
-                                <div>
-                                    <div style={{ fontSize: 13, fontWeight: m.done ? 500 : 400, color: m.done ? 'var(--ink)' : 'var(--ink-muted)' }}>{m.label}</div>
-                                    <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{m.date}</div>
-                                </div>
-                            </div>
-                        ))}
+                        {([
+                            { label: 'Final cut delivered', date: relDate(project.due_date) || 'TBD', done: progress > 90, promoteTo: 'Done' as const, threshold: 90 },
+                            { label: 'Revisions round 1', date: relDate(project.project_date) || 'TBD', done: progress > 50, promoteTo: 'In Progress' as const, threshold: 50 },
+                            { label: 'First delivery', date: relDate(project.project_date) || 'TBD', done: progress > 30, promoteTo: 'Downloaded' as const, threshold: 30 },
+                        ]).map((m, i) => {
+                            const interactive = !m.done;
+                            return (
+                                <button
+                                    key={i}
+                                    type="button"
+                                    onClick={() => interactive && onUpdate(project.id, 'status', m.promoteTo)}
+                                    disabled={!interactive}
+                                    className="pj-milestone"
+                                    style={{
+                                        display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 8px 8px 0',
+                                        position: 'relative', background: 'none', border: 'none',
+                                        textAlign: 'left', font: 'inherit',
+                                        cursor: interactive ? 'pointer' : 'default',
+                                        borderRadius: 6, marginLeft: -8, paddingLeft: 8,
+                                        transition: 'background .12s',
+                                    }}
+                                >
+                                    <div style={{ position: 'absolute', left: -16 }}>
+                                        {m.done
+                                            ? <CheckCircle2 size={14} style={{ color: 'var(--coach)' }} />
+                                            : <Circle size={14} style={{ color: 'var(--ink-faint)' }} />
+                                        }
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: 13, fontWeight: m.done ? 500 : 400, color: m.done ? 'var(--ink)' : 'var(--ink-muted)' }}>{m.label}</div>
+                                        <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
+                                            {m.done ? m.date : <span>Click to mark · sets status to <b style={{ color: 'var(--ink-muted)' }}>{STAGE_LABEL[m.promoteTo] || m.promoteTo}</b></span>}
+                                        </div>
+                                    </div>
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -546,6 +760,13 @@ function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOption
 export default function MyProjectsPage() {
     const hydrated = useHydrated();
     const { showError, showSuccess } = useUndoToast();
+    const { setComposeOpen, setComposeDefaultTo, setComposeDefaultSubject, setComposeDefaultBody } = useUI();
+    const { accounts } = useGlobalFilter();
+    // Add-task modal state — keep terse so the button doesn't need a deep
+    // routing flow, just an inline shell scrim that wraps the new action.
+    const [addTaskFor, setAddTaskFor] = useState<string | null>(null);
+    const [addTaskNote, setAddTaskNote] = useState('');
+    const [addTaskSaving, setAddTaskSaving] = useState(false);
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
     const [, setTotalCount] = useState(0);
@@ -843,10 +1064,15 @@ export default function MyProjectsPage() {
                                 const color = STAGE_COLOR[stage] || STAGE_COLOR[stage.toLowerCase()] || 'var(--ink-muted)';
                                 const progress = estimateProgress(p);
                                 const clientName = p.client_name || p.client?.name || p.person || 'Unknown';
-                                const ownerUser = p.account_manager_id ? managers.find(m => m.id === p.account_manager_id) : null;
-                                const ownerName = ownerUser?.name
+                                // Owner display goes through the resolution chain on the
+                                // server (contact → mailbox → user). Falls back to the
+                                // explicit account_manager_id, then to the denormalized
+                                // account_manager string, then to "Unassigned".
+                                const resolvedAm = p.resolvedAm as ResolvedAm | null;
+                                const ownerName = resolvedAm?.name
                                     || (p.account_manager && String(p.account_manager).trim())
                                     || (p.account_manager_id ? 'Unknown user' : 'Unassigned');
+                                const ownerSource = resolvedAm?.source ?? null;
                                 const budget = p.project_value || 0;
                                 const isPaid = p.paid_status === 'PAID';
                                 const isPartial = p.paid_status === 'PARTIALLY_PAID';
@@ -903,30 +1129,34 @@ export default function MyProjectsPage() {
                                         </div>
 
                                         {/* 4-column stats grid — Progress | Budget | Due |
-                                            Owner. Each cell sits on its own --surface
-                                            tile inside a --hairline-soft 1px grid so the
-                                            block reads as one unit but the columns are
-                                            visually separated. Stacks 2-col then 1-col on
-                                            narrow viewports. */}
-                                        <div className="pj-card-stats">
-                                            <div className="pj-card-stat">
-                                                <div className="pj-card-stat-label">Progress</div>
-                                                <div className="pj-card-stat-value">{progress}%</div>
-                                                <div className="progressbar"><div style={{ height: '100%', width: `${progress}%`, background: color }} /></div>
-                                            </div>
-                                            <div className="pj-card-stat">
-                                                <div className="pj-card-stat-label">Budget</div>
-                                                <div className="pj-card-stat-value">{fmt(budget)}</div>
-                                                <div className="pj-card-stat-sub" style={{ color: isPaid ? 'var(--coach)' : (isPartial ? 'var(--warn)' : 'var(--danger)') }}>
-                                                    {PAID_LABEL[p.paid_status] || 'Unpaid'}
-                                                    {unpaid > 0 && <span style={{ color: 'var(--ink-muted)', marginLeft: 6 }}>· {fmt(unpaid)} open</span>}
-                                                </div>
-                                            </div>
-                                            <div className="pj-card-stat">
-                                                <div className="pj-card-stat-label">Due</div>
-                                                <div className="pj-card-stat-value">{dueLabel}</div>
-                                                <div className="pj-card-stat-sub">{p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { weekday: 'short' }) : '—'}</div>
-                                            </div>
+                                            Owner. The first three are interactive: clicking
+                                            the tile flips it into edit mode (Status picker
+                                            for Progress, NumericCell for Budget, native date
+                                            input for Due). Owner is read-only because it's
+                                            derived from the AM resolution chain — manual
+                                            override still happens in the drawer's Account
+                                            manager picker. */}
+                                        <div className="pj-card-stats" onClick={e => e.stopPropagation()}>
+                                            <CardStatStatus
+                                                label="Progress"
+                                                progress={progress}
+                                                color={color}
+                                                value={stage}
+                                                onChange={(v) => v && handleProjectUpdate(p.id, 'status', v)}
+                                            />
+                                            <CardStatBudget
+                                                budget={budget}
+                                                project={p}
+                                                onCommit={(n) => handleProjectUpdate(p.id, 'projectValue', n)}
+                                                isPaid={isPaid}
+                                                isPartial={isPartial}
+                                                unpaid={unpaid}
+                                            />
+                                            <CardStatDue
+                                                dueLabel={dueLabel}
+                                                dueIso={p.due_date}
+                                                onCommit={(iso) => handleProjectUpdate(p.id, 'dueDate', iso)}
+                                            />
                                             <div className="pj-card-stat">
                                                 <div className="pj-card-stat-label">Owner</div>
                                                 <div className="pj-card-stat-owner">
@@ -941,7 +1171,13 @@ export default function MyProjectsPage() {
                                                         <span className="pj-card-stat-value" style={{ color: 'var(--ink-muted)', fontWeight: 500 }}>Unassigned</span>
                                                     )}
                                                 </div>
-                                                <div className="pj-card-stat-sub">{briefPreview}</div>
+                                                <div className="pj-card-stat-sub">
+                                                    {ownerSource === 'mailbox'
+                                                        ? <span title="Resolved from contact's source mailbox">via mailbox · {briefPreview}</span>
+                                                        : ownerSource === 'manual'
+                                                            ? <span title="Manually set on this project">manual · {briefPreview}</span>
+                                                            : briefPreview}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -958,10 +1194,74 @@ export default function MyProjectsPage() {
                         onUpdate={handleProjectUpdate}
                         managers={managers}
                         clientOptions={clientOptions}
+                        accounts={accounts}
                         isAdmin={isAdmin}
+                        onMessageClient={() => {
+                            const email = selected.client?.email || '';
+                            if (!email) { showError('No client email on file'); return; }
+                            setComposeDefaultTo(email);
+                            setComposeDefaultSubject(selected.project_name ? `Re: ${selected.project_name}` : '');
+                            setComposeDefaultBody('');
+                            setComposeOpen(true);
+                        }}
+                        onAddTask={() => {
+                            setAddTaskFor(selected.id);
+                            setAddTaskNote('');
+                        }}
                     />
                 )}
             </div>
+
+            {addTaskFor && (
+                <div className="compose-scrim" onClick={() => setAddTaskFor(null)}>
+                    <div className="compose pj-modal" onClick={e => e.stopPropagation()} style={{ maxHeight: 'fit-content', width: 480 }}>
+                        <div className="compose-head">
+                            <div className="title">Add task</div>
+                            <div className="spacer" />
+                            <button className="icon-btn" onClick={() => setAddTaskFor(null)} title="Close">×</button>
+                        </div>
+                        <div className="compose-body pj-modal-body">
+                            <div className="pj-field">
+                                <label>Task</label>
+                                <textarea
+                                    value={addTaskNote}
+                                    onChange={(e) => setAddTaskNote(e.target.value)}
+                                    placeholder="Describe what needs to happen — color grade, second cut, send invoice…"
+                                    autoFocus
+                                    rows={4}
+                                    style={{ resize: 'vertical', minHeight: 100, lineHeight: 1.5 }}
+                                />
+                            </div>
+                            <div className="pj-modal-foot">
+                                <button
+                                    className="btn"
+                                    onClick={() => setAddTaskFor(null)}
+                                    style={{ background: 'var(--surface)', border: '1px solid var(--hairline-soft)', color: 'var(--ink-2)' }}
+                                >Cancel</button>
+                                <button
+                                    className="btn btn-dark"
+                                    disabled={addTaskSaving || !addTaskNote.trim()}
+                                    onClick={async () => {
+                                        if (!addTaskFor) return;
+                                        setAddTaskSaving(true);
+                                        const res = await addProjectTaskAction(addTaskFor, addTaskNote);
+                                        setAddTaskSaving(false);
+                                        if (res.success) {
+                                            setAddTaskFor(null);
+                                            setAddTaskNote('');
+                                            showSuccess('Task added');
+                                        } else {
+                                            showError(res.error || 'Could not add task');
+                                        }
+                                    }}
+                                >
+                                    {addTaskSaving ? 'Adding…' : 'Add task'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showAddModal && (
                 <div className="compose-scrim" onClick={() => setShowAddModal(false)}>
