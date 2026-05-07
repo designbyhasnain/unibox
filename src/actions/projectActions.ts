@@ -645,7 +645,283 @@ export async function linkProjectToContactAction(projectId: string, contactId: s
         total_projects: (projects || []).length,
     }).eq('id', contactId);
 
+    // Pipeline invariant: a contact with any linked project is a paid client.
+    // Same call wired into createProjectAction — fire-and-forget so a failure
+    // here doesn't roll back the link itself. Mirrors the markContactClosed
+    // contract from the earlier pipeline-cleanup work.
+    try {
+        const { markContactClosed } = await import('../services/pipelineLogic');
+        const earliest = (projects || [])
+            .map((p: any) => p.created_at as string | undefined)
+            .filter(Boolean)
+            .sort()[0];
+        await markContactClosed(contactId, earliest ?? null);
+    } catch (e) {
+        console.warn('[linkProjectToContactAction] markContactClosed failed:', e);
+    }
+
     return { success: true };
+}
+
+// ── Project-finder for a known contact ───────────────────────────────────
+// Inverse of `searchContactsForLinkingAction`: given a contact, surface the
+// projects that probably belong to them. Used by the Projects tab on the
+// client detail page (the "✨ AI find projects" button).
+//
+// Pure deterministic scoring — no LLM call. Signals (highest first):
+//   1. project.source_email_id resolves to an email_messages row whose
+//      contact_id === this contact, OR whose from_email/to_email contains
+//      this contact's email.                                        (0.95)
+//   2. source-email thread's domain matches the contact's custom domain.
+//                                                                   (0.70)
+//   3. project_name ILIKE %contact.name% or %email-prefix%.          (0.65)
+//   4. brief ILIKE %contact.name/email/company%.                     (0.55)
+//   5. reference ILIKE same.                                         (0.40)
+//
+// Skips projects already linked to THIS contact. Returns top 10.
+
+const COMMON_EMAIL_DOMAINS = new Set([
+    'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com',
+    'me.com', 'aol.com', 'live.com', 'ymail.com', 'msn.com', 'protonmail.com',
+]);
+
+export type ProjectMatchCandidate = {
+    project: {
+        id: string;
+        project_name: string | null;
+        project_value: number | null;
+        paid_status: string | null;
+        project_date: string | null;
+        created_at: string | null;
+    };
+    score: number;
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+    evidence: string;
+    /** When non-null, the project is currently attributed to a different
+     *  contact — UI should render a Reassign-from-X warning chip. */
+    currentClient: { id: string; name: string | null; email: string | null } | null;
+};
+
+export async function findProjectsForContactAction(
+    contactId: string,
+): Promise<{ success: true; candidates: ProjectMatchCandidate[] } | { success: false; error: string }> {
+    try {
+        const { userId, role } = await ensureAuthenticated();
+        blockEditorAccess(role);
+        if (!contactId) return { success: false, error: 'contactId is required' };
+
+        const ownerFilter = getOwnerFilter(userId, role);
+
+        // 1. Load the contact (RBAC-scoped).
+        let cq = supabase
+            .from('contacts')
+            .select('id, name, email, company')
+            .eq('id', contactId);
+        if (ownerFilter) cq = cq.eq('account_manager_id', ownerFilter);
+        const { data: contact, error: cErr } = await cq.maybeSingle();
+        if (cErr || !contact) return { success: false, error: 'contact not found' };
+
+        const name = (contact.name || '').trim();
+        const email = (contact.email || '').trim().toLowerCase();
+        const company = (contact.company || '').trim();
+        const emailPrefix = email.split('@')[0] || '';
+        const domain = email.split('@')[1] || '';
+        const customDomain = domain && !COMMON_EMAIL_DOMAINS.has(domain);
+
+        // 2. Pull every project's id + match-relevant fields. Scoped to ~1k
+        //    rows total in this DB, so a single fetch is cheap. If volume
+        //    grows we can add a trigram index + RPC later.
+        const { data: rawProjects, error: pErr } = await supabase
+            .from('projects')
+            .select('id, project_name, project_value, paid_status, project_date, created_at, brief, reference, source_email_id, client_id');
+        if (pErr) return { success: false, error: pErr.message };
+        if (!rawProjects) return { success: true, candidates: [] };
+
+        // 3. For projects with a source_email_id, batch-resolve the source
+        //    email so we can do the highest-confidence match.
+        const sourceEmailIds = Array.from(
+            new Set(rawProjects.map((p: any) => p.source_email_id as string | null).filter(Boolean) as string[])
+        );
+        const sourceEmailById: Record<string, { contact_id: string | null; from_email: string | null; to_email: string | null }> = {};
+        for (let i = 0; i < sourceEmailIds.length; i += 200) {
+            const batch = sourceEmailIds.slice(i, i + 200);
+            const { data: ems } = await supabase
+                .from('email_messages')
+                .select('id, contact_id, from_email, to_email')
+                .in('id', batch);
+            for (const m of ems || []) sourceEmailById[m.id as string] = m as any;
+        }
+
+        // 4. Score each project. Skip already-linked-to-THIS-contact rows.
+        const lcName = name.toLowerCase();
+        const lcCompany = company.toLowerCase();
+        const candidates: ProjectMatchCandidate[] = [];
+
+        for (const p of rawProjects as any[]) {
+            if (p.client_id === contactId) continue;
+            let score = 0;
+            let evidence = '';
+
+            const src = p.source_email_id ? sourceEmailById[p.source_email_id] : null;
+            if (src) {
+                const fromAddr = (src.from_email || '').toLowerCase();
+                const toAddr = (src.to_email || '').toLowerCase();
+                if (
+                    src.contact_id === contactId ||
+                    (email && (fromAddr.includes(email) || toAddr.includes(email)))
+                ) {
+                    score = Math.max(score, 0.95);
+                    evidence = "Created from a thread on this contact's inbox";
+                } else if (customDomain && (fromAddr.includes('@' + domain) || toAddr.includes('@' + domain))) {
+                    score = Math.max(score, 0.7);
+                    evidence = `Source thread on the same domain (${domain})`;
+                }
+            }
+
+            const projName = (p.project_name || '').toLowerCase();
+            const brief = (p.brief || '').toLowerCase();
+            const reference = (p.reference || '').toLowerCase();
+
+            if (lcName && projName.includes(lcName)) {
+                if (score < 0.65) {
+                    score = 0.65;
+                    evidence = 'Project name mentions the contact';
+                }
+            } else if (emailPrefix && emailPrefix.length >= 4 && projName.includes(emailPrefix)) {
+                if (score < 0.6) {
+                    score = 0.6;
+                    evidence = 'Project name mentions the contact email prefix';
+                }
+            }
+
+            if (
+                lcName && brief.includes(lcName) ||
+                (email && brief.includes(email)) ||
+                (lcCompany && brief.includes(lcCompany))
+            ) {
+                if (score < 0.55) {
+                    score = 0.55;
+                    evidence = 'Brief mentions the contact';
+                }
+            }
+            if (
+                (lcName && reference.includes(lcName)) ||
+                (email && reference.includes(email))
+            ) {
+                if (score < 0.4) {
+                    score = 0.4;
+                    evidence = 'Reference mentions the contact';
+                }
+            }
+
+            if (score === 0) continue;
+            candidates.push({
+                project: {
+                    id: p.id,
+                    project_name: p.project_name,
+                    project_value: p.project_value ?? null,
+                    paid_status: p.paid_status ?? null,
+                    project_date: p.project_date ?? null,
+                    created_at: p.created_at ?? null,
+                },
+                score,
+                confidence: score >= 0.85 ? 'HIGH' : score >= 0.6 ? 'MEDIUM' : 'LOW',
+                evidence,
+                currentClient: null, // filled below
+            });
+        }
+
+        // 5. Enrich currentClient for projects already attributed elsewhere.
+        const otherClientIds = Array.from(
+            new Set(
+                (rawProjects as any[])
+                    .filter(p => p.client_id && p.client_id !== contactId && candidates.some(c => c.project.id === p.id))
+                    .map(p => p.client_id as string)
+            )
+        );
+        const clientById: Record<string, { id: string; name: string | null; email: string | null }> = {};
+        for (let i = 0; i < otherClientIds.length; i += 200) {
+            const batch = otherClientIds.slice(i, i + 200);
+            const { data: cs } = await supabase
+                .from('contacts')
+                .select('id, name, email')
+                .in('id', batch);
+            for (const c of cs || []) clientById[c.id as string] = c as any;
+        }
+        // Re-walk to attach currentClient (small loop over candidates).
+        const projectClientById: Record<string, string | null> = {};
+        for (const p of rawProjects as any[]) projectClientById[p.id as string] = p.client_id ?? null;
+        for (const c of candidates) {
+            const cid = projectClientById[c.project.id];
+            if (cid && cid !== contactId) c.currentClient = clientById[cid] ?? null;
+        }
+
+        candidates.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            const ad = new Date(a.project.created_at || 0).getTime();
+            const bd = new Date(b.project.created_at || 0).getTime();
+            return bd - ad;
+        });
+        return { success: true, candidates: candidates.slice(0, 10) };
+    } catch (err: any) {
+        console.error('[findProjectsForContactAction]', err);
+        return { success: false, error: err?.message || 'Failed to find projects.' };
+    }
+}
+
+/** Free-text search across all projects for the manual-link modal. */
+export type ProjectSearchHit = {
+    id: string;
+    project_name: string | null;
+    project_value: number | null;
+    paid_status: string | null;
+    project_date: string | null;
+    created_at: string | null;
+    currentClient: { id: string; name: string | null; email: string | null } | null;
+};
+
+export async function searchProjectsAction(
+    query: string,
+    limit = 20,
+): Promise<{ success: true; results: ProjectSearchHit[] } | { success: false; error: string }> {
+    try {
+        const { role } = await ensureAuthenticated();
+        blockEditorAccess(role);
+        const q = (query || '').trim();
+        if (q.length < 2) return { success: true, results: [] };
+        const escaped = q.replace(/[%_\\]/g, '\\$&');
+
+        const { data, error } = await supabase
+            .from('projects')
+            .select('id, project_name, project_value, paid_status, project_date, created_at, brief, reference, client_id')
+            .or(`project_name.ilike.%${escaped}%,brief.ilike.%${escaped}%,reference.ilike.%${escaped}%`)
+            .order('created_at', { ascending: false })
+            .limit(Math.min(limit, 50));
+        if (error) return { success: false, error: error.message };
+        if (!data || data.length === 0) return { success: true, results: [] };
+
+        // Enrich currentClient.
+        const cids = Array.from(new Set(data.map((p: any) => p.client_id as string | null).filter(Boolean) as string[]));
+        const clientById: Record<string, { id: string; name: string | null; email: string | null }> = {};
+        if (cids.length > 0) {
+            const { data: cs } = await supabase.from('contacts').select('id, name, email').in('id', cids);
+            for (const c of cs || []) clientById[c.id as string] = c as any;
+        }
+
+        const results: ProjectSearchHit[] = data.map((p: any) => ({
+            id: p.id,
+            project_name: p.project_name,
+            project_value: p.project_value ?? null,
+            paid_status: p.paid_status ?? null,
+            project_date: p.project_date ?? null,
+            created_at: p.created_at ?? null,
+            currentClient: p.client_id ? (clientById[p.client_id] ?? null) : null,
+        }));
+        return { success: true, results };
+    } catch (err: any) {
+        console.error('[searchProjectsAction]', err);
+        return { success: false, error: err?.message || 'Search failed.' };
+    }
 }
 
 // ── Project tasks (lightweight ActivityLog rows) ─────────────────────────

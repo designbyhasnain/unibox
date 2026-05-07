@@ -15,6 +15,8 @@ import OwnerPicker from '../../components/OwnerPicker';
 import { avatarColor, initials } from '../../utils/helpers';
 import { STAGE_LABELS, STAGE_COLORS } from '../../constants/stages';
 import { firstName } from '../../utils/nameDisplay';
+import AISuggestProjects from './AISuggestProjects';
+import LinkProjectModal from './LinkProjectModal';
 
 // Strict DOMPurify config for inline email-body rendering. Drops scripts,
 // event handlers, and any href/src that isn't http(s) or mailto. The previous
@@ -67,6 +69,7 @@ export default function ContactDetailPage() {
     const [historyOpen, setHistoryOpen] = useState(false);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [history, setHistory] = useState<OwnershipTransferEntry[] | null>(null);
+    const [linkProjectOpen, setLinkProjectOpen] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -369,14 +372,52 @@ export default function ContactDetailPage() {
 
                     {/* Projects Tab */}
                     {activeTab === 'projects' && (
+                      <>
+                        {/* Header bar — AI find + manual link buttons */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                            <AISuggestProjects
+                                contact={{ id: data.contact.id, name: data.contact.name }}
+                                onLinked={() => load()}
+                            />
+                            <button
+                                onClick={() => setLinkProjectOpen(true)}
+                                style={{
+                                    background: 'var(--surface)',
+                                    color: 'var(--ink)',
+                                    border: '1px solid var(--hairline)',
+                                    padding: '6px 12px',
+                                    borderRadius: 8,
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                    cursor: 'pointer',
+                                    fontFamily: 'inherit',
+                                }}
+                            >
+                                🔗 Link existing project
+                            </button>
+                            <a
+                                href={`/my-projects?clientId=${data.contact.id}`}
+                                style={{
+                                    marginLeft: 'auto',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '6px 12px',
+                                    borderRadius: 8,
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                    background: 'var(--accent)',
+                                    color: '#fff',
+                                    textDecoration: 'none',
+                                }}
+                            >
+                                + New project
+                            </a>
+                        </div>
                         <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
                             {data.projects.length === 0 ? (
-                                <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
-                                    <span>No projects linked</span>
-                                    <a
-                                        href={`/my-projects?clientId=${data.contact.id}`}
-                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, background: 'var(--accent)', color: '#fff', textDecoration: 'none' }}
-                                    >+ New project for this client</a>
+                                <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                                    No projects linked yet — try <strong>AI find projects</strong> or <strong>Link existing project</strong> above.
                                 </div>
                             ) : (
                                 <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
@@ -422,6 +463,7 @@ export default function ContactDetailPage() {
                                 </table>
                             )}
                         </div>
+                      </>
                     )}
 
                     {/* Activity Tab */}
@@ -472,6 +514,13 @@ export default function ContactDetailPage() {
                     )}
                 </div>
             </div>
+            {linkProjectOpen && data?.contact && (
+                <LinkProjectModal
+                    contact={{ id: data.contact.id, name: data.contact.name, email: data.contact.email }}
+                    onClose={() => setLinkProjectOpen(false)}
+                    onLinked={() => load()}
+                />
+            )}
         </div>
     );
 }
