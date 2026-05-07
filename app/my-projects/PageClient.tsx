@@ -3,12 +3,14 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
-import { getAllProjectsAction, createProjectAction } from '../../src/actions/projectActions';
+import { getAllProjectsAction, createProjectAction, updateProjectAction } from '../../src/actions/projectActions';
 import { getClientsAction } from '../../src/actions/clientActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
+import { listSalesUsersAction, type SalesUser } from '../../src/actions/projectMetadataActions';
 import { useUndoToast } from '../context/UndoToastContext';
 import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
-import { Filter, Plus, X, MessageSquare, CirclePlus, CheckCircle2, Circle, Clock, FileText, Film } from 'lucide-react';
+import SmartSelect from '../../components/projects/cells/SmartSelect';
+import { Filter, Plus, X, MessageSquare, CirclePlus, CheckCircle2, Circle, Film } from 'lucide-react';
 
 type Project = any;
 
@@ -37,6 +39,42 @@ const STAGE_LABEL: Record<string, string> = {
     'Done': 'DONE',
 };
 
+const STATUS_OPTIONS = [
+    { value: 'Not Started', label: 'Intake' },
+    { value: 'Downloading', label: 'Downloading' },
+    { value: 'Downloaded', label: 'Downloaded' },
+    { value: 'In Progress', label: 'Editing' },
+    { value: 'on Hold', label: 'On Hold' },
+    { value: 'Delivered', label: 'Delivered' },
+    { value: 'Done', label: 'Done' },
+];
+
+const PRIORITY_OPTIONS = [
+    { value: 'LOW', label: 'Low', bg: 'transparent', fg: 'var(--ink-muted)' },
+    { value: 'MEDIUM', label: 'Medium', bg: 'transparent', fg: 'var(--info)' },
+    { value: 'HIGH', label: 'High', bg: 'transparent', fg: 'var(--warn)' },
+    { value: 'URGENT', label: 'Urgent', bg: 'transparent', fg: 'var(--danger)' },
+];
+
+const PAID_OPTIONS = [
+    { value: 'UNPAID', label: 'Unpaid', bg: 'transparent', fg: 'var(--danger)' },
+    { value: 'PARTIALLY_PAID', label: 'Partially paid', bg: 'transparent', fg: 'var(--warn)' },
+    { value: 'PAID', label: 'Paid', bg: 'transparent', fg: 'var(--coach)' },
+];
+
+const PAID_LABEL: Record<string, string> = {
+    UNPAID: 'Unpaid',
+    PARTIALLY_PAID: 'Partial',
+    PAID: 'Paid',
+};
+
+const PRIORITY_LABEL: Record<string, string> = {
+    LOW: 'Low',
+    MEDIUM: 'Medium',
+    HIGH: 'High',
+    URGENT: 'Urgent',
+};
+
 function fmt(n: number) {
     return '$' + n.toLocaleString();
 }
@@ -44,6 +82,13 @@ function fmt(n: number) {
 function relDate(d: string | null) {
     if (!d) return '';
     return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function toDateInputValue(d: string | null | undefined): string {
+    if (!d) return '';
+    const dt = new Date(d);
+    if (Number.isNaN(dt.getTime())) return '';
+    return dt.toISOString().slice(0, 10);
 }
 
 function getInitials(name: string) {
@@ -68,13 +113,188 @@ function estimateProgress(p: Project): number {
     return 4;
 }
 
-function ProjectDetailPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+// ── Inline editors ────────────────────────────────────────────────────────
+// Mirror the cells used on /clients so the editing UX is identical across
+// pages. NumericCell renders $ prefix when noPrefix is omitted; TextCell is
+// click-to-edit with Enter-to-save / Escape-to-cancel and only fires onCommit
+// when the value actually changed. Both keep cursor focus management simple.
+
+function NumericCell({ value, onCommit, noPrefix }: { value: number | null | undefined; onCommit: (n: number | null) => void; noPrefix?: boolean }) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState<string>(value != null ? String(value) : '');
+    useEffect(() => { if (!editing) setDraft(value != null ? String(value) : ''); }, [value, editing]);
+
+    const fmtDisplay = (n: number) => noPrefix
+        ? n.toLocaleString()
+        : (n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'k' : '$' + n.toLocaleString());
+
+    const display = value == null
+        ? <span style={{ color: 'var(--ink-muted)' }}>—</span>
+        : <span style={{ fontWeight: 600 }}>{fmtDisplay(value)}</span>;
+
+    const commit = () => {
+        setEditing(false);
+        const trimmed = draft.trim();
+        if (!trimmed) {
+            if (value != null) onCommit(null);
+            return;
+        }
+        const parsed = Number(trimmed.replace(/[$,]/g, ''));
+        if (Number.isFinite(parsed) && parsed !== value) onCommit(parsed);
+    };
+
+    if (editing) {
+        return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                {!noPrefix && <span style={{ color: 'var(--ink-muted)', fontSize: 12 }}>$</span>}
+                <input
+                    type="text"
+                    inputMode="decimal"
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={commit}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                        else if (e.key === 'Escape') { setEditing(false); setDraft(value != null ? String(value) : ''); }
+                    }}
+                    style={{
+                        background: 'var(--canvas)', border: '1px solid var(--accent)',
+                        borderRadius: 6, padding: '3px 6px', fontSize: 12,
+                        color: 'var(--ink)', width: 90, fontFamily: 'inherit',
+                    }}
+                />
+            </span>
+        );
+    }
+    return (
+        <span
+            tabIndex={0}
+            role="button"
+            onClick={() => setEditing(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true); } }}
+            style={{
+                display: 'inline-block', minWidth: 50, padding: '3px 6px',
+                borderRadius: 6, cursor: 'pointer', border: '1px solid transparent',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--hairline-soft)')}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = 'transparent')}
+        >
+            {display}
+        </span>
+    );
+}
+
+function TextCell({ value, onCommit, mono, placeholder, multiline }: {
+    value: string | null | undefined;
+    onCommit: (s: string | null) => void;
+    mono?: boolean;
+    placeholder?: string;
+    multiline?: boolean;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState<string>(value ?? '');
+    useEffect(() => { if (!editing) setDraft(value ?? ''); }, [value, editing]);
+
+    const commit = () => {
+        setEditing(false);
+        const trimmed = draft.trim();
+        const next = trimmed === '' ? null : trimmed;
+        if (next !== (value ?? null)) onCommit(next);
+    };
+
+    const sharedStyle = {
+        width: '100%', background: 'var(--canvas)',
+        border: '1px solid var(--accent)', borderRadius: 6,
+        padding: '4px 8px', fontSize: mono ? 12 : 12.5,
+        color: 'var(--ink)', fontFamily: mono ? 'var(--font-mono)' : 'inherit',
+        outline: 'none', resize: 'vertical' as const,
+    };
+
+    if (editing) {
+        return multiline ? (
+            <textarea
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+                    else if (e.key === 'Escape') { setEditing(false); setDraft(value ?? ''); }
+                }}
+                placeholder={placeholder}
+                rows={4}
+                style={sharedStyle}
+            />
+        ) : (
+            <input
+                type="text"
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                    else if (e.key === 'Escape') { setEditing(false); setDraft(value ?? ''); }
+                }}
+                placeholder={placeholder}
+                style={sharedStyle}
+            />
+        );
+    }
+    const display = value && value.trim() !== ''
+        ? <span style={{ color: 'var(--ink)', fontFamily: mono ? 'var(--font-mono)' : 'inherit', fontSize: mono ? 12 : 12.5, wordBreak: 'break-word', whiteSpace: multiline ? 'pre-wrap' : 'normal' }}>{value}</span>
+        : <span style={{ color: 'var(--ink-faint)' }}>{placeholder ?? '—'}</span>;
+    return (
+        <span
+            tabIndex={0}
+            role="button"
+            onClick={() => setEditing(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true); } }}
+            style={{ display: 'block', minHeight: 18, cursor: 'text', outline: 'none', width: '100%' }}
+        >
+            {display}
+        </span>
+    );
+}
+
+// Editable KV row used inside the right drawer. Hover background + pencil
+// glyph mimic the /clients drawer so the "this field is editable" affordance
+// is identical across pages.
+function KVCell({ k, children }: { k: string; children: React.ReactNode }) {
+    return (
+        <div
+            className="pj-kv-cell"
+            style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--hairline-soft)', minHeight: 32 }}
+        >
+            <div style={{ width: 140, color: 'var(--ink-muted)', flexShrink: 0 }}>{k}</div>
+            <div className="pj-kv-cell-value" style={{ flex: 1, minWidth: 0, position: 'relative', padding: '4px 8px', margin: '-4px -8px', borderRadius: 6, transition: 'background 0.12s' }}>
+                {children}
+                <span
+                    aria-hidden="true"
+                    className="pj-kv-cell-pencil"
+                    style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--ink-faint)', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s' }}
+                >
+                    ✎
+                </span>
+            </div>
+        </div>
+    );
+}
+
+function ProjectDetailPanel({ project, onClose, onUpdate, salesUsers, clientOptions, isAdmin }: {
+    project: Project;
+    onClose: () => void;
+    onUpdate: (id: string, field: string, value: unknown) => void;
+    salesUsers: SalesUser[];
+    clientOptions: { id: string; name: string; email: string }[];
+    isAdmin: boolean;
+}) {
     const stage = project.status || 'Not Started';
     const color = STAGE_COLOR[stage] || STAGE_COLOR[stage.toLowerCase()] || 'var(--ink-muted)';
     const label = STAGE_LABEL[stage] || stage.toUpperCase();
     const progress = estimateProgress(project);
     const clientName = project.client_name || project.person || 'Unknown';
-    const editor = project.editor || 'Unassigned';
     const budget = project.project_value || 0;
     const isPaid = project.paid_status === 'PAID';
     const unpaid = isPaid ? 0 : budget;
@@ -92,7 +312,7 @@ function ProjectDetailPanel({ project, onClose }: { project: Project; onClose: (
             </div>
 
             <div className="pj-panel-body">
-                {/* Stage + priority */}
+                {/* Stage + priority badge */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
                     <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.06em', color, fontWeight: 600 }}>{label}</span>
@@ -103,12 +323,16 @@ function ProjectDetailPanel({ project, onClose }: { project: Project; onClose: (
                     <span style={{ fontSize: 10, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono, monospace)' }}>PM-{projectId}</span>
                 </div>
 
-                {/* Title */}
+                {/* Title — inline-editable */}
                 <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 10px', letterSpacing: '-0.01em' }}>
-                    {project.project_name || 'Untitled'}
+                    <TextCell
+                        value={project.project_name}
+                        onCommit={(v) => onUpdate(project.id, 'projectName', v)}
+                        placeholder="Untitled project"
+                    />
                 </h2>
 
-                {/* Client / Editor / Due */}
+                {/* Quick context */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: 'var(--ink-muted)', marginBottom: 16, flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <div className={`avatar ${avClass(clientName)}`} style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 8, fontWeight: 600 }}>
@@ -116,8 +340,6 @@ function ProjectDetailPanel({ project, onClose }: { project: Project; onClose: (
                         </div>
                         <span style={{ fontWeight: 500, color: 'var(--ink-2)' }}>{clientName}</span>
                     </div>
-                    <span style={{ color: 'var(--hairline)' }}>·</span>
-                    <span>Editor: <b style={{ fontWeight: 500, color: 'var(--ink-2)' }}>{editor}</b></span>
                     <span style={{ color: 'var(--hairline)' }}>·</span>
                     <span>Due: <b style={{ fontWeight: 500, color: 'var(--ink-2)' }}>{relDate(project.due_date) || '—'}</b></span>
                 </div>
@@ -137,7 +359,12 @@ function ProjectDetailPanel({ project, onClose }: { project: Project; onClose: (
                     </div>
                     <div style={{ background: 'var(--surface)', padding: '14px 16px' }}>
                         <div style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500, marginBottom: 4 }}>Budget</div>
-                        <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(budget)}</div>
+                        <div style={{ fontSize: 20, fontWeight: 700 }}>
+                            <NumericCell
+                                value={project.project_value}
+                                onCommit={(n) => onUpdate(project.id, 'projectValue', n)}
+                            />
+                        </div>
                     </div>
                     <div style={{ background: 'var(--surface)', padding: '14px 16px' }}>
                         <div style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500, marginBottom: 4 }}>Unpaid</div>
@@ -145,42 +372,109 @@ function ProjectDetailPanel({ project, onClose }: { project: Project; onClose: (
                     </div>
                 </div>
 
-                {/* Brief */}
+                {/* Editable details */}
+                <div style={{ marginBottom: 24 }}>
+                    <div className="pj-panel-section-title">Details</div>
+                    <KVCell k="Status">
+                        <SmartSelect
+                            value={project.status || 'Not Started'}
+                            onChange={(v) => v && onUpdate(project.id, 'status', v)}
+                            creatable
+                            options={STATUS_OPTIONS}
+                        />
+                    </KVCell>
+                    <KVCell k="Priority">
+                        <SmartSelect
+                            value={project.priority || 'MEDIUM'}
+                            onChange={(v) => v && onUpdate(project.id, 'priority', v)}
+                            options={PRIORITY_OPTIONS}
+                        />
+                    </KVCell>
+                    <KVCell k="Paid status">
+                        <SmartSelect
+                            value={project.paid_status || 'UNPAID'}
+                            onChange={(v) => v && onUpdate(project.id, 'paidStatus', v)}
+                            options={PAID_OPTIONS}
+                        />
+                    </KVCell>
+                    <KVCell k="Due date">
+                        <input
+                            type="date"
+                            value={toDateInputValue(project.due_date)}
+                            onChange={(e) => {
+                                const v = e.target.value ? new Date(e.target.value).toISOString() : null;
+                                onUpdate(project.id, 'dueDate', v);
+                            }}
+                            style={{
+                                background: 'transparent', border: '1px solid transparent',
+                                color: 'var(--ink)', fontSize: 12.5, padding: '3px 6px',
+                                borderRadius: 6, fontFamily: 'inherit', cursor: 'pointer', width: '100%',
+                            }}
+                        />
+                    </KVCell>
+                    <KVCell k="Client">
+                        <SmartSelect
+                            value={project.client_id || null}
+                            onChange={(v) => onUpdate(project.id, 'clientId', v)}
+                            placeholder="Pick a client…"
+                            options={clientOptions.map(c => ({
+                                value: c.id,
+                                label: c.name,
+                                subtitle: c.email,
+                                avatar: getInitials(c.name),
+                            }))}
+                        />
+                    </KVCell>
+                    {isAdmin && (
+                        <KVCell k="Account manager">
+                            <SmartSelect
+                                value={project.account_manager_id || null}
+                                onChange={(v) => onUpdate(project.id, 'accountManagerId', v)}
+                                clearable
+                                clearLabel="Unassigned"
+                                placeholder="Unassigned"
+                                options={salesUsers.map(u => ({
+                                    value: u.id,
+                                    label: u.name,
+                                    subtitle: u.email,
+                                    avatar: u.name.split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase(),
+                                }))}
+                            />
+                        </KVCell>
+                    )}
+                    <KVCell k="Project link">
+                        <TextCell
+                            value={project.project_link}
+                            onCommit={(v) => onUpdate(project.id, 'projectLink', v)}
+                            mono
+                            placeholder="Paste a Drive / Frame.io / Vimeo link…"
+                        />
+                    </KVCell>
+                </div>
+
+                {/* Brief — inline-editable multiline */}
                 <div style={{ marginBottom: 24 }}>
                     <div className="pj-panel-section-title">Brief</div>
-                    <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-                        {project.brief || 'No brief provided. Add project details and requirements here.'}
-                    </div>
+                    <TextCell
+                        value={project.brief}
+                        onCommit={(v) => onUpdate(project.id, 'brief', v)}
+                        multiline
+                        placeholder="Describe the project, requirements, must-haves…"
+                    />
                 </div>
 
-                {/* Deliverables */}
+                {/* Reference */}
                 <div style={{ marginBottom: 24 }}>
-                    <div className="pj-panel-section-title">Deliverables ({project.reference ? '2' : '0'})</div>
-                    {project.reference ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
-                                <span>Highlight · 3 min</span>
-                                <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Revisions × 3</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
-                                <span>Teaser · 45 sec</span>
-                                <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Delivered</span>
-                            </div>
-                        </div>
-                    ) : (
-                        <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>No deliverables listed yet.</div>
-                    )}
+                    <div className="pj-panel-section-title">Reference / inspo</div>
+                    <TextCell
+                        value={project.reference}
+                        onCommit={(v) => onUpdate(project.id, 'reference', v)}
+                        multiline
+                        placeholder="Reference links, mood board, prior films…"
+                    />
                 </div>
 
-                {/* Full ceremony line */}
-                {project.deduction_on_delay && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, marginBottom: 24, padding: '8px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--hairline-soft)' }}>
-                        <span>Full ceremony · uncut</span>
-                        <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Approved</span>
-                    </div>
-                )}
-
-                {/* Milestones */}
+                {/* Milestones (read-only — derived from status) */}
                 <div style={{ marginBottom: 24 }}>
                     <div className="pj-panel-section-title">Milestones</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative', paddingLeft: 20 }}>
@@ -206,32 +500,7 @@ function ProjectDetailPanel({ project, onClose }: { project: Project; onClose: (
                     </div>
                 </div>
 
-                {/* Files */}
-                <div style={{ marginBottom: 24 }}>
-                    <div className="pj-panel-section-title">Files ({project.project_link ? 2 : 0})</div>
-                    {project.project_link ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--hairline-soft)' }}>
-                                <div style={{ width: 28, height: 28, borderRadius: 6, background: 'oklch(0.55 0.18 265)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 9, fontWeight: 700 }}>MP4</div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>v1_highlight_prores</div>
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>4.22 GB</div>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--hairline-soft)' }}>
-                                <div style={{ width: 28, height: 28, borderRadius: 6, background: 'oklch(0.55 0.18 25)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 9, fontWeight: 700 }}>MP4</div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>teaser_final.mp4</div>
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>120 MB</div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>No files uploaded yet.</div>
-                    )}
-                </div>
-
-                {/* Comments */}
+                {/* Comments placeholder — kept read-only for now */}
                 <div>
                     <div className="pj-panel-section-title">Comments (0)</div>
                     <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>No comments yet.</div>
@@ -246,20 +515,27 @@ export default function MyProjectsPage() {
     const { showError, showSuccess } = useUndoToast();
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
-    const [totalCount, setTotalCount] = useState(0);
+    const [, setTotalCount] = useState(0);
     const [isAdmin, setIsAdmin] = useState(false);
     const [showAddModal, setShowAddModal] = useState(false);
-    // newProject now carries the picked client too. Synthetic-workflow run
-    // showed the old modal sent `clientId: ''` which violated the projects
-    // FK and caused a silent fail with the modal stuck open.
     const [newProject, setNewProject] = useState({ name: '', value: '', clientId: '' });
     const [saving, setSaving] = useState(false);
-    const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+    // Drawer reads the LIVE row from `projects` via `selected = projects.find(...)`
+    // so optimistic table edits flow through to the panel and panel edits flow
+    // back into the table without manual sync — same pattern as /clients.
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const selected = selectedId ? projects.find(p => p.id === selectedId) || null : null;
+
     const [clientOptions, setClientOptions] = useState<{ id: string; name: string; email: string }[]>([]);
     const [loadingClients, setLoadingClients] = useState(false);
+    const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
+    const salesUserById = useMemo(() => {
+        const m = new Map<string, SalesUser>();
+        for (const u of salesUsers) m.set(u.id, u);
+        return m;
+    }, [salesUsers]);
 
-    // Global topbar search — real-time client-side filter on the loaded
-    // page (max 100 projects) by project name, client, or status.
+    // Topbar search
     const [searchTerm, setSearchTerm] = useState('');
     useRegisterGlobalSearch('/my-projects', {
         placeholder: 'Search projects, client, status',
@@ -272,12 +548,20 @@ export default function MyProjectsPage() {
         getCurrentUserAction().then((u: any) => {
             if (u?.role === 'ADMIN' || u?.role === 'ACCOUNT_MANAGER') setIsAdmin(true);
         });
+        // SALES roster powers the Owner picker. Pre-loaded so the dropdown
+        // opens instantly when the user clicks the Owner cell.
+        listSalesUsersAction().then(r => { if (r.success) setSalesUsers(r.users); }).catch(() => {});
+        // Pre-load the first 100 clients so the inline Client picker (in
+        // both the table and drawer) doesn't have to wait for a round trip
+        // when first opened.
+        getClientsAction(undefined, 1, 100)
+            .then(res => setClientOptions((res.clients || []).map((c: any) => ({
+                id: c.id, name: c.name || c.email || 'Unknown', email: c.email || '',
+            }))))
+            .catch(() => {});
     }, []);
 
-    // Cross-page deep-link: /my-projects?clientId=<uuid> auto-opens the New
-    // Project modal with that client pre-selected. Used by the contact-detail
-    // Projects tab "+ New project for this client" CTA so users don't have to
-    // re-pick the client they were already viewing.
+    // /my-projects?clientId=<uuid> auto-opens the New Project modal pre-filled
     useEffect(() => {
         if (typeof window === 'undefined') return;
         const params = new URLSearchParams(window.location.search);
@@ -288,8 +572,9 @@ export default function MyProjectsPage() {
         }
     }, []);
 
-    // Lazy-load the client picker on modal open. Pulls the first 100 clients
-    // visible to the current user via the existing scoped getClientsAction.
+    // Lazy-load client picker for the New Project modal (separate from the
+    // pre-load above because the pre-load might still be in-flight when the
+    // user opens the modal — this guarantees we always have the current set).
     useEffect(() => {
         if (!showAddModal) return;
         let cancelled = false;
@@ -324,6 +609,58 @@ export default function MyProjectsPage() {
     }, []);
 
     useEffect(() => { loadProjects(); }, [loadProjects]);
+
+    // ── Optimistic per-cell update ─────────────────────────────────────────
+    // Mirrors handleCellUpdate from /clients. The `field` argument is the
+    // ProjectUpdatePayload key (camelCase: projectName / paidStatus / etc.);
+    // we map it back to the snake_case column for the local state mirror so
+    // the table cell, the drawer, and the totals all reflect immediately.
+    const fieldToColumn: Record<string, string> = {
+        projectName: 'project_name',
+        projectDate: 'project_date',
+        dueDate: 'due_date',
+        accountManagerId: 'account_manager_id',
+        paidStatus: 'paid_status',
+        quote: 'quote',
+        projectValue: 'project_value',
+        projectLink: 'project_link',
+        brief: 'brief',
+        reference: 'reference',
+        deductionOnDelay: 'deduction_on_delay',
+        finalReview: 'final_review',
+        priority: 'priority',
+        status: 'status',
+        clientId: 'client_id',
+    };
+
+    const handleProjectUpdate = useCallback(async (projectId: string, field: string, value: unknown) => {
+        const column = fieldToColumn[field] ?? field;
+        const prev = projects.find(p => p.id === projectId);
+        const previousValue = prev ? (prev as Record<string, unknown>)[column] : undefined;
+        // Optimistic: mirror locally first. For client_id changes also refresh
+        // the joined `client_name` so the table cell repaints immediately.
+        setProjects(ps => ps.map(p => {
+            if (p.id !== projectId) return p;
+            const next: any = { ...p, [column]: value };
+            if (field === 'clientId') {
+                const opt = clientOptions.find(c => c.id === value);
+                next.client = opt ? { id: opt.id, name: opt.name, email: opt.email } : null;
+                next.client_name = opt?.name || null;
+            }
+            return next;
+        }));
+        try {
+            const res = await updateProjectAction(projectId, { [field]: value } as any);
+            if (!res.success) throw new Error(res.error || 'Update failed');
+        } catch (e: any) {
+            // Revert on failure with retry toast.
+            setProjects(ps => ps.map(p => p.id === projectId ? { ...p, [column]: previousValue } : p));
+            showError(e?.message || `Couldn't update ${field}`, {
+                onRetry: () => handleProjectUpdate(projectId, field, value),
+            });
+        }
+
+    }, [projects, clientOptions, showError]);
 
     const totalUnpaid = useMemo(() =>
         projects.reduce((s, p) => s + ((p.paid_status !== 'PAID' && p.project_value) ? p.project_value : 0), 0)
@@ -387,7 +724,7 @@ export default function MyProjectsPage() {
 
     return (
         <div className="pj-page">
-            <div className={`pj-layout${selectedProject ? ' pj-layout-split' : ''}`}>
+            <div className={`pj-layout${selected ? ' pj-layout-split' : ''}`}>
                 <div className="pj-content">
                     <div className="page-head">
                         <div>
@@ -408,93 +745,150 @@ export default function MyProjectsPage() {
                         <button className="btn btn-dark" onClick={() => setShowAddModal(true)}><Plus size={12} /> New project</button>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {filteredProjects.map(p => {
-                            const stage = p.status || 'Not Started';
-                            const color = STAGE_COLOR[stage] || STAGE_COLOR[stage.toLowerCase()] || 'var(--ink-muted)';
-                            const stageLabel = STAGE_LABEL[stage] || stage.toUpperCase();
-                            const progress = estimateProgress(p);
-                            const clientName = p.client_name || p.person || 'Unknown';
-                            const editor = p.editor || 'Unassigned';
-                            const budget = p.project_value || 0;
-                            const isPaid = p.paid_status === 'PAID';
-                            const unpaid = isPaid ? 0 : budget;
-                            const isSelected = selectedProject?.id === p.id;
-
-                            return (
-                                <div
-                                    key={p.id}
-                                    className={`card${isSelected ? ' card-active' : ''}`}
-                                    style={{ padding: 0, cursor: 'pointer' }}
-                                    onClick={() => setSelectedProject(isSelected ? null : p)}
-                                >
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px 200px 140px', alignItems: 'center', padding: '14px 18px', gap: 18 }}>
-                                        <div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
-                                                <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.06em', color, fontWeight: 600 }}>{stageLabel}</span>
-                                                {(p.priority === 'HIGH' || p.priority === 'URGENT') && (
-                                                    <span className="chip" style={{ color: 'var(--danger)', fontSize: 10 }}>● High priority</span>
-                                                )}
-                                            </div>
-                                            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 3 }}>{p.project_name || 'Untitled'}</div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--ink-muted)' }}>
-                                                <div className={`avatar ${avClass(clientName)}`} style={{ width: 16, height: 16, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 7.5, fontWeight: 600 }}>
-                                                    {getInitials(clientName)}
-                                                </div>
-                                                {clientName} · Editor: <b style={{ color: 'var(--ink-2)', fontWeight: 500 }}>{editor}</b> · {p.brief ? p.brief.slice(0, 20) : 'Pending'}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 6 }}>Progress · {progress}%</div>
-                                            <div className="progressbar"><div style={{ height: '100%', width: `${progress}%`, background: color }} /></div>
-                                        </div>
-                                        <div>
-                                            <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Budget · unpaid</div>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>
-                                                {fmt(budget)}
-                                                {unpaid > 0 && <span style={{ color: 'var(--warn)', marginLeft: 6, fontSize: 11.5 }}>{fmt(unpaid)} open</span>}
-                                            </div>
-                                        </div>
-                                        <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Due</div>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>{relDate(p.due_date) || '—'}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-
-                        {projects.length === 0 && (
-                            <div className="empty-state-v2">
-                                <div className="empty-illu" aria-hidden="true">
-                                    <Film size={26} />
-                                </div>
-                                <h3>No projects yet</h3>
-                                <p>Once you close a deal, the project will show up here so you can track edits, deliveries, and balances.</p>
+                    {/* Editable table — every column except Project name → Client
+                        is interactive. Click anywhere outside an editable cell
+                        opens the right-side detail drawer. */}
+                    {filteredProjects.length === 0 ? (
+                        <div className="empty-state-v2">
+                            <div className="empty-illu" aria-hidden="true">
+                                <Film size={26} />
+                            </div>
+                            <h3>{projects.length === 0 ? 'No projects yet' : 'No results found'}</h3>
+                            <p>
+                                {projects.length === 0
+                                    ? 'Once you close a deal, the project will show up here so you can track edits, deliveries, and balances.'
+                                    : `Nothing matches "${searchTerm}". Try a different project name, client, or status.`}
+                            </p>
+                            {projects.length === 0 && (
                                 <button className="empty-cta" onClick={() => setShowAddModal(true)}>
                                     <Plus size={14} style={{ marginRight: 4, verticalAlign: 'text-bottom' }} />
                                     New project
                                 </button>
-                            </div>
-                        )}
-
-                        {projects.length > 0 && filteredProjects.length === 0 && (
-                            <div className="empty-state-v2">
-                                <div className="empty-illu" aria-hidden="true">
-                                    <Film size={26} />
-                                </div>
-                                <h3>No results found</h3>
-                                <p>Nothing matches “{searchTerm}”. Try a different project name, client, or status.</p>
-                            </div>
-                        )}
-                    </div>
+                            )}
+                        </div>
+                    ) : (
+                        <table className="pj-table">
+                            <thead>
+                                <tr>
+                                    <th>Project</th>
+                                    <th>Client</th>
+                                    <th>Status</th>
+                                    <th>Priority</th>
+                                    <th className="num">Value</th>
+                                    <th>Paid</th>
+                                    <th>Due</th>
+                                    {isAdmin && <th>Owner</th>}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredProjects.map(p => {
+                                    const isSelected = selectedId === p.id;
+                                    const amUser = p.account_manager_id ? salesUserById.get(p.account_manager_id) : null;
+                                    return (
+                                        <tr
+                                            key={p.id}
+                                            className={isSelected ? 'is-selected' : ''}
+                                        >
+                                            {/* Project — click to open drawer; the project_name itself
+                                                is editable inside the drawer (kept terse here). */}
+                                            <td onClick={() => setSelectedId(isSelected ? null : p.id)} style={{ cursor: 'pointer' }}>
+                                                <div style={{ fontSize: 13, fontWeight: 600 }}>{p.project_name || 'Untitled'}</div>
+                                                <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>
+                                                    PM-{p.id?.slice(0, 8)?.toUpperCase()}
+                                                </div>
+                                            </td>
+                                            <td onClick={e => e.stopPropagation()}>
+                                                <SmartSelect
+                                                    value={p.client_id || null}
+                                                    onChange={(v) => handleProjectUpdate(p.id, 'clientId', v)}
+                                                    placeholder="Pick client…"
+                                                    options={clientOptions.map(c => ({
+                                                        value: c.id,
+                                                        label: c.name,
+                                                        subtitle: c.email,
+                                                        avatar: getInitials(c.name),
+                                                    }))}
+                                                />
+                                            </td>
+                                            <td onClick={e => e.stopPropagation()}>
+                                                <SmartSelect
+                                                    value={p.status || 'Not Started'}
+                                                    onChange={(v) => v && handleProjectUpdate(p.id, 'status', v)}
+                                                    creatable
+                                                    options={STATUS_OPTIONS}
+                                                />
+                                            </td>
+                                            <td onClick={e => e.stopPropagation()}>
+                                                <SmartSelect
+                                                    value={p.priority || 'MEDIUM'}
+                                                    onChange={(v) => v && handleProjectUpdate(p.id, 'priority', v)}
+                                                    options={PRIORITY_OPTIONS}
+                                                />
+                                            </td>
+                                            <td className="num" onClick={e => e.stopPropagation()}>
+                                                <NumericCell
+                                                    value={p.project_value}
+                                                    onCommit={(n) => handleProjectUpdate(p.id, 'projectValue', n)}
+                                                />
+                                            </td>
+                                            <td onClick={e => e.stopPropagation()}>
+                                                <SmartSelect
+                                                    value={p.paid_status || 'UNPAID'}
+                                                    onChange={(v) => v && handleProjectUpdate(p.id, 'paidStatus', v)}
+                                                    options={PAID_OPTIONS}
+                                                />
+                                            </td>
+                                            <td onClick={e => e.stopPropagation()}>
+                                                <input
+                                                    type="date"
+                                                    value={toDateInputValue(p.due_date)}
+                                                    onChange={(e) => {
+                                                        const v = e.target.value ? new Date(e.target.value).toISOString() : null;
+                                                        handleProjectUpdate(p.id, 'dueDate', v);
+                                                    }}
+                                                    style={{
+                                                        background: 'transparent', border: '1px solid transparent',
+                                                        color: 'var(--ink-muted)', fontSize: 12, padding: '4px 6px',
+                                                        borderRadius: 6, fontFamily: 'inherit', cursor: 'pointer',
+                                                        width: '100%',
+                                                    }}
+                                                    onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--hairline-soft)')}
+                                                    onMouseLeave={e => (e.currentTarget.style.borderColor = 'transparent')}
+                                                />
+                                            </td>
+                                            {isAdmin && (
+                                                <td onClick={e => e.stopPropagation()}>
+                                                    <SmartSelect
+                                                        value={p.account_manager_id || null}
+                                                        onChange={(v) => handleProjectUpdate(p.id, 'accountManagerId', v)}
+                                                        clearable
+                                                        clearLabel="Unassigned"
+                                                        placeholder="Unassigned"
+                                                        options={salesUsers.map(u => ({
+                                                            value: u.id,
+                                                            label: u.name,
+                                                            subtitle: u.email,
+                                                            avatar: u.name.split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase(),
+                                                        }))}
+                                                    />
+                                                </td>
+                                            )}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
 
-                {selectedProject && (
+                {selected && (
                     <ProjectDetailPanel
-                        project={selectedProject}
-                        onClose={() => setSelectedProject(null)}
+                        project={selected}
+                        onClose={() => setSelectedId(null)}
+                        onUpdate={handleProjectUpdate}
+                        salesUsers={salesUsers}
+                        clientOptions={clientOptions}
+                        isAdmin={isAdmin}
                     />
                 )}
             </div>
@@ -567,15 +961,24 @@ export default function MyProjectsPage() {
 .pj-page .icon-btn:hover{background:var(--surface);color:var(--ink)}
 .pj-page .btn{padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:500;display:inline-flex;align-items:center;gap:6px;border:none;cursor:pointer;font-family:var(--font-ui);text-decoration:none;transition:background .12s}
 .pj-page .btn-dark{background:var(--ink);color:var(--canvas)}
-.pj-page .card{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;transition:box-shadow .15s,border-color .15s}
-.pj-page .card:hover{box-shadow:0 2px 8px rgba(0,0,0,0.08)}
-.pj-page .card-active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-.pj-page .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;font-size:10px;font-weight:500;border-radius:999px;background:color-mix(in oklab,var(--danger-soft),transparent 20%);border:none}
+.pj-page .btn-dark:hover{opacity:.9}
+
+/* Editable table — sister to the .cl-page table on /clients. Same row
+   hover, same header treatment, kept its own class so the column
+   widths can be tuned independently. */
+.pj-page .pj-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px}
+.pj-page .pj-table th,.pj-page .pj-table td{padding:11px 14px;text-align:left;font-size:12.5px}
+.pj-page .pj-table th{font-weight:500;color:var(--ink-muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;background:color-mix(in oklab,var(--surface-2),transparent 20%);border-bottom:1px solid var(--hairline-soft)}
+.pj-page .pj-table tbody tr{border-bottom:1px solid var(--hairline-soft);transition:background .12s}
+.pj-page .pj-table tbody tr:last-child{border-bottom:0}
+.pj-page .pj-table tbody tr:hover{background:var(--surface-hover)}
+.pj-page .pj-table tbody tr.is-selected{background:color-mix(in oklab,var(--accent-soft),transparent 70%)}
+.pj-page .pj-table .num{text-align:right;font-variant-numeric:tabular-nums}
 .pj-page .progressbar{height:4px;background:var(--surface-2);border-radius:99px;overflow:hidden}
 .pj-page .progressbar div{border-radius:99px;transition:width .3s ease}
-.pj-page .avatar{width:16px;height:16px}
 
-/* Detail Panel */
+/* Detail Panel — same animation as before, plus the editable-affordance
+   hover styles (pencil + soft background) lifted from /clients KVCell. */
 .pj-panel{width:420px;flex-shrink:0;border-left:1px solid var(--hairline-soft);background:var(--shell);display:flex;flex-direction:column;overflow:hidden;animation:pjPanelSlide .2s ease}
 @keyframes pjPanelSlide{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
 .pj-panel-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--hairline-soft);flex-shrink:0}
@@ -585,6 +988,10 @@ export default function MyProjectsPage() {
 .pj-panel-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;font-size:12px;font-weight:500;background:var(--surface);border:1px solid var(--hairline-soft);color:var(--ink-2);cursor:pointer;font-family:var(--font-ui);transition:background .12s}
 .pj-panel-btn:hover{background:var(--surface-2);color:var(--ink)}
 .pj-panel-section-title{font-size:11px;font-weight:600;color:var(--ink-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+.pj-panel .pj-kv-cell:hover .pj-kv-cell-pencil{opacity:.6}
+.pj-panel .pj-kv-cell:hover .pj-kv-cell-value{background:var(--surface-hover)}
+.pj-panel .pj-kv-cell-value{cursor:pointer}
+.pj-panel .ep-ss-trigger{cursor:pointer;width:100%}
             `}</style>
         </div>
     );
