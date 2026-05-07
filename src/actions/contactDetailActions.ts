@@ -97,6 +97,20 @@ export async function getContactDetailAction(contactId: string) {
         threads[tid].push(e);
     });
 
+    // Resolve gmail_account_id → mailbox email so the UI can label which inbox
+    // each thread is on. One round-trip; the lookup table is tiny (≤77 rows).
+    const accountIds = Array.from(new Set(emails.map((e: any) => e.gmail_account_id).filter(Boolean) as string[]));
+    const accountEmailById: Record<string, string> = {};
+    if (accountIds.length > 0) {
+        const { data: accs } = await supabase
+            .from('gmail_accounts')
+            .select('id, email')
+            .in('id', accountIds);
+        for (const a of accs || []) {
+            if (a.id && a.email) accountEmailById[a.id] = a.email;
+        }
+    }
+
     // Compute communication habit from email history
     const habit = computeContactHabit(
         emails.map((e: { direction: string; sent_at: string | null; thread_id: string | null }) => ({
@@ -132,12 +146,25 @@ export async function getContactDetailAction(contactId: string) {
     return {
         contact: contactRes.data,
         emails,
-        threads: Object.entries(threads).map(([id, msgs]) => ({
-            id,
-            subject: msgs[0]?.subject || 'No Subject',
-            messages: msgs.sort((a: any, b: any) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()),
-            lastDate: msgs[0]?.sent_at,
-        })).sort((a, b) => new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime()),
+        threads: Object.entries(threads).map(([id, msgs]) => {
+            // Per-thread mailbox: pick the most-frequently-used gmail_account_id
+            // on this thread (almost always one, but a thread can rarely span
+            // mailboxes if the contact emailed two of our addresses).
+            const counts: Record<string, number> = {};
+            for (const m of msgs as any[]) {
+                if (m.gmail_account_id) counts[m.gmail_account_id] = (counts[m.gmail_account_id] || 0) + 1;
+            }
+            const dominantAccountId =
+                Object.entries(counts).sort(([, a], [, b]) => b - a)[0]?.[0] ?? null;
+            return {
+                id,
+                subject: (msgs as any[])[0]?.subject || 'No Subject',
+                messages: (msgs as any[]).sort((a: any, b: any) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()),
+                lastDate: (msgs as any[])[0]?.sent_at,
+                mailboxId: dominantAccountId,
+                mailboxEmail: dominantAccountId ? (accountEmailById[dominantAccountId] || null) : null,
+            };
+        }).sort((a, b) => new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime()),
         projects: projectsWithOwnership,
         activity: activityRes.data || [],
         stats: { sent, received, total: emails.length },

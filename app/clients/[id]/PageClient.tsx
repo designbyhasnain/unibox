@@ -313,8 +313,16 @@ export default function ContactDetailPage() {
                                                 <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                     {thread.subject}
                                                 </div>
-                                                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
-                                                    {thread.messages.length} message{thread.messages.length > 1 ? 's' : ''}
+                                                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                    <span>{thread.messages.length} message{thread.messages.length > 1 ? 's' : ''}</span>
+                                                    {thread.mailboxEmail && (
+                                                        <>
+                                                            <span style={{ opacity: 0.5 }}>·</span>
+                                                            <span style={{ fontVariantNumeric: 'tabular-nums' }} title={`Thread on ${thread.mailboxEmail}`}>
+                                                                ✉ {thread.mailboxEmail}
+                                                            </span>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                             <div style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0, marginLeft: 12 }}>
