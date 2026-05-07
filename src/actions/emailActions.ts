@@ -13,7 +13,8 @@ import { transformEmailRow, transformJoinedEmailRow } from '../utils/emailTransf
 import { clampPageSize } from '../utils/pagination';
 import { PAGINATION } from '../constants/limits';
 import { ensureAuthenticated } from '../lib/safe-action';
-import { getAccessibleGmailAccountIds, canAccessGmailAccount, blockEditorAccess, getOwnerFilter } from '../utils/accessControl';
+import { getAccessibleGmailAccountIds, canAccessGmailAccount, blockEditorAccess, getOwnerFilter, isAdmin } from '../utils/accessControl';
+import { getOwningMailbox } from '../services/pipelineLogic';
 
 const PAGE_SIZE = PAGINATION.DEFAULT_PAGE_SIZE;
 
@@ -180,6 +181,8 @@ export async function sendEmailAction(params: {
     body: string;
     threadId?: string;
     isTracked?: boolean;
+    /** ADMIN-only: bypass the per-contact mailbox lock. Default false. */
+    overrideLock?: boolean;
 }) {
     try {
         const { userId, role } = await ensureAuthenticated();
@@ -193,6 +196,35 @@ export async function sendEmailAction(params: {
         // RBAC: verify current user can send from this account
         if (!(await canAccessGmailAccount(userId, role, params.accountId))) {
             return { success: false, error: 'You do not have access to this sending account' };
+        }
+
+        // Mailbox lock — if this contact has an "owning mailbox" (engagement
+        // signals: project / pipeline-staged-past / inbound-reply ever) and
+        // it's NOT the mailbox we're sending from, refuse. Admin can pass
+        // overrideLock=true to bypass; SALES users always get blocked.
+        if (!params.overrideLock || !isAdmin(role)) {
+            // Strip "Display Name <addr>" framing.
+            const toAddrMatch = params.to.match(/<([^>]+)>/);
+            const toAddr = (toAddrMatch ? toAddrMatch[1] : params.to).trim().toLowerCase();
+            const lock = await getOwningMailbox(toAddr);
+            if (lock && lock.accountId !== params.accountId) {
+                const reasonText =
+                    lock.reason === 'project'
+                        ? 'they are a paid client'
+                        : lock.reason === 'pipeline_stage'
+                          ? 'they are engaged past Cold/Contacted'
+                          : 'they have already replied to us';
+                return {
+                    success: false,
+                    error:
+                        `This contact is locked to ${lock.accountEmail || 'another mailbox'} ` +
+                        `because ${reasonText} on that inbox. Send from there, ` +
+                        `or ask an admin to override.`,
+                    locked: true,
+                    owningAccountId: lock.accountId,
+                    owningAccountEmail: lock.accountEmail,
+                };
+            }
         }
 
         const { data: account, error: accError } = await supabase
