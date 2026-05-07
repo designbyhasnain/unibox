@@ -8,6 +8,7 @@ import { useHydrated } from '../utils/useHydration';
 import { ensureContactAction } from '../../src/actions/clientActions';
 import { useUndoToast } from '../context/UndoToastContext';
 import { useConfirm } from '../context/ConfirmContext';
+import ContactLink from './ContactLink';
 
 import { STAGE_COLORS, STAGE_LABELS, STAGE_OPTIONS } from '../constants/stages';
 
@@ -104,9 +105,13 @@ export const EmailRow = React.memo(function EmailRow({
                 </svg>
             </div>
 
-            {/* Sender — flex with min-width for truncation */}
+            {/* Sender — flex with min-width for truncation; the name itself
+                routes to the client detail page (stops row-click propagation
+                so the email reader doesn't also open). */}
             <div className="gmail-row-sender" title={senderName}>
-                {senderName}
+                <ContactLink contactId={email.contact_id} title="Open client profile">
+                    {senderName}
+                </ContactLink>
             </div>
 
             {/* Subject + Preview + Badge — flex grow */}

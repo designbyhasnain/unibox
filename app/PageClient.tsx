@@ -25,6 +25,7 @@ import { formatDate, cleanPreview } from './utils/helpers';
 import { getAvatarSrc, getAvatarBg } from './utils/avatars';
 import { RefreshCw, Mail, Send, Trash2, Eye, EyeOff, CheckCheck } from 'lucide-react';
 import Image from 'next/image';
+import ContactLink from './components/ContactLink';
 
 /**
  * Format an extracted wedding date as a relative-time chip:
@@ -653,9 +654,9 @@ export default function InboxPage() {
                                             <div className="body">
                                                 <div className="top">
                                                     {isUnread && <span className="unread-dot" />}
-                                                    <span className="sender">
+                                                    <ContactLink contactId={email.contact_id} className="sender" title="Open client profile">
                                                         {isSent ? `To: ${senderName}` : senderName}
-                                                    </span>
+                                                    </ContactLink>
                                                     <span className="time">
                                                         {isSent && (
                                                             <span style={{ marginRight: 4, display: 'inline-flex', verticalAlign: 'middle' }}>

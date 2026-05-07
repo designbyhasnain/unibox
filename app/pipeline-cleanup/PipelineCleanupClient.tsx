@@ -9,6 +9,7 @@ import {
     type PipelineReconcilePreview,
     type PipelineReconcileApply,
 } from '../../src/actions/pipelineReconcileActions';
+import ContactLink from '../components/ContactLink';
 
 const fmtMoney = (n: number) =>
     `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -241,8 +242,10 @@ function Row({ c }: { c: MisclassifiedContact }) {
     return (
         <tr style={{ borderBottom: '1px solid var(--hairline-soft)' }}>
             <td style={td}>
-                <div style={{ fontWeight: 500 }}>{c.name || '(no name)'}</div>
-                <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{c.email}</div>
+                <ContactLink contactId={c.id} stopPropagation={false} title="Open client profile">
+                    <div style={{ fontWeight: 500, textDecoration: 'underline', textDecorationColor: 'transparent', textUnderlineOffset: 2 }}>{c.name || '(no name)'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{c.email}</div>
+                </ContactLink>
             </td>
             <td style={td}>
                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, ...chipStyle }}>

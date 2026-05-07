@@ -418,7 +418,7 @@ export default function ClientsPage() {
                                 const amUser = c.account_manager_id ? salesUserById.get(c.account_manager_id) : null;
                                 const lastContactIso = c.last_email_at ? new Date(c.last_email_at).toISOString().slice(0, 16) : '';
                                 return (
-                                    <tr key={c.id || i} style={{ cursor: 'default' }}>
+                                    <tr key={c.id || i} onClick={() => router.push(`/clients/${c.id}`)} style={{ cursor: 'pointer' }}>
                                         <td onClick={e => e.stopPropagation()} style={{ width: 30 }}>
                                             <input
                                                 type="checkbox"
@@ -555,7 +555,8 @@ export default function ClientsPage() {
                                                 </button>
                                                 {openMenuId === c.id && (
                                                     <div className="row-menu" role="menu">
-                                                        <button className="row-menu-item" role="menuitem" onClick={() => { setOpenMenuId(null); setSelectedId(c.id); }}>
+                                                        <button className="row-menu-item" role="menuitem" onClick={() => { setOpenMenuId(null); router.push(`/clients/${c.id}`); }}>
+
                                                             Open
                                                         </button>
                                                         {isAdmin && (
@@ -593,7 +594,7 @@ export default function ClientsPage() {
                             const stage = c.pipeline_stage || 'COLD_LEAD';
                             const health = c.relationship_health || 'cold';
                             return (
-                                <div key={c.id || i} className="card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => setSelectedId(c.id)}>
+                                <div key={c.id || i} className="card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => router.push(`/clients/${c.id}`)}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
                                         <div className={`avatar ${av}`} style={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'white', fontSize: 12, fontWeight: 600 }}>{ini(c.name)}</div>
                                         <div style={{ minWidth: 0, flex: 1 }}>
