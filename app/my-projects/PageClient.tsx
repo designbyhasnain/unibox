@@ -810,9 +810,13 @@ export default function MyProjectsPage() {
                         <button className="btn btn-dark" onClick={() => setShowAddModal(true)}><Plus size={12} /> New project</button>
                     </div>
 
-                    {/* Editable table — every column except Project name → Client
-                        is interactive. Click anywhere outside an editable cell
-                        opens the right-side detail drawer. */}
+                    {/* Card list — original layout with the Status / Priority /
+                        Paid pills swapped for SmartSelect chips so the inline
+                        edit is a click away. Other fields (value, due, client,
+                        owner) are read on the card and edited in the drawer.
+                        Cards stop propagation around their interactive zones so
+                        the SmartSelect popovers don't double-fire as a card
+                        click that would open the drawer. */}
                     {filteredProjects.length === 0 ? (
                         <div className="empty-state-v2">
                             <div className="empty-illu" aria-hidden="true">
@@ -832,106 +836,94 @@ export default function MyProjectsPage() {
                             )}
                         </div>
                     ) : (
-                        <table className="pj-table">
-                            <thead>
-                                <tr>
-                                    <th>Project</th>
-                                    <th>Client</th>
-                                    <th>Status</th>
-                                    <th>Priority</th>
-                                    <th className="num">Value</th>
-                                    <th>Paid</th>
-                                    <th>Due</th>
-                                    {isAdmin && <th>Owner</th>}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredProjects.map(p => {
-                                    const isSelected = selectedId === p.id;
-                                    return (
-                                        <tr
-                                            key={p.id}
-                                            className={isSelected ? 'is-selected' : ''}
-                                        >
-                                            {/* Project — click to open drawer; the project_name itself
-                                                is editable inside the drawer (kept terse here). */}
-                                            <td onClick={() => setSelectedId(isSelected ? null : p.id)} style={{ cursor: 'pointer' }}>
-                                                <div style={{ fontSize: 13, fontWeight: 600 }}>{p.project_name || 'Untitled'}</div>
-                                                <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>
-                                                    PM-{p.id?.slice(0, 8)?.toUpperCase()}
-                                                </div>
-                                            </td>
-                                            <td onClick={e => e.stopPropagation()}>
-                                                <SmartSelect
-                                                    value={p.client_id || null}
-                                                    onChange={(v) => handleProjectUpdate(p.id, 'clientId', v)}
-                                                    placeholder="Pick client…"
-                                                    options={mergeClientOption(clientOptions, p)}
-                                                />
-                                            </td>
-                                            <td onClick={e => e.stopPropagation()}>
-                                                <SmartSelect
-                                                    value={p.status || 'Not Started'}
-                                                    onChange={(v) => v && handleProjectUpdate(p.id, 'status', v)}
-                                                    creatable
-                                                    options={STATUS_OPTIONS}
-                                                />
-                                            </td>
-                                            <td onClick={e => e.stopPropagation()}>
-                                                <SmartSelect
-                                                    value={p.priority || 'MEDIUM'}
-                                                    onChange={(v) => v && handleProjectUpdate(p.id, 'priority', v)}
-                                                    options={PRIORITY_OPTIONS}
-                                                />
-                                            </td>
-                                            <td className="num" onClick={e => e.stopPropagation()}>
-                                                <NumericCell
-                                                    value={p.project_value}
-                                                    onCommit={(n) => handleProjectUpdate(p.id, 'projectValue', n)}
-                                                />
-                                            </td>
-                                            <td onClick={e => e.stopPropagation()}>
-                                                <SmartSelect
-                                                    value={p.paid_status || 'UNPAID'}
-                                                    onChange={(v) => v && handleProjectUpdate(p.id, 'paidStatus', v)}
-                                                    options={PAID_OPTIONS}
-                                                />
-                                            </td>
-                                            <td onClick={e => e.stopPropagation()}>
-                                                <input
-                                                    type="date"
-                                                    value={toDateInputValue(p.due_date)}
-                                                    onChange={(e) => {
-                                                        const v = e.target.value ? new Date(e.target.value).toISOString() : null;
-                                                        handleProjectUpdate(p.id, 'dueDate', v);
-                                                    }}
-                                                    style={{
-                                                        background: 'transparent', border: '1px solid transparent',
-                                                        color: 'var(--ink-muted)', fontSize: 12, padding: '4px 6px',
-                                                        borderRadius: 6, fontFamily: 'inherit', cursor: 'pointer',
-                                                        width: '100%',
-                                                    }}
-                                                    onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--hairline-soft)')}
-                                                    onMouseLeave={e => (e.currentTarget.style.borderColor = 'transparent')}
-                                                />
-                                            </td>
-                                            {isAdmin && (
-                                                <td onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {filteredProjects.map(p => {
+                                const isSelected = selectedId === p.id;
+                                const stage = p.status || 'Not Started';
+                                const color = STAGE_COLOR[stage] || STAGE_COLOR[stage.toLowerCase()] || 'var(--ink-muted)';
+                                const progress = estimateProgress(p);
+                                const clientName = p.client_name || p.client?.name || p.person || 'Unknown';
+                                const ownerUser = p.account_manager_id ? managers.find(m => m.id === p.account_manager_id) : null;
+                                const ownerName = ownerUser?.name
+                                    || (p.account_manager && String(p.account_manager).trim())
+                                    || (p.account_manager_id ? 'Unknown user' : 'Unassigned');
+                                const budget = p.project_value || 0;
+                                const isPaid = p.paid_status === 'PAID';
+                                const isPartial = p.paid_status === 'PARTIALLY_PAID';
+                                const unpaid = isPaid ? 0 : (isPartial ? Math.round(budget / 2) : budget);
+                                const briefPreview = p.brief ? String(p.brief).slice(0, 60) : 'No brief yet';
+                                const dueLabel = relDate(p.due_date) || '—';
+
+                                return (
+                                    <div
+                                        key={p.id}
+                                        className={`pj-card${isSelected ? ' pj-card-active' : ''}`}
+                                        onClick={() => setSelectedId(isSelected ? null : p.id)}
+                                    >
+                                        <div className="pj-card-grid">
+                                            {/* Info column — pills + name + meta */}
+                                            <div className="pj-card-info">
+                                                <div className="pj-card-pillrow" onClick={e => e.stopPropagation()}>
+                                                    <span className="pj-stage-dot" style={{ background: color }} />
                                                     <SmartSelect
-                                                        value={p.account_manager_id || null}
-                                                        onChange={(v) => handleProjectUpdate(p.id, 'accountManagerId', v)}
-                                                        clearable
-                                                        clearLabel="Unassigned"
-                                                        placeholder="Unassigned"
-                                                        options={mergeManagerOption(managers, p)}
+                                                        value={stage}
+                                                        onChange={(v) => v && handleProjectUpdate(p.id, 'status', v)}
+                                                        creatable
+                                                        options={STATUS_OPTIONS}
                                                     />
-                                                </td>
-                                            )}
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+                                                    <SmartSelect
+                                                        value={p.priority || 'MEDIUM'}
+                                                        onChange={(v) => v && handleProjectUpdate(p.id, 'priority', v)}
+                                                        options={PRIORITY_OPTIONS}
+                                                    />
+                                                    <SmartSelect
+                                                        value={p.paid_status || 'UNPAID'}
+                                                        onChange={(v) => v && handleProjectUpdate(p.id, 'paidStatus', v)}
+                                                        options={PAID_OPTIONS}
+                                                    />
+                                                    <span className="pj-card-id">PM-{p.id?.slice(0, 8)?.toUpperCase()}</span>
+                                                </div>
+                                                <div className="pj-card-name">{p.project_name || 'Untitled'}</div>
+                                                <div className="pj-card-meta">
+                                                    <span className="pj-card-meta-item">
+                                                        <span className={`avatar ${avClass(clientName)}`} style={{ width: 16, height: 16, borderRadius: '50%', display: 'inline-grid', placeItems: 'center', color: 'white', fontSize: 7.5, fontWeight: 600 }}>
+                                                            {getInitials(clientName)}
+                                                        </span>
+                                                        {clientName}
+                                                    </span>
+                                                    <span className="pj-card-sep">·</span>
+                                                    <span className="pj-card-meta-item">
+                                                        Owner: <b>{ownerName}</b>
+                                                    </span>
+                                                    <span className="pj-card-sep">·</span>
+                                                    <span className="pj-card-brief">{briefPreview}</span>
+                                                </div>
+                                            </div>
+                                            {/* Progress column */}
+                                            <div className="pj-card-col">
+                                                <div className="pj-card-label">Progress · {progress}%</div>
+                                                <div className="progressbar"><div style={{ height: '100%', width: `${progress}%`, background: color }} /></div>
+                                            </div>
+                                            {/* Budget column */}
+                                            <div className="pj-card-col">
+                                                <div className="pj-card-label">Budget · {PAID_LABEL[p.paid_status] || 'Unpaid'}</div>
+                                                <div className="pj-card-value">
+                                                    {fmt(budget)}
+                                                    {unpaid > 0 && (
+                                                        <span className="pj-card-open">{fmt(unpaid)} open</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {/* Due column */}
+                                            <div className="pj-card-col pj-card-col-right">
+                                                <div className="pj-card-label">Due</div>
+                                                <div className="pj-card-value">{dueLabel}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     )}
                 </div>
 
@@ -1071,19 +1063,97 @@ export default function MyProjectsPage() {
 .pj-page .btn-dark{background:var(--ink);color:var(--canvas)}
 .pj-page .btn-dark:hover{opacity:.9}
 
-/* Editable table — sister to the .cl-page table on /clients. Same row
-   hover, same header treatment, kept its own class so the column
-   widths can be tuned independently. */
-.pj-page .pj-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px}
-.pj-page .pj-table th,.pj-page .pj-table td{padding:11px 14px;text-align:left;font-size:12.5px}
-.pj-page .pj-table th{font-weight:500;color:var(--ink-muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;background:color-mix(in oklab,var(--surface-2),transparent 20%);border-bottom:1px solid var(--hairline-soft)}
-.pj-page .pj-table tbody tr{border-bottom:1px solid var(--hairline-soft);transition:background .12s}
-.pj-page .pj-table tbody tr:last-child{border-bottom:0}
-.pj-page .pj-table tbody tr:hover{background:var(--surface-hover)}
-.pj-page .pj-table tbody tr.is-selected{background:color-mix(in oklab,var(--accent-soft),transparent 70%)}
-.pj-page .pj-table .num{text-align:right;font-variant-numeric:tabular-nums}
+/* Card grid — original "Luxury" card layout restored, now with the
+   pill row swapped for SmartSelect chips. Subtle layered shadow on
+   hover plus an accent ring on the active card. Works in both light
+   and dark themes because every color reaches through tokens. */
+.pj-page .pj-card{
+    background:var(--surface);
+    border:1px solid var(--hairline-soft);
+    border-radius:14px;
+    padding:14px 18px;
+    cursor:pointer;
+    transition:border-color .15s, box-shadow .15s, transform .15s;
+    /* Subtle elevation so cards feel detached from the canvas — read
+       as "glass" without going full backdrop-blur (which fights with
+       solid surface tokens in dark mode). */
+    box-shadow:0 1px 2px color-mix(in oklab, var(--ink) 4%, transparent);
+}
+.pj-page .pj-card:hover{
+    border-color:var(--hairline);
+    box-shadow:0 4px 16px color-mix(in oklab, var(--ink) 6%, transparent), 0 1px 2px color-mix(in oklab, var(--ink) 4%, transparent);
+    transform:translateY(-1px);
+}
+.pj-page .pj-card-active{
+    border-color:var(--accent);
+    box-shadow:0 0 0 1px var(--accent), 0 4px 16px color-mix(in oklab, var(--accent) 12%, transparent);
+}
+.pj-page .pj-card-grid{
+    display:grid;
+    grid-template-columns:1fr 200px 200px 140px;
+    align-items:center;
+    gap:18px;
+}
+.pj-page .pj-card-info{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pj-page .pj-card-pillrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pj-page .pj-stage-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.pj-page .pj-card-id{
+    margin-left:auto;
+    font-size:10.5px;
+    color:var(--ink-faint);
+    font-family:var(--font-mono, monospace);
+    letter-spacing:.04em;
+}
+.pj-page .pj-card-name{
+    font-size:14px;
+    font-weight:600;
+    color:var(--ink);
+    letter-spacing:-0.005em;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+.pj-page .pj-card-meta{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:11.5px;
+    color:var(--ink-muted);
+    flex-wrap:wrap;
+}
+.pj-page .pj-card-meta-item{display:inline-flex;align-items:center;gap:5px}
+.pj-page .pj-card-meta-item b{color:var(--ink-2);font-weight:500}
+.pj-page .pj-card-sep{color:var(--hairline)}
+.pj-page .pj-card-brief{
+    color:var(--ink-faint);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    max-width:240px;
+}
+.pj-page .pj-card-col{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pj-page .pj-card-col-right{text-align:right}
+.pj-page .pj-card-label{
+    font-size:10.5px;
+    color:var(--ink-muted);
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    font-weight:500;
+}
+.pj-page .pj-card-value{
+    font-size:13px;
+    font-weight:600;
+    color:var(--ink);
+    font-variant-numeric:tabular-nums;
+}
+.pj-page .pj-card-open{color:var(--warn);margin-left:6px;font-size:11.5px;font-weight:500}
 .pj-page .progressbar{height:4px;background:var(--surface-2);border-radius:99px;overflow:hidden}
 .pj-page .progressbar div{border-radius:99px;transition:width .3s ease}
+
+/* SmartSelect rendered inside a card pill row needs to read like a chip,
+   not a full-width input. Override the table-mode width:100% from
+   the global .pj-page .ep-ss-trigger rule. */
+.pj-page .pj-card-pillrow .ep-ss-trigger{width:auto;flex-shrink:0}
 
 /* Detail Panel — same animation as before, plus the editable-affordance
    hover styles (pencil + soft background) lifted from /clients KVCell. */
