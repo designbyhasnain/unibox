@@ -9567,32 +9567,31 @@ body.col-resizing * { cursor: col-resize !important; user-select: none !importan
 }
 
 /* ─── Native datetime-local / date / time picker icon visibility ─────────
-   The browser's built-in calendar / clock indicator on these inputs is
-   black-on-transparent by default. In dark mode it disappears against
-   the dark surface (Last Contact column, Expected Close Date in the
-   Add Client modal). Three layers of defense:
-   1. color-scheme: dark on html so the whole document tells the UA
-      "render native UI in dark theme".
-   2. color-scheme: dark on the inputs themselves (Chromium picks up
-      from the input first).
-   3. invert(1) on the picker indicator — wins regardless of UA support.
-   The light-theme override flips all three back. */
+   Previous approach used `color-scheme: dark` + `filter: invert(1)` and
+   they fought each other — color-scheme made the UA render the icon white,
+   then filter flipped it BACK to black. The bulletproof fix is to
+   REPLACE the UA icon with our own inlined SVG so the visibility no
+   longer depends on UA + color-scheme negotiation. */
 html { color-scheme: dark; }
 body[data-theme="light"] { color-scheme: light; }
 
-input[type="datetime-local"],
-input[type="date"],
-input[type="time"] {
-    color-scheme: dark;
-}
 input[type="datetime-local"]::-webkit-calendar-picker-indicator,
 input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="time"]::-webkit-calendar-picker-indicator,
-input[type="datetime-local"]::-webkit-clear-button,
-input[type="date"]::-webkit-clear-button {
-    filter: invert(1) brightness(1.5);
+input[type="time"]::-webkit-calendar-picker-indicator {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    width: 16px !important;
+    height: 16px !important;
+    padding: 0 !important;
+    margin-left: 4px !important;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>") !important;
+    background-size: 14px 14px !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    background-color: transparent !important;
+    filter: none !important;
     opacity: 0.85;
-    cursor: pointer;
+    cursor: pointer !important;
     transition: opacity 0.12s;
 }
 input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
@@ -9600,14 +9599,19 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover,
 input[type="time"]::-webkit-calendar-picker-indicator:hover {
     opacity: 1;
 }
-
-body[data-theme="light"] input[type="datetime-local"],
-body[data-theme="light"] input[type="date"],
-body[data-theme="light"] input[type="time"] {
-    color-scheme: light;
+input[type="datetime-local"]::-webkit-clear-button,
+input[type="date"]::-webkit-clear-button {
+    filter: invert(1) brightness(1.5);
+    opacity: 0.6;
+    cursor: pointer;
 }
+
 body[data-theme="light"] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
 body[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
 body[data-theme="light"] input[type="time"]::-webkit-calendar-picker-indicator {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>") !important;
+}
+body[data-theme="light"] input[type="datetime-local"]::-webkit-clear-button,
+body[data-theme="light"] input[type="date"]::-webkit-clear-button {
     filter: none;
 }

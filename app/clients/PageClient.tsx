@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getClientsAction, removeClientsAction } from '../../src/actions/clientActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
@@ -861,7 +862,7 @@ export default function ClientsPage() {
                     <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>Enroll in campaign</div>
                     {campaigns.length === 0 ? (
                         <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '16px 0' }}>
-                            No enrollable campaigns. Start one in <a href="/campaigns" style={{ color: 'var(--accent)' }}>Campaigns</a>.
+                            No enrollable campaigns. Start one in <Link href="/campaigns" style={{ color: 'var(--accent)' }}>Campaigns</Link>.
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -969,11 +970,15 @@ export default function ClientsPage() {
 .row-menu-item.danger{color:var(--danger)}
 .row-menu-item.danger:hover{background:color-mix(in oklab,var(--danger-soft),transparent 60%);color:var(--danger)}
 
-/* Detail-panel editable affordance — show the pencil on hover so the
-   user knows the row is interactive (Stage/Health/Owner pills look
-   identical to read-only labels otherwise). */
-.cl-drawer .kv-cell-editable:hover .kv-cell-pencil { opacity: 1; }
-.cl-drawer .ep-ss-trigger { cursor: pointer; }
+/* Detail-panel editable affordance — show the pencil + a soft hover
+   background on the value column so the user knows the row is
+   interactive (Stage/Health/Owner pills look identical to read-only
+   labels otherwise). The hover state covers the entire value cell, so
+   a click anywhere in that area lands on the SmartSelect/NumericCell. */
+.cl-drawer .kv-cell-editable:hover .kv-cell-pencil { opacity: 0.6; }
+.cl-drawer .kv-cell-editable:hover .kv-cell-value { background: var(--surface-hover); }
+.cl-drawer .kv-cell-value { cursor: pointer; }
+.cl-drawer .ep-ss-trigger { cursor: pointer; width: 100%; }
 .cl-page .card{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;transition:border-color .12s}
 .cl-page .card:hover{border-color:var(--hairline)}
 .cl-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:start;overflow-x:auto}
@@ -1004,11 +1009,9 @@ function StatBox({ label, val }: { label: string; val: React.ReactNode }) {
     );
 }
 
-// Editable KV row — same layout as KV but renders an arbitrary control on
-// the right (used for Stage / Health / Owner SmartSelects in the panel).
-// The trailing pencil glyph + dashed-border on hover make it visually
-// obvious the field is interactive — earlier feedback was that the
-// SmartSelect chip looked indistinguishable from the read-only KV row.
+// Editable KV row — wraps a SmartSelect/control. The whole right side has
+// a hover background so the user immediately sees the field is interactive
+// (no "toggle to edit" mode — clicking the value opens the dropdown).
 function KVCell({ k, children }: { k: string; children: React.ReactNode }) {
     return (
         <div
@@ -1016,12 +1019,12 @@ function KVCell({ k, children }: { k: string; children: React.ReactNode }) {
             style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--hairline-soft)', minHeight: 32 }}
         >
             <div style={{ width: 140, color: 'var(--ink-muted)', flexShrink: 0 }}>{k}</div>
-            <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+            <div className="kv-cell-value" style={{ flex: 1, minWidth: 0, position: 'relative', padding: '4px 8px', margin: '-4px -8px', borderRadius: 6, transition: 'background 0.12s' }}>
                 {children}
                 <span
                     aria-hidden="true"
                     className="kv-cell-pencil"
-                    style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--ink-faint)', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s' }}
+                    style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--ink-faint)', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s' }}
                 >
                     ✎
                 </span>
