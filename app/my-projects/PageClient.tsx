@@ -860,64 +860,88 @@ export default function MyProjectsPage() {
                                         className={`pj-card${isSelected ? ' pj-card-active' : ''}`}
                                         onClick={() => setSelectedId(isSelected ? null : p.id)}
                                     >
-                                        <div className="pj-card-grid">
-                                            {/* Info column — pills + name + meta */}
-                                            <div className="pj-card-info">
-                                                <div className="pj-card-pillrow" onClick={e => e.stopPropagation()}>
-                                                    <span className="pj-stage-dot" style={{ background: color }} />
-                                                    <SmartSelect
-                                                        value={stage}
-                                                        onChange={(v) => v && handleProjectUpdate(p.id, 'status', v)}
-                                                        creatable
-                                                        options={STATUS_OPTIONS}
-                                                    />
-                                                    <SmartSelect
-                                                        value={p.priority || 'MEDIUM'}
-                                                        onChange={(v) => v && handleProjectUpdate(p.id, 'priority', v)}
-                                                        options={PRIORITY_OPTIONS}
-                                                    />
-                                                    <SmartSelect
-                                                        value={p.paid_status || 'UNPAID'}
-                                                        onChange={(v) => v && handleProjectUpdate(p.id, 'paidStatus', v)}
-                                                        options={PAID_OPTIONS}
-                                                    />
-                                                    <span className="pj-card-id">PM-{p.id?.slice(0, 8)?.toUpperCase()}</span>
-                                                </div>
-                                                <div className="pj-card-name">{p.project_name || 'Untitled'}</div>
-                                                <div className="pj-card-meta">
-                                                    <span className="pj-card-meta-item">
-                                                        <span className={`avatar ${avClass(clientName)}`} style={{ width: 16, height: 16, borderRadius: '50%', display: 'inline-grid', placeItems: 'center', color: 'white', fontSize: 7.5, fontWeight: 600 }}>
-                                                            {getInitials(clientName)}
-                                                        </span>
-                                                        {clientName}
+                                        {/* PM-id chip — top-right anchor so it never
+                                            competes with the title for visual weight */}
+                                        <div className="pj-card-topbar">
+                                            <span className="pj-stage-dot" style={{ background: color }} />
+                                            <span className="pj-card-stage">{(STAGE_LABEL[stage] || stage).toUpperCase()}</span>
+                                            <div className="pj-card-spacer" />
+                                            <span className="pj-card-id">PM-{p.id?.slice(0, 8)?.toUpperCase()}</span>
+                                        </div>
+
+                                        {/* Header — title + client subtitle on the left,
+                                            pills on the right. Pills stop propagation so
+                                            opening their popovers doesn't open the drawer. */}
+                                        <div className="pj-card-header">
+                                            <div className="pj-card-titlewrap">
+                                                <h3 className="pj-card-title">{p.project_name || 'Untitled'}</h3>
+                                                <div className="pj-card-client">
+                                                    <span className={`avatar ${avClass(clientName)}`} style={{ width: 18, height: 18, borderRadius: '50%', display: 'inline-grid', placeItems: 'center', color: 'white', fontSize: 8, fontWeight: 600 }}>
+                                                        {getInitials(clientName)}
                                                     </span>
-                                                    <span className="pj-card-sep">·</span>
-                                                    <span className="pj-card-meta-item">
-                                                        Owner: <b>{ownerName}</b>
-                                                    </span>
-                                                    <span className="pj-card-sep">·</span>
-                                                    <span className="pj-card-brief">{briefPreview}</span>
+                                                    <span>{clientName}</span>
                                                 </div>
                                             </div>
-                                            {/* Progress column */}
-                                            <div className="pj-card-col">
-                                                <div className="pj-card-label">Progress · {progress}%</div>
+                                            <div className="pj-card-pills" onClick={e => e.stopPropagation()}>
+                                                <SmartSelect
+                                                    value={stage}
+                                                    onChange={(v) => v && handleProjectUpdate(p.id, 'status', v)}
+                                                    creatable
+                                                    options={STATUS_OPTIONS}
+                                                />
+                                                <SmartSelect
+                                                    value={p.priority || 'MEDIUM'}
+                                                    onChange={(v) => v && handleProjectUpdate(p.id, 'priority', v)}
+                                                    options={PRIORITY_OPTIONS}
+                                                />
+                                                <SmartSelect
+                                                    value={p.paid_status || 'UNPAID'}
+                                                    onChange={(v) => v && handleProjectUpdate(p.id, 'paidStatus', v)}
+                                                    options={PAID_OPTIONS}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* 4-column stats grid — Progress | Budget | Due |
+                                            Owner. Each cell sits on its own --surface
+                                            tile inside a --hairline-soft 1px grid so the
+                                            block reads as one unit but the columns are
+                                            visually separated. Stacks 2-col then 1-col on
+                                            narrow viewports. */}
+                                        <div className="pj-card-stats">
+                                            <div className="pj-card-stat">
+                                                <div className="pj-card-stat-label">Progress</div>
+                                                <div className="pj-card-stat-value">{progress}%</div>
                                                 <div className="progressbar"><div style={{ height: '100%', width: `${progress}%`, background: color }} /></div>
                                             </div>
-                                            {/* Budget column */}
-                                            <div className="pj-card-col">
-                                                <div className="pj-card-label">Budget · {PAID_LABEL[p.paid_status] || 'Unpaid'}</div>
-                                                <div className="pj-card-value">
-                                                    {fmt(budget)}
-                                                    {unpaid > 0 && (
-                                                        <span className="pj-card-open">{fmt(unpaid)} open</span>
-                                                    )}
+                                            <div className="pj-card-stat">
+                                                <div className="pj-card-stat-label">Budget</div>
+                                                <div className="pj-card-stat-value">{fmt(budget)}</div>
+                                                <div className="pj-card-stat-sub" style={{ color: isPaid ? 'var(--coach)' : (isPartial ? 'var(--warn)' : 'var(--danger)') }}>
+                                                    {PAID_LABEL[p.paid_status] || 'Unpaid'}
+                                                    {unpaid > 0 && <span style={{ color: 'var(--ink-muted)', marginLeft: 6 }}>· {fmt(unpaid)} open</span>}
                                                 </div>
                                             </div>
-                                            {/* Due column */}
-                                            <div className="pj-card-col pj-card-col-right">
-                                                <div className="pj-card-label">Due</div>
-                                                <div className="pj-card-value">{dueLabel}</div>
+                                            <div className="pj-card-stat">
+                                                <div className="pj-card-stat-label">Due</div>
+                                                <div className="pj-card-stat-value">{dueLabel}</div>
+                                                <div className="pj-card-stat-sub">{p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { weekday: 'short' }) : '—'}</div>
+                                            </div>
+                                            <div className="pj-card-stat">
+                                                <div className="pj-card-stat-label">Owner</div>
+                                                <div className="pj-card-stat-owner">
+                                                    {ownerName !== 'Unassigned' ? (
+                                                        <>
+                                                            <span className={`avatar ${avClass(ownerName)}`} style={{ width: 22, height: 22, borderRadius: '50%', display: 'inline-grid', placeItems: 'center', color: 'white', fontSize: 9.5, fontWeight: 600 }}>
+                                                                {getInitials(ownerName)}
+                                                            </span>
+                                                            <span className="pj-card-stat-value" style={{ fontSize: 14 }}>{ownerName}</span>
+                                                        </>
+                                                    ) : (
+                                                        <span className="pj-card-stat-value" style={{ color: 'var(--ink-muted)', fontWeight: 500 }}>Unassigned</span>
+                                                    )}
+                                                </div>
+                                                <div className="pj-card-stat-sub">{briefPreview}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -1063,97 +1087,174 @@ export default function MyProjectsPage() {
 .pj-page .btn-dark{background:var(--ink);color:var(--canvas)}
 .pj-page .btn-dark:hover{opacity:.9}
 
-/* Card grid — original "Luxury" card layout restored, now with the
-   pill row swapped for SmartSelect chips. Subtle layered shadow on
-   hover plus an accent ring on the active card. Works in both light
-   and dark themes because every color reaches through tokens. */
+/* Spacious "block" cards — top section (id chip + title row + pills)
+   over a 4-up stats grid that breaks down to 2-up then 1-up on
+   narrower viewports. Two-tone surface system gives the stats grid
+   visible separation: card outer = surface-2, stats tiles = surface
+   with a 1px hairline grid between them. */
 .pj-page .pj-card{
-    background:var(--surface);
-    border:1px solid var(--hairline-soft);
-    border-radius:14px;
-    padding:14px 18px;
+    background:var(--surface-2);
+    border:1px solid color-mix(in oklab, var(--hairline-soft), transparent 30%);
+    border-radius:16px;
+    padding:22px 24px 20px;
     cursor:pointer;
     transition:border-color .15s, box-shadow .15s, transform .15s;
-    /* Subtle elevation so cards feel detached from the canvas — read
-       as "glass" without going full backdrop-blur (which fights with
-       solid surface tokens in dark mode). */
-    box-shadow:0 1px 2px color-mix(in oklab, var(--ink) 4%, transparent);
+    /* Layered ambient shadow — close + soft tight, then a wider
+       diffuse halo. Reads as "floating block" in both themes. */
+    box-shadow:
+        0 1px 2px color-mix(in oklab, var(--ink) 4%, transparent),
+        0 8px 24px color-mix(in oklab, var(--ink) 5%, transparent);
 }
 .pj-page .pj-card:hover{
     border-color:var(--hairline);
-    box-shadow:0 4px 16px color-mix(in oklab, var(--ink) 6%, transparent), 0 1px 2px color-mix(in oklab, var(--ink) 4%, transparent);
-    transform:translateY(-1px);
+    transform:translateY(-2px);
+    box-shadow:
+        0 2px 4px color-mix(in oklab, var(--ink) 5%, transparent),
+        0 16px 32px color-mix(in oklab, var(--ink) 8%, transparent);
 }
 .pj-page .pj-card-active{
     border-color:var(--accent);
-    box-shadow:0 0 0 1px var(--accent), 0 4px 16px color-mix(in oklab, var(--accent) 12%, transparent);
+    box-shadow:
+        0 0 0 1px var(--accent),
+        0 16px 32px color-mix(in oklab, var(--accent) 14%, transparent);
 }
-.pj-page .pj-card-grid{
-    display:grid;
-    grid-template-columns:1fr 200px 200px 140px;
+
+/* Topbar — stage dot + uppercase stage label on the left, PM-id on
+   the right. Sits ABOVE the title block so it never competes for
+   visual weight. */
+.pj-page .pj-card-topbar{
+    display:flex;
     align-items:center;
-    gap:18px;
+    gap:8px;
+    margin-bottom:12px;
 }
-.pj-page .pj-card-info{display:flex;flex-direction:column;gap:6px;min-width:0}
-.pj-page .pj-card-pillrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.pj-page .pj-stage-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.pj-page .pj-stage-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.pj-page .pj-card-stage{
+    font-size:10.5px;
+    font-weight:600;
+    letter-spacing:.08em;
+    color:var(--ink-muted);
+    text-transform:uppercase;
+}
+.pj-page .pj-card-spacer{flex:1}
 .pj-page .pj-card-id{
-    margin-left:auto;
     font-size:10.5px;
     color:var(--ink-faint);
     font-family:var(--font-mono, monospace);
     letter-spacing:.04em;
 }
-.pj-page .pj-card-name{
-    font-size:14px;
-    font-weight:600;
+
+/* Header — title (large, bold) + client subtitle on the left, pill
+   group on the right. flex-wrap so on cramped widths the pills drop
+   to a new line under the title. */
+.pj-page .pj-card-header{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:16px;
+    margin-bottom:18px;
+    flex-wrap:wrap;
+}
+.pj-page .pj-card-titlewrap{flex:1;min-width:0}
+.pj-page .pj-card-title{
+    font-size:18px;
+    font-weight:700;
     color:var(--ink);
-    letter-spacing:-0.005em;
+    letter-spacing:-0.01em;
+    margin:0 0 6px;
+    line-height:1.2;
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
 }
-.pj-page .pj-card-meta{
+.pj-page .pj-card-client{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-size:13px;
+    color:var(--ink-muted);
+}
+.pj-page .pj-card-pills{
     display:flex;
     align-items:center;
     gap:6px;
-    font-size:11.5px;
-    color:var(--ink-muted);
+    flex-shrink:0;
     flex-wrap:wrap;
 }
-.pj-page .pj-card-meta-item{display:inline-flex;align-items:center;gap:5px}
-.pj-page .pj-card-meta-item b{color:var(--ink-2);font-weight:500}
-.pj-page .pj-card-sep{color:var(--hairline)}
-.pj-page .pj-card-brief{
-    color:var(--ink-faint);
+
+/* Stats grid — 4-up. The trick: the GRID has a hairline-soft bg and
+   1px gaps between tiles, so each tile gets a hairline divider for
+   free without per-side borders. */
+.pj-page .pj-card-stats{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0, 1fr));
+    gap:1px;
+    background:var(--hairline-soft);
+    border-radius:12px;
+    overflow:hidden;
+}
+.pj-page .pj-card-stat{
+    background:var(--surface);
+    padding:14px 16px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    min-width:0;
+}
+.pj-page .pj-card-stat-label{
+    font-size:10px;
+    font-weight:600;
+    color:var(--ink-muted);
+    text-transform:uppercase;
+    letter-spacing:.06em;
+}
+.pj-page .pj-card-stat-value{
+    font-size:18px;
+    font-weight:700;
+    color:var(--ink);
+    font-variant-numeric:tabular-nums;
+    line-height:1.1;
+    letter-spacing:-0.01em;
+}
+.pj-page .pj-card-stat-sub{
+    font-size:11px;
+    color:var(--ink-muted);
+    line-height:1.3;
     overflow:hidden;
     text-overflow:ellipsis;
     white-space:nowrap;
-    max-width:240px;
 }
-.pj-page .pj-card-col{display:flex;flex-direction:column;gap:6px;min-width:0}
-.pj-page .pj-card-col-right{text-align:right}
-.pj-page .pj-card-label{
-    font-size:10.5px;
-    color:var(--ink-muted);
-    text-transform:uppercase;
-    letter-spacing:.04em;
-    font-weight:500;
+.pj-page .pj-card-stat-owner{display:flex;align-items:center;gap:8px;min-width:0}
+.pj-page .pj-card-stat-owner .pj-card-stat-value{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
 }
-.pj-page .pj-card-value{
-    font-size:13px;
-    font-weight:600;
-    color:var(--ink);
-    font-variant-numeric:tabular-nums;
+
+.pj-page .progressbar{
+    height:6px;
+    background:var(--surface-2);
+    border-radius:99px;
+    overflow:hidden;
+    margin-top:2px;
 }
-.pj-page .pj-card-open{color:var(--warn);margin-left:6px;font-size:11.5px;font-weight:500}
-.pj-page .progressbar{height:4px;background:var(--surface-2);border-radius:99px;overflow:hidden}
 .pj-page .progressbar div{border-radius:99px;transition:width .3s ease}
 
-/* SmartSelect rendered inside a card pill row needs to read like a chip,
-   not a full-width input. Override the table-mode width:100% from
-   the global .pj-page .ep-ss-trigger rule. */
-.pj-page .pj-card-pillrow .ep-ss-trigger{width:auto;flex-shrink:0}
+/* SmartSelect chips inside the card header read as compact pills,
+   not full-width inputs. */
+.pj-page .pj-card-pills .ep-ss-trigger{width:auto;flex-shrink:0}
+
+/* Responsive — collapse the 4-up to 2-up then to a vertical stack so
+   the cards stay readable on narrow / mobile viewports. */
+@media (max-width: 980px){
+    .pj-page .pj-card-stats{grid-template-columns:repeat(2, minmax(0, 1fr))}
+}
+@media (max-width: 600px){
+    .pj-page .pj-card{padding:18px 18px 16px}
+    .pj-page .pj-card-stats{grid-template-columns:1fr}
+    .pj-page .pj-card-header{flex-direction:column;align-items:stretch;gap:12px}
+    .pj-page .pj-card-pills{justify-content:flex-start}
+}
 
 /* Detail Panel — same animation as before, plus the editable-affordance
    hover styles (pencil + soft background) lifted from /clients KVCell. */
