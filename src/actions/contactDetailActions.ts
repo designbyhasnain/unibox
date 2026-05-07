@@ -157,6 +157,11 @@ const CONTACT_UPDATABLE_FIELDS = new Set([
     'pipeline_stage', 'relationship_health',
     'estimated_value', 'total_projects', 'total_revenue', 'unpaid_amount',
     'last_email_at', 'lead_score',
+    // Source-account override: lets the drawer reassign which inbox is
+    // attributed as the contact's source. Sync pipeline still updates this
+    // on every new email — manual edits are a stop-gap for misclassified
+    // contacts (e.g. imported leads that haven't replied yet).
+    'last_gmail_account_id',
 ]);
 
 export async function updateContactAction(contactId: string, data: Record<string, unknown>) {

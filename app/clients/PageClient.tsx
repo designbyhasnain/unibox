@@ -73,6 +73,9 @@ export default function ClientsPage() {
     const selected = selectedId ? clients.find(c => c.id === selectedId) || null : null;
     const [searchTerm, setSearchTerm] = useState('');
     const [totalCount, setTotalCount] = useState(0);
+    const [totalPages, setTotalPages] = useState(0);
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 100;
     const [isAdmin, setIsAdmin] = useState(false);
     const [isAddOpen, setIsAddOpen] = useState(false);
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -180,15 +183,22 @@ export default function ClientsPage() {
     const load = useCallback(async () => {
         try {
             const [result, user] = await Promise.all([
-                getClientsAction(selectedAccountId, 1, 100, debouncedSearch || undefined, undefined, stageFilter || undefined),
+                getClientsAction(selectedAccountId, page, PAGE_SIZE, debouncedSearch || undefined, undefined, stageFilter || undefined),
                 getCurrentUserAction(),
             ]);
             setClients(result.clients);
             setTotalCount(result.totalCount);
+            setTotalPages(result.totalPages);
             setIsAdmin(user?.role === 'ADMIN' || user?.role === 'ACCOUNT_MANAGER');
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
-    }, [selectedAccountId, debouncedSearch, stageFilter]);
+    }, [selectedAccountId, debouncedSearch, stageFilter, page]);
+
+    // Reset to page 1 whenever the active filter / search / account scope
+    // changes — the old page might be out-of-range for the new result set
+    // and would land the user on an empty page. Bulk-select state also gets
+    // wiped because the IDs the user picked may no longer be visible.
+    useEffect(() => { setPage(1); setSelectedIds(new Set()); }, [selectedAccountId, debouncedSearch, stageFilter]);
 
     useEffect(() => { load(); }, [load]);
     useEffect(() => {
@@ -604,6 +614,47 @@ export default function ClientsPage() {
                     </div>
                 )}
 
+                {/* Pagination footer — shown only when the dataset is
+                    multi-page. Server-side: each click swaps in the next
+                    100 rows via getClientsAction(page=N). filteredClients
+                    is the *page-local* client-side filtered slice, so the
+                    "showing X–Y of Z" range is computed off the raw page
+                    count, not the filtered count. */}
+                {totalPages > 1 && view === 'list' && (
+                    <div className="cl-pager">
+                        <div className="cl-pager-info">
+                            Showing <b>{((page - 1) * PAGE_SIZE) + 1}</b>–<b>{Math.min(page * PAGE_SIZE, totalCount)}</b> of <b>{totalCount.toLocaleString()}</b>
+                        </div>
+                        <div className="cl-pager-ctrl">
+                            <button
+                                className="cl-pager-btn"
+                                disabled={page <= 1}
+                                onClick={() => { setPage(1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                                title="First page"
+                            >« First</button>
+                            <button
+                                className="cl-pager-btn"
+                                disabled={page <= 1}
+                                onClick={() => { setPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            >‹ Prev</button>
+                            <span className="cl-pager-num">
+                                Page <b>{page}</b> of {totalPages.toLocaleString()}
+                            </span>
+                            <button
+                                className="cl-pager-btn"
+                                disabled={page >= totalPages}
+                                onClick={() => { setPage(p => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            >Next ›</button>
+                            <button
+                                className="cl-pager-btn"
+                                disabled={page >= totalPages}
+                                onClick={() => { setPage(totalPages); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                                title="Last page"
+                            >Last »</button>
+                        </div>
+                    </div>
+                )}
+
                 {/* Board view removed Phase 3 — `/opportunities` owns the pipeline kanban. */}
             </div>
         </div>
@@ -730,12 +781,41 @@ export default function ClientsPage() {
                             <StatBox label="Last contact" val={fmtDate(selected.last_email_at)} />
                         </div>
 
-                        {/* Contact info */}
+                        {/* Contact info — every field is click-to-edit and
+                            saves optimistically via handleCellUpdate. */}
                         <Section title="Contact">
-                            <KV k="Email" v={selected.email || '—'} mono />
-                            <KV k="Phone" v={selected.phone || '—'} mono />
-                            <KV k="Location" v={selected.location || '—'} />
-                            <KV k="Company" v={selected.company || '—'} />
+                            <KVCell k="Email">
+                                <TextCell
+                                    value={selected.email}
+                                    onCommit={(v) => handleCellUpdate(selected.id, 'email', v)}
+                                    mono
+                                    type="email"
+                                    placeholder="add email…"
+                                />
+                            </KVCell>
+                            <KVCell k="Phone">
+                                <TextCell
+                                    value={selected.phone}
+                                    onCommit={(v) => handleCellUpdate(selected.id, 'phone', v)}
+                                    mono
+                                    type="tel"
+                                    placeholder="add phone…"
+                                />
+                            </KVCell>
+                            <KVCell k="Location">
+                                <TextCell
+                                    value={selected.location}
+                                    onCommit={(v) => handleCellUpdate(selected.id, 'location', v)}
+                                    placeholder="add location…"
+                                />
+                            </KVCell>
+                            <KVCell k="Company">
+                                <TextCell
+                                    value={selected.company}
+                                    onCommit={(v) => handleCellUpdate(selected.id, 'company', v)}
+                                    placeholder="add company…"
+                                />
+                            </KVCell>
                         </Section>
 
                         {/* Relationship — Stage/Health/Owner are now interactive
@@ -779,7 +859,13 @@ export default function ClientsPage() {
                                     ]}
                                 />
                             </KVCell>
-                            <KV k="Lead score" v={String(selected.lead_score || 0)} />
+                            <KVCell k="Lead score">
+                                <NumericCell
+                                    value={selected.lead_score}
+                                    onCommit={(n) => handleCellUpdate(selected.id, 'lead_score', n)}
+                                    noPrefix
+                                />
+                            </KVCell>
                             <KVCell k="Account manager">
                                 <SmartSelect
                                     value={selected.account_manager_id || null}
@@ -795,15 +881,24 @@ export default function ClientsPage() {
                                     }))}
                                 />
                             </KVCell>
-                            <KV
-                                k="Source Gmail account"
-                                v={
-                                    selected.last_gmail_account_id
-                                        ? (accounts.find(a => a.id === selected.last_gmail_account_id)?.email || selected.last_gmail_account_id)
-                                        : '—'
-                                }
-                                mono
-                            />
+                            {/* Source Gmail account — SmartSelect lets the user
+                                reassign which inbox the contact is attributed to.
+                                The sync pipeline still overwrites this on the next
+                                inbound email (see CONTACT_UPDATABLE_FIELDS comment
+                                in contactDetailActions.ts). */}
+                            <KVCell k="Source Gmail account">
+                                <SmartSelect
+                                    value={selected.last_gmail_account_id || null}
+                                    onChange={(v) => handleCellUpdate(selected.id, 'last_gmail_account_id', v)}
+                                    clearable
+                                    clearLabel="None"
+                                    placeholder="No source"
+                                    options={accounts.map(a => ({
+                                        value: a.id,
+                                        label: a.email,
+                                    }))}
+                                />
+                            </KVCell>
                         </Section>
                     </div>
                 </div>
@@ -981,6 +1076,15 @@ export default function ClientsPage() {
 .cl-drawer .ep-ss-trigger { cursor: pointer; width: 100%; }
 .cl-page .card{background:var(--surface);border:1px solid var(--hairline-soft);border-radius:14px;transition:border-color .12s}
 .cl-page .card:hover{border-color:var(--hairline)}
+.cl-page .cl-pager{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px;padding:12px 14px;background:var(--surface);border:1px solid var(--hairline-soft);border-radius:12px;flex-wrap:wrap}
+.cl-page .cl-pager-info{font-size:12px;color:var(--ink-muted)}
+.cl-page .cl-pager-info b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}
+.cl-page .cl-pager-ctrl{display:flex;align-items:center;gap:6px}
+.cl-page .cl-pager-num{font-size:12px;color:var(--ink-muted);padding:0 8px;font-variant-numeric:tabular-nums}
+.cl-page .cl-pager-num b{color:var(--ink);font-weight:600}
+.cl-page .cl-pager-btn{padding:5px 10px;font-size:12px;font-weight:500;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--hairline-soft);border-radius:7px;cursor:pointer;font-family:var(--font-ui);transition:background .12s,color .12s,border-color .12s}
+.cl-page .cl-pager-btn:hover:not(:disabled){background:var(--surface-hover);color:var(--ink);border-color:var(--hairline)}
+.cl-page .cl-pager-btn:disabled{opacity:.4;cursor:not-allowed}
 .cl-page .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:10px;align-items:start;overflow-x:auto}
 .cl-page .kcol{background:var(--shell);border:1px solid var(--hairline-soft);border-radius:14px;padding:10px;min-height:360px}
 .cl-page .kcol-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:2px 4px}
@@ -1042,12 +1146,64 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     );
 }
 
-function KV({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
+// Inline text editor for free-form fields (Email, Phone, Location,
+// Company in the drawer). Click to edit, save on Enter or blur, Escape
+// to revert. Commits only when the value actually changed so we don't
+// fire pointless server writes on every focus/blur cycle.
+function TextCell({ value, onCommit, mono, placeholder, type }: {
+    value: string | null | undefined;
+    onCommit: (s: string | null) => void;
+    mono?: boolean;
+    placeholder?: string;
+    type?: 'text' | 'email' | 'tel';
+}) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState<string>(value ?? '');
+    useEffect(() => { if (!editing) setDraft(value ?? ''); }, [value, editing]);
+
+    const commit = () => {
+        setEditing(false);
+        const trimmed = draft.trim();
+        const next = trimmed === '' ? null : trimmed;
+        if (next !== (value ?? null)) onCommit(next);
+    };
+
+    if (editing) {
+        return (
+            <input
+                type={type ?? 'text'}
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                    else if (e.key === 'Escape') { setEditing(false); setDraft(value ?? ''); }
+                }}
+                placeholder={placeholder}
+                style={{
+                    width: '100%', background: 'var(--canvas)',
+                    border: '1px solid var(--accent)', borderRadius: 6,
+                    padding: '4px 8px', fontSize: mono ? 12 : 12.5,
+                    color: 'var(--ink)', fontFamily: mono ? 'var(--font-mono)' : 'inherit',
+                    outline: 'none',
+                }}
+            />
+        );
+    }
+    const display = value && value.trim() !== ''
+        ? <span style={{ color: 'var(--ink)', fontFamily: mono ? 'var(--font-mono)' : 'inherit', fontSize: mono ? 12 : 12.5, wordBreak: 'break-word' }}>{value}</span>
+        : <span style={{ color: 'var(--ink-faint)' }}>{placeholder ?? '—'}</span>;
     return (
-        <div style={{ display: 'flex', gap: 12, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--hairline-soft)' }}>
-            <div style={{ width: 140, color: 'var(--ink-muted)', flexShrink: 0 }}>{k}</div>
-            <div style={{ flex: 1, color: 'var(--ink)', fontFamily: mono ? 'var(--font-mono)' : 'inherit', fontSize: mono ? 12 : 12.5, wordBreak: 'break-word' }}>{v}</div>
-        </div>
+        <span
+            tabIndex={0}
+            role="button"
+            onClick={() => setEditing(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true); } }}
+            style={{ display: 'block', minHeight: 18, cursor: 'text', outline: 'none' }}
+        >
+            {display}
+        </span>
     );
 }
 
