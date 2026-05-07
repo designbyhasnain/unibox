@@ -85,26 +85,20 @@ export async function getAllProjectsAction(
         return { projects: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
     }
 
-    // ── AM Resolution chain ──────────────────────────────────────────────
-    // The displayed Owner on /my-projects is the user assigned to the inbox
-    // where the contact first emailed us — NOT just whoever happens to be
-    // in projects.account_manager_id. The chain is:
+    // ── AM Resolution chain (SALES rep only) ─────────────────────────────
+    // The displayed Owner on /my-projects is strictly the SALES rep assigned
+    // to the inbox where the contact first emailed us. Admins / account
+    // managers are *not* shown — even if they're assigned to the same inbox
+    // — because the user wants the project card to surface the rep who
+    // actually services this client. If no SALES user is assigned to the
+    // inbox, Owner shows "Unassigned" — there is NO fallback to the manual
+    // projects.account_manager_id (which is almost always the admin).
     //
-    //   project → contact → contact.last_gmail_account_id
-    //         → user_gmail_assignments(gmail_account_id) → user
+    // Chain: project → contact → contact.last_gmail_account_id
+    //        → user_gmail_assignments → users WHERE role='SALES'
     //
-    // Three round trips, batched across the entire page for speed:
-    //   1. fetch contact rows referenced by projects to get their
-    //      last_gmail_account_id (the contacts join above only carried
-    //      id/name/email so we re-fetch with the inbox column)
-    //   2. fetch user_gmail_assignments for every gmail account id we now
-    //      know about
-    //   3. fetch users for every assigned user id
-    //
-    // Falls back to the explicit account_manager_id (if set) when the chain
-    // breaks anywhere — preserves manual ownership for projects that pre-date
-    // the inbox assignment system. The client receives `resolvedAm: { id,
-    // name, email, source: 'mailbox' | 'manual' | null }` per project.
+    // Three batched round trips: (1) contacts-with-inbox, (2) inbox→user
+    // assignments, (3) candidate users filtered to SALES.
     const projectRows = (data || []).map((p: any) => ({
         ...p,
         client: p.contacts || null,
@@ -126,35 +120,32 @@ export async function getAllProjectsAction(
     const inboxIds = Array.from(new Set(
         Array.from(contactInboxByClientId.values()).filter((v): v is string => !!v),
     ));
-    const userIdByInbox = new Map<string, string>();
+
+    // First fetch every assignment for these inboxes, then narrow to SALES
+    // users via a separate users query. Doing it as two passes (instead of
+    // a server-side join) keeps the queries explicit and lets us reuse the
+    // SALES user lookup for label/email below.
+    type AssignRow = { gmail_account_id: string; user_id: string; assigned_at: string };
+    let assignRows: AssignRow[] = [];
     if (inboxIds.length > 0) {
-        const { data: assignRows } = await supabase
+        const { data } = await supabase
             .from('user_gmail_assignments')
             .select('gmail_account_id, user_id, assigned_at')
             .in('gmail_account_id', inboxIds)
             .order('assigned_at', { ascending: true });
-        // First (oldest) assignment wins — that user is the inbox's primary
-        // owner. Multi-assignment is rare; this keeps the display stable.
-        for (const r of assignRows ?? []) {
-            if (!userIdByInbox.has(r.gmail_account_id)) {
-                userIdByInbox.set(r.gmail_account_id, r.user_id);
-            }
-        }
+        assignRows = (data ?? []) as AssignRow[];
     }
 
-    // Collect every user id we'll need: the mailbox-derived ones plus any
-    // explicit account_manager_id values still set on the projects.
-    const userIdsNeeded = new Set<string>();
-    for (const uid of userIdByInbox.values()) userIdsNeeded.add(uid);
-    for (const p of projectRows) if (p.account_manager_id) userIdsNeeded.add(p.account_manager_id);
-    const userById = new Map<string, { id: string; name: string; email: string }>();
-    if (userIdsNeeded.size > 0) {
+    const candidateUserIds = Array.from(new Set(assignRows.map(r => r.user_id)));
+    const salesUserById = new Map<string, { id: string; name: string; email: string }>();
+    if (candidateUserIds.length > 0) {
         const { data: userRows } = await supabase
             .from('users')
-            .select('id, name, email')
-            .in('id', Array.from(userIdsNeeded));
+            .select('id, name, email, role')
+            .in('id', candidateUserIds)
+            .eq('role', 'SALES');
         for (const u of userRows ?? []) {
-            userById.set(u.id, {
+            salesUserById.set(u.id, {
                 id: u.id,
                 name: (u.name && u.name.trim()) || (u.email?.split('@')[0] ?? 'Unnamed'),
                 email: u.email ?? '',
@@ -162,15 +153,22 @@ export async function getAllProjectsAction(
         }
     }
 
+    // First (oldest) SALES assignment wins for each inbox. Non-SALES rows
+    // are skipped entirely — admins / AMs are filtered out before this loop.
+    const salesUserIdByInbox = new Map<string, string>();
+    for (const r of assignRows) {
+        if (!salesUserById.has(r.user_id)) continue;
+        if (!salesUserIdByInbox.has(r.gmail_account_id)) {
+            salesUserIdByInbox.set(r.gmail_account_id, r.user_id);
+        }
+    }
+
     const projects = projectRows.map(p => {
         const inboxId = p.client_id ? contactInboxByClientId.get(p.client_id) ?? null : null;
-        const inboxUserId = inboxId ? userIdByInbox.get(inboxId) ?? null : null;
-        let resolvedAm: { id: string; name: string; email: string; source: 'mailbox' | 'manual' } | null = null;
-        if (inboxUserId && userById.has(inboxUserId)) {
-            resolvedAm = { ...userById.get(inboxUserId)!, source: 'mailbox' };
-        } else if (p.account_manager_id && userById.has(p.account_manager_id)) {
-            resolvedAm = { ...userById.get(p.account_manager_id)!, source: 'manual' };
-        }
+        const salesUserId = inboxId ? salesUserIdByInbox.get(inboxId) ?? null : null;
+        const resolvedAm = salesUserId && salesUserById.has(salesUserId)
+            ? { ...salesUserById.get(salesUserId)!, source: 'mailbox' as const }
+            : null;
         return {
             ...p,
             // Preserve the contact's source inbox so the drawer's "Source Gmail

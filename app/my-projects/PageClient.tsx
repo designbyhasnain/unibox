@@ -1064,14 +1064,12 @@ export default function MyProjectsPage() {
                                 const color = STAGE_COLOR[stage] || STAGE_COLOR[stage.toLowerCase()] || 'var(--ink-muted)';
                                 const progress = estimateProgress(p);
                                 const clientName = p.client_name || p.client?.name || p.person || 'Unknown';
-                                // Owner display goes through the resolution chain on the
-                                // server (contact → mailbox → user). Falls back to the
-                                // explicit account_manager_id, then to the denormalized
-                                // account_manager string, then to "Unassigned".
+                                // Owner is strictly the SALES rep assigned to the
+                                // contact's source mailbox. No fallback — admins /
+                                // AMs never bleed into this column even if they
+                                // happen to be on user_gmail_assignments too.
                                 const resolvedAm = p.resolvedAm as ResolvedAm | null;
-                                const ownerName = resolvedAm?.name
-                                    || (p.account_manager && String(p.account_manager).trim())
-                                    || (p.account_manager_id ? 'Unknown user' : 'Unassigned');
+                                const ownerName = resolvedAm?.name || 'Unassigned';
                                 const ownerSource = resolvedAm?.source ?? null;
                                 const budget = p.project_value || 0;
                                 const isPaid = p.paid_status === 'PAID';
@@ -1174,9 +1172,7 @@ export default function MyProjectsPage() {
                                                 <div className="pj-card-stat-sub">
                                                     {ownerSource === 'mailbox'
                                                         ? <span title="Resolved from contact's source mailbox">via mailbox · {briefPreview}</span>
-                                                        : ownerSource === 'manual'
-                                                            ? <span title="Manually set on this project">manual · {briefPreview}</span>
-                                                            : briefPreview}
+                                                        : briefPreview}
                                                 </div>
                                             </div>
                                         </div>
