@@ -47,15 +47,42 @@ async function run(req: NextRequest): Promise<NextResponse> {
 
     const startedAt = Date.now();
 
-    // Pull a batch — never-extracted first, then oldest-stale.
-    const { data: contacts, error } = await supabase
-        .from('contacts')
-        .select('id, insights_extracted_at')
-        .order('insights_extracted_at', { ascending: true, nullsFirst: true })
-        .limit(BATCH_SIZE);
-
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    // Pull a batch of contacts that have NEVER been extracted.
+    // Approach: list the contact_ids already in contact_insights, then exclude
+    // them from the contacts query. Two cheap queries beat a missing column
+    // (insights_extracted_at) — and it stays correct after the column lands.
+    const seenIds = await fetchAllExtractedContactIds();
+    let q = supabase.from('contacts').select('id').limit(BATCH_SIZE);
+    // Supabase JS doesn't support 'NOT IN' on big lists efficiently; for ≤500
+    // already-extracted contacts use .not('id','in', ...). Above that, paginate
+    // through contacts and filter in JS.
+    let contacts: { id: string }[] = [];
+    if (seenIds.size <= 500) {
+        if (seenIds.size > 0) {
+            q = q.not('id', 'in', `(${[...seenIds].map(i => `"${i}"`).join(',')})`);
+        }
+        const { data, error } = await q;
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        contacts = data ?? [];
+    } else {
+        // Paginate; stop as soon as we have BATCH_SIZE unprocessed.
+        let off = 0;
+        while (contacts.length < BATCH_SIZE) {
+            const { data, error } = await supabase
+                .from('contacts')
+                .select('id')
+                .range(off, off + 999);
+            if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+            if (!data || data.length === 0) break;
+            for (const c of data) {
+                if (!seenIds.has(c.id as string)) {
+                    contacts.push({ id: c.id as string });
+                    if (contacts.length >= BATCH_SIZE) break;
+                }
+            }
+            if (data.length < 1000) break;
+            off += 1000;
+        }
     }
 
     let processed = 0;
@@ -87,4 +114,20 @@ async function run(req: NextRequest): Promise<NextResponse> {
         errors,
         durationMs: Date.now() - startedAt,
     });
+}
+
+async function fetchAllExtractedContactIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    let off = 0;
+    while (true) {
+        const { data, error } = await supabase
+            .from('contact_insights')
+            .select('contact_id')
+            .range(off, off + 999);
+        if (error || !data || data.length === 0) break;
+        for (const r of data) if (r.contact_id) ids.add(r.contact_id as string);
+        if (data.length < 1000) break;
+        off += 1000;
+    }
+    return ids;
 }

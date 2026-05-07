@@ -209,14 +209,42 @@ export async function extractInsightsForContact(contactId: string): Promise<Extr
     return out;
 }
 
-/** Persist an extraction result to `contact_insights` + bump `contacts.insights_extracted_at`. */
+/**
+ * Persist an extraction result to `contact_insights`. Best-effort bumps
+ * `contacts.insights_extracted_at` when that column exists — if the column
+ * isn't there yet (the ALTER TABLE in the migration hasn't run), the bump
+ * is silently skipped. Cron freshness uses a NOT EXISTS join in that case.
+ */
 export async function persistExtraction(result: ExtractionResult): Promise<{ written: number; error?: string }> {
+    const stamp = new Date().toISOString();
+
+    // Always try to bump the timestamp; ignore "column does not exist" errors
+    // so this code works pre- and post-ALTER-TABLE migration.
+    await supabase
+        .from('contacts')
+        .update({ insights_extracted_at: stamp })
+        .eq('id', result.contactId)
+        .then(() => null, () => null);
+
     if (result.facts.length === 0) {
-        // Still bump the timestamp so cron knows we processed this contact.
+        // No facts extracted but contact has been processed — write a zero-fact
+        // sentinel row so the cron's NOT EXISTS check skips this contact next run.
         await supabase
-            .from('contacts')
-            .update({ insights_extracted_at: new Date().toISOString() })
-            .eq('id', result.contactId);
+            .from('contact_insights')
+            .upsert(
+                [
+                    {
+                        contact_id: result.contactId,
+                        fact_type: '_no_facts',
+                        value: { reason: 'extractor returned no facts' },
+                        confidence: 1,
+                        source_email_id: null,
+                        model_version: MODEL_VERSION,
+                        extracted_at: stamp,
+                    },
+                ],
+                { onConflict: 'contact_id,fact_type' }
+            );
         return { written: 0 };
     }
 
@@ -227,7 +255,7 @@ export async function persistExtraction(result: ExtractionResult): Promise<{ wri
         confidence: f.confidence,
         source_email_id: f.sourceEmailId,
         model_version: MODEL_VERSION,
-        extracted_at: new Date().toISOString(),
+        extracted_at: stamp,
     }));
 
     const { error } = await supabase
@@ -237,11 +265,6 @@ export async function persistExtraction(result: ExtractionResult): Promise<{ wri
     if (error) {
         return { written: 0, error: error.message };
     }
-
-    await supabase
-        .from('contacts')
-        .update({ insights_extracted_at: new Date().toISOString() })
-        .eq('id', result.contactId);
 
     return { written: rows.length };
 }
