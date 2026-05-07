@@ -3,10 +3,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useHydrated } from '../utils/useHydration';
 import { PageLoader } from '../components/LoadingStates';
-import { getAllProjectsAction, createProjectAction, updateProjectAction } from '../../src/actions/projectActions';
+import { getAllProjectsAction, createProjectAction, updateProjectAction, getManagersAction } from '../../src/actions/projectActions';
 import { getClientsAction } from '../../src/actions/clientActions';
 import { getCurrentUserAction } from '../../src/actions/authActions';
-import { listSalesUsersAction, type SalesUser } from '../../src/actions/projectMetadataActions';
+
+type Manager = { id: string; name: string; email: string; role: string };
 import { useUndoToast } from '../context/UndoToastContext';
 import { useRegisterGlobalSearch } from '../context/GlobalSearchContext';
 import SmartSelect from '../../components/projects/cells/SmartSelect';
@@ -94,6 +95,43 @@ function toDateInputValue(d: string | null | undefined): string {
 function getInitials(name: string) {
     if (!name) return '?';
     return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+// SmartSelect renders the raw `value` when it can't find a matching option,
+// which is how the table started showing UUIDs for projects whose contact /
+// owner was outside the loaded picker rosters. These helpers prepend a
+// synthetic option using the row's joined label so the cell paints a real
+// human-readable name even when the underlying ID isn't in the dropdown.
+
+type ClientOpt = { id: string; name: string; email: string };
+
+function mergeClientOption(clientOptions: ClientOpt[], project: Project): { value: string; label: string; subtitle?: string; avatar?: string }[] {
+    const base = clientOptions.map(c => ({
+        value: c.id,
+        label: c.name,
+        subtitle: c.email,
+        avatar: getInitials(c.name),
+    }));
+    if (project.client_id && !base.some(o => o.value === project.client_id)) {
+        const name = project.client_name || project.client?.name || project.person || 'Unknown';
+        const email = project.client?.email || '';
+        base.unshift({ value: project.client_id, label: name, subtitle: email, avatar: getInitials(name) });
+    }
+    return base;
+}
+
+function mergeManagerOption(managers: Manager[], project: Project): { value: string; label: string; subtitle: string; avatar: string }[] {
+    const base = managers.map(u => ({
+        value: u.id,
+        label: u.name,
+        subtitle: u.email,
+        avatar: getInitials(u.name),
+    }));
+    if (project.account_manager_id && !base.some(o => o.value === project.account_manager_id)) {
+        const fallbackName = (project.account_manager && String(project.account_manager).trim()) || 'Unknown user';
+        base.unshift({ value: project.account_manager_id, label: fallbackName, subtitle: '', avatar: getInitials(fallbackName) });
+    }
+    return base;
 }
 
 const AVATAR_COLORS = ['av-a', 'av-b', 'av-c', 'av-d', 'av-e', 'av-f', 'av-g'];
@@ -282,11 +320,11 @@ function KVCell({ k, children }: { k: string; children: React.ReactNode }) {
     );
 }
 
-function ProjectDetailPanel({ project, onClose, onUpdate, salesUsers, clientOptions, isAdmin }: {
+function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOptions, isAdmin }: {
     project: Project;
     onClose: () => void;
     onUpdate: (id: string, field: string, value: unknown) => void;
-    salesUsers: SalesUser[];
+    managers: Manager[];
     clientOptions: { id: string; name: string; email: string }[];
     isAdmin: boolean;
 }) {
@@ -417,12 +455,7 @@ function ProjectDetailPanel({ project, onClose, onUpdate, salesUsers, clientOpti
                             value={project.client_id || null}
                             onChange={(v) => onUpdate(project.id, 'clientId', v)}
                             placeholder="Pick a client…"
-                            options={clientOptions.map(c => ({
-                                value: c.id,
-                                label: c.name,
-                                subtitle: c.email,
-                                avatar: getInitials(c.name),
-                            }))}
+                            options={mergeClientOption(clientOptions, project)}
                         />
                     </KVCell>
                     {isAdmin && (
@@ -433,11 +466,11 @@ function ProjectDetailPanel({ project, onClose, onUpdate, salesUsers, clientOpti
                                 clearable
                                 clearLabel="Unassigned"
                                 placeholder="Unassigned"
-                                options={salesUsers.map(u => ({
+                                options={managers.map(u => ({
                                     value: u.id,
                                     label: u.name,
                                     subtitle: u.email,
-                                    avatar: u.name.split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase(),
+                                    avatar: getInitials(u.name),
                                 }))}
                             />
                         </KVCell>
@@ -518,7 +551,18 @@ export default function MyProjectsPage() {
     const [, setTotalCount] = useState(0);
     const [isAdmin, setIsAdmin] = useState(false);
     const [showAddModal, setShowAddModal] = useState(false);
-    const [newProject, setNewProject] = useState({ name: '', value: '', clientId: '' });
+    // Modal carries every field the table now exposes so a project can be
+    // shaped fully on creation without a follow-up edit pass.
+    const [newProject, setNewProject] = useState({
+        name: '',
+        clientId: '',
+        status: 'Not Started',
+        priority: 'MEDIUM',
+        paidStatus: 'UNPAID',
+        value: '',
+        dueDate: '',
+        accountManagerId: '',
+    });
     const [saving, setSaving] = useState(false);
     // Drawer reads the LIVE row from `projects` via `selected = projects.find(...)`
     // so optimistic table edits flow through to the panel and panel edits flow
@@ -528,12 +572,11 @@ export default function MyProjectsPage() {
 
     const [clientOptions, setClientOptions] = useState<{ id: string; name: string; email: string }[]>([]);
     const [loadingClients, setLoadingClients] = useState(false);
-    const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
-    const salesUserById = useMemo(() => {
-        const m = new Map<string, SalesUser>();
-        for (const u of salesUsers) m.set(u.id, u);
-        return m;
-    }, [salesUsers]);
+    // Use getManagersAction (returns ALL non-editor users — admin + AM + sales)
+    // rather than listSalesUsersAction so an existing project owned by an
+    // admin/AM still resolves to a name in the Owner cell. The user explicitly
+    // asked for "names not IDs" — the SALES-only roster was the bug.
+    const [managers, setManagers] = useState<Manager[]>([]);
 
     // Topbar search
     const [searchTerm, setSearchTerm] = useState('');
@@ -548,9 +591,9 @@ export default function MyProjectsPage() {
         getCurrentUserAction().then((u: any) => {
             if (u?.role === 'ADMIN' || u?.role === 'ACCOUNT_MANAGER') setIsAdmin(true);
         });
-        // SALES roster powers the Owner picker. Pre-loaded so the dropdown
-        // opens instantly when the user clicks the Owner cell.
-        listSalesUsersAction().then(r => { if (r.success) setSalesUsers(r.users); }).catch(() => {});
+        // Owner roster — covers admin/AM/sales so every existing
+        // account_manager_id resolves to a real name.
+        getManagersAction().then(setManagers).catch(() => {});
         // Pre-load the first 100 clients so the inline Client picker (in
         // both the table and drawer) doesn't have to wait for a round trip
         // when first opened.
@@ -571,6 +614,18 @@ export default function MyProjectsPage() {
             setShowAddModal(true);
         }
     }, []);
+
+    // Default the modal's owner to the signed-in user when it opens, unless
+    // the user explicitly cleared it. Mirrors how the modal worked before
+    // the redesign — admins can still change it before creating.
+    useEffect(() => {
+        if (!showAddModal) return;
+        getCurrentUserAction().then((u: any) => {
+            const uid = u?.userId;
+            if (!uid) return;
+            setNewProject(p => p.accountManagerId ? p : { ...p, accountManagerId: uid });
+        });
+    }, [showAddModal]);
 
     // Lazy-load client picker for the New Project modal (separate from the
     // pre-load above because the pre-load might still be in-flight when the
@@ -685,6 +740,11 @@ export default function MyProjectsPage() {
         });
     }, [projects, searchTerm]);
 
+    const resetNewProject = () => setNewProject({
+        name: '', clientId: '', status: 'Not Started', priority: 'MEDIUM',
+        paidStatus: 'UNPAID', value: '', dueDate: '', accountManagerId: '',
+    });
+
     const handleAdd = async () => {
         if (!newProject.name.trim()) return;
         if (!newProject.clientId) {
@@ -695,19 +755,24 @@ export default function MyProjectsPage() {
         try {
             const user = await getCurrentUserAction();
             const today = new Date().toISOString().split('T')[0];
-            const due = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+            // Fall back to "two weeks out" when the user didn't pick a due
+            // date — same legacy behaviour as before. Date inputs return
+            // YYYY-MM-DD which createProjectAction accepts directly.
+            const due = newProject.dueDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
             const res = await createProjectAction({
                 clientId: newProject.clientId,
                 projectName: newProject.name.trim(),
                 projectDate: today as string,
                 dueDate: due as string,
-                accountManagerId: (user as any)?.userId || '',
+                accountManagerId: newProject.accountManagerId || (user as any)?.userId || '',
                 projectValue: parseFloat(newProject.value) || 0,
-                paidStatus: 'UNPAID',
+                paidStatus: newProject.paidStatus,
+                priority: newProject.priority,
+                status: newProject.status,
             });
             if (res.success) {
                 setShowAddModal(false);
-                setNewProject({ name: '', value: '', clientId: '' });
+                resetNewProject();
                 showSuccess('Project created');
                 loadProjects();
             } else {
@@ -783,7 +848,6 @@ export default function MyProjectsPage() {
                             <tbody>
                                 {filteredProjects.map(p => {
                                     const isSelected = selectedId === p.id;
-                                    const amUser = p.account_manager_id ? salesUserById.get(p.account_manager_id) : null;
                                     return (
                                         <tr
                                             key={p.id}
@@ -802,12 +866,7 @@ export default function MyProjectsPage() {
                                                     value={p.client_id || null}
                                                     onChange={(v) => handleProjectUpdate(p.id, 'clientId', v)}
                                                     placeholder="Pick client…"
-                                                    options={clientOptions.map(c => ({
-                                                        value: c.id,
-                                                        label: c.name,
-                                                        subtitle: c.email,
-                                                        avatar: getInitials(c.name),
-                                                    }))}
+                                                    options={mergeClientOption(clientOptions, p)}
                                                 />
                                             </td>
                                             <td onClick={e => e.stopPropagation()}>
@@ -864,12 +923,7 @@ export default function MyProjectsPage() {
                                                         clearable
                                                         clearLabel="Unassigned"
                                                         placeholder="Unassigned"
-                                                        options={salesUsers.map(u => ({
-                                                            value: u.id,
-                                                            label: u.name,
-                                                            subtitle: u.email,
-                                                            avatar: u.name.split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase(),
-                                                        }))}
+                                                        options={mergeManagerOption(managers, p)}
                                                     />
                                                 </td>
                                             )}
@@ -886,7 +940,7 @@ export default function MyProjectsPage() {
                         project={selected}
                         onClose={() => setSelectedId(null)}
                         onUpdate={handleProjectUpdate}
-                        salesUsers={salesUsers}
+                        managers={managers}
                         clientOptions={clientOptions}
                         isAdmin={isAdmin}
                     />
@@ -895,53 +949,107 @@ export default function MyProjectsPage() {
 
             {showAddModal && (
                 <div className="compose-scrim" onClick={() => setShowAddModal(false)}>
-                    <div className="compose" onClick={e => e.stopPropagation()} style={{ maxHeight: 'fit-content', width: 480 }}>
+                    <div className="compose pj-modal" onClick={e => e.stopPropagation()} style={{ maxHeight: 'fit-content', width: 540 }}>
                         <div className="compose-head">
                             <div className="title">New project</div>
                             <div className="spacer" />
                             <button className="icon-btn" onClick={() => setShowAddModal(false)} title="Close">×</button>
                         </div>
-                        <div className="compose-body" style={{ padding: 24 }}>
-                            <div style={{ marginBottom: 16 }}>
-                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--ink-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Project Name</label>
+                        <div className="compose-body pj-modal-body">
+                            <div className="pj-field">
+                                <label>Project name</label>
                                 <input
                                     value={newProject.name}
                                     onChange={e => setNewProject(p => ({ ...p, name: e.target.value }))}
                                     placeholder="e.g. Lake Como Wedding Film"
                                     autoFocus
-                                    style={{ width: '100%', border: '1px solid var(--hairline-soft)', borderRadius: 8, padding: '10px 14px', fontSize: 14, outline: 'none', background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'var(--font-ui)' }}
                                 />
                             </div>
-                            <div style={{ marginBottom: 16 }}>
-                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--ink-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Client</label>
-                                <select
-                                    value={newProject.clientId}
-                                    onChange={e => setNewProject(p => ({ ...p, clientId: e.target.value }))}
-                                    disabled={loadingClients}
-                                    style={{ width: '100%', border: '1px solid var(--hairline-soft)', borderRadius: 8, padding: '10px 14px', fontSize: 14, outline: 'none', background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'var(--font-ui)' }}
-                                >
-                                    <option value="">{loadingClients ? 'Loading clients…' : (clientOptions.length === 0 ? 'No clients yet — add one from /clients' : 'Pick a client…')}</option>
-                                    {clientOptions.map(c => (
-                                        <option key={c.id} value={c.id}>
-                                            {c.name}{c.email ? ` · ${c.email}` : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div style={{ marginBottom: 16 }}>
-                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--ink-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Budget ($)</label>
-                                <input
-                                    type="number"
-                                    value={newProject.value}
-                                    onChange={e => setNewProject(p => ({ ...p, value: e.target.value }))}
-                                    placeholder="e.g. 2500"
-                                    style={{ width: '100%', border: '1px solid var(--hairline-soft)', borderRadius: 8, padding: '10px 14px', fontSize: 14, outline: 'none', background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'var(--font-ui)' }}
+                            <div className="pj-field">
+                                <label>Client</label>
+                                <SmartSelect
+                                    value={newProject.clientId || null}
+                                    onChange={(v) => setNewProject(p => ({ ...p, clientId: v || '' }))}
+                                    placeholder={loadingClients ? 'Loading clients…' : (clientOptions.length === 0 ? 'No clients yet — add one from /clients' : 'Search clients…')}
+                                    options={clientOptions.map(c => ({
+                                        value: c.id,
+                                        label: c.name,
+                                        subtitle: c.email,
+                                        avatar: getInitials(c.name),
+                                    }))}
                                 />
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <div className="pj-field-row">
+                                <div className="pj-field">
+                                    <label>Status</label>
+                                    <SmartSelect
+                                        value={newProject.status}
+                                        onChange={(v) => v && setNewProject(p => ({ ...p, status: v }))}
+                                        options={STATUS_OPTIONS}
+                                    />
+                                </div>
+                                <div className="pj-field">
+                                    <label>Priority</label>
+                                    <SmartSelect
+                                        value={newProject.priority}
+                                        onChange={(v) => v && setNewProject(p => ({ ...p, priority: v }))}
+                                        options={PRIORITY_OPTIONS}
+                                    />
+                                </div>
+                            </div>
+                            <div className="pj-field-row">
+                                <div className="pj-field">
+                                    <label>Project value</label>
+                                    <div className="pj-num-input">
+                                        <span>$</span>
+                                        <input
+                                            type="number"
+                                            inputMode="decimal"
+                                            value={newProject.value}
+                                            onChange={e => setNewProject(p => ({ ...p, value: e.target.value }))}
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="pj-field">
+                                    <label>Paid status</label>
+                                    <SmartSelect
+                                        value={newProject.paidStatus}
+                                        onChange={(v) => v && setNewProject(p => ({ ...p, paidStatus: v }))}
+                                        options={PAID_OPTIONS}
+                                    />
+                                </div>
+                            </div>
+                            <div className="pj-field-row">
+                                <div className="pj-field">
+                                    <label>Due date</label>
+                                    <input
+                                        type="date"
+                                        value={newProject.dueDate}
+                                        onChange={e => setNewProject(p => ({ ...p, dueDate: e.target.value }))}
+                                    />
+                                </div>
+                                <div className="pj-field">
+                                    <label>Owner</label>
+                                    <SmartSelect
+                                        value={newProject.accountManagerId || null}
+                                        onChange={(v) => setNewProject(p => ({ ...p, accountManagerId: v || '' }))}
+                                        clearable
+                                        clearLabel="Unassigned"
+                                        placeholder="Unassigned"
+                                        options={managers.map(u => ({
+                                            value: u.id,
+                                            label: u.name,
+                                            subtitle: u.email,
+                                            avatar: getInitials(u.name),
+                                        }))}
+                                    />
+                                </div>
+                            </div>
+                            <div className="pj-modal-foot">
                                 <button className="btn" onClick={() => setShowAddModal(false)} style={{ background: 'var(--surface)', border: '1px solid var(--hairline-soft)', color: 'var(--ink-2)' }}>Cancel</button>
                                 <button className="btn btn-dark" onClick={handleAdd} disabled={saving || !newProject.name.trim() || !newProject.clientId}>
-                                    {saving ? 'Creating…' : 'Create Project'}
+                                    {saving ? 'Creating…' : 'Create project'}
                                 </button>
                             </div>
                         </div>
@@ -992,6 +1100,46 @@ export default function MyProjectsPage() {
 .pj-panel .pj-kv-cell:hover .pj-kv-cell-value{background:var(--surface-hover)}
 .pj-panel .pj-kv-cell-value{cursor:pointer}
 .pj-panel .ep-ss-trigger{cursor:pointer;width:100%}
+
+/* New Project modal — grid-of-fields layout matching the table density */
+.pj-modal-body{padding:20px 24px 24px;display:flex;flex-direction:column;gap:14px}
+.pj-field{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
+.pj-field label{font-size:11px;font-weight:600;color:var(--ink-muted);text-transform:uppercase;letter-spacing:.04em}
+.pj-field input[type="text"],
+.pj-field input[type="number"],
+.pj-field input[type="date"],
+.pj-field input:not([type]){
+    width:100%;
+    border:1px solid var(--hairline-soft);
+    border-radius:8px;
+    padding:9px 12px;
+    font-size:13px;
+    background:var(--surface);
+    color:var(--ink);
+    font-family:var(--font-ui);
+    outline:none;
+    transition:border-color .12s,box-shadow .12s;
+}
+.pj-field input:focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in oklab,var(--accent),transparent 80%)}
+.pj-field-row{display:flex;gap:12px}
+.pj-num-input{display:flex;align-items:center;border:1px solid var(--hairline-soft);border-radius:8px;background:var(--surface);transition:border-color .12s,box-shadow .12s}
+.pj-num-input:focus-within{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in oklab,var(--accent),transparent 80%)}
+.pj-num-input span{padding:0 8px 0 12px;color:var(--ink-muted);font-size:13px}
+.pj-num-input input{border:none !important;box-shadow:none !important;padding:9px 12px 9px 0 !important;background:transparent !important;flex:1}
+/* Inside the modal, SmartSelect should look like a styled input rather
+   than a tight pill so the form rhythm stays clean. */
+.pj-modal .ep-ss-trigger{
+    width:100%;
+    border:1px solid var(--hairline-soft);
+    border-radius:8px;
+    padding:8px 12px;
+    background:var(--surface);
+    cursor:pointer;
+    min-height:36px;
+    transition:border-color .12s;
+}
+.pj-modal .ep-ss-trigger:hover{border-color:var(--hairline)}
+.pj-modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
             `}</style>
         </div>
     );

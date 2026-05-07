@@ -103,8 +103,8 @@ export async function getAllProjectsAction(
 }
 
 // Fetch users assignable as account managers (excludes VIDEO_EDITOR — they cannot own contacts/projects)
-export async function getManagersAction() {
-    const { userId, role } = await ensureAuthenticated();
+export async function getManagersAction(): Promise<{ id: string; name: string; email: string; role: string }[]> {
+    await ensureAuthenticated();
     const { data, error } = await supabase
         .from('users')
         .select('id, name, email, role')
@@ -116,10 +116,15 @@ export async function getManagersAction() {
         return [];
     }
 
-    // Use email local-part as fallback for empty names
+    // Use email local-part as fallback for empty names. Email + role are
+    // surfaced so the Owner picker on /my-projects can render a subtitle
+    // and resolve any account_manager_id (admin / AM / sales) to a real
+    // human-readable name.
     return (data ?? []).map(u => ({
         id: u.id,
         name: (u.name && u.name.trim()) || (u.email?.split('@')[0] ?? 'Unnamed'),
+        email: u.email ?? '',
+        role: u.role ?? '',
     }));
 }
 
@@ -305,6 +310,7 @@ export async function createProjectAction(payload: {
     accountManagerId: string;
     priority?: string;
     paidStatus?: string;
+    status?: string;
     quote?: number | null;
     projectValue?: number | null;
     projectLink?: string | null;
@@ -342,6 +348,10 @@ export async function createProjectAction(payload: {
             account_manager_id: managerId,
             priority: payload.priority || 'MEDIUM',
             paid_status: payload.paidStatus || 'UNPAID',
+            // `status` lives in the projects table even though it isn't on the
+            // Prisma model — accepted on update, now also on create so the
+            // /my-projects modal can persist the picked stage.
+            status: payload.status || 'Not Started',
             quote: payload.quote ?? null,
             project_value: payload.projectValue ?? null,
             project_link: payload.projectLink ?? null,
