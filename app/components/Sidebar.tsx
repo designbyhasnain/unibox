@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useGlobalFilter } from '../context/FilterContext';
 import { logoutAction, getCurrentUserAction } from '../../src/actions/authActions';
 import AccountSettingsModal from './AccountSettingsModal';
+import Resizer from './Resizer';
 import { initials as nameInitials } from '../utils/nameDisplay';
 
 /* ── 15×15 SVG icons matching design prototype ── */
@@ -408,6 +409,16 @@ export default function Sidebar({ onOpenCompose, isOpen, onClose }: SidebarProps
                         {Icon.chevDown}
                     </button>
                 )}
+                {/* Drag the right edge to resize the sidebar (Google-Sheets-style).
+                    Double-click to reset. Width persists per-device in localStorage. */}
+                <Resizer
+                    varName="--sidebar-width"
+                    storageKey="unibox:sidebar-w"
+                    min={180}
+                    max={420}
+                    defaultVal={248}
+                    edge="right"
+                />
             </aside>
 
             {/* Account Settings — controlled here so any page surface can

@@ -7998,6 +7998,21 @@ a,
 .inbox-resizer:hover::after, .inbox-resizer.dragging::after { background: var(--accent); }
 body.col-resizing { cursor: col-resize !important; user-select: none; }
 body.col-resizing * { cursor: col-resize !important; user-select: none !important; }
+/* Right-edge variant — used by the sidebar (Google-Sheets-style column drag).
+   Pins to right:0 with the hit zone overflowing slightly outside the parent
+   so users don't have to be pixel-perfect. */
+.inbox-resizer--right { right: -4px; left: auto; margin-left: 0; }
+.inbox-resizer--right::after { left: 4px; }
+/* Suppress the sidebar's width transition while dragging so the resize feels
+   live instead of catching up 200ms behind the cursor. */
+body.col-resizing .sidebar { transition: none !important; }
+/* The sidebar uses overflow: hidden to clip the nav-scroll; we need the
+   resizer's hit area to escape that clip. The handle is the only child that
+   uses overflow:visible — a single rule keeps the rest of the sidebar's
+   clipping intact. */
+.sidebar > .inbox-resizer { overflow: visible; }
+.sidebar { overflow: visible; }
+.sidebar .sb-nav-scroll { overflow-y: auto; overflow-x: hidden; }
 
 /* ── Column containers ── */
 .inbox-grid .col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }

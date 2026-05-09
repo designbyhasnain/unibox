@@ -9,9 +9,13 @@ interface ResizerProps {
     max: number;
     defaultVal: number;
     invert?: boolean;
+    /** Where the handle sits relative to its containing element. Defaults to
+     *  'left' (the inbox-list ↔ thread divider). 'right' pins to the right
+     *  edge — used by the sidebar so its right border is the drag handle. */
+    edge?: 'left' | 'right';
 }
 
-export default function Resizer({ varName, storageKey, min, max, defaultVal, invert }: ResizerProps) {
+export default function Resizer({ varName, storageKey, min, max, defaultVal, invert, edge = 'left' }: ResizerProps) {
     const [dragging, setDragging] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
 
@@ -53,7 +57,7 @@ export default function Resizer({ varName, storageKey, min, max, defaultVal, inv
     return (
         <div
             ref={ref}
-            className={`inbox-resizer ${dragging ? 'dragging' : ''}`}
+            className={`inbox-resizer inbox-resizer--${edge} ${dragging ? 'dragging' : ''}`}
             onPointerDown={onDown}
             onDoubleClick={handleDoubleClick}
             title="Drag to resize · double-click to reset"
