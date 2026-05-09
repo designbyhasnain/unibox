@@ -16,6 +16,34 @@ export async function getContactDetailAction(contactId: string) {
     const contactRes = await contactQuery.maybeSingle();
     if (contactRes.error || !contactRes.data) return null;
 
+    // Phase-2 ambient coach: compute effective_stage = override ?? AI ?? legacy.
+    // The header chip + CoachPanel currentStage both read this so they agree
+    // with the row chip in the inbox. Failure is silent — falling back to the
+    // raw pipeline_stage means the page still renders if insights are absent.
+    let effectiveStage: string | null = contactRes.data.pipeline_stage_override || null;
+    let effectiveStageSource: 'override' | 'inferred' | null = effectiveStage ? 'override' : null;
+    if (!effectiveStage) {
+        try {
+            const { data: insightRows } = await supabase
+                .from('contact_insights')
+                .select('value, confidence')
+                .eq('contact_id', contactId)
+                .eq('fact_type', 'inferred_stage')
+                .gte('confidence', 0.7)
+                .order('confidence', { ascending: false })
+                .limit(1);
+            const top = (insightRows || [])[0];
+            const inferredStage = top?.value?.stage;
+            if (typeof inferredStage === 'string' && inferredStage.length > 0) {
+                effectiveStage = inferredStage;
+                effectiveStageSource = 'inferred';
+            }
+        } catch { /* swallow */ }
+    }
+    if (!effectiveStage) effectiveStage = contactRes.data.pipeline_stage || null;
+    contactRes.data.effective_stage = effectiveStage;
+    contactRes.data.effective_stage_source = effectiveStageSource;
+
     // Try fetching emails by contact_id (fast path), fall back to email address match
     let emailsRes = await supabase.from('email_messages')
         .select('id, subject, from_email, to_email, direction, sent_at, snippet, body, is_unread, thread_id, gmail_account_id')
@@ -181,7 +209,7 @@ export async function getContactDetailAction(contactId: string) {
 //     pipeline; user-facing edits would drift from reality.
 const CONTACT_UPDATABLE_FIELDS = new Set([
     'name', 'company', 'phone', 'notes', 'priority', 'location', 'email',
-    'pipeline_stage', 'relationship_health',
+    'pipeline_stage', 'pipeline_stage_override', 'relationship_health',
     'estimated_value', 'total_projects', 'total_revenue', 'unpaid_amount',
     'last_email_at', 'lead_score',
     // Source-account override: lets the drawer reassign which inbox is

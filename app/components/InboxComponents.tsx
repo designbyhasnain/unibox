@@ -47,7 +47,8 @@ export const EmailRow = React.memo(function EmailRow({
         const fromName = fromNameMatch ? fromNameMatch[1]?.trim().replace(/"/g, '') : fromRaw.split('@')[0];
         senderName = fromName || 'Unknown';
     }
-    const stage = email.pipeline_stage;
+    // Phase-2 ambient coach: prefer effective_stage (override > AI > legacy).
+    const stage = email.effective_stage || email.pipeline_stage;
     const preview = cleanPreview(email.snippet || email.body || '');
     const isUnread = email.is_unread;
 
@@ -205,6 +206,7 @@ export const EmailRow = React.memo(function EmailRow({
         prev.email.id === next.email.id &&
         prev.email.is_unread === next.email.is_unread &&
         prev.email.pipeline_stage === next.email.pipeline_stage &&
+        prev.email.effective_stage === next.email.effective_stage &&
         prev.email.opened_at === next.email.opened_at &&
         prev.email.has_reply === next.email.has_reply &&
         prev.email.account_profile_image === next.email.account_profile_image &&
@@ -879,8 +881,15 @@ export function EmailDetail({
                         <span className="gmail-stage-label">Stage</span>
                         <select
                             className="stage-select"
-                            value={email.pipeline_stage || 'COLD_LEAD'}
+                            value={email.effective_stage || email.pipeline_stage || 'COLD_LEAD'}
                             onChange={(e) => onStageChange(email.id, e.target.value)}
+                            title={
+                                email.effective_stage_source === 'inferred'
+                                    ? 'AI-inferred. Selecting a stage records your override.'
+                                    : email.effective_stage_source === 'override'
+                                        ? 'Manually set by a teammate'
+                                        : undefined
+                            }
                         >
                             {STAGE_OPTIONS.map((t) => (
                                 <option key={t.id} value={t.id}>{t.label}</option>
@@ -907,12 +916,30 @@ export function EmailDetail({
             {/* ─── Subject Line ─── */}
             <div className="gmail-subject-bar">
                 <h1 className="gmail-subject">{email.subject || '(No Subject)'}</h1>
-                <span className={`badge ${email.pipeline_stage ? STAGE_COLORS[email.pipeline_stage] : 'badge-blue'}`}>
-                    {email.pipeline_stage
-                        ? (STAGE_LABELS[email.pipeline_stage] || email.pipeline_stage)
-                        : (email.is_unread ? 'New' : 'Cold')
-                    }
-                </span>
+                {(() => {
+                    const subjectStage = email.effective_stage || email.pipeline_stage;
+                    const subjectSource: 'override' | 'inferred' | null = email.effective_stage_source || null;
+                    return (
+                        <span
+                            className={`badge ${subjectStage ? STAGE_COLORS[subjectStage] : 'badge-blue'}`}
+                            title={
+                                subjectSource === 'inferred'
+                                    ? 'AI-inferred from email content'
+                                    : subjectSource === 'override'
+                                        ? 'Manually set by a teammate'
+                                        : undefined
+                            }
+                        >
+                            {subjectStage
+                                ? (STAGE_LABELS[subjectStage] || subjectStage)
+                                : (email.is_unread ? 'New' : 'Cold')
+                            }
+                            {subjectSource === 'inferred' && (
+                                <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 700, opacity: 0.65, letterSpacing: 0.3 }}>AI</span>
+                            )}
+                        </span>
+                    );
+                })()}
             </div>
 
             {/* ─── Thread Container ─── */}

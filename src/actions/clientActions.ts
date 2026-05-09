@@ -171,7 +171,7 @@ export async function getClientsAction(
 
         let query = supabase
             .from('contacts')
-            .select('id, name, email, phone, company, location, source, pipeline_stage, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at, total_revenue, paid_revenue, unpaid_amount, total_projects, avg_project_value, client_since, client_tier', { count: 'exact' })
+            .select('id, name, email, phone, company, location, source, pipeline_stage, pipeline_stage_override, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at, total_revenue, paid_revenue, unpaid_amount, total_projects, avg_project_value, client_since, client_tier', { count: 'exact' })
             .or(orParts.join(','));
 
         if (search?.trim()) {
@@ -191,9 +191,10 @@ export async function getClientsAction(
             return { clients: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
         }
 
+        const enriched = await enrichWithEffectiveStage(clients || []);
         const totalCount = count ?? 0;
         return {
-            clients: clients || [],
+            clients: enriched,
             totalCount,
             page,
             pageSize: clampedPageSize,
@@ -205,7 +206,7 @@ export async function getClientsAction(
     const offset = (page - 1) * clampedPageSize;
     let adminQuery = supabase
         .from('contacts')
-        .select('id, name, email, phone, company, location, source, pipeline_stage, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at, total_revenue, paid_revenue, unpaid_amount, total_projects, avg_project_value, client_since, client_tier, total_emails_sent, total_emails_received, days_since_last_contact, relationship_health', { count: 'exact' });
+        .select('id, name, email, phone, company, location, source, pipeline_stage, pipeline_stage_override, contact_type, is_lead, is_client, priority, estimated_value, lead_score, open_count, last_email_at, last_gmail_account_id, account_manager_id, created_at, updated_at, total_revenue, paid_revenue, unpaid_amount, total_projects, avg_project_value, client_since, client_tier, total_emails_sent, total_emails_received, days_since_last_contact, relationship_health', { count: 'exact' });
 
     if (search?.trim()) {
         const s = search.trim().replace(/[%_\\]/g, '\\$&');
@@ -224,14 +225,63 @@ export async function getClientsAction(
         return { clients: [], totalCount: 0, page, pageSize: clampedPageSize, totalPages: 0 };
     }
 
+    const enrichedAdmin = await enrichWithEffectiveStage(adminClients || []);
     const totalCount = adminCount ?? 0;
     return {
-        clients: adminClients || [],
+        clients: enrichedAdmin,
         totalCount,
         page,
         pageSize: clampedPageSize,
         totalPages: Math.ceil(totalCount / clampedPageSize),
     };
+}
+
+/**
+ * Phase-2 ambient coach: shape the chip-rendering side of the contract by
+ * computing `effective_stage` on every returned client row. The semantics
+ * are: pipeline_stage_override (human) > inferred_stage (AI, conf ≥ 0.7) >
+ * pipeline_stage (legacy mechanical column). This is the same chain the
+ * inbox row resolver uses; keeping them in sync means the chip the rep sees
+ * in the inbox matches the chip on `/clients`. Failure is silent — falling
+ * back to pipeline_stage keeps the page working when the insights table is
+ * unavailable.
+ */
+async function enrichWithEffectiveStage<T extends { id: string; pipeline_stage: string | null; pipeline_stage_override: string | null }>(
+    rows: T[],
+): Promise<(T & { effective_stage: string | null; effective_stage_source: 'override' | 'inferred' | null })[]> {
+    if (rows.length === 0) return [];
+    const ids = rows.map(r => r.id);
+    let inferredById: Record<string, { stage: string; confidence: number }> = {};
+    try {
+        const { data, error } = await supabase
+            .from('contact_insights')
+            .select('contact_id, value, confidence')
+            .eq('fact_type', 'inferred_stage')
+            .gte('confidence', 0.7)
+            .in('contact_id', ids);
+        if (!error && data) {
+            for (const row of data) {
+                const stage = (row as any)?.value?.stage;
+                const conf = typeof (row as any)?.confidence === 'number' ? (row as any).confidence : 0;
+                if (typeof stage !== 'string') continue;
+                const prior = inferredById[(row as any).contact_id];
+                if (!prior || conf > prior.confidence) {
+                    inferredById[(row as any).contact_id] = { stage, confidence: conf };
+                }
+            }
+        }
+    } catch { /* swallow — graceful degrade */ }
+
+    return rows.map(r => {
+        if (r.pipeline_stage_override) {
+            return { ...r, effective_stage: r.pipeline_stage_override, effective_stage_source: 'override' as const };
+        }
+        const inferred = inferredById[r.id];
+        if (inferred) {
+            return { ...r, effective_stage: inferred.stage, effective_stage_source: 'inferred' as const };
+        }
+        return { ...r, effective_stage: r.pipeline_stage, effective_stage_source: null };
+    });
 }
 
 export async function getStageCounts(): Promise<Record<string, number>> {

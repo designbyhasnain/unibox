@@ -54,6 +54,13 @@ type AmResolution = {
     /** ISO YYYY-MM-DD wedding date per contact_id, when we have it from the
      *  email-intelligence-layer extractor. Drives the "💍 in 47 days" badge. */
     weddingDateMap: Record<string, string>;
+    /** Phase-2 effective_stage: pipeline_stage_override (human) ?? inferred_stage
+     *  (AI, conf ≥ 0.7) ?? null. Inbox row chip prefers this over the row's
+     *  own pipeline_stage column when set. */
+    effectiveStageMap: Record<string, string>;
+    /** Source of the effective stage so the UI can show provenance ("AI" /
+     *  "Override" badges) without a second lookup. */
+    effectiveStageSourceMap: Record<string, 'override' | 'inferred'>;
 };
 async function resolveAccountManagers(
     rows: { contact_id?: string | null; gmail_account_id?: string | null }[],
@@ -64,6 +71,8 @@ async function resolveAccountManagers(
     const accountAmMap: Record<string, AmInfo | null> = {};
     const contactNameMap: Record<string, string> = {};
     const weddingDateMap: Record<string, string> = {};
+    const effectiveStageMap: Record<string, string> = {};
+    const effectiveStageSourceMap: Record<string, 'override' | 'inferred'> = {};
 
     /**
      * Phase-1 perf coalescing: this used to do up to four sequential Supabase
@@ -84,11 +93,11 @@ async function resolveAccountManagers(
     const flattenEmbedded = (raw: any): EmbeddedUser =>
         Array.isArray(raw) ? (raw[0] ?? null) : (raw ?? null);
 
-    const [contactsResp, assignmentsResp, weddingResp] = await Promise.all([
+    const [contactsResp, assignmentsResp, weddingResp, inferredStageResp] = await Promise.all([
         uniqueContactIds.length > 0
             ? supabase
                 .from('contacts')
-                .select('id, name, email, account_manager_id, account_manager:users!account_manager_id(id, name, email, role)')
+                .select('id, name, email, pipeline_stage, pipeline_stage_override, account_manager_id, account_manager:users!account_manager_id(id, name, email, role)')
                 .in('id', uniqueContactIds)
             : Promise.resolve({ data: [] as any[], error: null }),
         uniqueAccountIds.length > 0
@@ -111,6 +120,20 @@ async function resolveAccountManagers(
                 .gte('confidence', 0.6)
                 .in('contact_id', uniqueContactIds)
             : Promise.resolve({ data: [] as any[], error: null }),
+        // Phase-2 ambient coach: pull the AI-inferred stage. Threshold is
+        // 0.7 — the llama-3.1-8b extractor's "high-confidence" floor in
+        // practice sits around 0.8 (it rarely reports 0.9+). The fallback
+        // chain is override → inferred → pipeline_stage, so a noisy
+        // inferred row at 0.7 is still better than the heuristic
+        // `pipeline_stage` which is what's actively wrong today.
+        uniqueContactIds.length > 0
+            ? supabase
+                .from('contact_insights')
+                .select('contact_id, value, confidence')
+                .eq('fact_type', 'inferred_stage')
+                .gte('confidence', 0.7)
+                .in('contact_id', uniqueContactIds)
+            : Promise.resolve({ data: [] as any[], error: null }),
     ]);
 
     if (contactsResp.error) {
@@ -121,6 +144,9 @@ async function resolveAccountManagers(
     }
 
     // Contact path: skip ADMIN-role AMs (org owner, not a working AM).
+    // Also seed effectiveStageMap from the human override; the AI inferred
+    // pass below only fills in entries where there is no override.
+    const contactPipelineStageMap: Record<string, string> = {};
     for (const c of (contactsResp.data ?? [])) {
         const am = flattenEmbedded(c.account_manager);
         if (c.account_manager_id && am && am.role !== 'ADMIN') {
@@ -130,6 +156,13 @@ async function resolveAccountManagers(
         }
         const display = (c.name && c.name.trim()) || (c.email ? c.email.split('@')[0] : '');
         if (display) contactNameMap[c.id] = display;
+        if (typeof c.pipeline_stage === 'string') {
+            contactPipelineStageMap[c.id] = c.pipeline_stage;
+        }
+        if (typeof c.pipeline_stage_override === 'string' && c.pipeline_stage_override.length > 0) {
+            effectiveStageMap[c.id] = c.pipeline_stage_override;
+            effectiveStageSourceMap[c.id] = 'override';
+        }
     }
 
     // Per-mailbox path: prefer SALES, fall back to first non-ADMIN, else null.
@@ -153,7 +186,41 @@ async function resolveAccountManagers(
         }
     }
 
-    return { contactAmMap, accountAmMap, contactNameMap, weddingDateMap };
+    // Phase-2 inferred-stage map. Any row that already has a human override
+    // wins — the rep's call beats the model's. Otherwise the highest-confidence
+    // inferred_stage row for that contact takes the slot. The set of inferred
+    // rows here is already filtered to confidence ≥0.85 by the query, so we
+    // accept any of them.
+    if (inferredStageResp && !(inferredStageResp as any).error) {
+        // Group rows by contact and take the most confident one. Multiple
+        // insight rows per (contact_id, fact_type) shouldn't exist (the
+        // upsert key is unique), but we defend against it anyway.
+        const bestPerContact: Record<string, { stage: string; confidence: number }> = {};
+        for (const row of (inferredStageResp as any).data ?? []) {
+            const stage = row?.value?.stage;
+            const conf = typeof row?.confidence === 'number' ? row.confidence : 0;
+            if (typeof stage !== 'string' || !stage) continue;
+            const prior = bestPerContact[row.contact_id];
+            if (!prior || conf > prior.confidence) {
+                bestPerContact[row.contact_id] = { stage, confidence: conf };
+            }
+        }
+        for (const [contactId, best] of Object.entries(bestPerContact)) {
+            // Don't overwrite a human override.
+            if (effectiveStageMap[contactId]) continue;
+            effectiveStageMap[contactId] = best.stage;
+            effectiveStageSourceMap[contactId] = 'inferred';
+        }
+    }
+
+    return {
+        contactAmMap,
+        accountAmMap,
+        contactNameMap,
+        weddingDateMap,
+        effectiveStageMap,
+        effectiveStageSourceMap,
+    };
 }
 function pickAccountManager(
     row: { contact_id?: string | null; gmail_account_id?: string | null },
@@ -475,6 +542,8 @@ export async function getInboxEmailsAction(
             account_manager_source: am.source,
             contact_name: r.contact_id ? amResolution.contactNameMap[r.contact_id] || null : null,
             contact_wedding_date: r.contact_id ? amResolution.weddingDateMap[r.contact_id] || null : null,
+            effective_stage: r.contact_id ? amResolution.effectiveStageMap[r.contact_id] || null : null,
+            effective_stage_source: r.contact_id ? amResolution.effectiveStageSourceMap[r.contact_id] || null : null,
             is_self_loop: isSelfLoop,
             account_display_name: acc?.displayName,
             account_profile_image: acc?.profileImage,
@@ -606,6 +675,8 @@ export async function getInboxWithCountsAction(
             account_manager_source: am.source,
             contact_name: r.contact_id ? amResolution.contactNameMap[r.contact_id] || null : null,
             contact_wedding_date: r.contact_id ? amResolution.weddingDateMap[r.contact_id] || null : null,
+            effective_stage: r.contact_id ? amResolution.effectiveStageMap[r.contact_id] || null : null,
+            effective_stage_source: r.contact_id ? amResolution.effectiveStageSourceMap[r.contact_id] || null : null,
             account_display_name: acc?.displayName,
             account_profile_image: acc?.profileImage,
             gmail_accounts: { email: acc?.email, user: { name: acc?.managerName || 'System' } },
@@ -934,7 +1005,11 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
             .maybeSingle();
 
         if (!contact) {
-            // Create a new contact so they appear in Clients page
+            // Create a new contact so they appear in Clients page.
+            // Phase-2 ambient coach: a rep clicking a stage button is a *human
+            // override*, so we write to pipeline_stage_override (not the
+            // AI-owned pipeline_stage column). The mechanical pipeline_stage
+            // is left null on insert so the AI can backfill it on next pass.
             const nameMatch = rawEmail?.split('<')[0]?.trim()?.replace(/"/g, '');
             const finalName = nameMatch && nameMatch !== actualEmail ? nameMatch : actualEmail.split('@')[0];
 
@@ -945,16 +1020,18 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
                     name: finalName || null,
                     is_lead: true,
                     is_client: true,
-                    pipeline_stage: stage
+                    pipeline_stage_override: stage
                 })
                 .select()
                 .single();
             contact = newContact;
         } else {
-            // Promote existing contact to lead
+            // Phase-2: rep override goes to pipeline_stage_override; the AI's
+            // mechanical pipeline_stage stays untouched so the model's read
+            // can still be visible for diagnostics.
             await supabase
                 .from('contacts')
-                .update({ is_lead: true, is_client: true, pipeline_stage: stage })
+                .update({ is_lead: true, is_client: true, pipeline_stage_override: stage })
                 .eq('id', contact.id);
         }
 
@@ -969,10 +1046,10 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
             }
         }
     } else if (contactId) {
-        // Contact exists and is linked, update its stage to match
+        // Phase-2: rep override goes to pipeline_stage_override.
         await supabase
             .from('contacts')
-            .update({ is_lead: true, is_client: true, pipeline_stage: stage })
+            .update({ is_lead: true, is_client: true, pipeline_stage_override: stage })
             .eq('id', contactId);
     }
 
@@ -1004,6 +1081,30 @@ export async function updateEmailStageAction(messageId: string, stage: string) {
             .from('ignored_senders')
             .delete()
             .eq('email', actualEmail);
+    }
+
+    revalidatePath('/');
+    return { success: true };
+}
+
+/**
+ * Phase-2 ambient coach: clear the human override on a contact, letting the
+ * AI-inferred stage win again. Called from the inbox stage-bar's "Use AI"
+ * button. Idempotent — fine to call when no override is set.
+ */
+export async function clearStageOverrideAction(contactId: string) {
+    if (!contactId) return { success: false, error: 'contactId required' };
+    const { role } = await ensureAuthenticated();
+    blockEditorAccess(role);
+
+    const { error } = await supabase
+        .from('contacts')
+        .update({ pipeline_stage_override: null })
+        .eq('id', contactId);
+
+    if (error) {
+        console.error('clearStageOverrideAction error:', error);
+        return { success: false, error: error.message };
     }
 
     revalidatePath('/');

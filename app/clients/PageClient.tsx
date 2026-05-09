@@ -413,7 +413,11 @@ export default function ClientsPage() {
                             )}
                             {filteredClients.map((c, i) => {
                                 const av = avColors[(c.name || '').charCodeAt(0) % avColors.length];
-                                const stage = c.pipeline_stage || 'COLD_LEAD';
+                                // Phase-2: chip reads effective_stage (override > AI > legacy).
+                                // The row dropdown still writes to pipeline_stage_override so a
+                                // human pick beats the model on next render.
+                                const stage = c.effective_stage || c.pipeline_stage || 'COLD_LEAD';
+                                const stageSource: 'override' | 'inferred' | null = c.effective_stage_source || null;
                                 const health = c.relationship_health || 'cold';
                                 const amUser = c.account_manager_id ? salesUserById.get(c.account_manager_id) : null;
                                 const lastContactIso = c.last_email_at ? new Date(c.last_email_at).toISOString().slice(0, 16) : '';
@@ -441,9 +445,9 @@ export default function ClientsPage() {
                                         <td onClick={e => e.stopPropagation()}>
                                             <SmartSelect
                                                 value={stage}
-                                                onChange={(v) => v && handleCellUpdate(c.id, 'pipeline_stage', v)}
+                                                onChange={(v) => v && handleCellUpdate(c.id, 'pipeline_stage_override', v)}
                                                 creatable
-                                                pillClass={`chip dot ${stageClass[stage] || 'cold'}`}
+                                                pillClass={`chip dot ${stageClass[stage] || 'cold'}${stageSource === 'inferred' ? ' chip-ai' : ''}`}
                                                 options={[
                                                     { value: 'COLD_LEAD', label: 'Cold' },
                                                     { value: 'CONTACTED', label: 'Contacted' },
@@ -591,7 +595,7 @@ export default function ClientsPage() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
                         {filteredClients.map((c, i) => {
                             const av = avColors[(c.name || '').charCodeAt(0) % avColors.length];
-                            const stage = c.pipeline_stage || 'COLD_LEAD';
+                            const stage = c.effective_stage || c.pipeline_stage || 'COLD_LEAD';
                             const health = c.relationship_health || 'cold';
                             return (
                                 <div key={c.id || i} className="card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => router.push(`/clients/${c.id}`)}>
@@ -679,7 +683,27 @@ export default function ClientsPage() {
                                 <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>{selected.name}</div>
                                 <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 8 }}>{selected.company || ''} · {selected.location || ''}</div>
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                    <span className={`chip dot ${stageClass[selected.pipeline_stage] || 'cold'}`}>{stageLabel[selected.pipeline_stage] || 'Cold'}</span>
+                                    {(() => {
+                                        const sel = selected.effective_stage || selected.pipeline_stage;
+                                        const src: 'override' | 'inferred' | null = selected.effective_stage_source || null;
+                                        return (
+                                            <span
+                                                className={`chip dot ${stageClass[sel] || 'cold'}`}
+                                                title={
+                                                    src === 'inferred'
+                                                        ? 'AI-inferred from email content'
+                                                        : src === 'override'
+                                                            ? 'Manually set by a teammate'
+                                                            : undefined
+                                                }
+                                            >
+                                                {stageLabel[sel] || 'Cold'}
+                                                {src === 'inferred' && (
+                                                    <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 700, opacity: 0.65, letterSpacing: 0.3 }}>AI</span>
+                                                )}
+                                            </span>
+                                        );
+                                    })()}
                                     <span className="chip" style={{ color: healthColor[selected.relationship_health] || 'var(--ink-muted)', fontSize: 10.5 }}>● {selected.relationship_health || 'unknown'}</span>
                                 </div>
                             </div>
@@ -827,10 +851,10 @@ export default function ClientsPage() {
                         <Section title="Relationship">
                             <KVCell k="Stage">
                                 <SmartSelect
-                                    value={selected.pipeline_stage || 'COLD_LEAD'}
-                                    onChange={(v) => v && handleCellUpdate(selected.id, 'pipeline_stage', v)}
+                                    value={selected.effective_stage || selected.pipeline_stage || 'COLD_LEAD'}
+                                    onChange={(v) => v && handleCellUpdate(selected.id, 'pipeline_stage_override', v)}
                                     creatable
-                                    pillClass={`chip dot ${stageClass[selected.pipeline_stage] || 'cold'}`}
+                                    pillClass={`chip dot ${stageClass[selected.effective_stage || selected.pipeline_stage] || 'cold'}`}
                                     options={[
                                         { value: 'COLD_LEAD', label: 'Cold' },
                                         { value: 'CONTACTED', label: 'Contacted' },

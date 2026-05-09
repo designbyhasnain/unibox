@@ -608,7 +608,12 @@ export default function InboxPage() {
                                     }
                                     const preview = cleanPreview(email.snippet || email.body || '');
                                     const subject = email.subject || '(no subject)';
-                                    const stage = email.pipeline_stage;
+                                    // Phase-2 ambient coach: prefer the AI-inferred stage when present.
+                                    // effective_stage already accounts for human override → AI inference,
+                                    // and falls back here to the row's own pipeline_stage column when
+                                    // neither is set (cold contacts the model hasn't seen yet).
+                                    const stage = email.effective_stage || email.pipeline_stage;
+                                    const stageSource: 'override' | 'inferred' | null = email.effective_stage_source || null;
                                     const accountEmail = email.gmail_accounts?.email || '';
                                     const accountDisplayName: string = email.account_display_name || '';
                                     const accountProfileImage: string = email.account_profile_image || '';
@@ -670,7 +675,32 @@ export default function InboxPage() {
                                                 <div className="preview">{preview}</div>
                                                 <div className="meta">
                                                     {stage && (
-                                                        <span className={`chip dot ${stageClass(stage)}`}>{stageLabel(stage)}</span>
+                                                        <span
+                                                            className={`chip dot ${stageClass(stage)}`}
+                                                            title={
+                                                                stageSource === 'inferred'
+                                                                    ? 'AI-inferred from email content'
+                                                                    : stageSource === 'override'
+                                                                        ? 'Manually set by a teammate'
+                                                                        : undefined
+                                                            }
+                                                        >
+                                                            {stageLabel(stage)}
+                                                            {stageSource === 'inferred' && (
+                                                                <span
+                                                                    aria-label="AI inferred"
+                                                                    style={{
+                                                                        marginLeft: 4,
+                                                                        fontSize: 9,
+                                                                        fontWeight: 700,
+                                                                        opacity: 0.65,
+                                                                        letterSpacing: 0.3,
+                                                                    }}
+                                                                >
+                                                                    AI
+                                                                </span>
+                                                            )}
+                                                        </span>
                                                     )}
                                                     {email.contact_wedding_date && (() => {
                                                         const w = formatWeddingBadge(email.contact_wedding_date);
@@ -764,9 +794,36 @@ export default function InboxPage() {
                         <div className="thread">
                             <h2>{selectedEmail.subject || '(No Subject)'}</h2>
                             <div className="thread-meta">
-                                <span className={`chip dot ${stageClass(selectedEmail.pipeline_stage || 'COLD_LEAD')}`}>
-                                    Stage · {stageLabel(selectedEmail.pipeline_stage || 'COLD_LEAD')}
-                                </span>
+                                {(() => {
+                                    // Phase-2: header chip mirrors the row chip — prefer the
+                                    // AI-inferred stage (with optional human override) over
+                                    // the row's mechanical pipeline_stage column.
+                                    const headerStage =
+                                        selectedEmail.effective_stage ||
+                                        selectedEmail.pipeline_stage ||
+                                        'COLD_LEAD';
+                                    const headerSource: 'override' | 'inferred' | null =
+                                        selectedEmail.effective_stage_source || null;
+                                    return (
+                                        <span
+                                            className={`chip dot ${stageClass(headerStage)}`}
+                                            title={
+                                                headerSource === 'inferred'
+                                                    ? 'AI-inferred from email content'
+                                                    : headerSource === 'override'
+                                                        ? 'Manually set by a teammate'
+                                                        : undefined
+                                            }
+                                        >
+                                            Stage · {stageLabel(headerStage)}
+                                            {headerSource === 'inferred' && (
+                                                <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 700, opacity: 0.65, letterSpacing: 0.3 }}>
+                                                    AI
+                                                </span>
+                                            )}
+                                        </span>
+                                    );
+                                })()}
                                 <span>·</span>
                                 <span>{threadMessages.length || 1} messages</span>
                                 <span>·</span>
@@ -912,17 +969,43 @@ export default function InboxPage() {
 
                                 {/* Relationship sub-card */}
                                 <div className="sub-card">
-                                    <h4>Relationship</h4>
-                                    <div className="stage-bar">
-                                        {['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'].map((s) => (
+                                    <h4>
+                                        Relationship
+                                        {selectedEmail.effective_stage_source === 'inferred' && (
+                                            <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: 'var(--ink-muted)' }}>
+                                                · AI-inferred. Click to override.
+                                            </span>
+                                        )}
+                                        {selectedEmail.effective_stage_source === 'override' && selectedEmail.contact_id && (
                                             <button
-                                                key={s}
-                                                className={selectedEmail.pipeline_stage === s ? 'active' : ''}
-                                                onClick={() => handleChangeStage(selectedEmail.id, s)}
+                                                style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0 }}
+                                                title="Remove your override and use the AI's read again"
+                                                onClick={async () => {
+                                                    if (!selectedEmail.contact_id) return;
+                                                    const { clearStageOverrideAction } = await import('../src/actions/emailActions');
+                                                    await clearStageOverrideAction(selectedEmail.contact_id);
+                                                    loadEmails(currentPage);
+                                                }}
                                             >
-                                                {stageLabel(s)}
+                                                · Use AI suggestion
                                             </button>
-                                        ))}
+                                        )}
+                                    </h4>
+                                    <div className="stage-bar">
+                                        {(() => {
+                                            const activeStage =
+                                                selectedEmail.effective_stage ||
+                                                selectedEmail.pipeline_stage;
+                                            return ['COLD_LEAD', 'CONTACTED', 'WARM_LEAD', 'LEAD', 'OFFER_ACCEPTED', 'CLOSED'].map((s) => (
+                                                <button
+                                                    key={s}
+                                                    className={activeStage === s ? 'active' : ''}
+                                                    onClick={() => handleChangeStage(selectedEmail.id, s)}
+                                                >
+                                                    {stageLabel(s)}
+                                                </button>
+                                            ));
+                                        })()}
                                     </div>
                                     <div className="kv"><span className="k">Account</span><span className="v">{selectedEmail.gmail_accounts?.email || 'Unknown'}</span></div>
                                     <div className="kv">

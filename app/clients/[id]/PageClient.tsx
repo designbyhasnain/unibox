@@ -150,8 +150,13 @@ export default function ContactDetailPage() {
     }
 
     const c = data.contact;
-    const stageLabel = STAGE_LABELS[c.pipeline_stage] || c.pipeline_stage;
-    const stageColor = STAGE_COLORS[c.pipeline_stage] || 'badge-gray';
+    // Phase-2 ambient coach: prefer the AI-inferred (or human-override) stage
+    // computed server-side. Falls back to the row's own pipeline_stage when
+    // neither is set.
+    const displayStage = c.effective_stage || c.pipeline_stage;
+    const stageSource: 'override' | 'inferred' | null = c.effective_stage_source || null;
+    const stageLabel = STAGE_LABELS[displayStage] || displayStage;
+    const stageColor = STAGE_COLORS[displayStage] || 'badge-gray';
     const fmt = (v: number) => '$' + (v || 0).toLocaleString();
 
     return (
@@ -199,8 +204,25 @@ export default function ContactDetailPage() {
                                     {c.notes && <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4, fontStyle: 'italic' }}>{c.notes}</div>}
                                 </>
                             )}
-                            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                                {stageLabel && <span className={stageColor} style={{ fontSize: 11 }}>{stageLabel}</span>}
+                            <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                                {stageLabel && (
+                                    <span
+                                        className={stageColor}
+                                        style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center' }}
+                                        title={
+                                            stageSource === 'inferred'
+                                                ? 'AI-inferred from email content'
+                                                : stageSource === 'override'
+                                                    ? 'Manually set by a teammate'
+                                                    : undefined
+                                        }
+                                    >
+                                        {stageLabel}
+                                        {stageSource === 'inferred' && (
+                                            <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 700, opacity: 0.65, letterSpacing: 0.3 }}>AI</span>
+                                        )}
+                                    </span>
+                                )}
                                 {c.lead_score > 0 && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(139,92,246,0.1)', color: 'var(--accent)', fontWeight: 600 }}>Score: {c.lead_score}</span>}
                                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: c.relationship_health === 'warm' ? 'rgba(16,185,129,0.1)' : c.relationship_health === 'cold' ? 'rgba(239,68,68,0.1)' : 'rgba(107,114,128,0.1)', color: c.relationship_health === 'warm' ? 'var(--coach)' : c.relationship_health === 'cold' ? 'var(--danger)' : 'var(--ink-muted)' }}>{c.relationship_health || 'neutral'}</span>
                             </div>
@@ -292,7 +314,7 @@ export default function ContactDetailPage() {
                         the suggested pipeline_stage with one button. */}
                     <CoachPanel
                         contactId={data.contact.id}
-                        currentStage={data.contact.pipeline_stage || null}
+                        currentStage={displayStage || null}
                         onStageApplied={() => load()}
                     />
 
