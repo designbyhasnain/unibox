@@ -151,9 +151,13 @@ Output schema:
   "source_channel": { "value": { "value": "UPWORK" }, "confidence": 0.9 } | null,
   "delivery_date":  { "value": { "iso": "YYYY-MM-DD" }, "confidence": 0.7 } | null,
   "outcome":        { "value": { "value": "WON" }, "confidence": 0.85 } | null,
-  "inferred_stage": { "value": { "stage": "NOT_INTERESTED", "reason": "Anas declined politely" }, "confidence": 0.9 } | null,
-  "coach_next_action": { "value": { "intent": "EDITOR_RECRUITER_INBOUND", "situation": "...", "blockers": [], "next_action": { "type": "WAIT_AND_REMIND_LATER", "timing": "in 60 days", "message_to_send": null, "anchor_price_usd": null, "notes": null }, "red_flags": [] }, "confidence": 0.85 } | null
-}`;
+  "inferred_stage": { "value": { "stage": "STAGE_VALUE", "reason": "short literal evidence from the thread" }, "confidence": <YOUR_CONFIDENCE_0_TO_1> } | null,
+  "coach_next_action": { "value": { "intent": "INTENT_VALUE", "situation": "one tight sentence about THIS contact", "blockers": ["..."], "next_action": { "type": "ACTION_TYPE", "timing": "...", "message_to_send": null, "anchor_price_usd": null, "notes": null }, "red_flags": ["..."] }, "confidence": <YOUR_CONFIDENCE_0_TO_1> } | null
+}
+
+Important:
+- The example values above are TYPE PLACEHOLDERS, not real data. Always emit reasoning that quotes the actual thread you were given. Never copy the placeholder strings verbatim.
+- For inferred_stage and coach_next_action, ALWAYS emit a real confidence between 0.5 and 1.0 — never zero. Pick 0.5-0.7 when the thread has only one or two messages, 0.8-0.95 when the conversation is clear.`;
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -208,14 +212,20 @@ async function main() {
     let errors = 0;
     const startedAt = Date.now();
 
-    for (const c of contacts) {
-        const contactId = c.id as string;
-        const r = await extractForContact(s, contactId);
+    // Groq has per-minute rate limits; hammering serially still tripped 429s
+    // on the dry-run. 350 ms between calls = ~170 contacts/minute, well
+    // under any free-tier ceiling. On 429 we back off + retry once.
+    async function processOne(contactId: string): Promise<void> {
+        let r = await extractForContact(s, contactId);
+        if (r.error?.includes('429')) {
+            await new Promise(rs => setTimeout(rs, 6000));
+            r = await extractForContact(s, contactId);
+        }
         processed++;
         if (r.error) {
             errors++;
             if (args.dryRun) console.log(`  [${contactId}] ERROR ${r.error}`);
-            continue;
+            return;
         }
         if (args.dryRun) {
             for (const f of r.facts) {
@@ -231,6 +241,11 @@ async function main() {
             const elapsed = Math.round((Date.now() - startedAt) / 1000);
             console.log(`progress: ${processed}/${contacts.length}  facts=${factsWritten}  errors=${errors}  elapsed=${elapsed}s`);
         }
+    }
+
+    for (const c of contacts) {
+        await processOne(c.id as string);
+        await new Promise(rs => setTimeout(rs, 2000));
     }
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
     console.log(`\ndone. processed=${processed} facts=${factsWritten} errors=${errors} elapsed=${elapsed}s${args.dryRun ? ' (dry-run — no DB writes)' : ''}`);
@@ -293,18 +308,29 @@ async function extractForContact(
     }
 
     const env = ExtractionResponseSchema.safeParse(json);
-    if (!env.success) return { facts: [], error: 'schema-mismatch' };
+    if (!env.success) {
+        if (process.env.INSIGHTS_DEBUG) console.warn('  envelope FAIL:', JSON.stringify(json).slice(0, 400));
+        return { facts: [], error: 'schema-mismatch' };
+    }
 
     const facts: Fact[] = [];
+    const dropped: string[] = [];
     for (const factType of Object.keys(FACT_REGISTRY) as FactType[]) {
-        const payload = env.data[factType];
-        if (!payload) continue;
-        if (payload.confidence < CONFIDENCE_FLOOR) continue;
+        const payload = (env.data as any)[factType];
+        if (!payload) { dropped.push(`${factType}=missing`); continue; }
+        if (payload.confidence < CONFIDENCE_FLOOR) { dropped.push(`${factType}=lowConf(${payload.confidence})`); continue; }
         const valueParsed = FACT_REGISTRY[factType].safeParse(payload.value);
-        if (!valueParsed.success) continue;
+        if (!valueParsed.success) {
+            dropped.push(`${factType}=schemaFail`);
+            if (process.env.INSIGHTS_DEBUG) console.warn(`  ${factType} schema FAIL:`, JSON.stringify(payload.value).slice(0, 300), '·', JSON.stringify(valueParsed.error.issues.slice(0, 2)));
+            continue;
+        }
         const sourceEmailId =
             payload.source_message_index != null ? (ordered[payload.source_message_index]?.id as string | null) ?? null : null;
         facts.push({ factType, value: valueParsed.data, confidence: payload.confidence, sourceEmailId });
+    }
+    if (process.env.INSIGHTS_DEBUG && dropped.length > 0) {
+        console.warn('  dropped:', dropped.join(', '));
     }
     return { facts };
 }

@@ -212,9 +212,13 @@ Schema:
   "source_channel": { "value": { "value": "UPWORK" }, "confidence": 0.9 } | null,
   "delivery_date":  { "value": { "iso": "YYYY-MM-DD" }, "confidence": 0.7 } | null,
   "outcome":        { "value": { "value": "WON" }, "confidence": 0.85 } | null,
-  "inferred_stage": { "value": { "stage": "NOT_INTERESTED", "reason": "Anas declined politely on May 8" }, "confidence": 0.9 } | null,
-  "coach_next_action": { "value": { "intent": "EDITOR_RECRUITER_INBOUND", "situation": "...", "blockers": [...], "next_action": {...}, "red_flags": [...] }, "confidence": 0.85 } | null
-}`;
+  "inferred_stage": { "value": { "stage": "STAGE_VALUE", "reason": "short literal evidence from the thread" }, "confidence": <YOUR_CONFIDENCE_0_TO_1> } | null,
+  "coach_next_action": { "value": { "intent": "INTENT_VALUE", "situation": "one tight sentence about THIS contact", "blockers": ["..."], "next_action": { "type": "ACTION_TYPE", "timing": "...", "message_to_send": null, "anchor_price_usd": null, "notes": null }, "red_flags": ["..."] }, "confidence": <YOUR_CONFIDENCE_0_TO_1> } | null
+}
+
+Important:
+- The example values above are TYPE PLACEHOLDERS, not real data. Always emit reasoning that quotes the actual thread you were given. Never copy the placeholder strings verbatim.
+- For inferred_stage and coach_next_action, ALWAYS emit a real confidence between 0.5 and 1.0 — never zero. Pick 0.5-0.7 when the thread has only one or two messages, 0.8-0.95 when the conversation is clear.`;
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
