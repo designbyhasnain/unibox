@@ -473,7 +473,22 @@ function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOption
     const budget = project.project_value || 0;
     const isPaid = project.paid_status === 'PAID';
     const isPartial = project.paid_status === 'PARTIALLY_PAID';
-    const unpaid = isPaid ? 0 : (isPartial ? Math.round(budget / 2) : budget);
+    // Real partial-paid math: pull from the persisted column rather than
+    // assuming "half". Falls back to total_received (sum of installments)
+    // when the legacy `paid` column is null. When everything's missing on
+    // a partial row we surface 0 — the user can type the actual amount in
+    // the new "Amount paid" cell below Paid status.
+    const paidNumeric = (() => {
+        const direct = Number(project.paid);
+        if (Number.isFinite(direct) && direct > 0) return direct;
+        const tr = Number(project.total_received);
+        if (Number.isFinite(tr) && tr > 0) return tr;
+        const r1 = Number(project.received_1) || 0;
+        const r2 = Number(project.received_2) || 0;
+        const r22 = Number(project.received_2_2) || 0;
+        return r1 + r2 + r22;
+    })();
+    const unpaid = isPaid ? 0 : Math.max(0, budget - (isPartial ? paidNumeric : 0));
     const projectId = project.id?.slice(0, 8)?.toUpperCase() || 'N/A';
     const sourceInboxId = project.client_last_gmail_account_id || null;
 
@@ -613,6 +628,21 @@ function ProjectDetailPanel({ project, onClose, onUpdate, managers, clientOption
                             options={PAID_OPTIONS}
                         />
                     </KVCell>
+                    {isPartial && (
+                        <>
+                            <KVCell k="Amount paid">
+                                <NumericCell
+                                    value={paidNumeric || null}
+                                    onCommit={(n) => onUpdate(project.id, 'paid', n)}
+                                />
+                            </KVCell>
+                            <KVCell k="Remaining">
+                                <span style={{ color: unpaid > 0 ? 'var(--warn)' : 'var(--coach)', fontWeight: 600 }}>
+                                    {fmt(unpaid)}{budget > 0 && ` of ${fmt(budget)} (${Math.round((paidNumeric / budget) * 100)}% paid)`}
+                                </span>
+                            </KVCell>
+                        </>
+                    )}
                     <KVCell k="Due date">
                         <input
                             type="date"
@@ -897,6 +927,7 @@ export default function MyProjectsPage() {
         dueDate: 'due_date',
         accountManagerId: 'account_manager_id',
         paidStatus: 'paid_status',
+        paid: 'paid',
         quote: 'quote',
         projectValue: 'project_value',
         projectLink: 'project_link',

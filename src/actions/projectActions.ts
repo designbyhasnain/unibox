@@ -12,6 +12,10 @@ export type ProjectUpdatePayload = {
     dueDate?: string;
     accountManagerId?: string;
     paidStatus?: string;
+    /** Total amount paid so far (across deposits / installments). Used by
+     *  the partial-paid drawer to track the actual figure rather than
+     *  assuming "half of project_value". */
+    paid?: number | null;
     quote?: number;
     projectValue?: number;
     projectLink?: string;
@@ -64,7 +68,7 @@ export async function getAllProjectsAction(
 
     let query = supabase
         .from('projects')
-        .select(`id, project_name, project_date, due_date, paid_status, priority, final_review, quote, project_value, project_link, brief, reference, deduction_on_delay, status, person, editor, account_manager, team, tags, client_id, account_manager_id, source_email_id, created_at, contacts:client_id(id, name, email)`, { count: 'exact' });
+        .select(`id, project_name, project_date, due_date, paid_status, paid, total_received, received_1, received_2, received_2_2, received_date_1, received_date_2, priority, final_review, quote, project_value, project_link, brief, reference, deduction_on_delay, status, person, editor, account_manager, team, tags, client_id, account_manager_id, source_email_id, created_at, contacts:client_id(id, name, email)`, { count: 'exact' });
 
     // Filter projects for non-admin users: only projects where they are the account manager
     if (ownerFilter) {
@@ -271,6 +275,27 @@ export async function updateProjectAction(
     if (payload.dueDate !== undefined) updateData.due_date = payload.dueDate;
     if (payload.accountManagerId !== undefined) updateData.account_manager_id = payload.accountManagerId;
     if (payload.paidStatus !== undefined) updateData.paid_status = payload.paidStatus;
+    if (payload.paid !== undefined) {
+        if (payload.paid != null && (typeof payload.paid !== 'number' || !Number.isFinite(payload.paid) || payload.paid < 0)) {
+            return { success: false, error: 'Invalid paid value' };
+        }
+        updateData.paid = payload.paid;
+        // Auto-derive paid_status when the user types a paid amount but
+        // hasn't toggled the status yet.
+        if (payload.paidStatus === undefined && typeof payload.paid === 'number') {
+            const { data: cur } = await supabase
+                .from('projects')
+                .select('project_value')
+                .eq('id', projectId)
+                .maybeSingle();
+            const total = cur?.project_value ?? 0;
+            if (total > 0) {
+                if (payload.paid >= total) updateData.paid_status = 'PAID';
+                else if (payload.paid > 0) updateData.paid_status = 'PARTIALLY_PAID';
+                else updateData.paid_status = 'UNPAID';
+            }
+        }
+    }
     if (payload.quote !== undefined) {
         if (typeof payload.quote === 'number' && (!Number.isFinite(payload.quote) || payload.quote < 0)) {
             return { success: false, error: 'Invalid quote value' };
