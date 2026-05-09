@@ -46,6 +46,9 @@ function parseArgs(): Args {
 const ProjectTypeSchema = z.enum(['HIGHLIGHT','FULL_FILM','TRAILER','SOCIAL_CUT','RESTORATION','OTHER']);
 const SourceChannelSchema = z.enum(['UPWORK','INSTAGRAM','REFERRAL','WEBSITE','COLD_OUTREACH','UNKNOWN']);
 const OutcomeSchema = z.enum(['WON','LOST','GHOSTED','NOT_INTERESTED','STILL_OPEN']);
+const PipelineStageSchema = z.enum(['COLD_LEAD','CONTACTED','WARM_LEAD','LEAD','OFFER_ACCEPTED','CLOSED','NOT_INTERESTED']);
+const IntentSchema = z.enum(['WEDDING_PROSPECT','PAID_CLIENT_ACTIVE','EDITOR_RECRUITER_INBOUND','PEER_NETWORKING','VENDOR_OR_TOOL_PITCH','AUTOMATED_NOTIFICATION','SPAM_OR_NOT_INTERESTED','UNCLEAR']);
+const NextActionTypeSchema = z.enum(['SEND_REPLY','SEND_FOLLOWUP','SCHEDULE_CALL','SEND_QUOTE','SEND_DELIVERABLE','WAIT_AND_REMIND_LATER','STOP_OUTREACH','NO_ACTION_NEEDED']);
 
 const FACT_REGISTRY = {
     wedding_date: z.object({ iso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
@@ -60,6 +63,23 @@ const FACT_REGISTRY = {
     source_channel: z.object({ value: SourceChannelSchema }),
     delivery_date: z.object({ iso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
     outcome: z.object({ value: OutcomeSchema }),
+    inferred_stage: z.object({
+        stage: PipelineStageSchema,
+        reason: z.string().min(2).max(200),
+    }),
+    coach_next_action: z.object({
+        intent: IntentSchema,
+        situation: z.string().min(8).max(300),
+        blockers: z.array(z.string().min(2).max(160)).max(5),
+        next_action: z.object({
+            type: NextActionTypeSchema,
+            timing: z.string().min(2).max(60),
+            message_to_send: z.string().max(800).nullable(),
+            anchor_price_usd: z.number().nullable(),
+            notes: z.string().max(200).nullable(),
+        }),
+        red_flags: z.array(z.string().min(2).max(200)).max(6),
+    }),
 } as const;
 type FactType = keyof typeof FACT_REGISTRY;
 
@@ -77,6 +97,8 @@ const ExtractionResponseSchema = z.object({
     source_channel: FactPayloadSchema.nullable().optional(),
     delivery_date: FactPayloadSchema.nullable().optional(),
     outcome: FactPayloadSchema.nullable().optional(),
+    inferred_stage: FactPayloadSchema.nullable().optional(),
+    coach_next_action: FactPayloadSchema.nullable().optional(),
 });
 
 const MODEL = 'llama-3.1-8b-instant';
@@ -85,20 +107,39 @@ const CONFIDENCE_FLOOR = 0.4;
 const MAX_BODY_CHARS = 1500;
 const MAX_MESSAGES_PER_THREAD = 5;
 
-const SYSTEM_PROMPT = `You are a fact extractor for a wedding-filmmaking CRM. Read the email thread and extract structured facts about the prospect/client conversation. Output STRICT JSON matching the schema below — no prose.
+const SYSTEM_PROMPT = `You are the head of sales for a wedding-filmmaking CRM. Read the email thread and extract structured facts AND a coach output. Output STRICT JSON — no prose.
 
-Rules:
-- Only extract a fact if you find evidence in the messages. If unsure, OMIT the field (do not guess).
-- "wedding_date" must be ISO YYYY-MM-DD. If only month/year given, use the 1st of the month with confidence ≤ 0.5.
-- "couple_names" extracts the COUPLE / CLIENTS — not the sender (us). Names like "Alex & Sam", "Hi Mark and Jenny" → ["Mark","Jenny"].
-- "location" — city > region > country, in that order. Lowercase or proper case both OK.
-- "project_type" maps to one of: HIGHLIGHT (highlight reel), FULL_FILM (full ceremony/feature edit), TRAILER, SOCIAL_CUT (Instagram/TikTok cuts), RESTORATION (old footage), OTHER.
-- "price_quoted" — only if a USD amount is mentioned in OUR outbound or theirs. Strip currency, return number.
-- "source_channel" — UPWORK / INSTAGRAM / REFERRAL / WEBSITE / COLD_OUTREACH / UNKNOWN. Default UNKNOWN if no signal.
-- "delivery_date" — date we shipped or said we'd ship the deliverable.
-- "outcome" — WON if they paid / accepted / are a client; LOST if explicitly declined; GHOSTED if no reply >60 days after our last send; NOT_INTERESTED if they said so; STILL_OPEN otherwise.
-- Each fact MUST include: { value, confidence (0-1), source_message_index (0-based, optional) }.
-- If a fact's confidence < 0.4, OMIT it.
+Rules — extracted facts (only if evidence is in the messages):
+- "wedding_date" ISO YYYY-MM-DD. If only month/year, use 1st of month with confidence ≤ 0.5.
+- "couple_names" the COUPLE / CLIENTS, not the sender (us).
+- "location" city > region > country.
+- "project_type" HIGHLIGHT | FULL_FILM | TRAILER | SOCIAL_CUT | RESTORATION | OTHER.
+- "price_quoted" USD number when a price is mentioned.
+- "source_channel" UPWORK | INSTAGRAM | REFERRAL | WEBSITE | COLD_OUTREACH | UNKNOWN.
+- "delivery_date" date we shipped the deliverable.
+- "outcome" WON/LOST/GHOSTED/NOT_INTERESTED/STILL_OPEN.
+
+Rules — coach output (ALWAYS produce both when there's a thread):
+- "inferred_stage" — what pipeline_stage the conversation actually warrants today, ignoring the DB:
+    COLD_LEAD: never replied / no inbound from them
+    CONTACTED: we sent something, they have not engaged
+    WARM_LEAD: replied with interest, no quote yet
+    LEAD: a quote / scope / proposal is on the table
+    OFFER_ACCEPTED: accepted price/scope verbally; deposit not yet paid
+    CLOSED: money on file OR a deliverable shipped
+    NOT_INTERESTED: explicit decline / >60d ghosting / they're a peer / vendor / recruiter
+- "coach_next_action" — the rep-facing playbook:
+    intent: WEDDING_PROSPECT | PAID_CLIENT_ACTIVE | EDITOR_RECRUITER_INBOUND | PEER_NETWORKING | VENDOR_OR_TOOL_PITCH | AUTOMATED_NOTIFICATION | SPAM_OR_NOT_INTERESTED | UNCLEAR
+    situation: ONE tight sentence (≤30 words).
+    blockers: array of strings.
+    next_action: { type, timing, message_to_send, anchor_price_usd, notes }
+      type: SEND_REPLY | SEND_FOLLOWUP | SCHEDULE_CALL | SEND_QUOTE | SEND_DELIVERABLE | WAIT_AND_REMIND_LATER | STOP_OUTREACH | NO_ACTION_NEEDED
+      message_to_send: ready-to-send 2-4 sentence reply for SEND_* types, otherwise null. Match tone, never fabricate.
+      anchor_price_usd: number when SEND_QUOTE, otherwise null.
+    red_flags: array of data-quality issues spotted.
+
+- Each fact MUST include { value, confidence (0-1), source_message_index (optional) }.
+- Omit Tier-1 facts with confidence < 0.4. Always emit inferred_stage and coach_next_action when a thread exists.
 
 Output schema:
 {
@@ -109,7 +150,9 @@ Output schema:
   "price_quoted":   { "value": { "usd": 850, "per": "package" }, "confidence": 0.85 } | null,
   "source_channel": { "value": { "value": "UPWORK" }, "confidence": 0.9 } | null,
   "delivery_date":  { "value": { "iso": "YYYY-MM-DD" }, "confidence": 0.7 } | null,
-  "outcome":        { "value": { "value": "WON" }, "confidence": 0.85 } | null
+  "outcome":        { "value": { "value": "WON" }, "confidence": 0.85 } | null,
+  "inferred_stage": { "value": { "stage": "NOT_INTERESTED", "reason": "Anas declined politely" }, "confidence": 0.9 } | null,
+  "coach_next_action": { "value": { "intent": "EDITOR_RECRUITER_INBOUND", "situation": "...", "blockers": [], "next_action": { "type": "WAIT_AND_REMIND_LATER", "timing": "in 60 days", "message_to_send": null, "anchor_price_usd": null, "notes": null }, "red_flags": [] }, "confidence": 0.85 } | null
 }`;
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -237,7 +280,7 @@ async function extractForContact(
                 ],
                 response_format: { type: 'json_object' },
                 temperature: 0.1,
-                max_tokens: 600,
+                max_tokens: 1200,
             }),
         });
         if (!res.ok) return { facts: [], error: `groq ${res.status}` };

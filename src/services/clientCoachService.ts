@@ -115,10 +115,58 @@ export type CoachInput = {
 };
 
 export type CoachResult =
-    | { success: true; output: ClientCoachOutput; rawSnapshot: SnapshotForPrompt }
+    | { success: true; output: ClientCoachOutput; rawSnapshot: SnapshotForPrompt; cached?: boolean; cachedAt?: string }
     | { success: false; error: string };
 
+const CACHE_FRESH_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Read cached coach output from contact_insights — both `inferred_stage` and
+ * `coach_next_action` rows together compose the full ClientCoachOutput shape.
+ * Returns null when either row is missing or when the most recent extraction
+ * is older than CACHE_FRESH_MS.
+ */
+async function readCachedCoach(contactId: string): Promise<{ output: ClientCoachOutput; cachedAt: string } | null> {
+    const { data } = await supabase
+        .from('contact_insights')
+        .select('fact_type, value, confidence, extracted_at')
+        .eq('contact_id', contactId)
+        .in('fact_type', ['inferred_stage', 'coach_next_action']);
+    if (!data || data.length < 2) return null;
+    const stageRow = data.find((r: any) => r.fact_type === 'inferred_stage');
+    const coachRow = data.find((r: any) => r.fact_type === 'coach_next_action');
+    if (!stageRow || !coachRow) return null;
+    // Use the older of the two for the freshness check — both should be
+    // written in the same extraction round, but be conservative.
+    const olderTs = Math.min(
+        new Date(stageRow.extracted_at).getTime(),
+        new Date(coachRow.extracted_at).getTime()
+    );
+    if (Date.now() - olderTs > CACHE_FRESH_MS) return null;
+    const merged = {
+        intent: (coachRow.value as any).intent,
+        situation: (coachRow.value as any).situation,
+        inferred_stage: (stageRow.value as any).stage,
+        inferred_stage_confidence: stageRow.confidence ?? 0,
+        inferred_stage_reason: (stageRow.value as any).reason,
+        blockers: (coachRow.value as any).blockers ?? [],
+        next_action: (coachRow.value as any).next_action,
+        red_flags: (coachRow.value as any).red_flags ?? [],
+    };
+    const parsed = ClientCoachOutputSchema.safeParse(merged);
+    if (!parsed.success) return null;
+    return { output: parsed.data, cachedAt: new Date(olderTs).toISOString() };
+}
+
 export async function coachContact(input: CoachInput): Promise<CoachResult> {
+    // Phase-1 cache hit: the extractor cron has already classified this
+    // contact within the last 24h — return the cached read for ~free.
+    const cached = await readCachedCoach(input.contactId);
+    if (cached) {
+        const snapshot = await buildSnapshot(input.contactId);
+        return { success: true, output: cached.output, rawSnapshot: snapshot ?? ({} as any), cached: true, cachedAt: cached.cachedAt };
+    }
+
     if (!process.env.GROQ_API_KEY) return { success: false, error: 'GROQ_API_KEY not set' };
 
     const snapshot = await buildSnapshot(input.contactId);
