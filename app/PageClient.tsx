@@ -709,10 +709,11 @@ export default function InboxPage() {
                     </div>
                 </div>
 
-                {/* Resizer: list ↔ thread */}
-                {hasEmail && (
-                    <Resizer varName="--list-w" storageKey="unibox:list-w" min={280} max={560} defaultVal={380} />
-                )}
+                {/* Resizer for the inbox-list column. Renders unconditionally so
+                    the user can widen / narrow the list even when no thread is
+                    open (Google-Sheets-style column drag). When a thread IS
+                    open the same handle doubles as the list ↔ thread divider. */}
+                <Resizer varName="--list-w" storageKey="unibox:list-w" min={280} max={720} defaultVal={380} />
 
                 {/* ═══ Column 2: Thread View ═══ */}
                 {hasEmail && (
