@@ -45,7 +45,13 @@ function ActionCardImpl({ action, onQuickEmail, onSnooze, onDone, accounts, expa
     const [emailLoadError, setEmailLoadError] = useState(false);
     const [suggestedAccountId, setSuggestedAccountId] = useState<string | null>(null);
 
-    const [replyBody, setReplyBody] = useState('');
+    // Pre-seed the textarea with the AI's pre-loaded draft (Phase 3 ambient
+    // coach). This hydrates ONCE on mount — once the user types anything,
+    // their edit is preserved through expand/collapse cycles. If the queue
+    // refreshes and the same card is reused (same key), we don't re-seed
+    // (would clobber edits). New cards get the latest draft because they
+    // re-mount with a fresh key.
+    const [replyBody, setReplyBody] = useState(action.aiDraftMessage || '');
     const [fromAccountId, setFromAccountId] = useState('');
     const [sending, setSending] = useState(false);
     const [sendSuccess, setSendSuccess] = useState(false);
@@ -219,6 +225,21 @@ function ActionCardImpl({ action, onQuickEmail, onSnooze, onDone, accounts, expa
                             <span style={{ fontSize: 12, color: 'var(--ink-muted)', fontWeight: 400, flexShrink: 0 }}>
                                 {action.totalEmailsSent}/{action.totalEmailsReceived}
                             </span>
+                        )}
+                        {/* Phase-3 ambient-coach marker — shown when the
+                            extractor has read the thread and given us a
+                            situation/draft. Lets the rep tell at a glance
+                            which queue items have AI context loaded. */}
+                        {action.aiSituation && (
+                            <span
+                                title="AI has read this thread and pre-loaded a draft"
+                                style={{
+                                    fontSize: 9, fontWeight: 600, letterSpacing: '.06em',
+                                    padding: '1px 5px', borderRadius: 4, flexShrink: 0,
+                                    background: 'var(--coach-soft)', color: 'var(--coach)',
+                                    border: '1px solid color-mix(in oklab, var(--coach), transparent 80%)',
+                                }}
+                            >AI</span>
                         )}
                     </div>
                     <div style={{
@@ -428,6 +449,54 @@ function ActionCardImpl({ action, onQuickEmail, onSnooze, onDone, accounts, expa
                                     textAlign: 'center', marginBottom: 20, color: 'var(--ink-muted)', fontSize: 13,
                                 }}>
                                     No previous emails. This will be your first message.
+                                </div>
+                            )}
+
+                            {/* Phase-3 ambient coach summary — only when the
+                                cron has produced a fresh coach_next_action
+                                insight for this contact. Surfaces the
+                                situation in one tight sentence + the AI's
+                                next-action verb so the rep doesn't need to
+                                interpret the thread before drafting. */}
+                            {action.aiSituation && (
+                                <div style={{
+                                    background: 'color-mix(in oklab, var(--coach-soft), transparent 30%)',
+                                    border: '1px solid color-mix(in oklab, var(--coach), transparent 75%)',
+                                    borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+                                    display: 'flex', gap: 10, alignItems: 'flex-start',
+                                }}>
+                                    <div style={{
+                                        flexShrink: 0, width: 22, height: 22, borderRadius: 6,
+                                        background: 'var(--coach-soft)', color: 'var(--coach)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    }}>
+                                        <Sparkles size={12} />
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{
+                                            fontSize: 11, fontWeight: 600, letterSpacing: '.04em',
+                                            textTransform: 'uppercase', color: 'var(--coach)', marginBottom: 4,
+                                        }}>
+                                            Coach{action.aiTiming ? ` · ${action.aiTiming}` : ''}
+                                        </div>
+                                        <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>
+                                            {action.aiSituation}
+                                        </div>
+                                        {action.aiActionType && (
+                                            <div style={{
+                                                marginTop: 6, fontSize: 11, color: 'var(--ink-muted)',
+                                            }}>
+                                                Suggested: <strong style={{ color: 'var(--ink-2)' }}>
+                                                    {action.aiActionType.toLowerCase().replace(/_/g, ' ')}
+                                                </strong>
+                                                {action.aiAnchorPriceUsd != null && (
+                                                    <> · anchor <strong style={{ color: 'var(--ink-2)' }}>
+                                                        ${Math.round(action.aiAnchorPriceUsd).toLocaleString()}
+                                                    </strong></>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 

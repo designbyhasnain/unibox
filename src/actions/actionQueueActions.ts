@@ -20,7 +20,7 @@ export type ActionItem = {
     phone: string | null;
     location: string | null;
     stage: string;
-    actionType: 'REPLY_NOW' | 'FOLLOW_UP' | 'WIN_BACK' | 'NEW_LEAD' | 'STALE';
+    actionType: 'REPLY_NOW' | 'FOLLOW_UP' | 'WIN_BACK' | 'NEW_LEAD' | 'STALE' | 'AI_NEXT';
     urgency: 'critical' | 'high' | 'medium' | 'low';
     reason: string;
     daysSinceContact: number;
@@ -30,7 +30,74 @@ export type ActionItem = {
     lastEmailDirection: string | null;
     estimatedValue: number | null;
     leadScore: number | null;
+    // ── Phase-3 ambient coach: populated when a confident coach_next_action
+    // insight covers this contact. The card pre-seeds the textarea from
+    // aiDraftMessage and shows the situation summary + anchor price chip.
+    aiSituation?: string | null;
+    aiDraftMessage?: string | null;
+    aiAnchorPriceUsd?: number | null;
+    aiActionType?: string | null;
+    aiTiming?: string | null;
+    aiConfidence?: number | null;
 };
+
+type CoachSnapshot = {
+    situation: string;
+    intent: string;
+    blockers: string[];
+    nextActionType: string;
+    timing: string;
+    message: string | null;
+    anchorPrice: number | null;
+    notes: string | null;
+    confidence: number;
+};
+
+const COACH_ACTIONABLE = new Set(['SEND_REPLY', 'SEND_FOLLOWUP', 'SEND_QUOTE', 'SEND_DELIVERABLE']);
+const COACH_SUPPRESSIVE = new Set(['STOP_OUTREACH', 'NO_ACTION_NEEDED']);
+
+// Map AI free-text timing into a "days from today" number. Anything we can't
+// parse becomes a sentinel (999) that filters out of the AI-only pass.
+function coachTimingToDays(t: string): number {
+    const s = (t || '').toLowerCase().trim();
+    if (!s) return 999;
+    if (s === 'today' || s === 'now' || s === 'asap' || s === 'immediately' || s === 'tonight') return 0;
+    if (s === 'tomorrow' || s === 'next day') return 1;
+    const m = s.match(/in\s+(\d+)\s*(day|week|month)s?/);
+    if (m) {
+        const n = parseInt(m[1] ?? '0', 10);
+        if (s.includes('week')) return n * 7;
+        if (s.includes('month')) return n * 30;
+        return n;
+    }
+    if (/\bthis (morning|afternoon|evening)\b/.test(s)) return 0;
+    return 999;
+}
+
+function urgencyFromCoachTiming(t: string): ActionItem['urgency'] {
+    const d = coachTimingToDays(t);
+    if (d <= 0) return 'critical';
+    if (d <= 2) return 'high';
+    if (d <= 7) return 'medium';
+    return 'low';
+}
+
+function applyCoachToItem(item: ActionItem, coach: CoachSnapshot): ActionItem {
+    return {
+        ...item,
+        // The situation sentence beats the heuristic reason for context — but
+        // keep the heuristic-derived urgency: it's based on observable
+        // engagement (they replied today) and shouldn't be downgraded by an
+        // AI that hasn't been re-extracted since the new message arrived.
+        reason: coach.situation || item.reason,
+        aiSituation: coach.situation || null,
+        aiDraftMessage: coach.message,
+        aiAnchorPriceUsd: coach.anchorPrice,
+        aiActionType: coach.nextActionType,
+        aiTiming: coach.timing,
+        aiConfidence: coach.confidence,
+    };
+}
 
 const CONTACT_FIELDS = 'id, name, email, company, phone, location, pipeline_stage, days_since_last_contact, total_emails_sent, total_emails_received, lead_score, last_message_direction';
 
@@ -170,11 +237,55 @@ export async function getActionQueueAction(): Promise<{
     if (accountIds) winQuery = winQuery.eq('account_manager_id', userId);
     const { data: winBack } = await winQuery;
 
+    // ── Phase-3 ambient coach: load coach_next_action insights ──────────────
+    // The mechanical heuristics above catch engagement events ("they replied
+    // today", "you sent 5 emails no reply") but can't see WHAT the email
+    // said. The cron-extracted coach insight fills that gap: situation
+    // summary, ready-to-send draft, anchor price, and a verdict on whether
+    // the contact even warrants outreach right now. We pull all confident
+    // insights once, then:
+    //   1. enrich heuristic items with situation/draft/anchor when one exists
+    //   2. suppress heuristic items where the AI says STOP_OUTREACH or
+    //      NO_ACTION_NEEDED (rep can override via /clients if they disagree)
+    //   3. add an AI-only pass for contacts the AI flagged as actionable today
+    //      that the day-counter heuristics missed (e.g. quote follow-ups)
+    const { data: coachInsights } = await supabase
+        .from('contact_insights')
+        .select('contact_id, value, confidence')
+        .eq('fact_type', 'coach_next_action')
+        .gte('confidence', 0.7)
+        .limit(2000);
+
+    const coachByContactId = new Map<string, CoachSnapshot>();
+    for (const row of coachInsights || []) {
+        const v = (row as any).value;
+        const na = v?.next_action;
+        if (!na?.type) continue;
+        coachByContactId.set((row as any).contact_id, {
+            situation: typeof v?.situation === 'string' ? v.situation : '',
+            intent: typeof v?.intent === 'string' ? v.intent : 'UNCLEAR',
+            blockers: Array.isArray(v?.blockers) ? v.blockers : [],
+            nextActionType: na.type,
+            timing: typeof na.timing === 'string' ? na.timing : '',
+            message: typeof na.message_to_send === 'string' && na.message_to_send.trim().length > 0
+                ? na.message_to_send
+                : null,
+            anchorPrice: typeof na.anchor_price_usd === 'number' ? na.anchor_price_usd : null,
+            notes: typeof na.notes === 'string' ? na.notes : null,
+            confidence: typeof (row as any).confidence === 'number' ? (row as any).confidence : 0,
+        });
+    }
+
     const actions: ActionItem[] = [];
+    const queuedContactIds = new Set<string>();
 
     for (const c of needReply || []) {
+        const coach = coachByContactId.get(c.id);
+        // REPLY_NOW is the strongest engagement signal we have \u2014 the contact
+        // physically just replied. Don't suppress these on AI verdict; the
+        // insight may have been extracted before the new inbound landed.
         const days = c.days_since_last_contact || 0;
-        actions.push({
+        const base: ActionItem = {
             id: `reply-${c.id}`,
             contactId: c.id,
             name: c.name,
@@ -193,11 +304,19 @@ export async function getActionQueueAction(): Promise<{
             lastEmailDirection: c.last_message_direction,
             estimatedValue: null,
             leadScore: c.lead_score,
-        });
+        };
+        actions.push(coach ? applyCoachToItem(base, coach) : base);
+        queuedContactIds.add(c.id);
     }
 
     for (const c of newLeads || []) {
-        actions.push({
+        const coach = coachByContactId.get(c.id);
+        // For NEW_LEAD/FOLLOW_UP/WIN_BACK we DO honour the AI's veto \u2014 these
+        // are speculative outreach that the AI's read of the thread can
+        // legitimately downgrade to "don't bother". The rep can clear the
+        // override or apply a different stage to flip the verdict.
+        if (coach && COACH_SUPPRESSIVE.has(coach.nextActionType)) continue;
+        const base: ActionItem = {
             id: `new-${c.id}`,
             contactId: c.id,
             name: c.name,
@@ -216,11 +335,15 @@ export async function getActionQueueAction(): Promise<{
             lastEmailDirection: null,
             estimatedValue: null,
             leadScore: c.lead_score,
-        });
+        };
+        actions.push(coach ? applyCoachToItem(base, coach) : base);
+        queuedContactIds.add(c.id);
     }
 
     for (const c of needFollowUp || []) {
-        actions.push({
+        const coach = coachByContactId.get(c.id);
+        if (coach && COACH_SUPPRESSIVE.has(coach.nextActionType)) continue;
+        const base: ActionItem = {
             id: `followup-${c.id}`,
             contactId: c.id,
             name: c.name,
@@ -239,11 +362,15 @@ export async function getActionQueueAction(): Promise<{
             lastEmailDirection: 'SENT',
             estimatedValue: null,
             leadScore: c.lead_score,
-        });
+        };
+        actions.push(coach ? applyCoachToItem(base, coach) : base);
+        queuedContactIds.add(c.id);
     }
 
     for (const c of winBack || []) {
-        actions.push({
+        const coach = coachByContactId.get(c.id);
+        if (coach && COACH_SUPPRESSIVE.has(coach.nextActionType)) continue;
+        const base: ActionItem = {
             id: `winback-${c.id}`,
             contactId: c.id,
             name: c.name,
@@ -262,7 +389,62 @@ export async function getActionQueueAction(): Promise<{
             lastEmailDirection: c.last_message_direction,
             estimatedValue: null,
             leadScore: c.lead_score,
-        });
+        };
+        actions.push(coach ? applyCoachToItem(base, coach) : base);
+        queuedContactIds.add(c.id);
+    }
+
+    // \u2500\u2500 AI-only pass \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // Contacts the AI says need a SEND_* action today/past-due that the
+    // mechanical heuristics didn't catch. Common cause: a quote was sent
+    // 5 days ago, no reply, but the timing-window for FOLLOW_UP was 3-14
+    // days so it did surface \u2014 but for items at day 1-2 (AI says "today
+    // because they're cooling off"), the heuristics are silent. This pass
+    // gives the AI a direct say.
+    const aiOnlyCandidates: { contactId: string; coach: CoachSnapshot }[] = [];
+    for (const [contactId, coach] of coachByContactId.entries()) {
+        if (queuedContactIds.has(contactId)) continue;
+        if (!COACH_ACTIONABLE.has(coach.nextActionType)) continue;
+        if (coachTimingToDays(coach.timing) > 0) continue; // only today / past-due
+        aiOnlyCandidates.push({ contactId, coach });
+    }
+
+    if (aiOnlyCandidates.length > 0) {
+        const aiContactIds = aiOnlyCandidates.map(x => x.contactId).slice(0, 50);
+        let aiQuery = supabase
+            .from('contacts')
+            .select(CONTACT_FIELDS)
+            .in('id', aiContactIds);
+        for (const pat of JUNK_PATTERNS) { aiQuery = aiQuery.not('email', 'ilike', pat); }
+        if (accountIds) aiQuery = aiQuery.eq('account_manager_id', userId);
+        const { data: aiContacts } = await aiQuery;
+        const byId = new Map<string, any>((aiContacts || []).map((c: any) => [c.id, c]));
+        for (const { contactId, coach } of aiOnlyCandidates) {
+            const c = byId.get(contactId);
+            if (!c) continue; // scope filter or junk filter killed it
+            const base: ActionItem = {
+                id: `ai-${contactId}`,
+                contactId,
+                name: c.name,
+                email: c.email,
+                company: c.company,
+                phone: c.phone,
+                location: c.location,
+                stage: c.pipeline_stage,
+                actionType: 'AI_NEXT',
+                urgency: urgencyFromCoachTiming(coach.timing),
+                reason: coach.situation || `AI suggests ${coach.nextActionType.toLowerCase().replace(/_/g, ' ')}`,
+                daysSinceContact: c.days_since_last_contact || 0,
+                totalEmailsSent: c.total_emails_sent || 0,
+                totalEmailsReceived: c.total_emails_received || 0,
+                lastEmailSubject: null,
+                lastEmailDirection: c.last_message_direction,
+                estimatedValue: null,
+                leadScore: c.lead_score,
+            };
+            actions.push(applyCoachToItem(base, coach));
+            queuedContactIds.add(contactId);
+        }
     }
 
     // Sort: critical first, then high, medium, low
