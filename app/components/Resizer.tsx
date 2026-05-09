@@ -13,9 +13,14 @@ interface ResizerProps {
      *  'left' (the inbox-list ↔ thread divider). 'right' pins to the right
      *  edge — used by the sidebar so its right border is the drag handle. */
     edge?: 'left' | 'right';
+    /** Explicit positioning override. When the resizer needs to track a CSS
+     *  variable for its position (e.g. left: var(--list-w) so the handle
+     *  always sits at the right edge of the list column), pass the style
+     *  here. Wins over the default edge-based placement. */
+    style?: React.CSSProperties;
 }
 
-export default function Resizer({ varName, storageKey, min, max, defaultVal, invert, edge = 'left' }: ResizerProps) {
+export default function Resizer({ varName, storageKey, min, max, defaultVal, invert, edge = 'left', style }: ResizerProps) {
     const [dragging, setDragging] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
 
@@ -60,6 +65,7 @@ export default function Resizer({ varName, storageKey, min, max, defaultVal, inv
             className={`inbox-resizer inbox-resizer--${edge} ${dragging ? 'dragging' : ''}`}
             onPointerDown={onDown}
             onDoubleClick={handleDoubleClick}
+            style={style}
             title="Drag to resize · double-click to reset"
         />
     );

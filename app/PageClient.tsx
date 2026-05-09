@@ -712,8 +712,18 @@ export default function InboxPage() {
                 {/* Resizer for the inbox-list column. Renders unconditionally so
                     the user can widen / narrow the list even when no thread is
                     open (Google-Sheets-style column drag). When a thread IS
-                    open the same handle doubles as the list ↔ thread divider. */}
-                <Resizer varName="--list-w" storageKey="unibox:list-w" min={280} max={720} defaultVal={380} />
+                    open the same handle doubles as the list ↔ thread divider.
+                    Anchored to track --list-w so the handle always sits exactly
+                    at the right edge of the list column rather than absolute-
+                    positioning to the grid's top-left corner. */}
+                <Resizer
+                    varName="--list-w"
+                    storageKey="unibox:list-w"
+                    min={280}
+                    max={720}
+                    defaultVal={380}
+                    style={{ left: 'var(--list-w, 380px)', top: 0, bottom: 0 }}
+                />
 
                 {/* ═══ Column 2: Thread View ═══ */}
                 {hasEmail && (
@@ -857,7 +867,15 @@ export default function InboxPage() {
 
                 {/* Resizer: thread ↔ jarvis */}
                 {hasEmail && (
-                    <Resizer varName="--jar-w" storageKey="unibox:jar-w" min={280} max={520} defaultVal={340} invert />
+                    <Resizer
+                        varName="--jar-w"
+                        storageKey="unibox:jar-w"
+                        min={280}
+                        max={520}
+                        defaultVal={340}
+                        invert
+                        style={{ right: 'var(--jar-w, 340px)', top: 0, bottom: 0, left: 'auto' }}
+                    />
                 )}
 
                 {/* ═══ Column 3: Jarvis / Client Panel ═══ */}
