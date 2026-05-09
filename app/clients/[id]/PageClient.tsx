@@ -424,6 +424,7 @@ export default function ContactDetailPage() {
                                     <thead>
                                         <tr style={{ background: 'var(--bg-tertiary)' }}>
                                             <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Project</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Date</th>
                                             <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Status</th>
                                             <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Value</th>
                                             <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600 }}>Paid</th>
@@ -434,6 +435,11 @@ export default function ContactDetailPage() {
                                         {data.projects.map((p: any) => (
                                             <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                                                 <td style={{ padding: '8px 12px', fontWeight: 600 }}>{p.project_name?.trim() || 'Unnamed'}</td>
+                                                <td style={{ padding: '8px 12px', color: 'var(--text-tertiary)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                                                    {p.project_date
+                                                        ? new Date(p.project_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                                                        : '—'}
+                                                </td>
                                                 <td style={{ padding: '8px 12px' }}>
                                                     <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: p.status === 'Delivered' ? 'rgba(16,185,129,0.1)' : p.status === 'In Progress' ? 'rgba(59,130,246,0.1)' : 'rgba(107,114,128,0.1)', color: p.status === 'Delivered' ? 'var(--coach)' : p.status === 'In Progress' ? 'var(--info)' : 'var(--ink-muted)' }}>{p.status || 'Unknown'}</span>
                                                 </td>
