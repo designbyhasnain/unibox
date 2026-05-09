@@ -17,6 +17,7 @@ import { STAGE_LABELS, STAGE_COLORS } from '../../constants/stages';
 import { firstName } from '../../utils/nameDisplay';
 import AISuggestProjects from './AISuggestProjects';
 import LinkProjectModal from './LinkProjectModal';
+import CoachPanel from './CoachPanel';
 
 // Strict DOMPurify config for inline email-body rendering. Drops scripts,
 // event handlers, and any href/src that isn't http(s) or mailto. The previous
@@ -285,6 +286,15 @@ export default function ContactDetailPage() {
                             </div>
                         </div>
                     )}
+
+                    {/* AI sales coach — reads everything we know about this contact
+                        and tells the rep what to do. Click to expand; admin can apply
+                        the suggested pipeline_stage with one button. */}
+                    <CoachPanel
+                        contactId={data.contact.id}
+                        currentStage={data.contact.pipeline_stage || null}
+                        onStageApplied={() => load()}
+                    />
 
                     {/* Tabs */}
                     <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
