@@ -292,7 +292,7 @@ export default function JarvisVoiceOrb() {
     return (
         <>
             <style>{`
-.jvo-trigger{position:fixed;z-index:9999;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#a78bfa 0%,#8b5cf6 45%,#6d28d9 100%);border:none;cursor:grab;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 20px rgba(124,58,237,.35);transition:transform .2s,box-shadow .2s;touch-action:none;user-select:none}
+.jvo-trigger{position:fixed;z-index:9999;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#a78bfa 0%,#8b5cf6 45%,#6d28d9 100%);border:none;cursor:grab;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(124,58,237,.35);transition:transform .2s,box-shadow .2s;touch-action:none;user-select:none}
 .jvo-trigger:active{cursor:grabbing}
 .jvo-trigger:hover{transform:scale(1.1);box-shadow:0 6px 28px rgba(124,58,237,.55)}
 /* Subtle heartbeat — two-phase lub-dub with a long rest, ~1.6s cycle.
@@ -343,7 +343,6 @@ export default function JarvisVoiceOrb() {
                     aria-label="Open Jarvis voice assistant"
                 >
                     <div className="jvo-trigger-pulse" />
-                    {'\u{1F916}'}
                 </button>
             )}
 
