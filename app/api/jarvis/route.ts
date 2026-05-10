@@ -41,11 +41,16 @@ export async function POST(req: NextRequest) {
         ACCOUNT_MANAGER: 'sales hero',
     };
     // Per-account overrides — for users who run the company but don't
-    // sit in the ADMIN row (e.g. founder logged in as a SALES seat for
-    // operational reasons). These also lift the scope rule to ADMIN
+    // sit in the ADMIN row (e.g. founder logged in as a SALES / AM seat
+    // for operational reasons). These also lift the scope rule to ADMIN
     // behaviour so the CEO sees CEO data regardless of DB role.
+    //
+    // Add new CEO emails here (lower-case). The match is case-insensitive
+    // because session.email passes through the same toLowerCase below.
     const CEO_EMAILS = new Set<string>([
         'mustafakamran5@gmail.com',
+        'designsbyhasnain@gmail.com',   // Design By Hasnain — already ADMIN, belt-and-suspenders
+        'hasnainsiddike6@gmail.com',    // Hasnain Siddike — DB role is AM, but he's the CEO
     ]);
     const isCEO = CEO_EMAILS.has((session.email || '').toLowerCase());
     const isAdmin = session.role === 'ADMIN' || isCEO;
