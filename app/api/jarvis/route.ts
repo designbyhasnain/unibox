@@ -107,24 +107,41 @@ ${isAdmin
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 25_000); // 25s timeout
 
+        // 70B is the primary; 8B is the safety net. The 70B model can hit
+        // per-minute token limits (free tier especially) or transient
+        // upstream errors that simply work on the smaller model. Try 70B
+        // first; on any non-2xx, transparently retry with 8B before
+        // surfacing an error to the user.
+        const MODEL_PRIMARY = 'llama-3.3-70b-versatile';
+        const MODEL_FALLBACK = 'llama-3.1-8b-instant';
+
         let response: Response;
+        let primaryFailedStatus = 0;
+        let primaryFailedBody = '';
+        const callGroq = (model: string): Promise<Response> => fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${groqKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model,
+                messages: currentMessages,
+                tools: JARVIS_TOOLS,
+                tool_choice: 'auto',
+                temperature: 0.4,
+                max_tokens: 2048,
+            }),
+            signal: controller.signal,
+        });
         try {
-            response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${groqKey}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    model: 'llama-3.3-70b-versatile',
-                    messages: currentMessages,
-                    tools: JARVIS_TOOLS,
-                    tool_choice: 'auto',
-                    temperature: 0.4,
-                    max_tokens: 2048,
-                }),
-                signal: controller.signal,
-            });
+            response = await callGroq(MODEL_PRIMARY);
+            if (!response.ok) {
+                primaryFailedStatus = response.status;
+                primaryFailedBody = await response.clone().text().catch(() => '');
+                console.warn(`[Jarvis] ${MODEL_PRIMARY} returned ${primaryFailedStatus}; falling back to ${MODEL_FALLBACK}. Body: ${primaryFailedBody.slice(0, 200)}`);
+                response = await callGroq(MODEL_FALLBACK);
+            }
         } catch (fetchErr: unknown) {
             clearTimeout(timeout);
             const isAbort = fetchErr instanceof Error && fetchErr.name === 'AbortError';
@@ -150,7 +167,13 @@ ${isAdmin
 
         if (!response.ok) {
             const errText = await response.text().catch(() => 'Unknown error');
-            console.error('[Jarvis] Groq error:', response.status, errText.slice(0, 300));
+            // Surface BOTH the primary failure (if it triggered the fallback)
+            // AND the fallback failure. With logs unreliable in some Vercel
+            // configs, this is the only place these statuses show up.
+            console.error('[Jarvis] Groq error final:', response.status, errText.slice(0, 300));
+            if (primaryFailedStatus) {
+                console.error(`[Jarvis] Primary ${MODEL_PRIMARY} ${primaryFailedStatus}: ${primaryFailedBody.slice(0, 300)}`);
+            }
 
             // If we have tool results, try a simpler summarization call without tools
             if (toolsUsed.length > 0) {
@@ -192,7 +215,20 @@ ${isAdmin
                 });
             }
 
-            return NextResponse.json({ error: 'AI service error. Try a simpler question.' }, { status: 502 });
+            // Try to extract Groq's user-facing message so the client (and
+            // the spoken reply) can show *what* went wrong, not just a
+            // generic "AI service error". Common cases: rate limit hit,
+            // invalid model name, request too large, etc.
+            let groqMsg = '';
+            try {
+                const parsed = JSON.parse(errText);
+                groqMsg = parsed?.error?.message || parsed?.error?.code || '';
+            } catch { /* errText wasn't JSON */ }
+            const detail = groqMsg ? `: ${groqMsg.slice(0, 180)}` : ` (status ${response.status})`;
+            return NextResponse.json(
+                { error: `AI service error${detail}`, primaryStatus: primaryFailedStatus || undefined },
+                { status: 502 }
+            );
         }
 
         const data = await response.json();
