@@ -22,6 +22,9 @@ export default function JarvisVoiceOrb() {
     const [open, setOpen] = useState(false);
     const [phase, setPhase] = useState<Phase>('idle');
     const [transcript, setTranscript] = useState('');
+    // Surface failures (no SR API, denied mic, no-speech, etc.) so a tap that
+    // does nothing doesn't *look* like nothing. Cleared on the next attempt.
+    const [voiceError, setVoiceError] = useState<string | null>(null);
     const recognitionRef = useRef<any>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const messagesRef = useRef<{ role: string; content: string }[]>([]);
@@ -131,10 +134,26 @@ export default function JarvisVoiceOrb() {
     }, [phase, open]);
 
     const startListening = useCallback(() => {
+        setVoiceError(null);
         const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-        if (!SR) return;
+        if (!SR) {
+            setVoiceError('Voice input needs Chrome, Edge, or Safari — this browser does not support the SpeechRecognition API.');
+            return;
+        }
+        // Speech recognition requires a secure context — refuses on http://
+        // outside localhost. Without this check it silently fails (no events).
+        if (typeof window !== 'undefined' && !window.isSecureContext) {
+            setVoiceError('Voice input needs HTTPS. Open this page over https:// or localhost.');
+            return;
+        }
 
-        const recognition = new SR();
+        let recognition: any;
+        try {
+            recognition = new SR();
+        } catch (err: any) {
+            setVoiceError(`Could not start voice input: ${err?.message || err}`);
+            return;
+        }
         recognition.continuous = false;
         recognition.interimResults = true;
         recognition.lang = 'en-US';
@@ -154,11 +173,31 @@ export default function JarvisVoiceOrb() {
                 if (finalText?.trim()) sendToJarvis(finalText.trim());
             }, 100);
         };
-        recognition.onerror = () => setPhase('idle');
+        recognition.onerror = (e: any) => {
+            setPhase('idle');
+            // Map SR error codes to actionable messages. The most common one
+            // by far is 'not-allowed' (mic permission); the silent fix is to
+            // grant mic access in the site settings.
+            const code = (e?.error || '').toString();
+            const message =
+                code === 'not-allowed' ? 'Microphone access blocked. Allow mic permission in your browser settings and try again.' :
+                code === 'service-not-allowed' ? 'Voice input is disabled for this site. Check browser site settings.' :
+                code === 'audio-capture' ? 'No microphone found. Plug one in or check OS audio settings.' :
+                code === 'no-speech' ? 'No speech detected — try again and speak after the orb glows red.' :
+                code === 'network' ? 'Network error reaching the voice service. Check your connection.' :
+                code === 'aborted' ? null : // user cancelled; not an error worth showing
+                `Voice input failed (${code || 'unknown error'}).`;
+            if (message) setVoiceError(message);
+        };
 
         recognitionRef.current = recognition;
         setTranscript('');
-        recognition.start();
+        try {
+            recognition.start();
+        } catch (err: any) {
+            setPhase('idle');
+            setVoiceError(`Could not start microphone: ${err?.message || err}`);
+        }
     }, [transcript]);
 
     const stopListening = useCallback(() => {
@@ -267,6 +306,7 @@ export default function JarvisVoiceOrb() {
         setPhase('idle');
         setOpen(false);
         setTranscript('');
+        setVoiceError(null);
     };
 
     // Preload voices
@@ -295,9 +335,14 @@ export default function JarvisVoiceOrb() {
 .jvo-trigger{position:fixed;z-index:9999;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#a78bfa 0%,#8b5cf6 45%,#6d28d9 100%);border:none;cursor:grab;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 14px rgba(124,58,237,.32);transition:transform .2s,box-shadow .2s;touch-action:none;user-select:none}
 .jvo-trigger:active{cursor:grabbing}
 .jvo-trigger:hover{transform:scale(1.1);box-shadow:0 6px 28px rgba(124,58,237,.55)}
+/* Invisible expanded hit area — 32 px is small for touch, so we stretch
+   the clickable surface to ~48 px without enlarging the visible orb.
+   Child of the button so events bubble up; pointer-events:auto so the
+   pseudo-element captures taps on the surrounding margin. */
+.jvo-trigger::before{content:"";position:absolute;inset:-8px;border-radius:50%;pointer-events:auto}
 /* Subtle heartbeat — two-phase lub-dub with a long rest, ~1.6s cycle.
    Tiny scale delta (max 1.04) so it feels alive without drawing the eye. */
-.jvo-trigger-pulse{position:absolute;inset:-2px;border-radius:50%;border:1px solid rgba(167,139,250,.45);animation:jvoHeartbeat 1.6s ease-in-out infinite;will-change:transform,opacity}
+.jvo-trigger-pulse{position:absolute;inset:-2px;border-radius:50%;border:1px solid rgba(167,139,250,.45);animation:jvoHeartbeat 1.6s ease-in-out infinite;will-change:transform,opacity;pointer-events:none}
 @keyframes jvoHeartbeat{
     0%   {opacity:.30;transform:scale(1)}
     14%  {opacity:.65;transform:scale(1.04)}
@@ -322,6 +367,7 @@ export default function JarvisVoiceOrb() {
 .jvo-label-sub{font-size:12px;color:#52525b;margin-top:4px}
 
 .jvo-transcript{position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:14px;color:#a1a1aa;max-width:400px;text-align:center;line-height:1.5;opacity:.8}
+.jvo-error{margin-top:18px;max-width:420px;padding:10px 14px;border-radius:10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.35);color:#fca5a5;font-size:12.5px;line-height:1.5;text-align:center}
 
 .jvo-brand{position:absolute;bottom:32px;font-size:11px;color:#27272a;letter-spacing:.05em}
             `}</style>
@@ -362,6 +408,12 @@ export default function JarvisVoiceOrb() {
                         <div className="jvo-label-main">{cfg.label}</div>
                         {cfg.sublabel && <div className="jvo-label-sub">{cfg.sublabel}</div>}
                     </div>
+
+                    {voiceError && (
+                        <div className="jvo-error" role="alert">
+                            {voiceError}
+                        </div>
+                    )}
 
                     {transcript && (
                         <div className="jvo-transcript" id="jvo-transcript">{transcript}</div>
