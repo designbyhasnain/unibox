@@ -118,12 +118,20 @@ export default function JarvisVoiceOrb() {
         let active = true;
         const animate = () => {
             if (!active) return;
+            // Almost-imperceptible breathing — feels alive without dancing.
+            // Rule of thumb: amplitudes ≤ 0.025, periods ≥ 1 s, no random
+            // jitter (jitter reads as anxious, not refined). Apple-grade
+            // motion is restraint, not energy.
+            const t = Date.now();
             if (phase === 'listening') {
-                setPulseScale(1 + Math.sin(Date.now() / 200) * 0.15 + Math.random() * 0.1);
+                // Subtle inhale ~1.4 s cycle, ±2.0%
+                setPulseScale(1 + Math.sin(t / 700) * 0.02);
             } else if (phase === 'speaking') {
-                setPulseScale(1 + Math.sin(Date.now() / 150) * 0.2 + Math.random() * 0.15);
+                // Slightly more (it IS doing something), ~1.1 s cycle, ±2.5%
+                setPulseScale(1 + Math.sin(t / 550) * 0.025);
             } else if (phase === 'thinking') {
-                setPulseScale(1 + Math.sin(Date.now() / 400) * 0.08);
+                // Slowest of all, ~1.8 s cycle, ±1.2%
+                setPulseScale(1 + Math.sin(t / 900) * 0.012);
             } else {
                 setPulseScale(1);
             }
@@ -397,20 +405,37 @@ export default function JarvisVoiceOrb() {
 .jvo-close{position:absolute;top:24px;right:24px;background:none;border:1px solid rgba(255,255,255,.1);color:#71717a;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;transition:all .15s}
 .jvo-close:hover{border-color:rgba(255,255,255,.3);color:#fff}
 
-.jvo-orb-container{position:relative;width:200px;height:200px;display:flex;align-items:center;justify-content:center;cursor:pointer}
-.jvo-orb{width:120px;height:120px;border-radius:50%;transition:background .3s}
-.jvo-orb-glow{position:absolute;width:180px;height:180px;border-radius:50%;filter:blur(40px);transition:background .3s,opacity .3s}
-.jvo-orb-ring{position:absolute;width:150px;height:150px;border-radius:50%;border:2px solid;opacity:.3;transition:border-color .3s}
-.jvo-orb-ring2{position:absolute;width:180px;height:180px;border-radius:50%;border:1px solid;opacity:.15;transition:border-color .3s}
+.jvo-orb-container{position:relative;width:220px;height:220px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .6s cubic-bezier(.16,1,.3,1)}
+/* Layered orb: base sphere + specular highlight + inner depth shadow.
+   Apple's voice-orb language reads as a polished pearl, not a flat
+   disk. --orb-color is set inline from the phase config so colour
+   transitions are smooth across phases. */
+.jvo-orb{
+    width:104px;height:104px;border-radius:50%;
+    background:
+        radial-gradient(circle at 32% 26%, rgba(255,255,255,.42) 0%, rgba(255,255,255,0) 38%),
+        radial-gradient(circle at 50% 55%, var(--orb-color, #8b5cf6) 0%, color-mix(in oklab, var(--orb-color, #8b5cf6), black 35%) 100%);
+    box-shadow:
+        inset 0 1px 1px rgba(255,255,255,.28),
+        inset 0 -14px 22px color-mix(in oklab, var(--orb-color, #8b5cf6), black 55%),
+        0 0 0 1px rgba(255,255,255,.06);
+    transition:background .5s cubic-bezier(.16,1,.3,1), box-shadow .5s ease;
+}
+/* Diffuse halo — softer + less opaque than before. The orb itself is
+   the visual; the halo is just ambient. */
+.jvo-orb-glow{position:absolute;width:200px;height:200px;border-radius:50%;filter:blur(48px);opacity:.45;transition:background .5s ease,opacity .5s ease;pointer-events:none}
+/* One hairline ring (was two — second one read as clutter). */
+.jvo-orb-ring{position:absolute;width:152px;height:152px;border-radius:50%;border:1px solid;opacity:.14;transition:border-color .5s ease,opacity .5s ease;pointer-events:none}
 
-.jvo-label{margin-top:40px;text-align:center}
-.jvo-label-main{font-size:16px;font-weight:500;color:#e4e4e7;letter-spacing:-.01em}
-.jvo-label-sub{font-size:12px;color:#52525b;margin-top:4px}
+.jvo-label{margin-top:48px;text-align:center;animation:jvoLabelFade .45s cubic-bezier(.16,1,.3,1) both}
+.jvo-label-main{font-size:17px;font-weight:500;color:#f4f4f5;letter-spacing:-.015em}
+.jvo-label-sub{font-size:12.5px;color:#71717a;margin-top:5px;letter-spacing:-.005em}
+@keyframes jvoLabelFade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 
-.jvo-transcript{position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:14px;color:#a1a1aa;max-width:400px;text-align:center;line-height:1.5;opacity:.8}
-.jvo-error{margin-top:18px;max-width:420px;padding:10px 14px;border-radius:10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.35);color:#fca5a5;font-size:12.5px;line-height:1.5;text-align:center}
+.jvo-transcript{position:absolute;bottom:140px;left:50%;transform:translateX(-50%);font-size:14.5px;color:#d4d4d8;max-width:520px;text-align:center;line-height:1.55;opacity:.92;letter-spacing:-.005em;padding:0 24px}
+.jvo-error{margin-top:18px;max-width:420px;padding:10px 14px;border-radius:10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.32);color:#fca5a5;font-size:12.5px;line-height:1.5;text-align:center;letter-spacing:-.005em}
 
-.jvo-brand{position:absolute;bottom:32px;font-size:11px;color:#27272a;letter-spacing:.05em}
+.jvo-brand{position:absolute;bottom:36px;font-size:10px;color:rgba(255,255,255,.18);letter-spacing:.18em;text-transform:uppercase;font-weight:500}
             `}</style>
 
             {/* Floating trigger — draggable, position-persisted. Renders only
@@ -439,10 +464,12 @@ export default function JarvisVoiceOrb() {
                     <button className="jvo-close" onClick={handleClose}>{'\u2715'}</button>
 
                     <div className="jvo-orb-container" onClick={handleOrbClick} style={{ transform: `scale(${pulseScale})` }}>
-                        <div className="jvo-orb-glow" style={{ background: cfg.glow, opacity: phase === 'idle' ? 0.3 : 0.6 }} />
-                        <div className="jvo-orb-ring2" style={{ borderColor: cfg.color }} />
+                        <div className="jvo-orb-glow" style={{ background: cfg.glow, opacity: phase === 'idle' ? 0.32 : 0.55 }} />
                         <div className="jvo-orb-ring" style={{ borderColor: cfg.color }} />
-                        <div className="jvo-orb" style={{ background: `radial-gradient(circle at 40% 40%, ${cfg.color}, ${cfg.color}88)` }} />
+                        {/* Phase colour drives the orb gradient via a CSS
+                            custom property — keeps the layered styling in
+                            CSS and lets the colour transition smoothly. */}
+                        <div className="jvo-orb" style={{ ['--orb-color' as any]: cfg.color }} />
                     </div>
 
                     <div className="jvo-label">
