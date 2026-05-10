@@ -366,13 +366,18 @@ export default function JarvisVoiceOrb() {
     }, []);
 
     const PHASE_CONFIG = {
-        // Idle = brand identity (matches the trigger orb). Other phases keep
-        // functional state colours so the rep can see at a glance what the
-        // orb is doing without reading the label.
+        // Idle = brand identity (matches the trigger orb). Listening shares
+        // the same violet — the user wants the orb to stay visually still
+        // while it works. The functional cue is the label + transcript,
+        // not a colour jump.
+        // "Thinking" is intentionally indistinguishable from listening
+        // (same colour + glow). The user wanted the post-stop wait to feel
+        // continuous with listening, not a separate amber stage. Only
+        // "speaking" picks up the green to mark the orb is now talking back.
         idle: { color: '#8b5cf6', glow: 'rgba(124,58,237,.35)', label: 'Tap to speak', sublabel: '' },
-        listening: { color: '#ef4444', glow: 'rgba(239,68,68,.4)', label: 'Listening...', sublabel: '' },
-        thinking: { color: '#f59e0b', glow: 'rgba(245,158,11,.3)', label: 'Thinking...', sublabel: '' },
-        speaking: { color: '#22c55e', glow: 'rgba(34,197,94,.4)', label: 'Speaking...', sublabel: 'Tap to stop' },
+        listening: { color: '#a78bfa', glow: 'rgba(167,139,250,.42)', label: 'Listening', sublabel: '' },
+        thinking: { color: '#a78bfa', glow: 'rgba(167,139,250,.42)', label: 'Working…', sublabel: '' },
+        speaking: { color: '#22c55e', glow: 'rgba(34,197,94,.38)', label: 'Speaking', sublabel: 'Tap to stop' },
     };
 
     const cfg = PHASE_CONFIG[phase];

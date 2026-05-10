@@ -41,11 +41,18 @@ export async function POST(req: NextRequest) {
             },
             body: JSON.stringify({
                 text: truncated,
-                model_id: 'eleven_multilingual_v2',
+                // Turbo v2.5 — ~2× faster TTFB than multilingual_v2, same
+                // English quality. Voice mode latency was the #1 complaint.
+                // optimize_streaming_latency cranks the engine to its
+                // lowest-latency setting (some quality cost, but for short
+                // 1-2 sentence replies — what we now ask for in the system
+                // prompt — it's imperceptible).
+                model_id: 'eleven_turbo_v2_5',
+                optimize_streaming_latency: 3,
                 voice_settings: {
-                    stability: 0.5,
+                    stability: 0.45,
                     similarity_boost: 0.75,
-                    style: 0.3,
+                    style: 0.25,
                     use_speaker_boost: true,
                 },
             }),

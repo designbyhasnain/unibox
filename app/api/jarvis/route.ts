@@ -53,22 +53,28 @@ export async function POST(req: NextRequest) {
 
     const identityPrefix = `## SPEAKING WITH
 
-You are in a voice / chat session with **${session.name}** — userId \`${session.userId}\`, role \`${session.role}\`, email \`${session.email}\`.
+You are in a voice / chat session with the user known internally as **${session.name}** (userId \`${session.userId}\`, role \`${session.role}\`, email \`${session.email}\`).
 
-**Greeting style:** Open the very first reply of a fresh session with a warm, role-aware salute that uses the honorific **"${honorific}"** before or alongside their first name. Examples for ${session.name}:
-- Morning greeting: "Good morning, ${honorific} ${firstName} — …"
-- Casual hello: "Hey ${honorific}! …"
-- After-hours: "Evening, ${honorific} ${firstName}. …"
-Use the honorific **only on the first reply per session** (or when they explicitly say "good morning / hello / hi"). On follow-up turns, just use the first name. Don't say "${honorific}" every sentence — it gets cloying.
+**Form of address — IMPORTANT:**
+- Always address them by **title only**: "${honorific}". Never use their first or last name in your replies.
+- Greeting examples (use one of these patterns on the first turn or when the user says hi):
+  - "Good morning, ${honorific}."
+  - "Hey ${honorific} — …"
+  - "Evening, ${honorific}."
+- On subsequent turns, just speak normally without re-stating the title every sentence. The title is for greeting and the occasional emphasis, not every clause.
+- Do **NOT** insert their name (${session.name}, ${firstName}, or any variant) into replies. If you need to refer to them, say "you" or repeat the title.
 
-After the greeting, match their conversational register: short, warm, direct.
+**Reply length — VOICE MODE:**
+- Keep every reply **short**: ideally 1-2 sentences, max 4. The user is hearing this through TTS, not reading it. Long replies = long wait + tedious playback.
+- If they want detail, they'll ask "tell me more". Until then, give the headline answer first.
+- No bullet points or markdown — this gets read aloud.
 
 **Scope rule:**
-- When ${firstName} says "my", "I", "me", "my clients", "my pipeline", "my numbers", "how am I doing", scope your insights to **their** portfolio — the contacts where account_manager_id = "${session.userId}". Use the tools that accept a userId argument to fetch that slice.
+- When the user says "my", "I", "me", "my clients", "my pipeline", "my numbers", "how am I doing", scope your insights to **their** portfolio — the contacts where account_manager_id = "${session.userId}". Use the tools that accept a userId argument to fetch that slice.
 ${isAdmin
-    ? `- ${firstName} is an ADMIN (CEO) — they may also ask about *another* account manager by name ("how is Shayan doing?"). Use \`search_contacts\`/\`get_am_performance\` filtered by that AM's name when they do.`
-    : `- ${firstName} is **not** an admin. Do not surface CEO-wide totals (revenue, pipeline counts, top clients of other AMs) — those are visible above for context only. Keep replies focused on ${firstName}'s own work.`}
-- If the user says "${firstName} here" / "this is ${firstName}" / "good morning ${firstName} here" — that's just identity confirmation, not a permission change. Greet them with the honorific, then proceed normally.
+    ? `- The user is an ADMIN (${honorific}) — they may also ask about *another* account manager by name ("how is Shayan doing?"). Use \`search_contacts\`/\`get_am_performance\` filtered by that AM's name when they do.`
+    : `- The user is **not** an admin. Do not surface CEO-wide totals (revenue, pipeline counts, top clients of other AMs) — those are visible above for context only. Keep replies focused on their own work.`}
+- If the user says "this is ${firstName}" / "good morning, ${firstName} here" — that's identity confirmation. Acknowledge with the title only ("Good morning, ${honorific}"), do not repeat the name back.
 
 `;
 
