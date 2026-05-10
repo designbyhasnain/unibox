@@ -287,7 +287,10 @@ async function main() {
         processed++;
         if (r.error) {
             errors++;
-            if (args.dryRun) console.log(`  [${contactId}] ERROR ${r.error}`);
+            // Always surface errors (was dry-run-only) so a 64% error rate
+            // doesn't go unexplained in real runs. Truncated to 120 chars
+            // since some Zod errors balloon to 2k+ chars.
+            console.log(`  [${contactId}] ERROR ${(r.error || '').slice(0, 120)}`);
             return;
         }
         if (args.dryRun) {
@@ -371,24 +374,37 @@ async function extractForContact(
 
     let json: unknown;
     try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${process.env.GROQ_API_KEY ?? ''}`,
-            },
-            body: JSON.stringify({
-                model: MODEL,
-                messages: [
-                    { role: 'system', content: SYSTEM_PROMPT },
-                    { role: 'user', content: promptBody },
-                ],
-                response_format: { type: 'json_object' },
-                temperature: 0.1,
-                max_tokens: 1200,
-            }),
-        });
-        if (!res.ok) return { facts: [], error: `groq ${res.status}` };
+        // Match the canonical extractor: retry on 429 with retry-after
+        // header when present, exponential backoff otherwise. Up to 4 tries.
+        let res: Response | null = null;
+        for (let attempt = 0; attempt < 4; attempt++) {
+            res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${process.env.GROQ_API_KEY ?? ''}`,
+                },
+                body: JSON.stringify({
+                    model: MODEL,
+                    messages: [
+                        { role: 'system', content: SYSTEM_PROMPT },
+                        { role: 'user', content: promptBody },
+                    ],
+                    response_format: { type: 'json_object' },
+                    temperature: 0.1,
+                    max_tokens: 1200,
+                }),
+            });
+            if (res.status !== 429) break;
+            if (attempt === 3) break;
+            const retryAfterHdr = res.headers.get('retry-after');
+            const retryAfterSec = retryAfterHdr ? parseFloat(retryAfterHdr) : NaN;
+            const waitMs = Number.isFinite(retryAfterSec)
+                ? Math.min(retryAfterSec * 1000, 8000)
+                : 1000 * Math.pow(2, attempt);
+            await new Promise(r => setTimeout(r, waitMs));
+        }
+        if (!res || !res.ok) return { facts: [], error: `groq ${res?.status ?? 'noresp'}` };
         const wire = await res.json();
         const raw = wire?.choices?.[0]?.message?.content;
         if (!raw) return { facts: [], error: 'empty response' };

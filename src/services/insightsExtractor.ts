@@ -253,25 +253,40 @@ export async function extractInsightsForContact(contactId: string): Promise<Extr
 
     let json: unknown;
     try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${process.env.GROQ_API_KEY ?? ''}`,
-            },
-            body: JSON.stringify({
-                model: MODEL,
-                messages: [
-                    { role: 'system', content: SYSTEM_PROMPT },
-                    { role: 'user', content: promptBody },
-                ],
-                response_format: { type: 'json_object' },
-                temperature: 0.1,
-                max_tokens: 1200,
-            }),
-        });
-        if (!res.ok) {
-            return { contactId, facts: [], error: `groq ${res.status}` };
+        // Groq returns 429 in bursts when the cron / backfill submits faster
+        // than the per-minute quota allows. The X-RateLimit-Reset header
+        // tells us when to try again, but it's only sometimes present —
+        // fall back to exponential backoff (1s, 2s, 4s) up to 3 retries.
+        let res: Response | null = null;
+        for (let attempt = 0; attempt < 4; attempt++) {
+            res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${process.env.GROQ_API_KEY ?? ''}`,
+                },
+                body: JSON.stringify({
+                    model: MODEL,
+                    messages: [
+                        { role: 'system', content: SYSTEM_PROMPT },
+                        { role: 'user', content: promptBody },
+                    ],
+                    response_format: { type: 'json_object' },
+                    temperature: 0.1,
+                    max_tokens: 1200,
+                }),
+            });
+            if (res.status !== 429) break;
+            if (attempt === 3) break; // last attempt — fall through to error path
+            const retryAfterHdr = res.headers.get('retry-after');
+            const retryAfterSec = retryAfterHdr ? parseFloat(retryAfterHdr) : NaN;
+            const waitMs = Number.isFinite(retryAfterSec)
+                ? Math.min(retryAfterSec * 1000, 8000)
+                : 1000 * Math.pow(2, attempt);
+            await new Promise(r => setTimeout(r, waitMs));
+        }
+        if (!res || !res.ok) {
+            return { contactId, facts: [], error: `groq ${res?.status ?? 'noresp'}` };
         }
         const wire = await res.json();
         const raw = wire?.choices?.[0]?.message?.content;
