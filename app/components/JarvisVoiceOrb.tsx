@@ -30,6 +30,9 @@ export default function JarvisVoiceOrb() {
     const messagesRef = useRef<{ role: string; content: string }[]>([]);
     const animFrameRef = useRef<number>(0);
     const [pulseScale, setPulseScale] = useState(1);
+    // Mirror of `open` for callbacks (audio.onended, etc.) that fire async
+    // and can't see the latest React state otherwise.
+    const openRef = useRef(false);
 
     // Drag state. Position is loaded from localStorage in a post-mount effect
     // so server-rendered HTML doesn't disagree with the client. Until mount we
@@ -112,6 +115,30 @@ export default function JarvisVoiceOrb() {
             setOpen(true);
         }
     };
+
+    // Keep openRef in sync with state so async callbacks see the latest value.
+    useEffect(() => { openRef.current = open; }, [open]);
+
+    // Auto-listen — open the overlay → we're already listening. Same loop
+    // fires after each reply finishes (audio.onended sets phase to 'idle',
+    // which re-triggers this effect), giving an open-mic conversation
+    // exactly like ChatGPT voice mode. Guards:
+    //   • Only when overlay is open AND phase is 'idle' AND no error showing.
+    //   • A 280 ms delay so the orb visibly settles before the mic re-opens
+    //     (also lets any TTS audio echo dissipate before the recognizer
+    //     starts capturing — reduces the orb hearing itself).
+    useEffect(() => {
+        if (!open) return;
+        if (phase !== 'idle') return;
+        if (voiceError) return;
+        const t = setTimeout(() => {
+            if (openRef.current && !voiceError) {
+                startListening();
+            }
+        }, 280);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, phase, voiceError]);
 
     // Animate pulse based on phase
     useEffect(() => {
@@ -335,16 +362,25 @@ export default function JarvisVoiceOrb() {
     };
 
     const handleOrbClick = () => {
-        if (phase === 'listening') {
-            stopListening();
-        } else if (phase === 'speaking') {
+        // ChatGPT-voice loop: the orb is always-on once the overlay is open,
+        // so tapping isn't required to start listening (the auto-listen
+        // effect handles that). Tap is only for INTERRUPTING or for retry
+        // after a voice error.
+        if (voiceError) {
+            // Clear the error and let the auto-listen effect re-fire.
+            setVoiceError(null);
+            return;
+        }
+        if (phase === 'speaking') {
+            // User wants to break in. Stop the audio and let the auto-listen
+            // effect reopen the mic — they can speak immediately.
             audioRef.current?.pause();
             if ('speechSynthesis' in window) window.speechSynthesis.cancel();
             setPhase('idle');
-        } else if (phase === 'idle') {
-            startListening();
         }
-        // If thinking, do nothing — wait for response
+        // listening / thinking / idle: tap is intentionally a no-op. The
+        // user closes the conversation via the X button at the top right;
+        // there's no concept of "muting" mid-flow.
     };
 
     const handleClose = () => {
@@ -374,7 +410,7 @@ export default function JarvisVoiceOrb() {
         // (same colour + glow). The user wanted the post-stop wait to feel
         // continuous with listening, not a separate amber stage. Only
         // "speaking" picks up the green to mark the orb is now talking back.
-        idle: { color: '#8b5cf6', glow: 'rgba(124,58,237,.35)', label: 'Tap to speak', sublabel: '' },
+        idle: { color: '#8b5cf6', glow: 'rgba(124,58,237,.35)', label: 'Just speak', sublabel: '' },
         listening: { color: '#a78bfa', glow: 'rgba(167,139,250,.42)', label: 'Listening', sublabel: '' },
         thinking: { color: '#a78bfa', glow: 'rgba(167,139,250,.42)', label: 'Working…', sublabel: '' },
         speaking: { color: '#22c55e', glow: 'rgba(34,197,94,.38)', label: 'Speaking', sublabel: 'Tap to stop' },
