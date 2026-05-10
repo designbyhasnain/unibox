@@ -26,17 +26,23 @@ type Args = {
     force: boolean;
     limit: number | null;
     sinceContactId: string | null;
+    /** Process heavily-emailed contacts (≥30 emails or is_client) first. */
+    priority: boolean;
+    /** Process exactly one contact (used to verify the Josh-Loseke fix). */
+    contactId: string | null;
 };
 
 function parseArgs(): Args {
     const argv = process.argv.slice(2);
-    const args: Args = { dryRun: false, force: false, limit: null, sinceContactId: null };
+    const args: Args = { dryRun: false, force: false, limit: null, sinceContactId: null, priority: false, contactId: null };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--dry-run') args.dryRun = true;
         else if (a === '--force') args.force = true;
         else if (a === '--limit') args.limit = parseInt(argv[++i] ?? '0', 10) || null;
         else if (a === '--since-contact-id') args.sinceContactId = argv[++i] ?? null;
+        else if (a === '--priority') args.priority = true;
+        else if (a === '--contact-id') args.contactId = argv[++i] ?? null;
     }
     return args;
 }
@@ -86,7 +92,9 @@ type FactType = keyof typeof FACT_REGISTRY;
 const FactPayloadSchema = z.object({
     value: z.unknown(),
     confidence: z.number().min(0).max(1),
-    source_message_index: z.number().int().min(0).max(4).nullable().optional(),
+    // Allow indices up to MAX_MESSAGES_PER_THREAD - 1 (the LLM picks one of
+    // the messages we sent it as the source of the fact).
+    source_message_index: z.number().int().min(0).max(11).nullable().optional(),
 });
 const ExtractionResponseSchema = z.object({
     wedding_date: FactPayloadSchema.nullable().optional(),
@@ -102,10 +110,44 @@ const ExtractionResponseSchema = z.object({
 });
 
 const MODEL = 'llama-3.1-8b-instant';
-const MODEL_VERSION = 'groq-llama-3.1-8b@v1';
+// MUST match src/services/insightsExtractor.ts. Bump together when the
+// envelope changes — the cron uses MODEL_VERSION to decide whether a
+// contact's existing rows are stale.
+const MODEL_VERSION = 'groq-llama-3.1-8b@v2';
 const CONFIDENCE_FLOOR = 0.4;
-const MAX_BODY_CHARS = 1500;
-const MAX_MESSAGES_PER_THREAD = 5;
+const MAX_BODY_CHARS = 4000;
+const MAX_MESSAGES_PER_THREAD = 12;
+
+function stripBoilerplate(s: string): string {
+    if (!s) return '';
+    let out = s;
+    out = out.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
+    out = out.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ');
+    out = out.replace(/<\/?(?:br|p|div|tr|li|h[1-6])\b[^>]*>/gi, '\n');
+    out = out.replace(/<[^>]+>/g, ' ');
+    out = out
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&[a-z]+;/gi, ' ');
+    out = out.replace(/mailtrack-[a-z0-9-]+[^\s]*/gi, ' ');
+    out = out.replace(/\n+On\s+\w+,?\s+\w+\s+\d+,?\s+\d{4}[^\n]{0,80}wrote:[\s\S]*$/i, '');
+    out = out.replace(/\n+-+\s*Original Message\s*-+[\s\S]*$/i, '');
+    out = out.replace(/\n+From:\s+[^\n]+\n+Sent:\s+[^\n]+\n+To:\s+[\s\S]*$/i, '');
+    out = out.replace(/^\s*>\s*.*$/gm, '');
+    out = out.replace(/[ \t]+/g, ' ');
+    out = out.replace(/\n{3,}/g, '\n\n');
+    return out.trim();
+}
+
+function smartTruncate(s: string, max: number): string {
+    if (s.length <= max) return s;
+    const half = Math.floor(max / 2) - 6;
+    return s.slice(0, half) + '\n[...]\n' + s.slice(-half);
+}
 
 const SYSTEM_PROMPT = `You are the head of sales for a wedding-filmmaking CRM. Read the email thread and extract structured facts AND a coach output. Output STRICT JSON — no prose.
 
@@ -191,13 +233,34 @@ async function main() {
 
     const wantLimit = args.limit ?? 100000;
 
-    let q = s.from('contacts').select('id').order('id', { ascending: true });
-    if (args.sinceContactId) q = q.gt('id', args.sinceContactId);
-    q = q.limit(Math.min(wantLimit + seenIds.size, 50000));
-    const { data: rawContacts, error } = await q;
-    if (error) throw error;
+    // --contact-id <uuid>: process exactly one contact, ignore everything else.
+    let rawContacts: { id: string }[];
+    if (args.contactId) {
+        rawContacts = [{ id: args.contactId }];
+    } else if (args.priority) {
+        // --priority: order by total_emails_sent + total_emails_received DESC,
+        // surfacing heavy contacts (Josh Loseke had 84 — they should never be
+        // queued behind a 2-email cold-lead).
+        let q = s
+            .from('contacts')
+            .select('id, total_emails_sent, total_emails_received, is_client')
+            .or('total_emails_received.gte.10,is_client.eq.true')
+            .order('total_emails_received', { ascending: false })
+            .limit(Math.min(wantLimit + seenIds.size, 5000));
+        if (args.sinceContactId) q = q.gt('id', args.sinceContactId);
+        const { data, error } = await q;
+        if (error) throw error;
+        rawContacts = (data ?? []) as { id: string }[];
+    } else {
+        let q = s.from('contacts').select('id').order('id', { ascending: true });
+        if (args.sinceContactId) q = q.gt('id', args.sinceContactId);
+        q = q.limit(Math.min(wantLimit + seenIds.size, 50000));
+        const { data, error } = await q;
+        if (error) throw error;
+        rawContacts = (data ?? []) as { id: string }[];
+    }
 
-    const contacts = (rawContacts ?? [])
+    const contacts = rawContacts
         .filter(c => !seenIds.has(c.id as string))
         .slice(0, wantLimit);
 
@@ -259,22 +322,49 @@ async function extractForContact(
     s: ReturnType<typeof createClient>,
     contactId: string,
 ): Promise<{ facts: Fact[]; error?: string }> {
-    const { data: thread, error: threadErr } = await s
+    // Mirror of fetchThreadForContact + prompt-body assembly in
+    // src/services/insightsExtractor.ts. Keep in lockstep.
+    const { data: rawThread, error: threadErr } = await s
         .from('email_messages')
         .select('id, subject, body, snippet, direction, sent_at')
         .eq('contact_id', contactId)
         .order('sent_at', { ascending: false })
-        .limit(MAX_MESSAGES_PER_THREAD);
+        .limit(60);
     if (threadErr) return { facts: [], error: threadErr.message };
-    if (!thread || thread.length === 0) return { facts: [], error: 'no messages' };
-    const ordered = [...thread].reverse();
+    if (!rawThread || rawThread.length === 0) return { facts: [], error: 'no messages' };
+
+    type ThreadRow = { id: string; subject: string | null; body: string | null; snippet: string | null; direction: string; sent_at: string | null };
+    const desc = rawThread as unknown as ThreadRow[];
+    let ordered: ThreadRow[];
+    if (desc.length <= MAX_MESSAGES_PER_THREAD) {
+        ordered = [...desc].reverse();
+    } else {
+        const oldest = desc.slice(-3);
+        const recentInbound = desc.filter(m => m.direction === 'RECEIVED').slice(0, 3);
+        const recentAny = desc.slice(0, 6);
+        const seen = new Set<string>();
+        const chosen: ThreadRow[] = [];
+        for (const m of [...oldest, ...recentInbound, ...recentAny]) {
+            if (seen.has(m.id)) continue;
+            seen.add(m.id);
+            chosen.push(m);
+            if (chosen.length >= MAX_MESSAGES_PER_THREAD) break;
+        }
+        chosen.sort((a, b) => {
+            const aT = a.sent_at ? new Date(a.sent_at).getTime() : 0;
+            const bT = b.sent_at ? new Date(b.sent_at).getTime() : 0;
+            return aT - bT;
+        });
+        ordered = chosen;
+    }
 
     const promptBody = ordered
         .map((m, i) => {
             const role = m.direction === 'SENT' ? '(US → them)' : '(them → US)';
-            const date = m.sent_at ? new Date(m.sent_at as string).toISOString().slice(0, 10) : '';
+            const date = m.sent_at ? new Date(m.sent_at).toISOString().slice(0, 10) : '';
             const subject = m.subject ? `Subject: ${m.subject}\n` : '';
-            const body = ((m.body as string | null) || (m.snippet as string | null) || '').slice(0, MAX_BODY_CHARS);
+            const cleaned = stripBoilerplate((m.body as string | null) || (m.snippet as string | null) || '');
+            const body = smartTruncate(cleaned, MAX_BODY_CHARS);
             return `[message ${i}] ${role} ${date}\n${subject}${body}`;
         })
         .join('\n\n---\n\n');

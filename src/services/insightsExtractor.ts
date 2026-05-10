@@ -25,9 +25,14 @@ import { supabase } from '../lib/supabase';
  */
 
 const MODEL = 'llama-3.1-8b-instant';
-const MODEL_VERSION = 'groq-llama-3.1-8b@v1';
-const MAX_MESSAGES_PER_THREAD = 5;
-const MAX_BODY_CHARS = 1500;
+// Bump v1 → v2 when extractor envelope changes. The cron re-extracts any
+// contact whose existing rows all carry an older version. v2: bigger
+// context window (12 messages, 4k chars/msg), HTML/quote-chain stripping,
+// and fanned sampling so 88-message threads aren't reduced to 5 tail
+// follow-ups (the Josh Loseke failure mode).
+const MODEL_VERSION = 'groq-llama-3.1-8b@v2';
+const MAX_MESSAGES_PER_THREAD = 12;
+const MAX_BODY_CHARS = 4000;
 const CONFIDENCE_FLOOR = 0.4;
 
 // ─── Fact-type registry ─────────────────────────────────────────────────────
@@ -240,7 +245,8 @@ export async function extractInsightsForContact(contactId: string): Promise<Extr
             const role = m.direction === 'SENT' ? '(US → them)' : '(them → US)';
             const date = m.sent_at ? new Date(m.sent_at).toISOString().slice(0, 10) : '';
             const subject = m.subject ? `Subject: ${m.subject}\n` : '';
-            const body = (m.body || m.snippet || '').slice(0, MAX_BODY_CHARS);
+            const cleaned = stripBoilerplate(m.body || m.snippet || '');
+            const body = smartTruncate(cleaned, MAX_BODY_CHARS);
             return `[message ${i}] ${role} ${date}\n${subject}${body}`;
         })
         .join('\n\n---\n\n');
@@ -374,15 +380,103 @@ type ThreadMessage = {
     sent_at: string | null;
 };
 
+/**
+ * Sample up to MAX_MESSAGES_PER_THREAD messages for the LLM in a way that
+ * preserves narrative shape on long threads (Josh Loseke had 88 emails over
+ * 351 days; the old code fed the LLM the last 5 follow-ups, all `(US→them)`,
+ * and concluded "ghosted" while ignoring his 25 inbound replies entirely).
+ *
+ * Strategy:
+ *   - Short threads (≤ MAX): take everything, oldest-first.
+ *   - Long threads: fanned sample
+ *       • 3 oldest        — origin story
+ *       • 3 latest inbound — their voice / current intent
+ *       • 6 most recent    — what's happening now
+ *     Deduped, sorted oldest-first. Pulls up to 60 messages from the DB to
+ *     have enough material to fan from.
+ */
 async function fetchThreadForContact(contactId: string): Promise<ThreadMessage[]> {
-    // Latest 5 messages across all threads belonging to this contact, oldest
-    // first so the LLM reads them in narrative order.
     const { data } = await supabase
         .from('email_messages')
         .select('id, subject, body, snippet, direction, sent_at')
         .eq('contact_id', contactId)
         .order('sent_at', { ascending: false })
-        .limit(MAX_MESSAGES_PER_THREAD);
-    if (!data) return [];
-    return [...data].reverse() as ThreadMessage[];
+        .limit(60);
+    if (!data || data.length === 0) return [];
+
+    const desc = data as ThreadMessage[]; // newest-first
+    if (desc.length <= MAX_MESSAGES_PER_THREAD) {
+        return [...desc].reverse();
+    }
+
+    const oldest = desc.slice(-3); // .slice(-3) on a desc array = 3 oldest
+    const recentInbound = desc.filter(m => m.direction === 'RECEIVED').slice(0, 3);
+    const recentAny = desc.slice(0, 6);
+
+    const seen = new Set<string>();
+    const chosen: ThreadMessage[] = [];
+    for (const m of [...oldest, ...recentInbound, ...recentAny]) {
+        if (seen.has(m.id)) continue;
+        seen.add(m.id);
+        chosen.push(m);
+        if (chosen.length >= MAX_MESSAGES_PER_THREAD) break;
+    }
+
+    chosen.sort((a, b) => {
+        const aT = a.sent_at ? new Date(a.sent_at).getTime() : 0;
+        const bT = b.sent_at ? new Date(b.sent_at).getTime() : 0;
+        return aT - bT;
+    });
+    return chosen;
+}
+
+/**
+ * Strip HTML, signatures, tracking pixels, and quote chains so the
+ * MAX_BODY_CHARS budget gets spent on actual content. Many emails in
+ * production are 95%+ markup — a 17,751-char body for Josh shrinks to
+ * <1,000 chars after this runs.
+ */
+function stripBoilerplate(s: string): string {
+    if (!s) return '';
+    let out = s;
+    out = out.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
+    out = out.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ');
+    out = out.replace(/<\/?(?:br|p|div|tr|li|h[1-6])\b[^>]*>/gi, '\n');
+    out = out.replace(/<[^>]+>/g, ' ');
+    out = out
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&[a-z]+;/gi, ' ');
+    // Mailtrack / open-pixel residue
+    out = out.replace(/mailtrack-[a-z0-9-]+[^\s]*/gi, ' ');
+    // Gmail-style quote chain. Cuts everything from the "On <date> ... wrote:"
+    // marker to the end. Conservative — only matches when the marker is
+    // followed by enough quoted material to be a real chain, not a phrase
+    // like "she wrote: yes" inside prose.
+    out = out.replace(/\n+On\s+\w+,?\s+\w+\s+\d+,?\s+\d{4}[^\n]{0,80}wrote:[\s\S]*$/i, '');
+    // Outlook-style "-----Original Message-----"
+    out = out.replace(/\n+-+\s*Original Message\s*-+[\s\S]*$/i, '');
+    // Outlook-style "From: / Sent: / To:" header block
+    out = out.replace(/\n+From:\s+[^\n]+\n+Sent:\s+[^\n]+\n+To:\s+[\s\S]*$/i, '');
+    // Line-prefixed quotes (> ...)
+    out = out.replace(/^\s*>\s*.*$/gm, '');
+    out = out.replace(/[ \t]+/g, ' ');
+    out = out.replace(/\n{3,}/g, '\n\n');
+    return out.trim();
+}
+
+/**
+ * Head+tail truncate: keeps the first half and last half of a long string,
+ * dropping the middle. Long sales threads usually have the buyer's question
+ * at the top and the price/decision at the bottom; pure .slice(0, max)
+ * loses the bottom entirely.
+ */
+function smartTruncate(s: string, max: number): string {
+    if (s.length <= max) return s;
+    const half = Math.floor(max / 2) - 6; // leave room for the marker
+    return s.slice(0, half) + '\n[...]\n' + s.slice(-half);
 }
