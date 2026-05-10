@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     coachClientAction,
     applyCoachStageAction,
 } from '../../../src/actions/clientCoachActions';
+import type { ClientCoachOutput } from '../../../src/services/clientCoachService';
 import { useUndoToast } from '../../context/UndoToastContext';
 
-type Coach = NonNullable<Awaited<ReturnType<typeof coachClientAction>> extends { success: true; coach: infer C } ? C : never>;
+type Coach = ClientCoachOutput;
 
 const stageLabels: Record<string, string> = {
     COLD_LEAD: 'Cold',
@@ -59,31 +60,40 @@ type Props = {
 
 export default function CoachPanel({ contactId, currentStage, onStageApplied }: Props) {
     const { showError, showSuccess } = useUndoToast();
-    const [open, setOpen] = useState(false);
-    const [loading, setLoading] = useState(false);
+    // Auto-load on mount. The action reads cached coach_next_action +
+    // inferred_stage rows from contact_insights when both are <24h old —
+    // ~10ms DB read for the 99% case, only falls back to a Groq call on
+    // miss. No reason to gate behind a click anymore.
+    const [loading, setLoading] = useState(true);
     const [coach, setCoach] = useState<Coach | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [applying, setApplying] = useState(false);
     const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
 
-    async function run() {
-        setOpen(true);
-        if (coach) return;
+    useEffect(() => {
+        let cancelled = false;
         setLoading(true);
-        const res = await coachClientAction(contactId);
-        setLoading(false);
-        if (!res.success) {
-            showError(res.error);
-            return;
-        }
-        setCoach(res.coach);
-    }
+        setLoadError(null);
+        coachClientAction(contactId).then(res => {
+            if (cancelled) return;
+            setLoading(false);
+            if (!res.success) {
+                setLoadError(res.error || 'Coach unavailable');
+                return;
+            }
+            setCoach(res.coach);
+        });
+        return () => { cancelled = true; };
+    }, [contactId]);
 
     async function refresh() {
         setLoading(true);
         setCoach(null);
+        setLoadError(null);
         const res = await coachClientAction(contactId);
         setLoading(false);
         if (!res.success) {
+            setLoadError(res.error || 'Coach unavailable');
             showError(res.error);
             return;
         }
@@ -115,26 +125,22 @@ export default function CoachPanel({ contactId, currentStage, onStageApplied }: 
         });
     }
 
-    if (!open) {
-        return (
-            <button onClick={run} style={triggerBtn} title="Ask the AI sales head to read this thread and tell us what to do">
-                ✨ Coach this client
-            </button>
-        );
-    }
-
     return (
         <div style={panel}>
             <div style={panelHeader}>
-                <span style={{ fontWeight: 600, fontSize: 12 }}>AI sales coach</span>
+                <span style={{ fontWeight: 600, fontSize: 12 }}>✨ AI sales coach</span>
                 <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--ink-muted)' }}>
                     Reads the thread, contacts table, projects, insights — tells you what to do.
                 </span>
                 <div style={{ flex: 1 }} />
-                <button onClick={refresh} style={ghostBtn} disabled={loading}>↻ Re-run</button>
-                <button onClick={() => setOpen(false)} style={ghostBtn}>Hide</button>
+                <button onClick={refresh} style={ghostBtn} disabled={loading} title="Re-run with the latest thread">↻ Re-run</button>
             </div>
             {loading && <div style={muted}>Reading the thread…</div>}
+            {!loading && loadError && !coach && (
+                <div style={{ ...muted, color: 'var(--danger)' }}>
+                    {loadError} · <button onClick={refresh} style={{ ...ghostBtn, color: 'var(--accent)' }}>Retry</button>
+                </div>
+            )}
             {!loading && coach && (
                 <div style={{ padding: 14, display: 'grid', gap: 14 }}>
                     {/* SITUATION */}
@@ -248,17 +254,6 @@ function Chip({ label, colors }: { label: string; colors: { bg: string; fg: stri
     );
 }
 
-const triggerBtn: React.CSSProperties = {
-    background: 'linear-gradient(135deg, var(--accent), oklch(0.68 0.14 160))',
-    color: '#fff',
-    border: 'none',
-    padding: '7px 14px',
-    borderRadius: 8,
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-};
 const panel: React.CSSProperties = {
     background: 'var(--surface)',
     border: '1px solid var(--hairline-soft)',
