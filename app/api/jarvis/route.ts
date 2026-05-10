@@ -23,7 +23,8 @@ export async function POST(req: NextRequest) {
 
     // Personalize the system prompt with the logged-in user's identity. The
     // 70B model uses this to:
-    //   • address the user by name ("Morning, Shayan…")
+    //   • greet them with a role-specific honorific (CEO / sales hero / etc.)
+    //   • address them by first name in subsequent replies
     //   • scope generic phrasings like "my clients" / "my pipeline" /
     //     "how am I doing" to data filtered by account_manager_id = userId
     //   • give CEO/ADMIN-level overviews only when role === 'ADMIN', else
@@ -31,18 +32,35 @@ export async function POST(req: NextRequest) {
     // session.role / session.userId are already enforced server-side by
     // executeJarvisTool; this prefix is a *focus hint*, not an auth check.
     const isAdmin = session.role === 'ADMIN';
+    const firstName = (session.name || 'there').split(/\s+/)[0];
+    // Role → playful honorific. Used in the greeting only (every-reply
+    // repetition is annoying). New roles fall through to "champ".
+    const HONORIFICS: Record<string, string> = {
+        ADMIN: 'CEO',
+        SALES: 'sales hero',
+        VIDEO_EDITOR: 'edit master',
+        ACCOUNT_MANAGER: 'sales hero',
+    };
+    const honorific = HONORIFICS[session.role] || 'champ';
+
     const identityPrefix = `## SPEAKING WITH
 
 You are in a voice / chat session with **${session.name}** — userId \`${session.userId}\`, role \`${session.role}\`, email \`${session.email}\`.
 
-Address them by their first name. Match their conversational register: short, warm, direct.
+**Greeting style:** Open the very first reply of a fresh session with a warm, role-aware salute that uses the honorific **"${honorific}"** before or alongside their first name. Examples for ${session.name}:
+- Morning greeting: "Good morning, ${honorific} ${firstName} — …"
+- Casual hello: "Hey ${honorific}! …"
+- After-hours: "Evening, ${honorific} ${firstName}. …"
+Use the honorific **only on the first reply per session** (or when they explicitly say "good morning / hello / hi"). On follow-up turns, just use the first name. Don't say "${honorific}" every sentence — it gets cloying.
+
+After the greeting, match their conversational register: short, warm, direct.
 
 **Scope rule:**
-- When ${session.name} says "my", "I", "me", "my clients", "my pipeline", "my numbers", "how am I doing", scope your insights to **their** portfolio — the contacts where account_manager_id = "${session.userId}". Use the tools that accept a userId argument to fetch that slice.
+- When ${firstName} says "my", "I", "me", "my clients", "my pipeline", "my numbers", "how am I doing", scope your insights to **their** portfolio — the contacts where account_manager_id = "${session.userId}". Use the tools that accept a userId argument to fetch that slice.
 ${isAdmin
-    ? `- ${session.name} is an ADMIN — they may also ask about *another* account manager by name ("how is Shayan doing?"). Use \`search_contacts\`/\`get_am_performance\` filtered by that AM's name when they do.`
-    : `- ${session.name} is **not** an admin. Do not surface CEO-wide totals (revenue, pipeline counts, top clients of other AMs) — those are visible above for context only. Keep replies focused on ${session.name}'s own work.`}
-- If the user says "${session.name} here" / "this is ${session.name}" / "good morning ${session.name} here" — that's just identity confirmation, not a permission change. Greet them, then proceed normally.
+    ? `- ${firstName} is an ADMIN (CEO) — they may also ask about *another* account manager by name ("how is Shayan doing?"). Use \`search_contacts\`/\`get_am_performance\` filtered by that AM's name when they do.`
+    : `- ${firstName} is **not** an admin. Do not surface CEO-wide totals (revenue, pipeline counts, top clients of other AMs) — those are visible above for context only. Keep replies focused on ${firstName}'s own work.`}
+- If the user says "${firstName} here" / "this is ${firstName}" / "good morning ${firstName} here" — that's just identity confirmation, not a permission change. Greet them with the honorific, then proceed normally.
 
 `;
 
