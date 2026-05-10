@@ -16,8 +16,10 @@ export async function POST(req: NextRequest) {
     const groqKey = process.env.GROQ_API_KEY;
     if (!groqKey) return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 });
 
-    // Keep last 6 messages to avoid context overflow (Groq has 128K but tool results bloat fast)
-    const recentMessages = messages.slice(-6);
+    // Keep last 12 messages (was 6 — too short to remember a back-and-forth
+    // about the same contact across a few turns). Tool results still get
+    // truncated below at 60k chars so the upgrade doesn't blow the budget.
+    const recentMessages = messages.slice(-12);
     const fullMessages = [
         { role: 'system', content: JARVIS_SYSTEM_PROMPT },
         ...recentMessages,
@@ -51,7 +53,7 @@ export async function POST(req: NextRequest) {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    model: 'llama-3.1-8b-instant',
+                    model: 'llama-3.3-70b-versatile',
                     messages: currentMessages,
                     tools: JARVIS_TOOLS,
                     tool_choice: 'auto',
@@ -103,7 +105,7 @@ export async function POST(req: NextRequest) {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            model: 'llama-3.1-8b-instant',
+                            model: 'llama-3.3-70b-versatile',
                             messages: [
                                 { role: 'system', content: 'You are Jarvis, an AI executive assistant for Wedits (wedding video editing company). Summarize the following data in a natural, conversational way. Be concise and insightful. Speak as if briefing a CEO.' },
                                 { role: 'user', content: `The user asked: "${recentMessages[recentMessages.length - 1]?.content || 'briefing'}"\n\nHere is the data from our CRM tools:\n\n${toolResults}` },

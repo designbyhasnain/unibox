@@ -179,16 +179,35 @@ export default function JarvisVoiceOrb() {
             setVoiceError(`Could not start voice input: ${err?.message || err}`);
             return;
         }
-        recognition.continuous = false;
+        // continuous=true so the recognizer doesn't end on the first natural
+        // pause. We do our own end-of-utterance detection: track time since
+        // the last incoming result and call .stop() after a sustained quiet
+        // window. Brief mid-sentence pauses ("uh, the email from… *breath*…
+        // Josh") no longer trigger a premature send.
+        recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = 'en-US';
 
-        recognition.onstart = () => setPhase('listening');
+        const SILENCE_MS = 2500;          // hold time after the last result event
+        let silenceTimer: any = null;
+        const restartSilenceTimer = () => {
+            if (silenceTimer) clearTimeout(silenceTimer);
+            silenceTimer = setTimeout(() => {
+                try { recognition.stop(); } catch {}
+            }, SILENCE_MS);
+        };
+
+        recognition.onstart = () => {
+            setPhase('listening');
+            restartSilenceTimer();
+        };
         recognition.onresult = (e: any) => {
             const text = Array.from(e.results).map((r: any) => r[0].transcript).join('');
             setTranscript(text);
+            restartSilenceTimer();
         };
         recognition.onend = () => {
+            if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
             setPhase('idle');
             const text = transcript;
             setTimeout(() => {
