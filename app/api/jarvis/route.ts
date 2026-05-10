@@ -20,8 +20,34 @@ export async function POST(req: NextRequest) {
     // about the same contact across a few turns). Tool results still get
     // truncated below at 60k chars so the upgrade doesn't blow the budget.
     const recentMessages = messages.slice(-12);
+
+    // Personalize the system prompt with the logged-in user's identity. The
+    // 70B model uses this to:
+    //   • address the user by name ("Morning, Shayan…")
+    //   • scope generic phrasings like "my clients" / "my pipeline" /
+    //     "how am I doing" to data filtered by account_manager_id = userId
+    //   • give CEO/ADMIN-level overviews only when role === 'ADMIN', else
+    //     keep the focus on the user's own portfolio
+    // session.role / session.userId are already enforced server-side by
+    // executeJarvisTool; this prefix is a *focus hint*, not an auth check.
+    const isAdmin = session.role === 'ADMIN';
+    const identityPrefix = `## SPEAKING WITH
+
+You are in a voice / chat session with **${session.name}** — userId \`${session.userId}\`, role \`${session.role}\`, email \`${session.email}\`.
+
+Address them by their first name. Match their conversational register: short, warm, direct.
+
+**Scope rule:**
+- When ${session.name} says "my", "I", "me", "my clients", "my pipeline", "my numbers", "how am I doing", scope your insights to **their** portfolio — the contacts where account_manager_id = "${session.userId}". Use the tools that accept a userId argument to fetch that slice.
+${isAdmin
+    ? `- ${session.name} is an ADMIN — they may also ask about *another* account manager by name ("how is Shayan doing?"). Use \`search_contacts\`/\`get_am_performance\` filtered by that AM's name when they do.`
+    : `- ${session.name} is **not** an admin. Do not surface CEO-wide totals (revenue, pipeline counts, top clients of other AMs) — those are visible above for context only. Keep replies focused on ${session.name}'s own work.`}
+- If the user says "${session.name} here" / "this is ${session.name}" / "good morning ${session.name} here" — that's just identity confirmation, not a permission change. Greet them, then proceed normally.
+
+`;
+
     const fullMessages = [
-        { role: 'system', content: JARVIS_SYSTEM_PROMPT },
+        { role: 'system', content: identityPrefix + JARVIS_SYSTEM_PROMPT },
         ...recentMessages,
     ];
 
@@ -107,7 +133,7 @@ export async function POST(req: NextRequest) {
                         body: JSON.stringify({
                             model: 'llama-3.3-70b-versatile',
                             messages: [
-                                { role: 'system', content: 'You are Jarvis, an AI executive assistant for Wedits (wedding video editing company). Summarize the following data in a natural, conversational way. Be concise and insightful. Speak as if briefing a CEO.' },
+                                { role: 'system', content: `You are Jarvis, an AI executive assistant for Wedits (wedding video editing company). You are speaking with ${session.name} (role: ${session.role}). Address them by first name. Summarize the data below in a natural, conversational way — concise and insightful. ${isAdmin ? 'Brief them like a CEO.' : `Keep the focus on ${session.name}'s own portfolio; don't surface other AMs' figures.`}` },
                                 { role: 'user', content: `The user asked: "${recentMessages[recentMessages.length - 1]?.content || 'briefing'}"\n\nHere is the data from our CRM tools:\n\n${toolResults}` },
                             ],
                             temperature: 0.4,
