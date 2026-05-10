@@ -31,7 +31,6 @@ export async function POST(req: NextRequest) {
     //     keep the focus on the user's own portfolio
     // session.role / session.userId are already enforced server-side by
     // executeJarvisTool; this prefix is a *focus hint*, not an auth check.
-    const isAdmin = session.role === 'ADMIN';
     const firstName = (session.name || 'there').split(/\s+/)[0];
     // Role → playful honorific. Used in the greeting only (every-reply
     // repetition is annoying). New roles fall through to "champ".
@@ -41,7 +40,16 @@ export async function POST(req: NextRequest) {
         VIDEO_EDITOR: 'edit master',
         ACCOUNT_MANAGER: 'sales hero',
     };
-    const honorific = HONORIFICS[session.role] || 'champ';
+    // Per-account overrides — for users who run the company but don't
+    // sit in the ADMIN row (e.g. founder logged in as a SALES seat for
+    // operational reasons). These also lift the scope rule to ADMIN
+    // behaviour so the CEO sees CEO data regardless of DB role.
+    const CEO_EMAILS = new Set<string>([
+        'mustafakamran5@gmail.com',
+    ]);
+    const isCEO = CEO_EMAILS.has((session.email || '').toLowerCase());
+    const isAdmin = session.role === 'ADMIN' || isCEO;
+    const honorific = isCEO ? 'CEO' : (HONORIFICS[session.role] || 'champ');
 
     const identityPrefix = `## SPEAKING WITH
 

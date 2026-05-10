@@ -392,7 +392,8 @@ export default function JarvisVoiceOrb() {
     100% {opacity:.30;transform:scale(1)}
 }
 
-.jvo-overlay{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.jvo-overlay{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.42);backdrop-filter:blur(8px) saturate(140%);-webkit-backdrop-filter:blur(8px) saturate(140%);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;animation:jvoOverlayFade .18s ease forwards}
+@keyframes jvoOverlayFade{from{background:transparent;backdrop-filter:blur(0px);-webkit-backdrop-filter:blur(0px)}to{background:rgba(0,0,0,.42);backdrop-filter:blur(8px) saturate(140%);-webkit-backdrop-filter:blur(8px) saturate(140%)}}
 .jvo-close{position:absolute;top:24px;right:24px;background:none;border:1px solid rgba(255,255,255,.1);color:#71717a;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;transition:all .15s}
 .jvo-close:hover{border-color:rgba(255,255,255,.3);color:#fff}
 
