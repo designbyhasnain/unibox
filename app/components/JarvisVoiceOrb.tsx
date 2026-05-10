@@ -133,18 +133,43 @@ export default function JarvisVoiceOrb() {
         return () => { active = false; cancelAnimationFrame(animFrameRef.current); };
     }, [phase, open]);
 
-    const startListening = useCallback(() => {
+    const startListening = useCallback(async () => {
         setVoiceError(null);
         const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
         if (!SR) {
             setVoiceError('Voice input needs Chrome, Edge, or Safari — this browser does not support the SpeechRecognition API.');
             return;
         }
-        // Speech recognition requires a secure context — refuses on http://
-        // outside localhost. Without this check it silently fails (no events).
         if (typeof window !== 'undefined' && !window.isSecureContext) {
             setVoiceError('Voice input needs HTTPS. Open this page over https:// or localhost.');
             return;
+        }
+
+        // Explicitly request mic access BEFORE starting SpeechRecognition.
+        // SR.start() doesn't reliably trigger the macOS / browser permission
+        // prompt — getUserMedia does. Once permission is granted (or already
+        // remembered from a previous grant), we drop the stream immediately
+        // since SR opens its own internal mic handle.
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+            try {
+                setPhase('thinking'); // visual feedback while the OS prompt is up
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(t => t.stop());
+                setPhase('idle');
+            } catch (err: any) {
+                setPhase('idle');
+                const name = err?.name || '';
+                const message =
+                    name === 'NotAllowedError' || name === 'SecurityError'
+                        ? 'Microphone permission denied. On macOS, also check System Settings → Privacy & Security → Microphone and allow your browser.'
+                    : name === 'NotFoundError' || name === 'OverconstrainedError'
+                        ? 'No microphone found. Plug one in or check System Settings → Sound → Input.'
+                    : name === 'NotReadableError'
+                        ? 'Microphone is in use by another app. Close other apps that might have the mic open.'
+                    : `Could not access microphone: ${err?.message || name || err}`;
+                setVoiceError(message);
+                return;
+            }
         }
 
         let recognition: any;
@@ -166,7 +191,6 @@ export default function JarvisVoiceOrb() {
         recognition.onend = () => {
             setPhase('idle');
             const text = transcript;
-            // Use setTimeout to get latest transcript from closure
             setTimeout(() => {
                 const el = document.getElementById('jvo-transcript');
                 const finalText = el?.textContent || text;
@@ -175,9 +199,6 @@ export default function JarvisVoiceOrb() {
         };
         recognition.onerror = (e: any) => {
             setPhase('idle');
-            // Map SR error codes to actionable messages. The most common one
-            // by far is 'not-allowed' (mic permission); the silent fix is to
-            // grant mic access in the site settings.
             const code = (e?.error || '').toString();
             const message =
                 code === 'not-allowed' ? 'Microphone access blocked. Allow mic permission in your browser settings and try again.' :
@@ -185,7 +206,7 @@ export default function JarvisVoiceOrb() {
                 code === 'audio-capture' ? 'No microphone found. Plug one in or check OS audio settings.' :
                 code === 'no-speech' ? 'No speech detected — try again and speak after the orb glows red.' :
                 code === 'network' ? 'Network error reaching the voice service. Check your connection.' :
-                code === 'aborted' ? null : // user cancelled; not an error worth showing
+                code === 'aborted' ? null :
                 `Voice input failed (${code || 'unknown error'}).`;
             if (message) setVoiceError(message);
         };
