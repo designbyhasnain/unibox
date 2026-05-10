@@ -13,8 +13,14 @@ export async function POST(req: NextRequest) {
 
     const { messages } = await req.json();
 
-    const groqKey = process.env.GROQ_API_KEY;
-    if (!groqKey) return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 });
+    // Two-key setup: rotate through both keys per attempt so a single key's
+    // per-minute rate limit doesn't stall the whole conversation. Order
+    // inside each model is primary → fallback. Both keys are independent
+    // Groq accounts; their limits are tracked separately.
+    const groqKeyPrimary = process.env.GROQ_API_KEY;
+    const groqKeyFallback = process.env.GROQ_API_KEY_FALLBACK;
+    if (!groqKeyPrimary) return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 });
+    const groqKeys: string[] = groqKeyFallback ? [groqKeyPrimary, groqKeyFallback] : [groqKeyPrimary];
 
     // Keep last 12 messages (was 6 — too short to remember a back-and-forth
     // about the same contact across a few turns). Tool results still get
@@ -107,21 +113,35 @@ ${isAdmin
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 25_000); // 25s timeout
 
-        // 70B is the primary; 8B is the safety net. The 70B model can hit
-        // per-minute token limits (free tier especially) or transient
-        // upstream errors that simply work on the smaller model. Try 70B
-        // first; on any non-2xx, transparently retry with 8B before
-        // surfacing an error to the user.
+        // Fallback waterfall:
+        //   1. 70B + primary key
+        //   2. 70B + fallback key   (only if a fallback key is configured)
+        //   3. 8B  + primary key
+        //   4. 8B  + fallback key   (only if a fallback key is configured)
+        // We surface the first attempt's failure body so we can see what
+        // tripped the cascade in the final error message.
         const MODEL_PRIMARY = 'llama-3.3-70b-versatile';
         const MODEL_FALLBACK = 'llama-3.1-8b-instant';
+        const attempts: { model: string; key: string; label: string }[] = [];
+        for (const model of [MODEL_PRIMARY, MODEL_FALLBACK]) {
+            for (let i = 0; i < groqKeys.length; i++) {
+                const k = groqKeys[i];
+                if (!k) continue;
+                attempts.push({
+                    model,
+                    key: k,
+                    label: `${model === MODEL_PRIMARY ? '70B' : '8B'}/k${i + 1}`,
+                });
+            }
+        }
 
-        let response: Response;
+        let response: Response | null = null;
         let primaryFailedStatus = 0;
         let primaryFailedBody = '';
-        const callGroq = (model: string): Promise<Response> => fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const callGroq = (model: string, key: string): Promise<Response> => fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${groqKey}`,
+                'Authorization': `Bearer ${key}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -135,12 +155,17 @@ ${isAdmin
             signal: controller.signal,
         });
         try {
-            response = await callGroq(MODEL_PRIMARY);
-            if (!response.ok) {
-                primaryFailedStatus = response.status;
-                primaryFailedBody = await response.clone().text().catch(() => '');
-                console.warn(`[Jarvis] ${MODEL_PRIMARY} returned ${primaryFailedStatus}; falling back to ${MODEL_FALLBACK}. Body: ${primaryFailedBody.slice(0, 200)}`);
-                response = await callGroq(MODEL_FALLBACK);
+            for (let i = 0; i < attempts.length; i++) {
+                const { model, key, label } = attempts[i]!;
+                const r = await callGroq(model, key);
+                if (r.ok) { response = r; break; }
+                const body = await r.clone().text().catch(() => '');
+                if (i === 0) {
+                    primaryFailedStatus = r.status;
+                    primaryFailedBody = body;
+                }
+                console.warn(`[Jarvis] ${label} returned ${r.status}. Body: ${body.slice(0, 200)}`);
+                response = r; // keep last for error handling below
             }
         } catch (fetchErr: unknown) {
             clearTimeout(timeout);
@@ -165,12 +190,12 @@ ${isAdmin
             clearTimeout(timeout);
         }
 
-        if (!response.ok) {
-            const errText = await response.text().catch(() => 'Unknown error');
+        if (!response || !response.ok) {
+            const errText = response ? await response.text().catch(() => 'Unknown error') : '(no response)';
             // Surface BOTH the primary failure (if it triggered the fallback)
             // AND the fallback failure. With logs unreliable in some Vercel
             // configs, this is the only place these statuses show up.
-            console.error('[Jarvis] Groq error final:', response.status, errText.slice(0, 300));
+            console.error('[Jarvis] Groq error final:', response?.status ?? 'no-response', errText.slice(0, 300));
             if (primaryFailedStatus) {
                 console.error(`[Jarvis] Primary ${MODEL_PRIMARY} ${primaryFailedStatus}: ${primaryFailedBody.slice(0, 300)}`);
             }
@@ -183,30 +208,35 @@ ${isAdmin
                     .join('\n')
                     .slice(0, 3000);
 
-                try {
-                    const retryRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${groqKey}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            model: 'llama-3.3-70b-versatile',
-                            messages: [
-                                { role: 'system', content: `You are Jarvis, an AI executive assistant for Wedits (wedding video editing company). You are speaking with ${session.name} (role: ${session.role}). Address them by first name. Summarize the data below in a natural, conversational way — concise and insightful. ${isAdmin ? 'Brief them like a CEO.' : `Keep the focus on ${session.name}'s own portfolio; don't surface other AMs' figures.`}` },
-                                { role: 'user', content: `The user asked: "${recentMessages[recentMessages.length - 1]?.content || 'briefing'}"\n\nHere is the data from our CRM tools:\n\n${toolResults}` },
-                            ],
-                            temperature: 0.4,
-                            max_tokens: 1500,
-                        }),
-                    });
-
-                    if (retryRes.ok) {
-                        const retryData = await retryRes.json();
-                        const reply = retryData.choices?.[0]?.message?.content;
-                        if (reply) return NextResponse.json({ reply, toolsUsed });
-                    }
-                } catch { /* fall through */ }
+                // Fallback summarizer call — also uses the rotated keys so a
+                // primary-key rate limit doesn't kill the entire response
+                // chain.
+                const summarizerBody = {
+                    model: 'llama-3.3-70b-versatile',
+                    messages: [
+                        { role: 'system', content: `You are Jarvis, an AI executive assistant for Wedits (wedding video editing company). You are speaking with ${session.name} (role: ${session.role}). Address them by first name. Summarize the data below in a natural, conversational way — concise and insightful. ${isAdmin ? 'Brief them like a CEO.' : `Keep the focus on ${session.name}'s own portfolio; don't surface other AMs' figures.`}` },
+                        { role: 'user', content: `The user asked: "${recentMessages[recentMessages.length - 1]?.content || 'briefing'}"\n\nHere is the data from our CRM tools:\n\n${toolResults}` },
+                    ],
+                    temperature: 0.4,
+                    max_tokens: 1500,
+                };
+                for (const k of groqKeys) {
+                    try {
+                        const retryRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${k}`,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(summarizerBody),
+                        });
+                        if (retryRes.ok) {
+                            const retryData = await retryRes.json();
+                            const reply = retryData.choices?.[0]?.message?.content;
+                            if (reply) return NextResponse.json({ reply, toolsUsed });
+                        }
+                    } catch { /* try next key */ }
+                }
 
                 // Last resort — return formatted tool results
                 return NextResponse.json({
@@ -224,7 +254,7 @@ ${isAdmin
                 const parsed = JSON.parse(errText);
                 groqMsg = parsed?.error?.message || parsed?.error?.code || '';
             } catch { /* errText wasn't JSON */ }
-            const detail = groqMsg ? `: ${groqMsg.slice(0, 180)}` : ` (status ${response.status})`;
+            const detail = groqMsg ? `: ${groqMsg.slice(0, 180)}` : ` (status ${response?.status ?? 'no-response'})`;
             return NextResponse.json(
                 { error: `AI service error${detail}`, primaryStatus: primaryFailedStatus || undefined },
                 { status: 502 }
