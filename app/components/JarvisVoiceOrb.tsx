@@ -402,18 +402,15 @@ export default function JarvisVoiceOrb() {
     }, []);
 
     const PHASE_CONFIG = {
-        // Idle = brand identity (matches the trigger orb). Listening shares
-        // the same violet — the user wants the orb to stay visually still
-        // while it works. The functional cue is the label + transcript,
-        // not a colour jump.
-        // "Thinking" is intentionally indistinguishable from listening
-        // (same colour + glow). The user wanted the post-stop wait to feel
-        // continuous with listening, not a separate amber stage. Only
-        // "speaking" picks up the green to mark the orb is now talking back.
-        idle: { color: '#8b5cf6', glow: 'rgba(124,58,237,.35)', label: 'Just speak', sublabel: '' },
-        listening: { color: '#a78bfa', glow: 'rgba(167,139,250,.42)', label: 'Listening', sublabel: '' },
-        thinking: { color: '#a78bfa', glow: 'rgba(167,139,250,.42)', label: 'Working…', sublabel: '' },
-        speaking: { color: '#22c55e', glow: 'rgba(34,197,94,.38)', label: 'Speaking', sublabel: 'Tap to stop' },
+        // No labels in any phase — the user wanted the surface to be the orb
+        // itself, not commentary about what the orb is doing. The phase is
+        // visually conveyed by colour (violet listening/thinking, green
+        // speaking) and motion (subtle pulse). The transcript still appears
+        // when the user is talking, so they see their own words echoed back.
+        idle: { color: '#8b5cf6', glow: 'rgba(124,58,237,.35)', label: '', sublabel: '' },
+        listening: { color: '#a78bfa', glow: 'rgba(167,139,250,.42)', label: '', sublabel: '' },
+        thinking: { color: '#a78bfa', glow: 'rgba(167,139,250,.42)', label: '', sublabel: '' },
+        speaking: { color: '#22c55e', glow: 'rgba(34,197,94,.38)', label: '', sublabel: '' },
     };
 
     const cfg = PHASE_CONFIG[phase];
@@ -513,10 +510,17 @@ export default function JarvisVoiceOrb() {
                         <div className="jvo-orb" style={{ ['--orb-color' as any]: cfg.color }} />
                     </div>
 
-                    <div className="jvo-label">
-                        <div className="jvo-label-main">{cfg.label}</div>
-                        {cfg.sublabel && <div className="jvo-label-sub">{cfg.sublabel}</div>}
-                    </div>
+                    {/* Labels intentionally suppressed. The orb's colour /
+                        motion is the only state cue; the transcript echoes
+                        the user's own words back to them. No "Listening" /
+                        "Working" / "Speaking" captions — the surface stays
+                        quiet so the orb itself is the focus. */}
+                    {(cfg.label || cfg.sublabel) && (
+                        <div className="jvo-label">
+                            {cfg.label && <div className="jvo-label-main">{cfg.label}</div>}
+                            {cfg.sublabel && <div className="jvo-label-sub">{cfg.sublabel}</div>}
+                        </div>
+                    )}
 
                     {voiceError && (
                         <div className="jvo-error" role="alert">
@@ -527,8 +531,6 @@ export default function JarvisVoiceOrb() {
                     {transcript && (
                         <div className="jvo-transcript" id="jvo-transcript">{transcript}</div>
                     )}
-
-                    <div className="jvo-brand">JARVIS AI</div>
                 </div>
             )}
         </>
