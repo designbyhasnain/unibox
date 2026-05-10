@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 
 type Phase = 'idle' | 'listening' | 'thinking' | 'speaking';
 
-const ORB_SIZE = 44;
+const ORB_SIZE = 32;
 const ORB_PADDING = 12; // viewport edge gutter
 const POS_KEY = 'unibox_jvo_position';
 
@@ -292,12 +292,12 @@ export default function JarvisVoiceOrb() {
     return (
         <>
             <style>{`
-.jvo-trigger{position:fixed;z-index:9999;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#a78bfa 0%,#8b5cf6 45%,#6d28d9 100%);border:none;cursor:grab;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(124,58,237,.35);transition:transform .2s,box-shadow .2s;touch-action:none;user-select:none}
+.jvo-trigger{position:fixed;z-index:9999;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#a78bfa 0%,#8b5cf6 45%,#6d28d9 100%);border:none;cursor:grab;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 14px rgba(124,58,237,.32);transition:transform .2s,box-shadow .2s;touch-action:none;user-select:none}
 .jvo-trigger:active{cursor:grabbing}
 .jvo-trigger:hover{transform:scale(1.1);box-shadow:0 6px 28px rgba(124,58,237,.55)}
 /* Subtle heartbeat — two-phase lub-dub with a long rest, ~1.6s cycle.
    Tiny scale delta (max 1.04) so it feels alive without drawing the eye. */
-.jvo-trigger-pulse{position:absolute;inset:-3px;border-radius:50%;border:1.5px solid rgba(167,139,250,.45);animation:jvoHeartbeat 1.6s ease-in-out infinite;will-change:transform,opacity}
+.jvo-trigger-pulse{position:absolute;inset:-2px;border-radius:50%;border:1px solid rgba(167,139,250,.45);animation:jvoHeartbeat 1.6s ease-in-out infinite;will-change:transform,opacity}
 @keyframes jvoHeartbeat{
     0%   {opacity:.30;transform:scale(1)}
     14%  {opacity:.65;transform:scale(1.04)}
