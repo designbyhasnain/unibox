@@ -30,6 +30,8 @@ const ALLOWED_PREFIXES = [
     '39.35.',        // Jazz 4G/5G
     '39.36.',        // Jazz 4G/5G
     '39.37.',        // Jazz 4G/5G
+    '39.38.',        // Jazz 4G/5G
+    '39.39.',        // Jazz 4G/5G
     '39.40.',        // Jazz 4G/5G
     '39.41.',        // Jazz 4G/5G
     '39.42.',        // Jazz 4G/5G
