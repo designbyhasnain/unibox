@@ -278,7 +278,10 @@ export default function JarvisVoiceOrb() {
     }, []);
 
     const PHASE_CONFIG = {
-        idle: { color: '#0ea5e9', glow: 'rgba(14,165,233,.3)', label: 'Tap to speak', sublabel: '' },
+        // Idle = brand identity (matches the trigger orb). Other phases keep
+        // functional state colours so the rep can see at a glance what the
+        // orb is doing without reading the label.
+        idle: { color: '#8b5cf6', glow: 'rgba(124,58,237,.35)', label: 'Tap to speak', sublabel: '' },
         listening: { color: '#ef4444', glow: 'rgba(239,68,68,.4)', label: 'Listening...', sublabel: '' },
         thinking: { color: '#f59e0b', glow: 'rgba(245,158,11,.3)', label: 'Thinking...', sublabel: '' },
         speaking: { color: '#22c55e', glow: 'rgba(34,197,94,.4)', label: 'Speaking...', sublabel: 'Tap to stop' },
@@ -289,11 +292,20 @@ export default function JarvisVoiceOrb() {
     return (
         <>
             <style>{`
-.jvo-trigger{position:fixed;z-index:9999;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0ea5e9,#7c3aed);border:none;cursor:grab;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 20px rgba(14,165,233,.3);transition:transform .2s,box-shadow .2s;touch-action:none;user-select:none}
+.jvo-trigger{position:fixed;z-index:9999;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#a78bfa 0%,#8b5cf6 45%,#6d28d9 100%);border:none;cursor:grab;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 20px rgba(124,58,237,.35);transition:transform .2s,box-shadow .2s;touch-action:none;user-select:none}
 .jvo-trigger:active{cursor:grabbing}
-.jvo-trigger:hover{transform:scale(1.1);box-shadow:0 6px 28px rgba(14,165,233,.5)}
-.jvo-trigger-pulse{position:absolute;inset:-4px;border-radius:50%;border:2px solid rgba(14,165,233,.4);animation:jvoPulse 2s ease infinite}
-@keyframes jvoPulse{0%,100%{opacity:.4;transform:scale(1)}50%{opacity:.8;transform:scale(1.15)}}
+.jvo-trigger:hover{transform:scale(1.1);box-shadow:0 6px 28px rgba(124,58,237,.55)}
+/* Subtle heartbeat — two-phase lub-dub with a long rest, ~1.6s cycle.
+   Tiny scale delta (max 1.04) so it feels alive without drawing the eye. */
+.jvo-trigger-pulse{position:absolute;inset:-3px;border-radius:50%;border:1.5px solid rgba(167,139,250,.45);animation:jvoHeartbeat 1.6s ease-in-out infinite;will-change:transform,opacity}
+@keyframes jvoHeartbeat{
+    0%   {opacity:.30;transform:scale(1)}
+    14%  {opacity:.65;transform:scale(1.04)}
+    28%  {opacity:.35;transform:scale(1)}
+    42%  {opacity:.55;transform:scale(1.025)}
+    56%  {opacity:.30;transform:scale(1)}
+    100% {opacity:.30;transform:scale(1)}
+}
 
 .jvo-overlay{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 .jvo-close{position:absolute;top:24px;right:24px;background:none;border:1px solid rgba(255,255,255,.1);color:#71717a;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;transition:all .15s}
