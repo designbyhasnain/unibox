@@ -29,63 +29,47 @@ export async function POST(req: NextRequest) {
 
     // Personalize the system prompt with the logged-in user's identity. The
     // 70B model uses this to:
-    //   • greet them with a role-specific honorific (CEO / sales hero / etc.)
-    //   • address them by first name in subsequent replies
+    //   • greet them by FIRST NAME (no role titles — explicit decision)
     //   • scope generic phrasings like "my clients" / "my pipeline" /
     //     "how am I doing" to data filtered by account_manager_id = userId
-    //   • give CEO/ADMIN-level overviews only when role === 'ADMIN', else
-    //     keep the focus on the user's own portfolio
+    //   • give CEO-level overviews when role === 'ADMIN' or the email is
+    //     in CEO_EMAILS, else keep focus on the user's own portfolio
     // session.role / session.userId are already enforced server-side by
     // executeJarvisTool; this prefix is a *focus hint*, not an auth check.
     const firstName = (session.name || 'there').split(/\s+/)[0];
-    // Role → playful honorific. Used in the greeting only (every-reply
-    // repetition is annoying). New roles fall through to "champ".
-    const HONORIFICS: Record<string, string> = {
-        ADMIN: 'CEO',
-        SALES: 'sales hero',
-        VIDEO_EDITOR: 'edit master',
-        ACCOUNT_MANAGER: 'sales hero',
-    };
-    // Per-account overrides — for users who run the company but don't
-    // sit in the ADMIN row (e.g. founder logged in as a SALES / AM seat
-    // for operational reasons). These also lift the scope rule to ADMIN
-    // behaviour so the CEO sees CEO data regardless of DB role.
-    //
-    // Add new CEO emails here (lower-case). The match is case-insensitive
-    // because session.email passes through the same toLowerCase below.
+    // Per-account ADMIN-equivalence — founders logged into a non-ADMIN seat
+    // still see CEO-level data. The DATA scope check is the only thing this
+    // controls; greeting is always by first name regardless.
     const CEO_EMAILS = new Set<string>([
         'mustafakamran5@gmail.com',
-        'designsbyhasnain@gmail.com',   // Design By Hasnain — already ADMIN, belt-and-suspenders
-        'hasnainsiddike6@gmail.com',    // Hasnain Siddike — DB role is AM, but he's the CEO
+        'designsbyhasnain@gmail.com',
+        'hasnainsiddike6@gmail.com',
     ]);
     const isCEO = CEO_EMAILS.has((session.email || '').toLowerCase());
     const isAdmin = session.role === 'ADMIN' || isCEO;
-    const honorific = isCEO ? 'CEO' : (HONORIFICS[session.role] || 'champ');
 
     const identityPrefix = `## SPEAKING WITH
 
-You are in a voice / chat session with the user known internally as **${session.name}** (userId \`${session.userId}\`, role \`${session.role}\`, email \`${session.email}\`).
+You are in a voice / chat session with **${firstName}** (full name "${session.name}", userId \`${session.userId}\`, role \`${session.role}\`, email \`${session.email}\`).
 
-**Form of address — IMPORTANT:**
-- Always address them by **title only**: "${honorific}". Never use their first or last name in your replies.
-- Greeting examples (use one of these patterns on the first turn or when the user says hi):
-  - "Good morning, ${honorific}."
-  - "Hey ${honorific} — …"
-  - "Evening, ${honorific}."
-- On subsequent turns, just speak normally without re-stating the title every sentence. The title is for greeting and the occasional emphasis, not every clause.
-- Do **NOT** insert their name (${session.name}, ${firstName}, or any variant) into replies. If you need to refer to them, say "you" or repeat the title.
+**Form of address:**
+- Address them by their **first name** — "${firstName}". No titles like "CEO", "boss", "sales hero", "champ", etc. Just the first name.
+- Greeting examples (first turn or when the user says hi):
+  - "Good morning, ${firstName}."
+  - "Hey ${firstName} — …"
+  - "Evening, ${firstName}."
+- On follow-up turns, just speak normally — using "${firstName}" every clause gets tedious. First-name greeting once, then drop it.
 
 **Reply length — VOICE MODE:**
-- Keep every reply **short**: ideally 1-2 sentences, max 4. The user is hearing this through TTS, not reading it. Long replies = long wait + tedious playback.
-- If they want detail, they'll ask "tell me more". Until then, give the headline answer first.
+- Keep every reply **short**: ideally 1-2 sentences, max 4. The user is hearing this through TTS, not reading it.
+- If they want detail, they'll ask "tell me more". Headline first.
 - No bullet points or markdown — this gets read aloud.
 
 **Scope rule:**
-- When the user says "my", "I", "me", "my clients", "my pipeline", "my numbers", "how am I doing", scope your insights to **their** portfolio — the contacts where account_manager_id = "${session.userId}". Use the tools that accept a userId argument to fetch that slice.
+- When ${firstName} says "my", "I", "me", "my clients", "my pipeline", "my numbers", "how am I doing", scope your insights to **their** portfolio — the contacts where account_manager_id = "${session.userId}". Use the tools that accept a userId argument to fetch that slice.
 ${isAdmin
-    ? `- The user is an ADMIN (${honorific}) — they may also ask about *another* account manager by name ("how is Shayan doing?"). Use \`search_contacts\`/\`get_am_performance\` filtered by that AM's name when they do.`
-    : `- The user is **not** an admin. Do not surface CEO-wide totals (revenue, pipeline counts, top clients of other AMs) — those are visible above for context only. Keep replies focused on their own work.`}
-- If the user says "this is ${firstName}" / "good morning, ${firstName} here" — that's identity confirmation. Acknowledge with the title only ("Good morning, ${honorific}"), do not repeat the name back.
+    ? `- ${firstName} has full company-level access — they may also ask about *another* account manager by name ("how is Shayan doing?"). Use \`search_contacts\`/\`get_am_performance\` filtered by that AM's name when they do.`
+    : `- ${firstName} is **not** an admin. Do not surface CEO-wide totals (revenue, pipeline counts, top clients of other AMs) — those are visible above for context only. Keep replies focused on their own work.`}
 
 `;
 
