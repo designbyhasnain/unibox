@@ -122,30 +122,33 @@ export async function sourceLeads(
         instagramCallsUsed: 0,
     };
 
-    const placesKey = process.env.GOOGLE_PLACES_API_KEY;
-    if (!placesKey) {
+    // Multi-source: enable any source whose key is set. OSM has no key
+    // requirement so it's always on — that's the "never run out of leads
+    // even without paid APIs" baseline. Google Places stays primary when
+    // configured (best quality), Foursquare / HERE / SerpAPI add coverage.
+    const sourceCfg = {
+        google_places: !!process.env.GOOGLE_PLACES_API_KEY,
+        osm: true,
+        foursquare: !!process.env.FOURSQUARE_API_KEY,
+        here: !!process.env.HERE_API_KEY,
+        serpapi: !!process.env.SERPAPI_KEY,
+    };
+    const enabledSources = Object.entries(sourceCfg).filter(([, v]) => v).map(([k]) => k);
+    if (enabledSources.length === 0) {
         result.status = 'no_api_key';
-        result.errors.push('GOOGLE_PLACES_API_KEY not set');
+        result.errors.push('No lead sources configured (this should not happen — OSM has no key)');
         return result;
     }
 
     const placesCap = parseInt(process.env.LOOKALIKE_DAILY_PLACES_CAP || '200', 10);
     const igCap = parseInt(process.env.LOOKALIKE_DAILY_IG_CAP || '500', 10);
+    const fsqCap = parseInt(process.env.LOOKALIKE_DAILY_FOURSQUARE_CAP || '1500', 10);
+    const hereCap = parseInt(process.env.LOOKALIKE_DAILY_HERE_CAP || '1000', 10);
+    const serpCap = parseInt(process.env.LOOKALIKE_DAILY_SERPAPI_CAP || '3', 10);
     const today = new Date().toISOString().slice(0, 10);     // YYYY-MM-DD UTC
     const tomorrow = new Date();
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     tomorrow.setUTCHours(0, 0, 0, 0);
-
-    // Pre-flight: check the daily caps so we don't run a single query
-    // and discover we're broke mid-run. (Atomicity below still
-    // enforces per-call.)
-    const placesUsed = await getApiUsageToday('google_places', today);
-    if (placesUsed >= placesCap) {
-        result.status = 'cap_reached';
-        result.resumesAt = tomorrow.toISOString();
-        result.errors.push(`google_places daily cap (${placesCap}) reached`);
-        return result;
-    }
 
     const maxPerQuery = opts.maxPerQuery ?? 20;
     const sourceTag = opts.sourceTag ?? 'lookalike_google';
@@ -156,23 +159,73 @@ export async function sourceLeads(
             continue;
         }
 
-        // Cap check per-query so we abort early if we hit it mid-run.
-        const currentUsed = await getApiUsageToday('google_places', today);
-        if (currentUsed >= placesCap) {
+        // Fan out to every configured source in parallel. Each source
+        // enforces its own daily cap; if a source hits its cap it returns
+        // an empty array and a `cap_reached` flag in the wrapper. The
+        // orchestrator keeps going with whatever sources are still under.
+        const sourceCalls: Array<{ name: string; promise: Promise<PlacesListing[]> }> = [];
+
+        if (sourceCfg.google_places) {
+            const used = await getApiUsageToday('google_places', today);
+            if (used < placesCap) {
+                sourceCalls.push({
+                    name: 'google_places',
+                    promise: searchGooglePlaces(q.text, process.env.GOOGLE_PLACES_API_KEY!, maxPerQuery)
+                        .then(async (rows) => { await bumpApiUsage('google_places', today, 1); result.placesCallsUsed++; return rows; })
+                        .catch((err: any) => { result.errors.push(`places "${q.text}": ${err?.message || err}`); return []; }),
+                });
+            }
+        }
+        if (sourceCfg.osm) {
+            sourceCalls.push({
+                name: 'osm',
+                promise: searchOSM(q.text, maxPerQuery)
+                    .catch((err: any) => { result.errors.push(`osm "${q.text}": ${err?.message || err}`); return []; }),
+            });
+        }
+        if (sourceCfg.foursquare) {
+            const used = await getApiUsageToday('foursquare', today);
+            if (used < fsqCap) {
+                sourceCalls.push({
+                    name: 'foursquare',
+                    promise: searchFoursquare(q.text, process.env.FOURSQUARE_API_KEY!, maxPerQuery)
+                        .then(async (rows) => { await bumpApiUsage('foursquare', today, 1); return rows; })
+                        .catch((err: any) => { result.errors.push(`fsq "${q.text}": ${err?.message || err}`); return []; }),
+                });
+            }
+        }
+        if (sourceCfg.here) {
+            const used = await getApiUsageToday('here', today);
+            if (used < hereCap) {
+                sourceCalls.push({
+                    name: 'here',
+                    promise: searchHere(q.text, process.env.HERE_API_KEY!, maxPerQuery)
+                        .then(async (rows) => { await bumpApiUsage('here', today, 1); return rows; })
+                        .catch((err: any) => { result.errors.push(`here "${q.text}": ${err?.message || err}`); return []; }),
+                });
+            }
+        }
+        if (sourceCfg.serpapi) {
+            const used = await getApiUsageToday('serpapi', today);
+            if (used < serpCap) {
+                sourceCalls.push({
+                    name: 'serpapi',
+                    promise: searchSerpApi(q.text, process.env.SERPAPI_KEY!, maxPerQuery)
+                        .then(async (rows) => { await bumpApiUsage('serpapi', today, 1); return rows; })
+                        .catch((err: any) => { result.errors.push(`serpapi "${q.text}": ${err?.message || err}`); return []; }),
+                });
+            }
+        }
+
+        if (sourceCalls.length === 0) {
             result.status = 'cap_reached';
             result.resumesAt = tomorrow.toISOString();
             break;
         }
 
-        let listings: PlacesListing[] = [];
-        try {
-            listings = await searchGooglePlaces(q.text, placesKey, maxPerQuery);
-            await bumpApiUsage('google_places', today, 1);
-            result.placesCallsUsed++;
-        } catch (err: any) {
-            result.errors.push(`places "${q.text}": ${err?.message || err}`);
-            continue;
-        }
+        const sourceRows = await Promise.all(sourceCalls.map(s => s.promise));
+        const unioned: PlacesListing[] = sourceRows.flat();
+        const listings = dedupePlacesListings(unioned);
         result.placesFound += listings.length;
         result.queriesRun++;
 
@@ -183,11 +236,11 @@ export async function sourceLeads(
             // accounts get dropped before we waste an upsert.
             let igMeta: InstagramMeta | null = null;
             const igHandle = extractInstagramHandle(listing);
-            if (igHandle && process.env.RAPIDAPI_KEY) {
+            if (igHandle && (process.env.RAPIDAPI_INSTAGRAM_KEY || process.env.RAPIDAPI_KEY)) {
                 const igUsedNow = await getApiUsageToday('rapidapi_instagram', today);
                 if (igUsedNow < igCap) {
                     try {
-                        igMeta = await fetchInstagramProfile(igHandle, process.env.RAPIDAPI_KEY);
+                        igMeta = await fetchInstagramProfile(igHandle, (process.env.RAPIDAPI_INSTAGRAM_KEY || process.env.RAPIDAPI_KEY)!);
                         await bumpApiUsage('rapidapi_instagram', today, 1);
                         result.instagramCallsUsed++;
                     } catch (err: any) {
@@ -426,7 +479,9 @@ async function upsertContact(args: {
 
 // ─── Daily-cap bookkeeping ─────────────────────────────────────────────────
 
-async function getApiUsageToday(api: 'google_places' | 'rapidapi_instagram', day: string): Promise<number> {
+type ApiName = 'google_places' | 'rapidapi_instagram' | 'osm' | 'foursquare' | 'here' | 'serpapi';
+
+async function getApiUsageToday(api: ApiName, day: string): Promise<number> {
     const { data } = await supabase
         .from('external_api_usage')
         .select('calls_used')
@@ -436,7 +491,7 @@ async function getApiUsageToday(api: 'google_places' | 'rapidapi_instagram', day
     return (data?.calls_used as number | undefined) ?? 0;
 }
 
-async function bumpApiUsage(api: 'google_places' | 'rapidapi_instagram', day: string, delta: number): Promise<void> {
+async function bumpApiUsage(api: ApiName, day: string, delta: number): Promise<void> {
     // Upsert with arithmetic — PostgREST doesn't support `+= 1`
     // directly, so read-modify-write is the simplest path. Races are
     // possible but the cap is a soft cap (10-15 over the limit is
@@ -448,4 +503,136 @@ async function bumpApiUsage(api: 'google_places' | 'rapidapi_instagram', day: st
             [{ api, day, calls_used: current + delta, last_updated_at: new Date().toISOString() }],
             { onConflict: 'api,day' },
         );
+}
+
+// ─── OpenStreetMap via Overpass ────────────────────────────────────────────
+// Free, no key. Quality is patchier than Google but coverage is global.
+async function searchOSM(query: string, maxResults: number): Promise<PlacesListing[]> {
+    const tokens = query.split(/\s+/);
+    const area = tokens.slice(-2).join(' '); // "San Diego" out of "wedding videographer San Diego"
+    const trade = tokens.slice(0, -2).join(' ').toLowerCase();
+    if (!area || !trade) return [];
+    const tradePattern = trade.split(' ').filter(Boolean).join('|');
+    const ql = `
+        [out:json][timeout:25];
+        area["name"="${area.replace(/"/g, '')}"]->.a;
+        (
+          node["name"~"${tradePattern}", i](area.a);
+          way["name"~"${tradePattern}", i](area.a);
+        );
+        out tags center ${maxResults};
+    `;
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: ql,
+    });
+    if (!res.ok) return [];
+    const json: any = await res.json().catch(() => ({}));
+    const elements: any[] = Array.isArray(json?.elements) ? json.elements : [];
+    return elements.slice(0, maxResults).map((e: any): PlacesListing => {
+        const t = e?.tags || {};
+        return {
+            placeId: `osm_${e.type}_${e.id}`,
+            name: t.name ?? null,
+            address: [t['addr:housenumber'], t['addr:street'], t['addr:city']].filter(Boolean).join(', ') || null,
+            region: t['addr:city'] ?? t['addr:state'] ?? null,
+            website: t.website || t['contact:website'] || null,
+            phone: t.phone || t['contact:phone'] || null,
+            email: t.email || t['contact:email'] || null,
+            rating: null,
+            userRatingsTotal: null,
+        };
+    });
+}
+
+// ─── Foursquare Places API (50k/mo free tier) ──────────────────────────────
+async function searchFoursquare(query: string, apiKey: string, maxResults: number): Promise<PlacesListing[]> {
+    const url = `https://api.foursquare.com/v3/places/search?query=${encodeURIComponent(query)}&limit=${Math.min(maxResults, 50)}`;
+    const res = await fetch(url, { headers: { Authorization: apiKey, accept: 'application/json' } });
+    if (!res.ok) throw new Error(`foursquare ${res.status}`);
+    const json: any = await res.json().catch(() => ({}));
+    const places: any[] = Array.isArray(json?.results) ? json.results : [];
+    return places.map((p: any): PlacesListing => ({
+        placeId: `fsq_${p?.fsq_id}`,
+        name: p?.name ?? null,
+        address: p?.location?.formatted_address ?? null,
+        region: p?.location?.locality ?? p?.location?.region ?? null,
+        website: p?.website ?? null,
+        phone: p?.tel ?? null,
+        email: null,
+        rating: null,
+        userRatingsTotal: null,
+    }));
+}
+
+// ─── HERE Maps Places (1k/day free tier) ───────────────────────────────────
+async function searchHere(query: string, apiKey: string, maxResults: number): Promise<PlacesListing[]> {
+    // HERE Discover requires an 'at' anchor — use 0,0 to make the text the
+    // dominant signal. Free-text queries with location names work fine.
+    const url = `https://discover.search.hereapi.com/v1/discover?q=${encodeURIComponent(query)}&at=0,0&limit=${Math.min(maxResults, 100)}&apiKey=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`here ${res.status}`);
+    const json: any = await res.json().catch(() => ({}));
+    const items: any[] = Array.isArray(json?.items) ? json.items : [];
+    return items.map((p: any): PlacesListing => ({
+        placeId: `here_${p?.id}`,
+        name: p?.title ?? null,
+        address: p?.address?.label ?? null,
+        region: p?.address?.city ?? p?.address?.state ?? null,
+        website: p?.contacts?.[0]?.www?.[0]?.value ?? null,
+        phone: p?.contacts?.[0]?.phone?.[0]?.value ?? null,
+        email: p?.contacts?.[0]?.email?.[0]?.value ?? null,
+        rating: null,
+        userRatingsTotal: null,
+    }));
+}
+
+// ─── SerpAPI Google Maps engine (100/mo free) ──────────────────────────────
+async function searchSerpApi(query: string, apiKey: string, maxResults: number): Promise<PlacesListing[]> {
+    const url = `https://serpapi.com/search.json?engine=google_maps&q=${encodeURIComponent(query)}&api_key=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`serpapi ${res.status}`);
+    const json: any = await res.json().catch(() => ({}));
+    const places: any[] = Array.isArray(json?.local_results) ? json.local_results : [];
+    return places.slice(0, maxResults).map((p: any): PlacesListing => ({
+        placeId: p?.place_id ? `serp_${p.place_id}` : `serp_${Math.random().toString(36).slice(2)}`,
+        name: p?.title ?? null,
+        address: p?.address ?? null,
+        region: p?.address ?? null,
+        website: p?.website ?? null,
+        phone: p?.phone ?? null,
+        email: null,
+        rating: typeof p?.rating === 'number' ? p.rating : null,
+        userRatingsTotal: typeof p?.reviews === 'number' ? p.reviews : null,
+    }));
+}
+
+// ─── Dedupe across source results ──────────────────────────────────────────
+function dedupePlacesListings(rows: PlacesListing[]): PlacesListing[] {
+    const seenPlace = new Set<string>();
+    const seenEmail = new Set<string>();
+    const seenDomain = new Set<string>();
+    const seenPhone = new Set<string>();
+    const out: PlacesListing[] = [];
+    for (const r of rows) {
+        const placeKey = r.placeId || null;
+        const emailKey = r.email?.toLowerCase() || null;
+        const phoneKey = r.phone?.replace(/\D+/g, '') || null;
+        const domainKey = (() => {
+            if (!r.website) return null;
+            try { return new URL(r.website.startsWith('http') ? r.website : `https://${r.website}`).hostname.toLowerCase().replace(/^www\./, ''); }
+            catch { return null; }
+        })();
+        if (placeKey && seenPlace.has(placeKey)) continue;
+        if (emailKey && seenEmail.has(emailKey)) continue;
+        if (domainKey && seenDomain.has(domainKey)) continue;
+        if (phoneKey && phoneKey.length >= 7 && seenPhone.has(phoneKey)) continue;
+        if (placeKey) seenPlace.add(placeKey);
+        if (emailKey) seenEmail.add(emailKey);
+        if (domainKey) seenDomain.add(domainKey);
+        if (phoneKey && phoneKey.length >= 7) seenPhone.add(phoneKey);
+        out.push(r);
+    }
+    return out;
 }
