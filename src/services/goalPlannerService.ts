@@ -57,6 +57,9 @@ export type Scenario = {
     confidence: Confidence;
     /** Set when actionable (e.g. "scrape 500 EU contacts"). */
     blocker: string | null;
+    /** Region tag — populated for SCRAPE_NEEDED and REGION_TOP scenarios so
+     *  the UI can prefill the lookalike sourcing modal. */
+    region?: string;
 };
 
 export type GoalPlan = {
@@ -497,14 +500,17 @@ function buildScrapeNeededScenarios(contacts: RawContact[], niche: string): Scen
         out.push({
             id: `scrape:${region.toLowerCase().replace(/\s+/g, '_')}`,
             kind: 'SCRAPE_NEEDED',
-            label: `Scrape ${targetSends} more in ${region}`,
+            label: `Top up ${targetSends} more in ${region}`,
             detail: `Untouched pool exhausted (only ${untouched.length}). Historical RPS: $${rps.toFixed(2)}`,
             poolMax: 0, // can't allocate sends until scraped
             sendsAllocated: 0,
             funnel,
             projectedRevenue: targetSends * rps,
             confidence: bandFromSampleSize(funnel.sampleSize),
-            blocker: `Ask Admin to scrape ${targetSends} more leads in ${region}.`,
+            // Blocker text now phrases the action positively — the new Top-up
+            // button next to the scenario can resolve this in one click.
+            blocker: `Pool exhausted in ${region}. Click “Top up from internet” to source ${targetSends} more.`,
+            region,
         });
     }
 

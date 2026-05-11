@@ -52,6 +52,9 @@
         },
         "app/api/cron/expire-goals/route.ts": {
             "maxDuration": 60
+        },
+        "app/api/cron/top-up-pool/route.ts": {
+            "maxDuration": 300
         }
     },
     "crons": [
@@ -66,6 +69,10 @@
         {
             "path": "/api/cron/expire-goals",
             "schedule": "0 6 * * *"
+        },
+        {
+            "path": "/api/cron/top-up-pool",
+            "schedule": "30 6 * * *"
         }
     ]
 }

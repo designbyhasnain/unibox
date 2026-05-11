@@ -10,6 +10,7 @@ import {
     type FireSummary,
 } from '../../../src/actions/goalPlannerActions';
 import type { GoalPlan, Scenario } from '../../../src/services/goalPlannerService';
+import SourceLeadsModal from './SourceLeadsModal';
 
 // Default deadline: 30 days from today, ISO yyyy-mm-dd for <input type="date">.
 function defaultDeadline(): string {
@@ -52,6 +53,9 @@ export default function GoalPlannerClient() {
     const [firing, setFiring] = useState(false);
     const [fireResults, setFireResults] = useState<FireResult[] | null>(null);
     const [fireSummary, setFireSummary] = useState<FireSummary | null>(null);
+    // SourceLeadsModal control — null = closed; otherwise the region to
+    // prefill (empty string = open with all lookalike suggestions).
+    const [sourceModalRegion, setSourceModalRegion] = useState<string | null>(null);
 
     const calculate = async () => {
         setError(null);
@@ -286,6 +290,11 @@ export default function GoalPlannerClient() {
                                         (s.confidence === 'LOW' && !includeLowConfidence)
                                     }
                                     onToggle={() => toggle(s.id)}
+                                    onTopUp={
+                                        s.kind === 'SCRAPE_NEEDED'
+                                            ? () => setSourceModalRegion(s.region ?? '')
+                                            : undefined
+                                    }
                                 />
                             ))}
                         </div>
@@ -351,6 +360,22 @@ export default function GoalPlannerClient() {
                     </>
                 )}
             </div>
+
+            {/* Source-leads modal — opens when the rep clicks the
+                "Top up from internet" button on a SCRAPE_NEEDED scenario.
+                After a successful run we re-fetch the plan so pool counts
+                refresh and the blocker can disappear. */}
+            {sourceModalRegion !== null && (
+                <SourceLeadsModal
+                    prefillRegion={sourceModalRegion || undefined}
+                    onClose={() => setSourceModalRegion(null)}
+                    onCompleted={() => {
+                        // Don't auto-close — let the rep see the summary;
+                        // refresh the plan in the background.
+                        void calculate();
+                    }}
+                />
+            )}
         </div>
     );
 }
@@ -422,11 +447,16 @@ function ScenarioCard({
     checked,
     disabled,
     onToggle,
+    onTopUp,
 }: {
     scenario: Scenario;
     checked: boolean;
     disabled: boolean;
     onToggle: () => void;
+    /** Optional callback — when present, renders a "Top up from internet"
+     *  button alongside the blocker pill. Only passed for SCRAPE_NEEDED
+     *  scenarios; resolves the blocker by sourcing more leads. */
+    onTopUp?: () => void;
 }) {
     const f = scenario.funnel;
     return (
@@ -478,9 +508,32 @@ function ScenarioCard({
                             borderRadius: 8,
                             padding: '6px 10px',
                             marginBottom: 6,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 12,
                         }}
                     >
-                        Blocker: {scenario.blocker}
+                        <span>Blocker: {scenario.blocker}</span>
+                        {onTopUp && (
+                            <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTopUp(); }}
+                                style={{
+                                    padding: '5px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid var(--warn)',
+                                    background: 'var(--warn)',
+                                    color: 'var(--canvas)',
+                                    fontSize: 11.5,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                ✨ Top up from internet
+                            </button>
+                        )}
                     </div>
                 )}
                 <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--ink-muted)', flexWrap: 'wrap' }}>
