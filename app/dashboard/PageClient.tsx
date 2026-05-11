@@ -8,6 +8,7 @@ import { getDailyBriefingAction, regenerateDailyBriefingAction } from '../../src
 import { PageLoader } from '../components/LoadingStates';
 import { useHydrated } from '../utils/useHydration';
 import EditorTodayView from '../components/EditorTodayView';
+import GoalProgressCard from '../components/GoalProgressCard';
 import { useUndoToast } from '../context/UndoToastContext';
 import { usePerfMonitor } from '../hooks/usePerfMonitor';
 import { firstName } from '../utils/nameDisplay';
@@ -387,6 +388,11 @@ export default function Dashboard({ userRole }: { userRole?: string }) {
                         {ICON.refresh} {loading ? 'Refreshing…' : 'Refresh'}
                     </button>
                 </div>
+
+                {/* ── Goal progress (Phase B) ──
+                    Renders only when the user has an active goal; otherwise
+                    hides silently. See app/components/GoalProgressCard.tsx. */}
+                <GoalProgressCard />
 
                 {/* ── Jarvis Daily Briefing ── */}
                 <div className="db-briefing">

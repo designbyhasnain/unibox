@@ -49,6 +49,9 @@
         },
         "app/api/cron/extract-insights/route.ts": {
             "maxDuration": 60
+        },
+        "app/api/cron/expire-goals/route.ts": {
+            "maxDuration": 60
         }
     },
     "crons": [
@@ -59,6 +62,10 @@
         {
             "path": "/api/cron/extract-insights",
             "schedule": "0 * * * *"
+        },
+        {
+            "path": "/api/cron/expire-goals",
+            "schedule": "0 6 * * *"
         }
     ]
 }

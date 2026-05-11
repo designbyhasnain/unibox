@@ -4,7 +4,13 @@ import { ensureAuthenticated } from '../lib/safe-action';
 import { blockEditorAccess, getAccessibleGmailAccountIds, getOwnerFilter } from '../utils/accessControl';
 import { supabase } from '../lib/supabase';
 import { generateGoalPlan, topRegionOf, type GoalPlan, type Scenario } from '../services/goalPlannerService';
-import { createCampaignAction, enrollContactsAction, type CampaignStepInput } from './campaignActions';
+import {
+    createCampaignAction,
+    enrollContactsAction,
+    launchCampaignAction,
+    updateCampaignOptionsAction,
+    type CampaignStepInput,
+} from './campaignActions';
 
 /**
  * Generate a goal-driven campaign plan for the calling user.
@@ -100,6 +106,51 @@ async function pickSendingAccount(userId: string, role: string): Promise<string 
     }
     const { data } = await query.limit(1).maybeSingle();
     return data?.id ?? null;
+}
+
+/**
+ * Pick the least-recently-loaded Gmail account from the user's accessible pool.
+ * Used by `fireGoalPlanAction` to rotate across scenarios in one batch — when
+ * firing 3 campaigns simultaneously they should land on 3 different accounts,
+ * not pile on the same one.
+ *
+ * Selection rule (decided in plan):
+ *  • Filter to status=ACTIVE accounts the user has access to.
+ *  • Skip any in `excludeIds` (so each scenario in the same fire gets a fresh
+ *    account, falling back to round-robin reuse if the pool is exhausted).
+ *  • Order by sent_count_today ASC — picks the account with the lowest daily
+ *    usage so today's load spreads evenly. Tie-break on created_at ASC for
+ *    determinism.
+ *  • Returns null when there isn't a single usable account — caller surfaces
+ *    that as a per-scenario error.
+ *
+ * No warm-only filter — user opted for max throughput, cold accounts ride
+ * along. If deliverability becomes an issue, swap to `warmup_enabled=true`
+ * filter here.
+ */
+async function pickFreshestAccount(
+    userId: string,
+    role: string,
+    excludeIds: Set<string>,
+): Promise<string | null> {
+    const accessible = await getAccessibleGmailAccountIds(userId, role);
+    let query = supabase
+        .from('gmail_accounts')
+        .select('id, sent_count_today, created_at')
+        .eq('status', 'ACTIVE')
+        .order('sent_count_today', { ascending: true })
+        .order('created_at', { ascending: true });
+    if (accessible !== 'ALL') {
+        if (accessible.length === 0) return null;
+        query = query.in('id', accessible);
+    }
+    const { data } = await query.limit(50);
+    if (!data || data.length === 0) return null;
+    // First try a fresh (un-used-this-batch) account; if all are used, allow
+    // reuse so we don't fail the whole fire just because the user has fewer
+    // accounts than scenarios.
+    const fresh = data.find((a: any) => !excludeIds.has(a.id));
+    return (fresh ?? data[0])?.id ?? null;
 }
 
 /**
@@ -361,5 +412,275 @@ export async function buildCampaignsFromPlanAction(input: {
     } catch (err: any) {
         console.error('[goalPlanner] buildCampaignsFromPlanAction error:', err);
         return { success: false, error: err?.message || 'Failed to build drafts.' };
+    }
+}
+
+// ─── Fire (Phase A: build + launch in one click) ─────────────────────────────
+
+export type FireResult = BuildResult & {
+    launched: boolean;
+    sendingAccountId?: string;
+    dailySendLimit?: number;
+};
+
+export type FireSummary = BuildSummary & {
+    fired: number;            // how many campaigns successfully launched
+    accountsUsed: string[];   // distinct gmail_account_ids used in this fire
+    totalDailySends: number;  // summed daily_send_limit across launched campaigns
+};
+
+/**
+ * Phase A — one-button launch.
+ *
+ * Replaces the legacy "build draft, then go configure schedule + launch in
+ * /campaigns" flow with: pick scenarios → click Fire → campaigns are live
+ * within the next cron tick. Uses the existing primitives end-to-end so
+ * nothing about the send pipeline changes:
+ *
+ *   createCampaignAction    →  inserts DRAFT row + steps + variants
+ *   updateCampaignOptionsAction  →  schedule + email_gap_minutes + cap
+ *   enrollContactsAction    →  PENDING rows in campaign_contacts
+ *   launchCampaignAction    →  validates ≥1 step + ≥1 contact, transitions
+ *                              to RUNNING, sets next_send_at via
+ *                              getNextValidSendTime() in campaignActions.ts
+ *
+ * Defaults applied (decided in plan):
+ *   • Sending account: least-loaded ACTIVE account from the rep's pool,
+ *     rotated across scenarios so 3 fires hit 3 different accounts.
+ *   • Daily send limit: scenario.sendsAllocated / days, clamped 10–100.
+ *   • Schedule: Mon–Fri, 09:00–17:00, UTC (per-user TZ deferred).
+ *   • email_gap_minutes: 10 (matches existing default).
+ *   • Existing CampaignOptions defaults inherited for everything else.
+ *
+ * Per-scenario errors don't abort the whole fire — they're returned in the
+ * per-result list so the UI can show partial success.
+ */
+export async function fireGoalPlanAction(input: {
+    scenarios: Scenario[];
+    deadlineISO: string;
+    daysUntilDeadline: number;
+    /** Per Phase B — the planner passes the original goal amount so we can
+     *  persist a `goals` row before launching. Optional for backwards-compat
+     *  with any caller that hasn't migrated. */
+    goalAmount?: number;
+}): Promise<
+    | { success: true; results: FireResult[]; summary: FireSummary; goalId?: string | null }
+    | { success: false; error: string }
+> {
+    try {
+        const { userId, role } = await ensureAuthenticated();
+        blockEditorAccess(role);
+
+        if (!input.scenarios || input.scenarios.length === 0) {
+            return { success: false, error: 'No scenarios selected.' };
+        }
+
+        const days = Math.max(1, Math.floor(input.daysUntilDeadline || 30));
+        const blocked = await fetchDoNotContactSet();
+        const usedAccountIds = new Set<string>();
+        const results: FireResult[] = [];
+
+        // Phase B: persist the goal so the dashboard card has something to
+        // read. Best-effort — if the `goals` table doesn't exist yet (migration
+        // not run), we log and continue without a goalId. Campaigns still fire
+        // exactly the same; the persistence layer is a separate concern.
+        let goalId: string | null = null;
+        if (typeof input.goalAmount === 'number' && input.goalAmount > 0) {
+            try {
+                // Close any prior ACTIVE goal first — the partial unique
+                // index on (user_id) WHERE status='ACTIVE' would block the
+                // insert otherwise.
+                await supabase
+                    .from('goals')
+                    .update({ status: 'CANCELLED' })
+                    .eq('user_id', userId)
+                    .eq('status', 'ACTIVE');
+                const { data: inserted, error: insErr } = await supabase
+                    .from('goals')
+                    .insert({
+                        user_id: userId,
+                        target_amount: input.goalAmount,
+                        deadline: input.deadlineISO.slice(0, 10), // DATE column
+                        status: 'ACTIVE',
+                    })
+                    .select('id')
+                    .single();
+                if (insErr) {
+                    if ((insErr as any).code === '42P01' || /relation .* does not exist/i.test(insErr.message)) {
+                        console.warn('[goalPlanner] goals table missing — skipping persistence. Run prisma/goals_migration.sql.');
+                    } else {
+                        console.warn('[goalPlanner] could not persist goal:', insErr.message);
+                    }
+                } else {
+                    goalId = (inserted as any)?.id ?? null;
+                }
+            } catch (err) {
+                console.warn('[goalPlanner] goal persistence failed (non-fatal):', err);
+            }
+        }
+
+        for (const scenario of input.scenarios) {
+            // Blocker scenarios (e.g. SCRAPE_NEEDED) have nothing to enrol.
+            if (scenario.blocker) {
+                results.push({
+                    scenarioId: scenario.id,
+                    scenarioLabel: scenario.label,
+                    success: false,
+                    launched: false,
+                    error: `Skipped — ${scenario.blocker}`,
+                });
+                continue;
+            }
+
+            // 1. Resolve contacts.
+            const contactIds = await resolveScenarioContactIds(scenario, userId, role, blocked);
+            if (contactIds.length === 0) {
+                results.push({
+                    scenarioId: scenario.id,
+                    scenarioLabel: scenario.label,
+                    success: false,
+                    launched: false,
+                    error: 'No contacts matched the scenario filter.',
+                });
+                continue;
+            }
+
+            // 2. Pick a sending account fresh to this fire batch.
+            const sendingAccountId = await pickFreshestAccount(userId, role, usedAccountIds);
+            if (!sendingAccountId) {
+                results.push({
+                    scenarioId: scenario.id,
+                    scenarioLabel: scenario.label,
+                    success: false,
+                    launched: false,
+                    error: 'No active Gmail accounts available. Ask Admin to assign one.',
+                });
+                continue;
+            }
+            usedAccountIds.add(sendingAccountId);
+
+            // 3. Spread the allocated sends across the goal window.
+            const dailyRate = Math.min(
+                100,
+                Math.max(10, Math.ceil(scenario.sendsAllocated / days)),
+            );
+
+            // 4. Create DRAFT.
+            const created = await createCampaignAction({
+                name: scenarioCampaignName(scenario, input.deadlineISO),
+                goal: scenarioGoal(scenario),
+                sendingGmailAccountId: sendingAccountId,
+                dailySendLimit: dailyRate,
+                trackReplies: true,
+                autoStopOnReply: true,
+                steps: DEFAULT_STEPS,
+            });
+            if (!created.success || !created.campaignId) {
+                results.push({
+                    scenarioId: scenario.id,
+                    scenarioLabel: scenario.label,
+                    success: false,
+                    launched: false,
+                    error: created.error || 'Failed to create campaign.',
+                });
+                continue;
+            }
+
+            // 4b. Stamp goal_id on the new campaign so the progress card can
+            // attribute downstream projects. Best-effort — if the column
+            // doesn't exist yet (migration not run), log and continue. The
+            // campaign still fires successfully without the link; it just
+            // won't show in the dashboard goal card.
+            if (goalId) {
+                const { error: linkErr } = await supabase
+                    .from('campaigns')
+                    .update({ goal_id: goalId })
+                    .eq('id', created.campaignId);
+                if (linkErr) {
+                    if (!/column .* does not exist/i.test(linkErr.message)) {
+                        console.warn('[goalPlanner] could not stamp goal_id on campaign:', linkErr.message);
+                    }
+                }
+            }
+
+            // 5. Apply schedule + spacing defaults via the generic options
+            // updater. dailySendLimit already set on create, but pass it
+            // again so the campaign row reflects the planner's allocation
+            // unambiguously.
+            await updateCampaignOptionsAction(created.campaignId, {
+                schedule_enabled: true,
+                schedule_days: [1, 2, 3, 4, 5],     // Mon–Fri
+                schedule_start_time: '09:00',
+                schedule_end_time: '17:00',
+                schedule_timezone: 'UTC',
+                email_gap_minutes: 10,
+                daily_send_limit: dailyRate,
+            });
+
+            // 6. Enrol.
+            const enrolled = await enrollContactsAction(created.campaignId, contactIds);
+            if (!enrolled.success) {
+                results.push({
+                    scenarioId: scenario.id,
+                    scenarioLabel: scenario.label,
+                    success: false,
+                    launched: false,
+                    campaignId: created.campaignId,
+                    sendingAccountId,
+                    dailySendLimit: dailyRate,
+                    error: enrolled.error || 'Campaign created, but enrollment failed.',
+                });
+                continue;
+            }
+
+            // 7. Launch — DRAFT → RUNNING, contacts PENDING → IN_PROGRESS.
+            const launched = await launchCampaignAction(created.campaignId);
+            if (!launched.success) {
+                // Campaign + contacts exist; rep can launch manually from /campaigns.
+                results.push({
+                    scenarioId: scenario.id,
+                    scenarioLabel: scenario.label,
+                    success: true,
+                    launched: false,
+                    campaignId: created.campaignId,
+                    enrolled: enrolled.enrolled ?? contactIds.length,
+                    sendingAccountId,
+                    dailySendLimit: dailyRate,
+                    error: `Enrolled ${enrolled.enrolled} but launch failed: ${launched.error}. Open the campaign and click Launch.`,
+                });
+                continue;
+            }
+
+            results.push({
+                scenarioId: scenario.id,
+                scenarioLabel: scenario.label,
+                success: true,
+                launched: true,
+                campaignId: created.campaignId,
+                enrolled: enrolled.enrolled ?? contactIds.length,
+                sendingAccountId,
+                dailySendLimit: dailyRate,
+            });
+        }
+
+        const fired = results.filter(r => r.launched).length;
+        const totalDailySends = results
+            .filter(r => r.launched)
+            .reduce((sum, r) => sum + (r.dailySendLimit ?? 0), 0);
+
+        return {
+            success: true,
+            results,
+            summary: {
+                blockedCount: blocked.size,
+                fired,
+                accountsUsed: [...usedAccountIds],
+                totalDailySends,
+            },
+            goalId,
+        };
+    } catch (err: any) {
+        console.error('[goalPlanner] fireGoalPlanAction error:', err);
+        return { success: false, error: err?.message || 'Failed to fire goal plan.' };
     }
 }

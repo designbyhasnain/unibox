@@ -3,7 +3,12 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { generateGoalPlanAction, buildCampaignsFromPlanAction, type BuildResult, type BuildSummary } from '../../../src/actions/goalPlannerActions';
+import {
+    generateGoalPlanAction,
+    fireGoalPlanAction,
+    type FireResult,
+    type FireSummary,
+} from '../../../src/actions/goalPlannerActions';
 import type { GoalPlan, Scenario } from '../../../src/services/goalPlannerService';
 
 // Default deadline: 30 days from today, ISO yyyy-mm-dd for <input type="date">.
@@ -44,9 +49,9 @@ export default function GoalPlannerClient() {
     const [loading, setLoading] = useState(false);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [includeLowConfidence, setIncludeLowConfidence] = useState(false);
-    const [building, setBuilding] = useState(false);
-    const [buildResults, setBuildResults] = useState<BuildResult[] | null>(null);
-    const [buildSummary, setBuildSummary] = useState<BuildSummary | null>(null);
+    const [firing, setFiring] = useState(false);
+    const [fireResults, setFireResults] = useState<FireResult[] | null>(null);
+    const [fireSummary, setFireSummary] = useState<FireSummary | null>(null);
 
     const calculate = async () => {
         setError(null);
@@ -86,24 +91,41 @@ export default function GoalPlannerClient() {
               .reduce((sum, s) => sum + s.projectedRevenue, 0)
         : 0;
 
-    const buildDrafts = async () => {
+    const fireCampaigns = async () => {
         if (!plan) return;
         const picked = plan.scenarios.filter(s => selected.has(s.id) && !s.blocker);
         if (picked.length === 0) return;
-        setBuilding(true);
-        setBuildResults(null);
-        setBuildSummary(null);
-        const res = await buildCampaignsFromPlanAction({
+
+        // Hormozi reality check — one confirmation before live sends fire.
+        // Shows: campaign count, daily send rate, ETA. Cancel-able.
+        const dailyEstimate = picked.reduce(
+            (sum, s) => sum + Math.min(100, Math.max(10, Math.ceil(s.sendsAllocated / Math.max(1, plan.daysUntilDeadline)))),
+            0,
+        );
+        const ok = window.confirm(
+            `Fire ${picked.length} campaign${picked.length === 1 ? '' : 's'}?\n\n` +
+            `~${dailyEstimate} emails/day Mon–Fri 9–5 UTC\n` +
+            `First send: within ~10 min once the cron picks it up\n\n` +
+            `This will rotate across your active Gmail accounts and launch immediately.`,
+        );
+        if (!ok) return;
+
+        setFiring(true);
+        setFireResults(null);
+        setFireSummary(null);
+        const res = await fireGoalPlanAction({
             scenarios: picked,
             deadlineISO: plan.deadline,
+            daysUntilDeadline: plan.daysUntilDeadline,
+            goalAmount: plan.goalAmount,
         });
-        setBuilding(false);
+        setFiring(false);
         if (!res.success) {
             setError(res.error);
             return;
         }
-        setBuildResults(res.results);
-        setBuildSummary(res.summary);
+        setFireResults(res.results);
+        setFireSummary(res.summary);
     };
 
     return (
@@ -177,7 +199,7 @@ export default function GoalPlannerClient() {
                     </div>
                 )}
 
-                {buildResults && (
+                {fireResults && (
                     <div
                         style={{
                             background: 'var(--coach-soft)',
@@ -188,21 +210,26 @@ export default function GoalPlannerClient() {
                         }}
                     >
                         <div style={{ fontWeight: 600, marginBottom: 8 }}>
-                            Drafts created ({buildResults.filter(r => r.success).length} of {buildResults.length})
+                            {fireSummary && fireSummary.fired > 0
+                                ? `🚀 ${fireSummary.fired} of ${fireResults.length} campaign${fireResults.length === 1 ? '' : 's'} launched — first sends within ~10 min`
+                                : `${fireResults.filter(r => r.success).length} of ${fireResults.length} campaigns created (none launched)`}
                         </div>
-                        {buildSummary && (
+                        {fireSummary && (
                             <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>
-                                Skipped {buildSummary.blockedCount.toLocaleString()} contacts on the global do-not-contact list
+                                {fireSummary.totalDailySends.toLocaleString()} emails/day across {fireSummary.accountsUsed.length} Gmail account{fireSummary.accountsUsed.length === 1 ? '' : 's'} ·
+                                {' '}skipped {fireSummary.blockedCount.toLocaleString()} contacts on the global do-not-contact list
                                 (unsubscribed, bounced, or auto-replied on any prior campaign).
                             </div>
                         )}
                         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-                            {buildResults.map(r => (
+                            {fireResults.map(r => (
                                 <li key={r.scenarioId} style={{ marginBottom: 4 }}>
                                     <strong>{r.scenarioLabel}</strong>:{' '}
-                                    {r.success
-                                        ? `enrolled ${r.enrolled} contacts (DRAFT)`
-                                        : `failed — ${r.error}`}
+                                    {r.launched
+                                        ? `launched · ${r.enrolled} contacts · ${r.dailySendLimit}/day`
+                                        : r.success
+                                            ? `enrolled ${r.enrolled} (DRAFT — ${r.error || 'not launched'})`
+                                            : `failed — ${r.error}`}
                                 </li>
                             ))}
                         </ul>
@@ -311,14 +338,14 @@ export default function GoalPlannerClient() {
                                 </div>
                             </div>
                             <button
-                                disabled={selected.size === 0 || building}
-                                onClick={buildDrafts}
+                                disabled={selected.size === 0 || firing}
+                                onClick={fireCampaigns}
                                 style={{
                                     ...btnPrimary,
-                                    opacity: selected.size === 0 || building ? 0.5 : 1,
+                                    opacity: selected.size === 0 || firing ? 0.5 : 1,
                                 }}
                             >
-                                {building ? 'Building drafts…' : `Build ${selected.size} draft${selected.size === 1 ? '' : 's'}`}
+                                {firing ? 'Firing…' : `🚀 Fire ${selected.size} campaign${selected.size === 1 ? '' : 's'} now`}
                             </button>
                         </div>
                     </>
